@@ -1,0 +1,273 @@
+<head>
+    <style>
+        body {
+            padding: 0;
+        }
+        .notes-app {
+            max-width: 800px;
+            margin: auto;
+        }
+        form {
+        display: flex;
+        flex-direction: column ;
+        }    
+        input {
+            text-align: center;
+        }
+        body{
+        text-align: center;
+        box-shadow:0 2px 10px rgba(0,0,0,0.2);
+        }
+        .buttons {
+        flex-direction: row;
+        }
+        li button{
+            margin: 5px;
+        }
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        section {
+            padding: 15px;
+        }
+        textarea {
+            text-align: left;
+        }
+        label {
+            display: none;
+        }
+        
+        #info:checked + label {
+            display: block;
+        }
+        .info {
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <div class="notes-app">
+            <section>
+                <h1>Notes</h1>
+                <form>
+                    <label for="input-name">Name:</label>
+                    <input required type="text" id="input-name" name="input-name" placeholder="Name">
+                    <label for="notes">Notes:</label>
+                    <textarea name="notes" id="notes" cols="30" rows="10"></textarea>
+                </form>
+                <div class="buttons">
+                    <button id="copy-btn">Copy</button>
+                    <button id="paste-btn">Paste</button>
+                    <button id="clear-btn">Clear</button>
+                    <button id="load-btn">Load</button>
+                    <button id="save-btn">Save</button>
+                    <button id="delete-btn">Delete</button>
+                    <button id="export-btn">Export</button>
+                </div>        
+            </section>
+            <section>
+                <h1>Tasks Manager</h1>
+                <form>
+                    <div>
+                        <input id="task-input" type="text" placeholder="New task">
+                        <br>
+                        <button onclick="addTask()">Add Task</button>
+                    </div>
+                    <h2>Tasks:</h2>
+                    <ul id="tasks-container"></ul>
+                </form>
+                <div>
+                    <button onclick="exportTasksToCSV()">Export Tasks</button>
+                </div>
+            </section>
+            <section>
+                <p>Click for Instructions:</p>
+                <input type="checkbox" id="info"/>
+                <label class="info" for="info" >
+                    <br>
+                    <h1>Notes App Instructions</h1>
+                    <h2>Notes Section:</h2>
+                    <p>1. Enter your name in the "Name" input field.</p>
+                    <p>2. Type your notes in the "Notes" textarea.</p>
+                    <p>3. Use the provided buttons for different actions:</p>
+                    <ul>
+                    <li>Copy Button: Copy notes to clipboard.</li>
+                    <li>Paste Button: Paste notes from clipboard.</li>
+                    <li>Save Button: Save or update notes.</li>
+                    <li>Delete Button: Delete notes by name.</li>
+                    <li>Load Button: Load saved notes.</li>
+                    <li>Export Button: Export all saved notes as "notes.txt".</li>
+                    <li>Clear Button: Clear input fields.</li>
+                    </ul>
+                    <h2>Tasks Manager Section:</h2>
+                    <p>1. Enter a new task in the "New task" input field.</p>
+                    <p>2. Click "Add Task" to add the task to the list.</p>
+                    <p>3. The tasks list will be displayed with a "Delete" button for each task.</p>
+                    <p>4. Click "Export Tasks" to export tasks as "tasks.csv".</p>
+                    <p>Note: The app uses local storage for data persistence.</p>
+                    <br>
+                </lable>
+            </section>
+        </div>
+    </main>
+    <script>
+        // Notes JS
+        const nameInput = document.getElementById('input-name');
+        const notesTextarea = document.getElementById('notes');
+        const copyBtn = document.getElementById('copy-btn');
+        const pasteBtn = document.getElementById('paste-btn');
+        const saveBtn = document.getElementById('save-btn');
+        const deleteBtn = document.getElementById('delete-btn');
+        const loadBtn = document.getElementById('load-btn');
+        const exportBtn = document.getElementById('export-btn');
+        const clearBtn = document.getElementById('clear-btn');
+
+        copyBtn.addEventListener('click', copyNote);
+        pasteBtn.addEventListener('click', pasteNote);
+        saveBtn.addEventListener('click', saveNote);
+        deleteBtn.addEventListener('click', deleteNote);
+        loadBtn.addEventListener('click', loadNote);
+        exportBtn.addEventListener('click', exportNotes);
+        clearBtn.addEventListener('click', clearNoteInputs);
+
+        // Your note functions go here
+
+        function copyNote() {
+            notesTextarea.select();
+            document.execCommand('copy');
+            alert('Copied to clipboard');
+        }
+
+        async function pasteNote() {
+            const clipboardData = await navigator.clipboard.readText();
+            notesTextarea.value += clipboardData;
+        }
+
+        function saveNote() {
+            const nameToSave = nameInput.value.trim();
+            let savedNotes = JSON.parse(localStorage.getItem('notes')) || [];
+            const existingNoteIndex = savedNotes.findIndex(note => note.name.trim() === nameToSave);
+            
+            if (existingNoteIndex !== -1) {
+                savedNotes[existingNoteIndex].note = notesTextarea.value;
+            } else {
+                savedNotes.push({ name: nameToSave, note: notesTextarea.value });
+            }
+
+            localStorage.setItem('notes', JSON.stringify(savedNotes));
+            nameInput.value = '';
+            notesTextarea.value = '';
+        }
+
+        function deleteNote() {
+            const nameToDelete = nameInput.value.trim();
+            let savedNotes = JSON.parse(localStorage.getItem('notes')) || [];
+            const filteredNotes = savedNotes.filter(note => note.name.trim() !== nameToDelete);
+
+            if (filteredNotes.length < savedNotes.length) {
+                localStorage.setItem('notes', JSON.stringify(filteredNotes));
+                alert(`Deleted the note with name: ${nameToDelete}`);
+            } else {
+                alert(`No note found with name: ${nameToDelete}`);
+            }
+        }
+
+        let currentNoteIndex = 0;
+
+        function loadNote() {
+            let savedNotes = JSON.parse(localStorage.getItem('notes')) || [];
+            if (savedNotes.length > 0) {
+                const selectedNote = savedNotes[currentNoteIndex];
+                nameInput.value = selectedNote.name;
+                notesTextarea.value = selectedNote.note;
+                currentNoteIndex = (currentNoteIndex + 1) % savedNotes.length;
+            } else {
+                alert('No saved notes to load');
+            }
+        }
+
+        function exportNotes() {
+            let savedNotes = JSON.parse(localStorage.getItem('notes')) || [];
+            let notesText = savedNotes.map(note => `Name: ${note.name}\nNote: ${note.note}`).join('\n\n');
+            let notesBlob = new Blob([notesText], {type: "text/plain;charset=utf-8"});
+            let downloadLink = document.createElement('a');
+            downloadLink.href = URL.createObjectURL(notesBlob);
+            downloadLink.download = 'notes.txt';
+            downloadLink.click();
+        }
+
+        function clearNoteInputs() {
+            nameInput.value = '';
+            notesTextarea.value = '';
+        }
+
+        // Tasks JS
+        let tasks = [];
+
+        if (localStorage.getItem('tasks')) {
+            tasks = JSON.parse(localStorage.getItem('tasks'));
+            displayTasks();
+        }
+
+        function displayTasks() {
+            const tasksContainer = document.getElementById('tasks-container');
+            tasksContainer.innerHTML = '';
+
+            for (let i = 0; i < tasks.length; i++) {
+                const task = tasks[i];
+                const li = document.createElement('li');
+                li.textContent = task;
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.textContent = 'Delete';
+                deleteBtn.addEventListener('click', function() {
+                    deleteTask(i);
+                });
+
+                li.appendChild(deleteBtn);
+                tasksContainer.appendChild(li);
+            }
+        }
+
+        function addTask() {
+            const taskInput = document.getElementById('task-input');
+            const task = taskInput.value.trim();
+
+            if (task) {
+                tasks.push(task);
+                localStorage.setItem('tasks', JSON.stringify(tasks));
+                taskInput.value = '';
+                displayTasks();
+            }
+        }
+
+        function deleteTask(index) {
+            tasks.splice(index, 1);
+            localStorage.setItem('tasks', JSON.stringify(tasks));
+            displayTasks();
+        }
+
+        function exportTasksToCSV() {
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Task\n";
+
+            for (const task of tasks) {
+                csvContent += task + "\n";
+            }
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "tasks.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        window.onload = function() {
+            displayTasks();
+        };
+    </script>
+</body>

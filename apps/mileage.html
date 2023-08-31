@@ -1,0 +1,371 @@
+<head>
+  <style>
+    body {
+      text-align: center;
+      box-shadow:0 2px 10px rgba(0,0,0,0.2);
+      padding: 15px;
+    }
+
+    form {
+        display: grid;
+        flex-direction: column;
+    }
+
+    table{
+        border-collapse:collapse;
+        border:1px solid black;
+    }
+
+    table td, th{
+        border:1px solid darkgray;
+    }
+    .mileage-table {
+        overflow-x: auto;
+    }
+    .info-container {
+        display: none;
+        padding: 20px;
+        background-color: #f7f7f7;
+        border: 1px solid #ccc;
+        margin: 20px auto;
+        max-width: 800px;
+    }
+
+    .info-title {
+        font-size: 18px;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+
+    .info-content {
+        font-size: 14px;
+        line-height: 1.5;
+    }
+
+    .show-info-btn {
+        margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+    <section>
+      <h1>Mileage Tracking App</h1>
+      <form id="mileage-form">
+        <!-- Vehicle -->
+        <label for="vehicle">Vehicle:</label>
+        <input type="text" id="vehicle" required>
+        <br>
+  
+        <!-- Client -->
+        <label for="client">Client:</label>
+        <input type="text" id="client" required>
+        <br>
+  
+        <!-- Trip Type -->
+        <label for="trip-type">Trip Type:</label>
+        <select id="trip-type" onchange="toggleFormFields()">
+          <option value="start">Start Trip</option>
+          <option value="end">End Trip</option>
+        </select>
+        <br>
+  
+        <!-- Start Trip Fields -->
+        <div id="start-trip-fields">
+          <!-- Start Date -->
+          <label for="start-date">Start Date:</label>
+          <input type="date" id="start-date" required>
+          <br>
+  
+          <!-- Start Time -->
+          <label for="start-time">Start Time:</label>
+          <input type="time" id="start-time" required>
+          <br>
+  
+          <!-- Start Odometer Reading -->
+          <label for="start-odometer">Start Odometer Reading:</label>
+          <input type="number" id="start-odometer" min="0" step="1" required>
+          <br>
+  
+          <!-- Start Location -->
+          <label for="start-location">Start Location:</label>
+          <input type="text" id="start-location" required>
+          <br>
+        </div>
+  
+        <!-- End Trip Fields -->
+        <div id="end-trip-fields" style="display: none;">
+          <!-- End Date -->
+          <label for="end-date">End Date:</label>
+          <input type="date" id="end-date" required>
+          <br>
+  
+          <!-- End Time -->
+          <label for="end-time">End Time:</label>
+          <input type="time" id="end-time" required>
+          <br>
+  
+          <!-- End Odometer Reading -->
+          <label for="end-odometer">End Odometer Reading:</label>
+          <input type="number" id="end-odometer" min="0" step="1" required>
+          <br>
+  
+          <!-- End Location -->
+          <label for="end-location">End Location:</label>
+          <input type="text" id="end-location" required>
+          <br>
+        </div>
+  
+        <!-- Common Fields (distance unit, type, notes) -->
+        <!-- Distance Unit -->
+        <label for="distance-unit">Distance Unit:</label>
+        <select id="distance-unit">
+          <option value="miles">Miles</option>
+          <option value="kilometers">Kilometers</option>
+        </select>
+        <br>
+  
+        <!-- Notes -->
+        <label for="notes">Notes:</label>
+        <textarea id="notes" rows="4"></textarea>
+        <br>
+  
+        <button type="button" onclick="addMileage()">Add Mileage</button>
+        <button type="button" onclick="exportData()">Export Data</button>
+      </form>
+      <br>
+      <div class="mileage-table">
+          <table id="mileage-table">
+            <tr>
+              <th>Trip Type</th>
+              <th>Vehicle</th>
+              <th>Client</th>
+              <th>Date</th>
+              <th>Time</th>
+              <th>Odometer Reading</th>
+              <th>Location</th>
+              <th>Notes</th>
+              <th>Duration</th>
+              <th>Actions</th>
+            </tr>
+            <!-- Mileage data will be populated here by JavaScript -->
+          </table>
+    </div>
+    <br>
+    </section>
+  
+    <h2>Total Trips: <span id="total-trips">0</span></h2>
+
+    <button id="toggle-instructions-btn">Show Instructions</button>
+    <div id="instructions" class="info-container">
+      <h3>Mileage Tracking System Instructions</h3>
+      <p>Welcome to the Mileage Tracking System! This application helps you track mileage and trips.</p>
+      <p>To get started, fill out the form with the details of your trip:</p>
+      <ul>
+          <li>Vehicle: Enter the vehicle used for the trip.</li>
+          <li>Client: Enter the client associated with the trip.</li>
+          <li>Trip Type: Choose whether it's the start or end of a trip.</li>
+          <li>Start Date, Time, Odometer Reading, and Location: Enter details for the start of the trip.</li>
+          <li>End Date, Time, Odometer Reading, and Location: Enter details for the end of the trip.</li>
+          <li>Distance Unit: Select the unit for distance (miles or kilometers).</li>
+          <li>Notes: Add any notes related to the trip.</li>
+      </ul>
+      <p>Click the "Add Mileage" button to record the trip data. The table below will show the recorded data.</p>
+      <p>You can also export the data as a CSV file using the "Export Data" button.</p>
+      <p>Note: The app uses local storage for data persistence.</p>
+    </div>
+  <script>
+    const toggleInstructionsBtn = document.getElementById('toggle-instructions-btn');
+    const instructions = document.getElementById('instructions');
+  
+    toggleInstructionsBtn.addEventListener('click', function () {
+      if (instructions.style.display === 'block') {
+        instructions.style.display = 'none';
+        toggleInstructionsBtn.textContent = 'Show Instructions';
+      } else {
+        instructions.style.display = 'block';
+        toggleInstructionsBtn.textContent = 'Hide Instructions';
+      }
+    });
+  </script>
+  
+  <script>
+    // Initialize mileage data and total trips count from local storage or default to empty array and 0.
+    let mileageData = JSON.parse(localStorage.getItem('mileageData')) || [];
+    let totalTrips = JSON.parse(localStorage.getItem('totalTrips')) || 0;
+    
+    function toggleFormFields() {
+      const tripTypeSelect = document.getElementById('trip-type');
+      const startTripFields = document.getElementById('start-trip-fields');
+      const endTripFields = document.getElementById('end-trip-fields');
+    
+      if (tripTypeSelect.value === 'start') {
+        startTripFields.style.display = 'block';
+        endTripFields.style.display = 'none';
+      } else {
+        startTripFields.style.display = 'none';
+        endTripFields.style.display = 'block';
+      }
+    }
+    
+    function addMileage() {
+      // Get all the form input elements
+      const vehicleInput = document.getElementById('vehicle');
+      const clientInput = document.getElementById('client');
+      const tripTypeSelect = document.getElementById('trip-type');
+      const startDateInput = document.getElementById('start-date');
+      const startTimeInput = document.getElementById('start-time');
+      const startOdometerInput = document.getElementById('start-odometer');
+      const startLocationInput = document.getElementById('start-location');
+      const endDateInput = document.getElementById('end-date');
+      const endTimeInput = document.getElementById('end-time');
+      const endOdometerInput = document.getElementById('end-odometer');
+      const endLocationInput = document.getElementById('end-location');
+      const notesInput = document.getElementById('notes');
+    
+      // Check the trip type and get relevant values
+      const isStartTrip = tripTypeSelect.value === 'start';
+      const startDate = isStartTrip ? startDateInput.value : '';
+      const startTime = isStartTrip ? startTimeInput.value : '';
+      const startOdometer = parseFloat(startOdometerInput.value);
+      const startLocation = startLocationInput.value;
+      const endDate = isStartTrip ? '' : endDateInput.value;
+      const endTime = isStartTrip ? '' : endTimeInput.value;
+      const endOdometer = isStartTrip ? '' : parseFloat(endOdometerInput.value);
+      const endLocation = isStartTrip ? '' : endLocationInput.value;
+    
+      // Add the mileage data to the array
+      mileageData.push({
+        tripType: tripTypeSelect.value,
+        vehicle: vehicleInput.value,
+        client: clientInput.value,
+        startDate: startDate,
+        startTime: startTime,
+        startOdometer: startOdometer,
+        startLocation: startLocation,
+        endDate: endDate,
+        endTime: endTime,
+        endOdometer: endOdometer,
+        endLocation: endLocation,
+        notes: notesInput.value,
+      });
+    
+      // Increase the total trips count
+      totalTrips++;
+      localStorage.setItem('mileageData', JSON.stringify(mileageData));
+      localStorage.setItem('totalTrips', JSON.stringify(totalTrips));
+    
+      document.getElementById('total-trips').textContent = totalTrips;
+    
+      updateMileageTable();
+    
+      // Reset the form for the next entry
+      vehicleInput.value = '';
+      clientInput.value = '';
+      tripTypeSelect.value = 'start';
+      startDateInput.value = '';
+      startTimeInput.value = '';
+      startOdometerInput.value = 0;
+      startLocationInput.value = '';
+      endDateInput.value = '';
+      endTimeInput.value = '';
+      endOdometerInput.value = 0;
+      endLocationInput.value = '';
+      notesInput.value = '';
+    
+      toggleFormFields();
+    }
+    
+    function updateMileageTable() {
+      const mileageTable = document.getElementById('mileage-table');
+      mileageTable.innerHTML = `
+        <tr>
+          <th>Trip Type</th>
+          <th>Vehicle</th>
+          <th>Client</th>
+          <th>Start Date</th>
+          <th>Start Time</th>
+          <th>End Date</th>
+          <th>End Time</th>
+          <th>Start Odometer</th>
+          <th>End Odometer</th>
+          <th>Location</th>
+          <th>End Location</th>
+          <th>Notes</th>
+          <th>Actions</th>
+        </tr>
+      `;
+    
+      for (let i = 0; i < mileageData.length; i++) {
+        const item = mileageData[i];
+        const row = document.createElement('tr');
+    
+        row.innerHTML = `
+          <td>${item.tripType === 'start' ? 'Start Trip' : 'End Trip'}</td>
+          <td>${item.vehicle}</td>
+          <td>${item.client}</td>
+          <td>${item.startDate}</td>
+          <td>${item.startTime}</td>
+          <td>${item.endDate}</td>
+          <td>${item.endTime}</td>
+          <td>${item.tripType === 'start' ? item.startOdometer : ''}</td>
+          <td>${item.tripType === 'end' ? item.endOdometer : ''}</td>
+          <td>${item.tripType === 'start' ? item.startLocation : ''}</td>
+          <td>${item.tripType === 'end' ? item.endLocation : ''}</td>
+          <td>${item.notes}</td>
+          <td><button onclick="deleteMileage(${i})">Delete</button></td>
+        `;
+    
+        mileageTable.appendChild(row);
+      }
+    }
+    
+    function deleteMileage(index) {
+      // Decrease the total trips count
+      totalTrips--;
+    
+      // Remove the item from the array
+      mileageData.splice(index, 1);
+    
+      // Update local storage
+      localStorage.setItem('mileageData', JSON.stringify(mileageData));
+      localStorage.setItem('totalTrips', JSON.stringify(totalTrips));
+    
+      // Update the total trips display and the mileage table
+      document.getElementById('total-trips').textContent = totalTrips;
+      updateMileageTable();
+    }
+    
+    function exportData() {
+      let csvContent = "data:text/csv;charset=utf-8,";
+      csvContent += "Trip Type,Vehicle,Client,Start Date,Start Time,End Date,End Time,Star Odometer,End Odometer,Location,End Location,Notes\n";
+    
+      mileageData.forEach(item => {
+        csvContent +=
+          (item.tripType === 'start' ? 'Start Trip' : 'End Trip') + ","
+          + item.vehicle + ","
+          + item.client + ","
+          + item.startDate + ","
+          + item.startTime + ","
+          + item.endDate + ","
+          + item.endTime + ","
+          + (item.tripType === 'start' ? item.startOdometer : '') + ","
+          + (item.tripType === 'end' ? item.endOdometer : '') + ","
+          + (item.tripType === 'start' ? item.startLocation : '') + ","
+          + (item.tripType === 'end' ? item.endLocation : '') + ","
+          + item.notes + "\n";
+      });
+    
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", "mileage_data.csv");
+      document.body.appendChild(link);
+      link.click(); // This will download the data file named "mileage_data.csv".
+    }
+    
+// On page load, update the table and total trips count
+document.getElementById('total-trips').textContent = totalTrips;
+updateMileageTable();
+
+</script>
+</body>

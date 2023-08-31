@@ -1,0 +1,292 @@
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mileage Tracking System</title>
+    <style>
+        body {
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            padding: 15px;
+        }
+
+        form {
+            display: grid;
+            flex-direction: column;
+        }
+
+        table {
+            margin: auto;
+            border-collapse: collapse;
+            border: 1px solid black;
+            overflow: hidden;
+            overflow-x: auto;
+        }
+
+        table td,
+        th {
+            border: 1px solid darkgray;
+        }
+
+        #end-trip-fields {
+            display: none;
+        }
+
+        #trip-type-end:checked~#end-trip-fields {
+            display: block;
+        }
+
+        #trip-type-end:checked~#start-trip-fields {
+            display: none;
+        }
+
+        .mileage-table {
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <section>
+        <h1>Mileage Tracking App</h1>
+        <form id="mileage-form">
+            <!-- Vehicle -->
+            <label for="vehicle">Vehicle:</label>
+            <input type="text" id="vehicle" required>
+            <!-- Client -->
+            <label for="client">Client:</label>
+            <input type="text" id="client" required>
+            <!-- Trip Type -->
+            <label for="trip-type">Trip Type:</label>
+            <input type="radio" id="trip-type-start" name="trip-type" value="start" checked>
+            <label for="trip-type-start">Start Trip</label>
+            <input type="radio" id="trip-type-end" name="trip-type" value="end">
+            <label for="trip-type-end">End Trip</label>
+            <!-- Start Trip Fields -->
+            <div id="start-trip-fields">
+                <!-- Start Date -->
+                <label for="start-date">Start Date:</label>
+                <input type="date" id="start-date" required>
+                <br>
+                <!-- Start Time -->
+                <label for="start-time">Start Time:</label>
+                <input type="time" id="start-time" required>
+                <br>
+                <!-- Start Odometer Reading -->
+                <label for="start-odometer">Start Odometer Reading:</label>
+                <input type="number" id="start-odometer" min="0" step="1" required>
+                <br>
+                <!-- Start Location -->
+                <label for="start-location">Start Location:</label>
+                <input type="text" id="start-location" required>
+                <br>
+            </div>
+            <!-- End Trip Fields -->
+            <div id="end-trip-fields">
+                <!-- End Date -->
+                <label for="end-date">End Date:</label>
+                <input type="date" id="end-date" required>
+                <br>
+                <!-- End Time -->
+                <label for="end-time">End Time:</label>
+                <input type="time" id="end-time" required>
+                <br>
+                <!-- End Odometer Reading -->
+                <label for="end-odometer">End Odometer Reading:</label>
+                <input type="number" id="end-odometer" min="0" step="1" required>
+                <br>
+                <!-- End Location -->
+                <label for="end-location">End Location:</label>
+                <input type="text" id="end-location" required>
+                <br>
+            </div>
+            <!-- Common Fields (distance unit, type, notes) -->
+            <!-- Distance Unit -->
+            <label for="distance-unit">Distance Unit:</label>
+            <select id="distance-unit">
+                <option value="miles">Miles</option>
+                <option value="kilometers">Kilometers</option>
+            </select>
+            <br>
+            <!-- Notes -->
+            <label for="notes">Notes:</label>
+            <textarea id="notes" rows="4"></textarea>
+            <br>
+            <button type="button" id="add-mileage-button">Add Mileage</button>
+            <button type="button" id="export-data-button">Export Data</button>
+        </form>
+        <br>
+        <div class="mileage-table">
+            <table id="mileage-table">
+                <tr>
+                    <th>Vehicle</th>
+                    <th>Client</th>
+                    <th>Start Date</th>
+                    <th>Start Time</th>
+                    <th>Start Odometer Reading</th>
+                    <th>Start Location</th>
+                    <th>End Date</th>
+                    <th>End Time</th>
+                    <th>End Odometer Reading</th>
+                    <th>End Location</th>
+                    <th>Distance Unit</th>
+                    <th>Distance</th>
+                    <th>Duration</th>
+                    <th>Type</th>
+                    <th>Purpose</th>
+                    <th>Actions</th>
+                </tr>
+            </table>
+        </div>
+        <br>
+    </section>
+    <h2>Total Trips: <span id="total-trips">0</span></h2>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
+        import { getDatabase, ref, onValue, set, push, remove } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
+
+        class MileageApp {
+
+            constructor() {
+                this.initializeFirebase();
+                this.setEventListeners();
+            }
+
+            initializeFirebase() {
+                const appSettings = {
+                    databaseURL: "https://playground-e3690-default-rtdb.firebaseio.com/"
+                };
+
+                this.app = initializeApp(appSettings);
+                this.database = getDatabase(this.app);
+                this.dbRef = ref(this.database, 'mileagedata');
+                this.mileageData = [];
+                this.totalTrips = 0;
+
+                this.listenForDataChanges();
+            }
+
+            setEventListeners() {
+                document.getElementById('add-mileage-button').addEventListener('click', this.addMileage.bind(this));
+                document.getElementById('export-data-button').addEventListener('click', this.exportData.bind(this));
+            }
+
+            listenForDataChanges() {
+                onValue(this.dbRef, snapshot => {
+                    const data = snapshot.val();
+                    if (data) {
+                        this.mileageData = Object.entries(data).map(([key, value]) => ({ key, ...value }));
+                        this.totalTrips = this.mileageData.length;
+                    } else {
+                        this.mileageData = [];
+                        this.totalTrips = 0;
+                    }
+                    document.getElementById('total-trips').textContent = this.totalTrips;
+                    this.updateMileageTable();
+                });
+            }
+
+            updateMileageTable() {
+                const table = document.getElementById('mileage-table');
+                while (table.rows.length > 1) {
+                    table.deleteRow(1);
+                }
+
+                this.mileageData.forEach((entry, index) => {
+                    const row = table.insertRow();
+                    row.insertCell().textContent = entry.vehicle;
+                    row.insertCell().textContent = entry.client;
+
+                    if (entry.tripType === 'start') {
+                        row.insertCell().textContent = entry.startDate;
+                        row.insertCell().textContent = entry.startTime;
+                        row.insertCell().textContent = entry.startOdometer;
+                        row.insertCell().textContent = entry.startLocation;
+                        row.insertCell().textContent = "";  // Placeholder for End Date
+                        row.insertCell().textContent = "";  // Placeholder for End Time
+                        row.insertCell().textContent = "";  // Placeholder for End Odometer Reading
+                        row.insertCell().textContent = "";  // Placeholder for End Location
+                    } else if (entry.tripType === 'end') {
+                        row.insertCell().textContent = "";  // Placeholder for Start Date
+                        row.insertCell().textContent = "";  // Placeholder for Start Time
+                        row.insertCell().textContent = "";  // Placeholder for Start Odometer Reading
+                        row.insertCell().textContent = "";  // Placeholder for Start Location
+                        row.insertCell().textContent = entry.endDate;
+                        row.insertCell().textContent = entry.endTime;
+                        row.insertCell().textContent = entry.endOdometer;
+                        row.insertCell().textContent = entry.endLocation;
+                    }
+
+                    row.insertCell().textContent = entry.distanceUnit || "";
+                    row.insertCell().textContent = "";  // Placeholder for Distance
+                    row.insertCell().textContent = "";  // Placeholder for Duration
+                    row.insertCell().textContent = entry.tripType;
+                    row.insertCell().textContent = entry.notes;  // Using notes as "Purpose" for now
+
+                    const deleteButton = document.createElement('button');
+                    deleteButton.textContent = 'Delete';
+                    deleteButton.addEventListener('click', this.deleteMileage.bind(this, index));
+                    row.insertCell().appendChild(deleteButton);
+                });
+            }
+
+            addMileage() {
+                const tripTypeElements = document.getElementsByName('trip-type');
+                let tripType;
+                for (let i = 0; i < tripTypeElements.length; i++) {
+                    if (tripTypeElements[i].checked) {
+                        tripType = tripTypeElements[i].value;
+                        break;
+                    }
+                }
+
+                let mileageEntry = {
+                    vehicle: document.getElementById('vehicle').value,
+                    client: document.getElementById('client').value,
+                    tripType: tripType,
+                    distanceUnit: document.getElementById('distance-unit').value,
+                    notes: document.getElementById('notes').value,
+                };
+
+                if (tripType === 'start') {
+                    if (getComputedStyle(document.getElementById('start-trip-fields')).display !== 'none') {
+                        mileageEntry.startDate = document.getElementById('start-date').value;
+                        mileageEntry.startTime = document.getElementById('start-time').value;
+                        mileageEntry.startOdometer = document.getElementById('start-odometer').value;
+                        mileageEntry.startLocation = document.getElementById('start-location').value;
+                    }
+                } else if (tripType === 'end') {
+                    if (getComputedStyle(document.getElementById('end-trip-fields')).display !== 'none') {
+                        mileageEntry.endDate = document.getElementById('end-date').value;
+                        mileageEntry.endTime = document.getElementById('end-time').value;
+                        mileageEntry.endOdometer = document.getElementById('end-odometer').value;
+                        mileageEntry.endLocation = document.getElementById('end-location').value;
+                    }
+                }
+
+                // Add the mileage data to Firebase
+                push(this.dbRef, mileageEntry);
+            }
+
+            deleteMileage(index) {
+                const keyToDelete = this.mileageData[index].key;
+                remove(ref(this.database, `mileagedata/${keyToDelete}`));
+            }
+
+            exportData() {
+                const dataStr = JSON.stringify(this.mileageData);
+                const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+                const exportFileDefaultName = 'mileage_data.json';
+
+                let linkElement = document.createElement('a');
+                linkElement.setAttribute('href', dataUri);
+                linkElement.setAttribute('download', exportFileDefaultName);
+                linkElement.click();
+            }
+        }
+
+        // This initializes the app when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new MileageApp();
+        });
+    </script>
+</body>

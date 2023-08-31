@@ -1,0 +1,311 @@
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Live Notes</title>
+  <style>
+    body {
+      padding: 0;
+    }
+
+    .notes-app {
+      max-width: 800px;
+      margin: auto;
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+    }
+
+    body {
+      text-align: center;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    }
+
+    .buttons {
+      flex-direction: row;
+    }
+
+    li {
+      margin: 5px;
+      list-style-type: decimal;
+    }
+
+    li:hover {
+      background: white;
+      cursor: pointer;
+    }
+
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+
+    section {
+      padding: 15px;
+    }
+
+    textarea {
+      text-align: left;
+    }
+
+    input {
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <div id="login-window">
+      <h2>Login</h2>
+      <br>
+      <form id="loginForm">
+        <label for="username">Username:</label>
+        <input type="text" id="username" required><br>
+        <label for="password">Password:</label>
+        <input type="password" id="password" required><br>
+        <input type="submit" value="Login">
+      </form>
+    </div>
+    <section id="main-window">
+      <h1>Notes App</h1>
+      <form>
+        <label for="input-name">Name</label>
+        <input required type="text" id="input-name" name="input-name" placeholder="Name">
+        <label for="notes">Notes</label>
+        <textarea name="notes" id="notes" cols="30" rows="10"></textarea>
+      </form>
+      <button id="copy-btn">Copy</button>
+      <button id="paste-btn">Paste</button>
+      <button id="save-btn">Save</button>
+      <button id="delete-btn">Delete</button>
+      <section id="note-list"></section>
+      <button id="export-btn">Export</button>
+      <button id="clear-btn">Clear</button>
+    </section>
+  </main>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
+    import { getDatabase, ref, onValue, set, get, off } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
+
+    const appSettings = {
+      databaseURL: "https://playground-e3690-default-rtdb.firebaseio.com/"
+    };
+
+    const app = initializeApp(appSettings);
+    const database = getDatabase(app);
+
+    const nameInput = document.getElementById('input-name');
+    const notesTextarea = document.getElementById('notes');
+    const mainWindow = document.getElementById('main-window')
+    const loginWindow = document.getElementById('login-window')
+
+    function checkTokenValidity() {
+      var tokenData = JSON.parse(localStorage.getItem("sToken"));  // This will be an object or null
+      var currentTime = new Date().getTime();
+
+      if (!tokenData || tokenData.sToken !== "7777777" || tokenData.expiresAt < currentTime) {
+        loginWindow.style.display = "block";
+        mainWindow.style.display = "none";
+      } else {
+        mainWindow.style.display = "block";
+        loginWindow.style.display = "none";
+      }
+    }
+
+    function handleLoginFormSubmit() {
+      document.getElementById("loginForm").addEventListener("submit", event => {
+        event.preventDefault();
+
+        const username = document.getElementById("username").value;
+        const password = document.getElementById("password").value;
+
+        const usersRef = ref(database, "users");
+        const usersListener = onValue(usersRef, snapshot => {
+          const users = snapshot.val();
+
+          if (users) {
+            const matchingUser = Object.values(users).find(user => user.username === username && user.password === password);
+
+            if (matchingUser) {
+              const sToken = "7777777";
+              const expirationMinutes = 480;
+              const expirationTime = new Date().getTime() + (expirationMinutes * 60 * 1000);
+              const tokenData = { sToken, expiresAt: expirationTime };
+              localStorage.setItem("sToken", JSON.stringify(tokenData));
+
+              const delay = expirationTime - new Date().getTime();
+              setTimeout(() => localStorage.removeItem("sToken"), delay);
+              window.history.back();
+            } else {
+              alert("Invalid username or password. Please try again.");
+            }
+          } else {
+            alert("No user data found.");
+          }
+          off(usersRef, usersListener);
+        });
+      });
+    }
+
+    function copyNote() {
+      notesTextarea.select();
+      document.execCommand('copy');
+      console.log('Copied to clipboard');
+    }
+
+    async function pasteNote() {
+      const clipboardData = await navigator.clipboard.readText();
+      notesTextarea.value += clipboardData;
+    }
+
+    async function saveNote() {
+      const nameToSave = nameInput.value.trim();
+      const noteToSave = notesTextarea.value.trim();
+
+      if (nameToSave && noteToSave) {
+        const notesRef = ref(database, `notes/${nameToSave}`);
+        set(notesRef, { name: nameToSave, note: noteToSave })
+          .then(() => {
+            console.log('Note saved successfully');
+          })
+          .catch(error => {
+            console.error('Failed to save the note:', error);
+          });
+      } else {
+        console.log('Please enter both the name and note before saving');
+      }
+    }
+
+    async function deleteNote() {
+      const nameToDelete = nameInput.value.trim();
+
+      if (nameToDelete) {
+        const notesRef = ref(database, 'notes');
+        const snapshot = await get(notesRef);
+        const notes = snapshot.val();
+        if (notes) {
+          const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
+          if (noteId) {
+            set(ref(database, `notes/${noteId}`), null)
+              .then(() => {
+                nameInput.value = '';
+                notesTextarea.value = '';
+                console.log(`Deleted the note with name: ${nameToDelete}`);
+              })
+              .catch(error => {
+                console.error('Failed to delete the note:', error);
+              });
+          }
+        }
+      } else {
+        console.log('Please enter the name of the note to delete');
+      }
+    }
+
+    function loadNote() {
+      const nameToLoad = nameInput.value.trim();
+
+      if (nameToLoad) {
+        const notesRef = ref(database, 'notes');
+        onValue(notesRef, snapshot => {
+          const notes = snapshot.val();
+          if (notes) {
+            const noteId = Object.keys(notes).find(id => notes[id].name === nameToLoad);
+            if (noteId) {
+              const selectedNote = notes[noteId];
+              notesTextarea.value = selectedNote.note;
+              console.log(`Loaded the note with name: ${nameToLoad}`);
+            } else {
+              console.log(`No note found with the name: ${nameToLoad}`);
+            }
+          } else {
+            console.log('No notes found');
+          }
+        });
+      } else {
+        console.log('Please enter the name of the note to load');
+      }
+    }
+
+    function exportNotes() {
+      const notesRef = ref(database, 'notes');
+      onValue(notesRef, snapshot => {
+        const notes = snapshot.val();
+
+        if (notes) {
+          const notesData = Object.values(notes);
+          const dataBlob = new Blob([JSON.stringify(notesData, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(dataBlob);
+
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'notes.json';
+          link.click();
+        } else {
+          console.log('No notes found to export');
+        }
+      });
+    }
+
+    function clearNoteInputs() {
+      nameInput.value = '';
+      notesTextarea.value = '';
+    }
+
+    function populateNoteList() {
+      const notesRef = ref(database, 'notes');
+      const noteList = document.getElementById('note-list');
+
+      onValue(notesRef, snapshot => {
+        const notes = snapshot.val();
+        noteList.innerHTML = '';
+
+        if (notes) {
+          Object.values(notes).forEach(note => {
+            const listItem = document.createElement('li');
+            listItem.textContent = note.name;
+            listItem.addEventListener('click', () => {
+              nameInput.value = note.name;
+              notesTextarea.value = note.note;
+            });
+
+            noteList.appendChild(listItem);
+          });
+        } else {
+          noteList.innerHTML = '<li>No notes found</li>';
+        }
+      });
+    }
+
+    const setupEventListeners = () => {
+      document.getElementById('copy-btn').addEventListener('click', copyNote);
+      document.getElementById('paste-btn').addEventListener('click', pasteNote);
+      document.getElementById('save-btn').addEventListener('click', saveNote);
+      document.getElementById('delete-btn').addEventListener('click', deleteNote);
+      document.getElementById('export-btn').addEventListener('click', exportNotes);
+      document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      handleLoginFormSubmit();
+      checkTokenValidity();
+      setupEventListeners();
+      populateNoteList();
+    });
+
+    document.addEventListener("keydown", event => {
+      // Check if the "Ctrl" key and "S" key are pressed simultaneously
+      if (event.ctrlKey && event.key === "s") {
+        event.preventDefault(); // Prevent the browser's default save behavior
+        
+        // Trigger the click event of the "Save" button
+        const saveBtn = document.getElementById("save-btn");
+        if (saveBtn) {
+          saveBtn.click();
+        }
+      }
+    });
+
+  </script>

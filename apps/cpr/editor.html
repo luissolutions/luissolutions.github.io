@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Edit Database</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="img/png" sizes="32x32" href="img/favicon-32x32.png">
+  <link rel="icon" type="img/png" sizes="16x16" href="img/favicon-16x16.png">
+  <link rel="manifest" href="site.webmanifest">
+  <script src="../login.js" defer></script>
+</head>
+
+<body>
+  <header>
+    <ul>
+      <li><a href="index.html">Home</a></li>
+      <li><a href="repair.html">Price Calc</a></li>
+      <li><a href="editor.html">Price Editor</a></li>
+      <li><a href="info-pages/more.html">Info</a></li>
+      <li class="dropdown">
+        <a href="javascript:void(0)">Links</a>
+        <div class="dropdown-content">
+          <a href="https://cpr.parts" target="_blank">CPR Parts</a>
+          <a href="https://www.injuredgadgets.com/" target="_blank">Injured Gadgets</a>
+          <a href="https://laptopscreens.com" target="_blank">Laptop Screens</a>
+          <a href="https://gsx2.apple.com/" target="_blank">Apple GSX</a>
+          <a href="https://imeicheck.com/" target="_blank">IMEI Check</a>
+          <a href="https://app.slack.com/" target="_blank">Slack</a>
+        </div>
+      </li>
+    </ul>
+  </header>
+  <main>
+    <section>
+      <div class="container">
+        <div>
+          <img class="logo" src="img/logo.png">
+          <br>
+          <div class="search">
+            <input type="text" id="search-input" placeholder="Search">
+            <button id="search-button">Search</button>
+          </div>
+          <br>
+          <input type="text" id="phone-name-input" placeholder="Device Name">
+          <input type="text" id="repair-field" placeholder="Repair Type">
+          <input type="text" id="input-field" placeholder="Price">
+          <div class="category-selector">
+            <span class="selectMake">Select Make:</span>
+            <input type="radio" id="category-apple" name="category" value="Apple" checked>
+            <label for="category-apple">Apple</label>
+            <input type="radio" id="category-samsung" name="category" value="Samsung">
+            <label for="category-samsung">Samsung</label>
+            <input type="radio" id="category-other" name="category" value="Other">
+            <label for="category-other">Other</label>
+          </div>
+          <button id="add-button">Add Data +</button>
+          <div class="data">
+            <table id="phones-table">
+              <thead>
+                <tr>
+                  <th>Phone Model</th>
+                  <th>Repair Type</th>
+                  <th>Price</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="phones-list">
+              </tbody>
+            </table>
+          </div>
+          <br>
+          <button id="export-button">Export to CSV</button>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer>
+    <ul>
+      <li>© of <a href="../../index.html">Luis</a></li>
+    </ul>
+  </footer>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
+    import { getDatabase, ref, push, onValue, update, remove, set } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
+
+    const appSettings = {
+      databaseURL: "https://cprapp-21e27-default-rtdb.firebaseio.com/"
+    };
+
+    const app = initializeApp(appSettings);
+    const database = getDatabase(app);
+
+    const inputFieldEl = document.getElementById("input-field");
+    const repairFieldEl = document.getElementById("repair-field");
+    const categoryRadios = document.querySelectorAll('input[name="category"]');
+    const addButtonEl = document.getElementById("add-button");
+    const phonesListEl = document.getElementById("phones-list");
+    const phoneNameEl = document.getElementById("phone-name-input");
+    const searchInputEl = document.getElementById('search-input');
+    const searchButtonEl = document.getElementById('search-button');
+    const exportButtonEl = document.getElementById("export-button");
+
+    let csvContent = ""; // Declare csvContent variable
+
+    exportButtonEl.addEventListener("click", function () {
+      exportToCSV();
+    });
+
+    function exportToCSV() {
+      const phonesInDB = ref(database, `Devices/Phones/${selectedCategory}`);
+      const fileName = "data.csv";
+      csvContent = "Phone Model,Repair Type,Price\n";
+
+      onValue(phonesInDB, function (snapshot) {
+        let itemsObject = snapshot.val();
+
+        recursivelyAppendToCSV(itemsObject);
+
+        const csvData = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
+        const link = document.createElement('a');
+        link.setAttribute('href', csvData);
+        link.setAttribute('download', fileName);
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      });
+    }
+
+
+    function recursivelyAppendToCSV(obj, prefix = "") {
+      for (let key in obj) {
+        let currentKey = prefix + key;
+        let currentItem = obj[key];
+        let phoneModel = currentKey.substring(0, currentKey.indexOf("/"));
+        let repairType = currentKey.substring(currentKey.indexOf("/") + 1);
+
+        if (typeof currentItem === "object" && currentItem !== null) {
+          recursivelyAppendToCSV(currentItem, currentKey + "/");
+        } else {
+          csvContent += `"${phoneModel}","${repairType}","${currentItem}"\n`;
+        }
+      }
+    }
+
+
+    function downloadCSV(content, fileName) {
+      const link = document.createElement("a");
+      link.href = "data:text/csv;charset=utf-8," + encodeURIComponent(content);
+      link.download = fileName;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    let selectedCategory = localStorage.getItem("selectedCategory") || "Apple";
+
+    document.addEventListener('input', function (event) {
+      // Check if the event target is an input field
+      if (event.target.tagName.toLowerCase() === 'input') {
+        const inputElement = event.target;
+        const inputValue = inputElement.value;
+        const forbiddenChars = ['$', '#', '[', ']', '/'];
+
+        let sanitizedValue = inputValue;
+        for (const char of forbiddenChars) {
+          sanitizedValue = sanitizedValue.replace(new RegExp(char, 'g'), '');
+        }
+
+        if (inputValue !== sanitizedValue) {
+          inputElement.value = sanitizedValue;
+        }
+      }
+    });
+
+    document.addEventListener('paste', function (event) {
+      // Check if the event target is an input field
+      if (event.target.tagName.toLowerCase() === 'input') {
+        const inputElement = event.target;
+        const clipboardData = event.clipboardData || window.clipboardData;
+        const pastedText = clipboardData.getData('text/plain');
+        const forbiddenChars = ['$', '#', '[', ']', '/'];
+
+        for (const char of forbiddenChars) {
+          if (pastedText.includes(char)) {
+            event.preventDefault();
+            return;
+          }
+        }
+
+        inputElement.value += pastedText;
+        event.preventDefault();
+      }
+    });
+
+    searchButtonEl.addEventListener("click", function () {
+      let searchString = searchInputEl.value.trim().toLowerCase();
+      clearPhoneListEl();
+      const phonesInDB = ref(database, `Devices/Phones/${selectedCategory}`);
+
+      onValue(phonesInDB, function (snapshot) {
+        let itemsObject = snapshot.val();
+        let filteredItemsObject = filterItemsBySearch(itemsObject, searchString);
+        recursivelyAppendItemsToPhonesListEl(filteredItemsObject);
+      });
+    });
+
+    searchInputEl.addEventListener("keydown", function (event) {
+      if (event.keyCode === 13) {
+        event.preventDefault();
+        searchButtonEl.click();
+      }
+    });
+
+    categoryRadios.forEach(function (radio) {
+      radio.addEventListener("change", function () {
+        selectedCategory = this.value;
+        fetchDataForSelectedCategory();
+        updateCategoryRadios();
+      });
+    });
+
+    addButtonEl.addEventListener("click", function () {
+      let phoneName = phoneNameEl.value.trim();
+      let repairType = repairFieldEl.value.trim();
+      let price = inputFieldEl.value.trim();
+
+      if (phoneName !== "" && repairType !== "" && price !== "") {
+        const categoryRef = ref(database, `Devices/Phones/${selectedCategory}/${phoneName}/${repairType}`);
+        set(categoryRef, price)
+          .then(() => {
+            clearInputFieldEl();
+            repairFieldEl.value = "";
+            phoneNameEl.value = "";
+          })
+          .catch((error) => {
+            console.error("Error adding data:", error);
+          });
+      } else {
+        alert("Please fill in all fields before adding data.");
+      }
+    });
+
+    function fetchDataForSelectedCategory() {
+      const phonesInDB = ref(database, `Devices/Phones/${selectedCategory}`);
+
+      onValue(phonesInDB, function (snapshot) {
+        let itemsObject = snapshot.val();
+        clearPhoneListEl();
+        recursivelyAppendItemsToPhonesListEl(itemsObject);
+      });
+    }
+
+    function clearPhoneListEl() {
+      phonesListEl.innerHTML = "";
+    }
+
+    function clearInputFieldEl() {
+      inputFieldEl.value = "";
+    }
+
+    function filterItemsBySearch(itemsObject, searchString) {
+      return Object.keys(itemsObject).reduce((obj, key) => {
+        let device = itemsObject[key];
+
+        if (key.toLowerCase().includes(searchString)) {
+          obj[key] = device;
+        } else {
+          let filteredDevice = Object.keys(device).reduce((subObj, subKey) => {
+            if (subKey.toLowerCase().includes(searchString) || device[subKey].toString().toLowerCase().includes(searchString)) {
+              subObj[subKey] = device[subKey];
+            }
+            return subObj;
+          }, {});
+
+          if (Object.keys(filteredDevice).length > 0) {
+            obj[key] = filteredDevice;
+          }
+        }
+
+        return obj;
+      }, {});
+    }
+
+    function recursivelyAppendItemsToPhonesListEl(obj, prefix = "") {
+      let phonesTableBody = document.getElementById("phones-list");
+
+      for (let key in obj) {
+        let currentKey = prefix + key;
+        let currentItem = obj[key];
+        let phoneModel = currentKey.substring(0, currentKey.indexOf("/"));
+
+        if (typeof currentItem === "object" && currentItem !== null) {
+          recursivelyAppendItemsToPhonesListEl(currentItem, currentKey + "/");
+        } else {
+          let newRow = phonesTableBody.insertRow();
+          let modelCell = newRow.insertCell();
+          let repairCell = newRow.insertCell();
+          let priceCell = newRow.insertCell();
+          let actionCell = newRow.insertCell();
+
+          let modelInput = document.createElement("input");
+          modelInput.type = "text";
+          modelInput.value = phoneModel;
+          modelCell.appendChild(modelInput);
+
+          let repairInput = document.createElement("input");
+          repairInput.type = "text";
+          repairInput.value = key;
+          repairCell.appendChild(repairInput);
+
+          let priceInput = document.createElement("input");
+          priceInput.type = "text";
+          priceInput.value = currentItem;
+          priceCell.appendChild(priceInput);
+
+          let addButton = document.createElement("button");
+          addButton.textContent = "Add Repair";
+          addButton.addEventListener("click", function () {
+            let newRepair = repairInput.value.trim();
+            let newPrice = priceInput.value.trim();
+
+            if (newRepair !== "" && newPrice !== "") {
+              let exactLocationOfItemInDB = ref(database, `Devices/Phones/${selectedCategory}/${phoneModel}`);
+              let updates = {};
+              updates[newRepair] = newPrice;
+
+              update(exactLocationOfItemInDB, updates)
+                .then(() => {
+                  location.reload();
+                })
+                .catch((error) => {
+                  console.error("Error adding repair:", error);
+                });
+            }
+          });
+          actionCell.appendChild(addButton);
+
+          let updateButton = document.createElement("button");
+          updateButton.textContent = "Update";
+          updateButton.addEventListener("click", function () {
+            let newModel = modelInput.value.trim();
+            let newRepair = repairInput.value.trim();
+            let newPrice = priceInput.value.trim();
+            let exactLocationOfItemInDB = ref(database, `Devices/Phones/${selectedCategory}/${phoneModel}/${key}`);
+
+            if (newModel !== "" && newRepair !== "" && newPrice !== "") {
+              if (newModel !== phoneModel || newRepair !== key) {
+                remove(exactLocationOfItemInDB);
+                exactLocationOfItemInDB = ref(database, `Devices/Phones/${selectedCategory}/${newModel}/${newRepair}`);
+              }
+
+              set(exactLocationOfItemInDB, newPrice)
+                .then(() => {
+                  location.reload();
+                })
+                .catch((error) => {
+                  console.error("Error updating repair:", error);
+                });
+            }
+          });
+          actionCell.appendChild(updateButton);
+
+          let deleteButton = document.createElement("button");
+          deleteButton.textContent = "Delete";
+          deleteButton.addEventListener("click", function () {
+            let exactLocationOfItemInDB = ref(database, `Devices/Phones/${selectedCategory}/${currentKey}`);
+            remove(exactLocationOfItemInDB);
+          });
+          actionCell.appendChild(deleteButton);
+        }
+      }
+    }
+
+    fetchDataForSelectedCategory();
+
+    function updateCategoryRadios() {
+      categoryRadios.forEach(function (radio) {
+        radio.checked = radio.value === selectedCategory;
+      });
+
+      localStorage.setItem("selectedCategory", selectedCategory);
+    }
+  </script>
+</body>
+
+</html>

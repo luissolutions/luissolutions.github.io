@@ -1,0 +1,279 @@
+<head>
+    <style>
+        table {
+            text-align: center;
+            margin: 0 auto;
+        }
+
+        body {
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            padding: 15px;
+        }
+
+        .buttons {
+            flex-direction: row;
+        }
+
+        li button {
+            margin: 5px;
+        }
+
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <section>
+        <h1>Yearly Budget Calculator</h1>
+        <table id="months-container">
+            <tr>
+                <th>Month</th>
+                <th>Income</th>
+                <th>Expenses</th>
+                <th>Balance</th>
+                <th>Add Income</th>
+                <th>Add Expense</th>
+            </tr>
+            <!-- Months will be populated here by JavaScript -->
+        </table>
+        <br>
+        <h2>Total Income: <span id="total-income">0</span></h2>
+        <h2>Total Expenses: <span id="total-expenses">0</span></h2>
+        <h2>Yearly Balance: <span id="yearly-balance">0</span></h2>
+        <br>
+        <div id="income-details"></div>
+        <div id="expense-details"></div>
+        <button onclick="exportDetailsToCSV()">Export Budget Details</button>
+    </section>
+    <script>
+        const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        let details = {};
+
+        if (localStorage.getItem('details')) {
+            details = JSON.parse(localStorage.getItem('details'));
+        }
+
+        function calculateTotals() {
+            let totalIncome = 0;
+            let totalExpenses = 0;
+
+            for (const month of months) {
+                const { income = 0, expenses = 0 } = details[month] || {};
+                totalIncome += income;
+                totalExpenses += expenses;
+
+                const balance = income - expenses;
+                document.getElementById(`${month}-balance`).textContent = balance.toFixed(2);
+                document.getElementById(`${month}-income`).textContent = income.toFixed(2);
+                document.getElementById(`${month}-expenses`).textContent = expenses.toFixed(2);
+            }
+
+            document.getElementById('total-income').textContent = totalIncome.toFixed(2);
+            document.getElementById('total-expenses').textContent = totalExpenses.toFixed(2);
+            document.getElementById('yearly-balance').textContent = (totalIncome - totalExpenses).toFixed(2);
+        }
+
+        function addIncome(month) {
+            const name = prompt('Enter income name:');
+            const source = prompt('Enter income source:');
+            const amount = parseFloat(prompt('Enter income amount:')) || 0;
+            const date = new Date();
+
+            if (!details[month]) {
+                details[month] = {};
+            }
+
+            if (!details[month].income) {
+                details[month].income = 0;
+            }
+
+            details[month].income += amount;
+
+            if (!details[month].details) {
+                details[month].details = [];
+            }
+
+            details[month].details.push({
+                id: `${month}-Income-${details[month].details.length}`,
+                type: 'Income',
+                name: name,
+                source: source,
+                purpose: '',
+                amount: amount,
+                date: date
+            });
+
+            localStorage.setItem('details', JSON.stringify(details));
+
+            calculateTotals();
+            displayDetails();
+        }
+
+        function addExpense(month) {
+            const name = prompt('Enter expense name:');
+            const purpose = prompt('Enter expense purpose:');
+            const amount = parseFloat(prompt('Enter expense amount:')) || 0;
+            const date = new Date();
+
+            if (!details[month]) {
+                details[month] = {};
+            }
+
+            if (!details[month].expenses) {
+                details[month].expenses = 0;
+            }
+
+            details[month].expenses += amount;
+
+            if (!details[month].details) {
+                details[month].details = [];
+            }
+
+            details[month].details.push({
+                id: `${month}-Expense-${details[month].details.length}`,
+                type: 'Expense',
+                name: name,
+                source: '',
+                purpose: purpose,
+                amount: amount,
+                date: date
+            });
+
+            localStorage.setItem('details', JSON.stringify(details));
+
+            calculateTotals();
+            displayDetails();
+        }
+
+        function displayDetails() {
+            const incomeDetailsContainer = document.getElementById('income-details');
+            const expenseDetailsContainer = document.getElementById('expense-details');
+
+            incomeDetailsContainer.innerHTML = `
+            <table>
+                <caption>Income Details</caption>
+                <tr>
+                    <th>Date Added</th>
+                    <th>Month</th>
+                    <th>Name</th>
+                    <th>Source</th>
+                    <th>Amount</th>
+                </tr>
+            </table>
+        `;
+
+            expenseDetailsContainer.innerHTML = `
+            <table>
+                <caption>Expense Details</caption>
+                <tr>
+                    <th>Date Added</th>
+                    <th>Month</th>
+                    <th>Name</th>
+                    <th>Purpose</th>
+                    <th>Amount</th>
+                </tr>
+            </table>
+        `;
+
+            for (const month in details) {
+                const { income = 0, expenses = 0, details: monthDetails = [] } = details[month] || {};
+
+                for (const detail of monthDetails) {
+                    const { type, name, source, purpose, amount, date } = detail;
+                    const addDate = new Date();
+                    const monthDate = new Date(date);
+                    const addMonth = months[months.indexOf(month) + 1];
+
+                    const row = document.createElement('tr');
+                    const addDateCell = document.createElement('td');
+                    const monthCell = document.createElement('td');
+                    const nameCell = document.createElement('td');
+                    const sourceCell = document.createElement('td');
+                    const purposeCell = document.createElement('td');
+                    const amountCell = document.createElement('td');
+
+                    addDateCell.textContent = addDate.toLocaleDateString();
+                    monthCell.textContent = addMonth;
+                    nameCell.textContent = name;
+                    amountCell.textContent = amount.toFixed(2);
+
+                    if (type === 'Income') {
+                        sourceCell.textContent = source;
+                        row.appendChild(addDateCell);
+                        row.appendChild(monthCell);
+                        row.appendChild(nameCell);
+                        row.appendChild(sourceCell);
+                        row.appendChild(amountCell);
+                        incomeDetailsContainer.querySelector('table').appendChild(row);
+                    } else if (type === 'Expense') {
+                        purposeCell.textContent = purpose;
+                        row.appendChild(addDateCell);
+                        row.appendChild(monthCell);
+                        row.appendChild(nameCell);
+                        row.appendChild(purposeCell);
+                        row.appendChild(amountCell);
+                        expenseDetailsContainer.querySelector('table').appendChild(row);
+                    }
+                }
+            }
+        }
+
+        function exportDetailsToCSV() {
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Type,Date Added,Month,Name,Source/Purpose,Amount\n";
+
+            for (const month in details) {
+                for (const detail of details[month].details) {
+                    const { type, name, source, purpose, amount, date } = detail;
+                    const addDate = new Date();
+                    const monthDate = new Date(date);
+                    const addMonth = months[months.indexOf(month) + 1];
+
+                    const row = [
+                        type,
+                        addDate.toLocaleDateString(),
+                        addMonth,
+                        name,
+                        type === 'Income' ? source : purpose,
+                        amount.toFixed(2)
+                    ];
+                    csvContent += row.join(",") + "\n";
+                }
+            }
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "budget_details.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        window.onload = function () {
+            const monthsContainer = document.getElementById('months-container');
+
+            for (const month of months) {
+                const row = document.createElement('tr');
+
+                row.innerHTML = `
+                <td>${month}</td>
+                <td><span id="${month}-income">${(details[month]?.income || 0).toFixed(2)}</span></td>
+                <td><span id="${month}-expenses">${(details[month]?.expenses || 0).toFixed(2)}</span></td>
+                <td><span id="${month}-balance">0</span></td>
+                <td><button onclick="addIncome('${month}')">Add Income</button></td>
+                <td><button onclick="addExpense('${month}')">Add Expense</button></td>
+            `;
+
+                monthsContainer.appendChild(row);
+            }
+
+            calculateTotals();
+            displayDetails();
+        };
+    </script>
+</body>

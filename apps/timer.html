@@ -1,0 +1,135 @@
+<head>
+    <style>
+        .timer-container {
+            text-align: center;
+            margin: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        button {
+            margin: 10px;
+        }
+
+        #timer-log {
+            margin: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="timer-container">
+        <button id="start-timer">Start Timer</button>
+        <span id="work-time">Time</span>
+
+        <table id="timer-log">
+            <thead>
+                <tr>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>Elapsed Time</th>
+                </tr>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+        <button id="export">Export</button>
+    </div>
+    <script>
+        const workTime = document.getElementById("work-time");
+        const startTimerButton = document.getElementById("start-timer");
+        let timerInterval;
+        let startTime;
+        let isTimerRunning = false;
+        let elapsedTimeWhenPaused = 0;
+        let timerLogs = JSON.parse(localStorage.getItem("timerLogs")) || [];
+
+        function startTimer() {
+            startTime = Date.now() - elapsedTimeWhenPaused;
+            timerInterval = setInterval(function () {
+                const elapsedTime = Date.now() - startTime;
+                const milliseconds = Math.floor(elapsedTime % 1000);
+                const seconds = Math.floor((elapsedTime / 1000) % 60);
+                const minutes = Math.floor((elapsedTime / (1000 * 60)) % 60);
+                const hours = Math.floor((elapsedTime / (1000 * 60 * 60)) % 24);
+
+                workTime.textContent = `${hours}:${minutes
+                    .toString()
+                    .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
+            }, 1);
+
+            timerLogs.push({
+                startTime: new Date(startTime).toLocaleString(),
+                endTime: "",
+                elapsedTime: "",
+            });
+
+            localStorage.setItem("timerLogs", JSON.stringify(timerLogs));
+        }
+
+        function stopTimer() {
+            clearInterval(timerInterval);
+            const lastLog = timerLogs[timerLogs.length - 1];
+            lastLog.endTime = new Date().toLocaleString();
+            const elapsedTime = Date.now() - startTime;
+            const milliseconds = Math.floor(elapsedTime % 1000);
+            const seconds = Math.floor((elapsedTime / 1000) % 60);
+            const minutes = Math.floor((elapsedTime / (1000 * 60)) % 60);
+            const hours = Math.floor((elapsedTime / (1000 * 60 * 60)) % 24);
+            lastLog.elapsedTime = `${hours}:${minutes
+                .toString()
+                .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
+            localStorage.setItem("timerLogs", JSON.stringify(timerLogs));
+            updateTable();
+        }
+
+        startTimerButton.addEventListener("click", function () {
+            if (!isTimerRunning) {
+                startTimer();
+                startTimerButton.textContent = "Stop Timer";
+            } else {
+                stopTimer();
+                startTimerButton.textContent = "Start Timer";
+            }
+            isTimerRunning = !isTimerRunning;
+        });
+
+        function updateTable() {
+            const logTableBody = document.querySelector("#timer-log tbody");
+            logTableBody.innerHTML = "";
+            timerLogs.forEach((log) => {
+                const newRow = logTableBody.insertRow();
+                const startTimeCell = newRow.insertCell();
+                const endTimeCell = newRow.insertCell();
+                const elapsedTimeCell = newRow.insertCell();
+                startTimeCell.textContent = log.startTime;
+                endTimeCell.textContent = log.endTime;
+                elapsedTimeCell.textContent = log.elapsedTime;
+            });
+        }
+
+        window.addEventListener("load", function () {
+            updateTable();
+        });
+
+        const exportButton = document.getElementById("export");
+
+        function downloadTxt(data) {
+            const txtData = "data:text/plain;charset=utf-8," + data;
+            const encodedUri = encodeURI(txtData);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "timer-log.txt");
+            document.body.appendChild(link);
+            link.click();
+        }
+
+        exportButton.addEventListener("click", function () {
+            let txtData = "Start Time\tEnd Time\tElapsed Time\n";
+            timerLogs.forEach(function (log) {
+                txtData += log.startTime + "\t" + log.endTime + "\t" + log.elapsedTime + "\n";
+            });
+            downloadTxt(txtData);
+        });
+
+    </script>
+</body>

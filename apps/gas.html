@@ -1,0 +1,289 @@
+<head>
+  <style>
+    body {
+      text-align: center;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+      padding: 15px;
+    }
+
+    form {
+      display: grid;
+      flex-direction: column;
+    }
+
+    table {
+      margin: auto;
+      border-collapse: collapse;
+      border: 1px solid black;
+      overflow: hidden;
+    }
+
+    table td,
+    th {
+      border: 1px solid darkgray;
+    }
+
+    .gas-table {
+      overflow-x: auto;
+    }
+
+    .info-container {
+      display: none;
+      padding: 20px;
+      background-color: #f7f7f7;
+      border: 1px solid #ccc;
+      margin: 20px auto;
+      max-width: 800px;
+    }
+
+    .info-title {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+
+    .info-content {
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .show-info-btn {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+
+<section>
+  <h1>Gas Tracking App</h1>
+  <form id="gas-form">
+    <label for="vehicle">Vehicle:</label>
+    <input type="text" id="vehicle">
+    <br>
+
+    <label for="location">Location:</label>
+    <input type="text" id="location">
+    <br>
+
+    <label for="date">Date:</label>
+    <input type="date" id="date">
+    <br>
+
+    <label for="odometer">Odometer Reading:</label>
+    <input type="number" id="odometer" min="0" step="1" required>
+    <br>
+
+    <label for="volume">Volume:</label>
+    <input type="number" id="volume" min="0" step="0.001" required>
+    <br>
+
+    <label for="cost">Cost Per Unit:</label>
+    <input type="number" id="cost" min="0" step="0.001" required>
+    <br>
+
+    <label for="volume-unit">Volume Unit:</label>
+    <select id="volume-unit">
+      <option value="gallons">Gallons</option>
+      <option value="liters">Liters</option>
+    </select>
+    <br>
+
+    <button type="submit">Add Gas Data</button>
+    <button type="button" onclick="exportData()">Export Data</button>
+  </form>
+  <br>
+  <div class="gas-table">
+    <table id="gas-table">
+      <tr>
+        <th>Vehicle</th>
+        <th>Date</th>
+        <th>Odometer Reading</th>
+        <th>Volume</th>
+        <th>Volume Unit</th>
+        <th>Cost Per Unit</th>
+        <th>Total Cost</th>
+        <th>Miles Driven</th>
+        <th>Actions</th>
+      </tr>
+    </table>
+  </div>
+  <br>
+</section>
+
+<h2>Total Gas Refills: <span id="total-refills">0</span></h2>
+<h2>Total Spent: <span id="total-spent">0.00</span></h2>
+<div class="info-container" id="info-container">
+  <div class="info-title">Gas Tracking System Instructions</div>
+  <div class="info-content">
+    <p>Welcome to the Gas Tracking System!</p>
+    <p>This application allows you to track your gas refills and expenses.</p>
+    <p>To get started, fill out the form with the details of your gas refill:</p>
+    <ul>
+      <li>Vehicle: Enter the name of your vehicle.</li>
+      <li>Date: Select the date of the gas refill.</li>
+      <li>Location: Enter the location of the gas refill.</li>
+      <li>Odometer Reading: Enter the odometer reading at the time of the refill.</li>
+      <li>Volume: Enter the volume of gas filled.</li>
+      <li>Volume Unit: Select the unit for the volume (gallons or liters).</li>
+      <li>Cost Per Unit: Enter the cost per unit of gas.</li>
+    </ul>
+    <p>Click the "Add Gas Data" button to add the gas refill data to the system.</p>
+    <p>The gas refills will be displayed in a table below the form. You can also delete entries if needed.</p>
+    <p>You can export the data as a JSON file using the "Export Data" button.</p>
+    <p>Note: The app uses local storage for data persistence.</p>
+  </div>
+</div>
+
+<!-- Show Info button -->
+<button class="show-info-btn" id="show-info-btn">Show Instructions</button>
+
+<script>
+  // Show Info button click event
+  const showInfoBtn = document.getElementById('show-info-btn');
+  const infoContainer = document.getElementById('info-container');
+
+  showInfoBtn.addEventListener('click', function () {
+    if (infoContainer.style.display === 'block') {
+      infoContainer.style.display = 'none';
+      showInfoBtn.textContent = 'Show Instructions';
+    } else {
+      infoContainer.style.display = 'block';
+      showInfoBtn.textContent = 'Hide Instructions';
+    }
+  });
+</script>
+<script>
+  let gasData = JSON.parse(localStorage.getItem('gasData')) || [];
+
+  function addGasData() {
+    // Retrieve input values
+    let vehicle = document.getElementById('vehicle').value;
+    let date = document.getElementById('date').value;
+    let odometer = parseFloat(document.getElementById('odometer').value);
+    let volume = parseFloat(document.getElementById('volume').value);
+    let volumeUnit = document.getElementById('volume-unit').value;
+    let costPerUnit = parseFloat(document.getElementById('cost').value);
+    let location = document.getElementById('location').value;
+
+    let totalCost = costPerUnit * volume; // Calculate total cost
+
+    // Create the new entry
+    const newEntry = {
+      vehicle,
+      date,
+      location,
+      odometer,
+      volume,
+      volumeUnit,
+      costPerUnit,
+      totalCost
+    };
+
+    // Find the correct position for the new entry
+    let i = gasData.findIndex(item => new Date(item.date) > new Date(date));
+
+    // Insert the new entry at the correct position
+    if (i >= 0) gasData.splice(i, 0, newEntry);
+    else gasData.push(newEntry);
+
+    // Store the updated data in local storage
+    localStorage.setItem('gasData', JSON.stringify(gasData));
+
+    // Update the displayed data and gas table
+    updateDisplayedData();
+    updateGasTable();
+
+    clearForm();
+  }
+
+  function updateDisplayedData() {
+    let totalRefills = gasData.length;
+    let totalSpent = gasData.reduce((total, entry) => total + entry.totalCost, 0);
+
+    document.getElementById('total-refills').textContent = totalRefills;
+    document.getElementById('total-spent').textContent = totalSpent.toFixed(2);
+  }
+
+  function updateGasTable() {
+    // Sort gasData by date
+    gasData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    const gasTable = document.getElementById('gas-table');
+    gasTable.innerHTML = `
+      <tr>
+        <th>Vehicle</th>
+        <th>Date</th>
+        <th>Location</th>
+        <th>Odometer Reading</th>
+        <th>Volume</th>
+        <th>Volume Unit</th>
+        <th>Cost Per Unit</th>
+        <th>Total Cost</th>
+        <th>Actions</th>
+      </tr>
+    `;
+
+    for (let i = 0; i < gasData.length; i++) {
+      const item = gasData[i];
+      const row = document.createElement('tr');
+
+      row.innerHTML = `
+        <td>${item.vehicle}</td>
+        <td>${item.date}</td>
+        <td>${item.location}</td>
+        <td>${item.odometer}</td>
+        <td>${item.volume}</td>
+        <td>${item.volumeUnit}</td>
+        <td>${item.costPerUnit.toFixed(2)}</td>
+        <td>${item.totalCost.toFixed(2)}</td>
+        <td><button onclick="deleteGasData(${i})">Delete</button></td>
+      `;
+
+      gasTable.appendChild(row);
+    }
+  }
+
+  function deleteGasData(index) {
+    // Remove entry from the data array
+    gasData.splice(index, 1);
+
+    // Update local storage
+    localStorage.setItem('gasData', JSON.stringify(gasData));
+
+    // Update the displayed data and gas table
+    updateDisplayedData();
+    updateGasTable();
+  }
+
+  function clearForm() {
+    document.getElementById('vehicle').value = '';
+    document.getElementById('date').value = '';
+    document.getElementById('location').value = '';
+    document.getElementById('odometer').value = '';
+    document.getElementById('volume').value = '';
+    document.getElementById('volume-unit').value = 'gallons';
+    document.getElementById('cost').value = '';
+  }
+
+  function exportData() {
+    // Create a Blob with the JSON data and download it as a .json file
+    let dataStr = JSON.stringify(gasData, null, 2);
+    let dataBlob = new Blob([dataStr], { type: 'application/json' });
+    let url = URL.createObjectURL(dataBlob);
+    let link = document.createElement('a');
+    link.download = 'gasData.json';
+    link.href = url;
+    link.click();
+  }
+
+  // Initialize the form submission and page load events
+  document.getElementById('gas-form').addEventListener('submit', function (event) {
+    event.preventDefault();
+    addGasData();
+  });
+
+  window.addEventListener('load', function () {
+    updateDisplayedData();
+    updateGasTable();
+  });
+</script>
+</body>
