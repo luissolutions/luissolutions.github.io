@@ -11,56 +11,17 @@ function toggleMenu() {
   });
 }
 
-var appNames = [
-  "livegas",
-  "livemileage",
-  "livenotes",
-  "reg",
-  "gallery",
-  "budget",
-  "invoice",
-  "info",
-  "liveinventory",
-];
-
-var pages = appNames.map(function (name) {
-  return "../" + name + ".html";
-});
-
-var iframe = document.getElementById('myIframe');
-var appButtons = document.getElementById('appButtons');
-var currentIndex = localStorage.getItem('currentIndex') || 0;
-
-function setIframeSrc(index) {
-  currentIndex = index;
-  iframe.src = pages[index];
-  localStorage.setItem('currentIndex', currentIndex);
+function updateTime() {
+  let now = new Date();
+  let hours = now.getHours();
+  let minutes = now.getMinutes();
+  let ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12; // the hour '0' should be '12'
+  minutes = minutes < 10 ? '0' + minutes : minutes;
+  let strTime = hours + ':' + minutes + ' ' + ampm;
+  document.getElementById('clock').innerText = strTime;
+  setTimeout(updateTime, 1000);
 }
 
-function cycleIframeSrc(isNext) {
-  currentIndex = isNext ? (currentIndex + 1) % pages.length : (currentIndex - 1 + pages.length) % pages.length;
-  setIframeSrc(currentIndex);
-}
-
-function generateButtons() {
-  var buttonsHTML = `<button onclick="cycleIframeSrc(false)">⬆️</button>`;
-
-  appNames.forEach((name, index) => {
-    buttonsHTML += `<button onclick="setIframeSrc(${index})">${name.toUpperCase()}</button>`;
-  });
-
-  buttonsHTML += `<button onclick="cycleIframeSrc(true)">⬇️</button>`;
-
-  appButtons.innerHTML = buttonsHTML;
-}
-
-window.onload = function () {
-  setIframeSrc(currentIndex);
-  generateButtons();
-}
-
-document.getElementById('loadContent').addEventListener('click', function () {
-  var sourceName = document.getElementById('iframeSource').value;
-  var fullPath = "../" + sourceName + ".html";
-  document.getElementById('myIframe').src = fullPath;
-});
+updateTime();
