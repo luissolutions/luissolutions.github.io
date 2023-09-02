@@ -9,26 +9,3 @@ document.addEventListener("DOMContentLoaded", function () {
     window.location.href = "index.html";
   }
 });
-
-function toggleMenu() {
-  const navBar = document.querySelector(".nav-bar");
-  navBar.classList.toggle("active");
-
-  // Close the dropdown when a link is clicked
-  const dropdownLinks = document.querySelectorAll(".nav-bar a");
-  dropdownLinks.forEach(link => {
-    link.addEventListener('click', () => {
-      navBar.classList.remove('active');
-    });
-  });
-}
-
-function handleOutsideClick(event) {
-  const navBar = document.querySelector('.nav-bar');
-  const hamburger = document.querySelector('.hamburger');
-
-  if (!navBar.contains(event.target) && !hamburger.contains(event.target)) {
-    navBar.classList.remove('active');
-  }
-}
-document.addEventListener('click', handleOutsideClick);
