@@ -25,3 +25,12 @@ function updateTime() {
 }
 
 updateTime();
+
+
+const clocks = document.getElementsByClassName("clock");
+
+for (const clock of clocks) {
+  clock.addEventListener("dblclick", function () {
+    clock.style.display = "none";
+  });
+}
