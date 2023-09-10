@@ -240,7 +240,7 @@ const handlers = {
       "calc",
       "budget",
       "conversion",
-      "percentage",
+      "percent",
       "blackjack",
       "mousegame",
       "mathgame",
