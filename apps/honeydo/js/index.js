@@ -39,3 +39,5 @@ function loadPage(container, path) {
 loadPage(headerContainer, 'header.html');
 loadPage(bodyContainer, 'pages/home.html');
 loadPage(footerContainer, 'footer.html');
+
+
