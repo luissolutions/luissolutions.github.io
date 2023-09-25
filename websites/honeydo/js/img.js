@@ -1,82 +1,108 @@
 document.addEventListener('DOMContentLoaded', function () {
-    const sliderContainer = document.getElementById('slider-container');
-    const prevButton = document.getElementById('prevButton');
-    const nextButton = document.getElementById('nextButton');
+    const photoContainer = document.getElementById('photoContainer');
+    const subfolderRadioButtons = document.getElementById('subfolderRadioButtons');
 
-    let currentImageIndex = 0;
-    const imageFilenames = [
-        'img1.png',
-        'img2.png',
-        'img3.png',
-        'img4.png',
-        'img5.png'
-    ];
+    let currentPhotoIndex = 0;
+    let photoUrls = [];
 
-    function initSlider() {
-        // Initial display
-        displayCurrentImage();
+    // Fetch photo URLs and populate subfolders
+    function fetchPhotoUrls() {
+        fetch('../honeydo/js/images.json')
+            .then(response => response.json())
+            .then(urls => {
+                photoUrls = urls;
+                populateSubfolders();
+                displayCurrentPhoto();
+            })
+            .catch(error => {
+                console.error('Error loading photo URLs:', error);
+            });
     }
 
-    function changeSlide(n) {
-        currentImageIndex += n;
+    function populateSubfolders() {
+        const subfolders = extractSubfolders(photoUrls);
+        subfolderRadioButtons.innerHTML = ''; // Clear any existing radio buttons
 
-        // Wrap around to the first image if at the end
-        if (currentImageIndex >= imageFilenames.length) {
-            currentImageIndex = 0;
-        }
-        // Wrap around to the last image if at the beginning
-        else if (currentImageIndex < 0) {
-            currentImageIndex = imageFilenames.length - 1;
-        }
+        subfolders.forEach(folder => {
+            const radioLabel = document.createElement('label');
+            radioLabel.textContent = folder;
 
-        displayCurrentImage();
+            const radioButton = document.createElement('input');
+            radioButton.type = 'radio';
+            radioButton.name = 'subfolder'; // Set the same 'name' for radio buttons to make them mutually exclusive
+            radioButton.value = folder;
+
+            radioLabel.appendChild(radioButton);
+            subfolderRadioButtons.appendChild(radioLabel);
+        });
+
+        // Add an event listener to handle changes in the selected subfolder
+        subfolderRadioButtons.addEventListener('change', handleSubfolderChange);
     }
 
-    function displayCurrentImage() {
-        // Clear the container
-        sliderContainer.innerHTML = '';
+    function extractSubfolders(urls) {
+        const folderSet = new Set();
+        urls.forEach(url => {
+            const splitPath = url.split('/');
+            if (splitPath.length > 3) {
+                folderSet.add(splitPath[4]);
+            }
+        });
+        return [...folderSet];
+    }
 
-        // Create an image element and set its source
-        const currentImageFilename = imageFilenames[currentImageIndex];
+    function displayCurrentPhoto(selectedSubFolder) {
+        const filteredUrls = photoUrls.filter(url => url.includes(`/${selectedSubFolder}/`));
+
+        photoContainer.innerHTML = '';
+
+        if (currentPhotoIndex >= 0 && currentPhotoIndex < filteredUrls.length) {
+            const img = createPhotoElement(filteredUrls[currentPhotoIndex]);
+            photoContainer.appendChild(img);
+        }
+    }
+
+    function createPhotoElement(src) {
         const img = document.createElement('img');
-        img.src = `images/img/${currentImageFilename}`;
-        img.className = 'slider-image';
-        img.id = 'currentImage'; // Add an id to the image
+        img.src = src;
+        img.className = 'photo';
+    
+        img.addEventListener('click', function (event) {
+            const clickX = event.clientX - img.getBoundingClientRect().left;
+            const imgWidth = img.offsetWidth;
+    
+            if (clickX < imgWidth / 2) {
+                loadPreviousImage();
+            } else {
+                loadNextImage();
+            }
+        });
+    
+        return img;
+    }    
 
-        // Append the image to the container
-        sliderContainer.appendChild(img);
+    function loadNextImage() {
+        const selectedSubFolder = document.querySelector('input[name="subfolder"]:checked').value;
+        const filteredUrls = photoUrls.filter(url => url.includes(`/${selectedSubFolder}/`));
+    
+        currentPhotoIndex = (currentPhotoIndex + 1) % filteredUrls.length;
+        displayCurrentPhoto(selectedSubFolder);
+    }
+    
+    function loadPreviousImage() {
+        const selectedSubFolder = document.querySelector('input[name="subfolder"]:checked').value;
+        const filteredUrls = photoUrls.filter(url => url.includes(`/${selectedSubFolder}/`));
+    
+        currentPhotoIndex = (currentPhotoIndex - 1 + filteredUrls.length) % filteredUrls.length;
+        displayCurrentPhoto(selectedSubFolder);
+    }    
 
-        // Add a click event listener to the image
-        img.addEventListener('click', handleImageClick);
+    function handleSubfolderChange(event) {
+        const selectedSubFolder = event.target.value;
+        currentPhotoIndex = 0;
+        displayCurrentPhoto(selectedSubFolder);
     }
 
-    function handleImageClick(event) {
-        const image = document.getElementById('currentImage');
-        const imageWidth = image.offsetWidth;
-        const clickX = event.offsetX;
-
-        // Define the threshold for left and right clicks (10% of the image width)
-        const threshold = 0.2 * imageWidth;
-
-        // Determine if the click is within the left or right thresholds
-        if (clickX <= threshold) {
-            // Clicked on the left 10%, go to the previous image
-            changeSlide(-1);
-        } else if (clickX >= imageWidth - threshold) {
-            // Clicked on the right 10%, go to the next image
-            changeSlide(1);
-        }
-    }
-
-    // Add event listeners for Previous and Next buttons
-    prevButton.addEventListener('click', () => {
-        changeSlide(-1); // Move to the previous image
-    });
-
-    nextButton.addEventListener('click', () => {
-        changeSlide(1); // Move to the next image
-    });
-
-    // Initialize the slider
-    initSlider();
+    // Call the function to fetch data and set up the page
+    fetchPhotoUrls();
 });
