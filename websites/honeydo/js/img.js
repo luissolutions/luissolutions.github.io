@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', function () {
             .then(urls => {
                 photoUrls = urls;
                 populateSubfolders();
-                displayCurrentPhoto();
+                displayCurrentPhoto('cabinetry'); // Load the 'cabinetry' images by default
             })
             .catch(error => {
                 console.error('Error loading photo URLs:', error);
@@ -35,6 +35,15 @@ document.addEventListener('DOMContentLoaded', function () {
             radioLabel.appendChild(radioButton);
             subfolderRadioButtons.appendChild(radioLabel);
         });
+
+        // Add an event listener to handle changes in the selected subfolder
+        subfolderRadioButtons.addEventListener('change', handleSubfolderChange);
+
+        // Check the "cabinetry" radio button by default
+        const cabinetryRadioButton = document.querySelector('input[value="cabinetry"]');
+        if (cabinetryRadioButton) {
+            cabinetryRadioButton.checked = true;
+        }
 
         // Add an event listener to handle changes in the selected subfolder
         subfolderRadioButtons.addEventListener('change', handleSubfolderChange);
@@ -84,18 +93,18 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadNextImage() {
         const selectedSubFolder = document.querySelector('input[name="subfolder"]:checked').value;
         const filteredUrls = photoUrls.filter(url => url.includes(`/${selectedSubFolder}/`));
-    
+
         currentPhotoIndex = (currentPhotoIndex + 1) % filteredUrls.length;
         displayCurrentPhoto(selectedSubFolder);
     }
-    
+
     function loadPreviousImage() {
         const selectedSubFolder = document.querySelector('input[name="subfolder"]:checked').value;
         const filteredUrls = photoUrls.filter(url => url.includes(`/${selectedSubFolder}/`));
-    
+
         currentPhotoIndex = (currentPhotoIndex - 1 + filteredUrls.length) % filteredUrls.length;
         displayCurrentPhoto(selectedSubFolder);
-    }    
+    }
 
     function handleSubfolderChange(event) {
         const selectedSubFolder = event.target.value;

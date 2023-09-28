@@ -33,6 +33,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const subject = `Contact Request from ${name}`;
 
     // Use mailto to open the default email client with pre-filled information
-    window.location.href = `mailto:smartelectronicssolutionsllc@gmail.com?subject=${encodeURIComponent(subject)}&body=${emailBody}`;
+    window.location.href = `mailto:honeydhelper2020@gmail.com?subject=${encodeURIComponent(subject)}&body=${emailBody}`;
   });
 });
