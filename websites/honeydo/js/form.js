@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', function () {
-  // All your JavaScript code here
 
   const form = document.querySelector('.form');
   const nameInput = document.getElementById('name');

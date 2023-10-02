@@ -610,8 +610,6 @@ const handlers = {
       document.getElementById('input-counter').innerText = inputBoxValue.length;
     });
 
-    const toggleCapsEl = document.getElementById('toggle-caps');
-
     function alternateCaps(text) {
       let result = '';
       for (let i = 0; i < text.length; i++) {
@@ -632,11 +630,6 @@ const handlers = {
       }
       return result;
     }
-
-    toggleCapsEl.addEventListener('click', () => {
-      const inputBoxValue = inputBoxEl.value;
-      inputBoxEl.value = alternateCaps(inputBoxValue);
-    });
 
     const copyInputEl = document.getElementById('copy-input');
     copyInputEl.addEventListener('click', () => {
