@@ -606,8 +606,10 @@ const handlers = {
     inputBoxEl.addEventListener('input', () => {
       const selectedConversionTable = conversionTypeEl.value === 'table1' ? conversionTable1 : conversionTable2;
       const inputBoxValue = inputBoxEl.value;
-      inputBoxEl.value = convertText(inputBoxValue, selectedConversionTable);
-      document.getElementById('input-counter').innerText = inputBoxValue.length;
+      const convertedText = convertText(inputBoxValue, selectedConversionTable);
+      const alternateCapsText = alternateCaps(convertedText); // Add this line
+      inputBoxEl.value = alternateCapsText; // Update the input box with the converted text
+      document.getElementById('input-counter').innerText = alternateCapsText.length; // Update the character count
     });
 
     function alternateCaps(text) {
