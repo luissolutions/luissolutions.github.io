@@ -64,9 +64,9 @@
             height: auto;
         }
 
-        .feature-container input {
-            height: 25px;
-            width: 25px;
+        .item-container input {
+            height: 30px;
+            width: 30px;
         }
     </style>
 </head>
@@ -84,15 +84,16 @@
                     <!-- Radios will be appended here -->
                 </div>
                 <div class="image-container">
-                    <label for="itemImage">Item Image:</label>
+                    <label for="selectionImage">Selection Image:</label>
                     <br>
-                    <img id="itemImage" src="../assets/img/default.png" alt="Selected Item Image" width="280" />
+                    <img id="selectionImage" src="../assets/img/default.png" alt="Selected Selection Image"
+                        width="280" />
                 </div>
 
-                <label for="itemSelect">Select Item:</label>
-                <select id="itemSelect"></select>
+                <label for="selectionSelect">Select Type:</label>
+                <select id="selectionSelect"></select>
                 <br>
-                <div id="featureOptions"></div>
+                <div id="itemOptions"></div>
 
                 <h3>Total Amount: <span id="totalAmount">0</span></h3>
             </div>
@@ -101,18 +102,18 @@
             <label for="categoryInput">Category:</label>
             <input type="text" id="categoryInput" required>
 
-            <label for="itemInput">Item:</label>
-            <input type="text" id="itemInput" required>
+            <label for="selectionInput">Type:</label>
+            <input type="text" id="selectionInput" required>
 
-            <label for="featureInput">Feature:</label>
-            <input type="text" id="featureInput">
+            <label for="itemInput">Item:</label>
+            <input type="text" id="itemInput">
 
             <label for="amountInput">Amount:</label>
             <input type="number" id="amountInput">
 
             <button type="submit">Submit</button>
             <button type="button" id="deleteButton">Delete</button>
-
+            <button type="button" id="undoButton">Undo</button>
         </form>
     </main>
 
@@ -133,8 +134,8 @@
         const app = initializeApp(appSettings);
         const database = getDatabase(app);
 
-        const itemSelect = document.getElementById('itemSelect');
-        const featureOptions = document.getElementById('featureOptions');
+        const selectionSelect = document.getElementById('selectionSelect');
+        const itemOptions = document.getElementById('itemOptions');
         const totalAmountElement = document.getElementById('totalAmount');
         const defaultImageSrc = '../assets/img/default.png';
 
@@ -183,98 +184,96 @@
             onValue(categoryRef, (snapshot) => {
                 const categoryData = snapshot.val();
 
-                itemSelect.innerHTML = '';
-                featureOptions.innerHTML = '';
+                selectionSelect.innerHTML = '';
+                itemOptions.innerHTML = '';
                 totalAmountElement.textContent = '0';
 
                 if (categoryData) {
-                    const items = Object.keys(categoryData).sort();
+                    const selections = Object.keys(categoryData).sort();
 
-                    items.forEach((item) => {
+                    selections.forEach((selection) => {
                         const option = document.createElement('option');
-                        option.value = item;
-                        option.textContent = item;
-                        itemSelect.appendChild(option);
+                        option.value = selection;
+                        option.textContent = selection;
+                        selectionSelect.appendChild(option);
                     });
 
-                    const storedItem = localStorage.getItem('selectedItem');
-                    if (storedItem && items.includes(storedItem)) {
-                        itemSelect.value = storedItem;
+                    const storedSelection = localStorage.getItem('selectedSelection');
+                    if (storedSelection && selections.includes(storedSelection)) {
+                        selectionSelect.value = storedSelection;
                     }
 
-                    itemSelect.dispatchEvent(new Event('change'));
+                    selectionSelect.dispatchEvent(new Event('change'));
                 }
             });
         }
 
-        itemSelect.addEventListener('change', () => {
+        selectionSelect.addEventListener('change', () => {
             const selectedCategoryRadio = document.querySelector('input[name="category"]:checked');
             if (!selectedCategoryRadio) return;
 
             const selectedCategory = selectedCategoryRadio.value;
-            const selectedItem = itemSelect.value;
-            const itemImage = document.getElementById('itemImage');
-            itemImage.src = `../websites/kamehouse/img/${selectedItem}.png`;
-            itemImage.onerror = () => {
-                itemImage.src = defaultImageSrc;
+            const selectedSelection = selectionSelect.value;
+            const selectionImage = document.getElementById('selectionImage');
+            selectionImage.src = `../websites/kamehouse/img/${selectedSelection}.png`;
+            selectionImage.onerror = () => {
+                selectionImage.src = defaultImageSrc;
             };
 
-
-            const itemRef = ref(database, `Items/${selectedCategory}/${selectedItem}`);
+            const itemRef = ref(database, `Items/${selectedCategory}/${selectedSelection}`);
 
             onValue(itemRef, (snapshot) => {
                 const itemData = snapshot.val();
 
                 if (itemData) {
-                    featureOptions.innerHTML = '';
-                    const features = Object.keys(itemData).sort();
+                    itemOptions.innerHTML = '';
+                    const items = Object.keys(itemData).sort();
 
-                    features.forEach((feature) => {
-                        const featureAmount = itemData[feature];
+                    items.forEach((item) => {
+                        const itemAmount = itemData[item];
 
                         // Create a div to contain the checkbox, image, and label
-                        const featureDiv = document.createElement('div');
-                        featureDiv.classList.add('feature-container');
+                        const itemDiv = document.createElement('div');
+                        itemDiv.classList.add('item-container');
 
-                        const featureCheckbox = document.createElement('input');
-                        featureCheckbox.type = 'checkbox';
-                        featureCheckbox.dataset.amount = featureAmount;
+                        const itemCheckbox = document.createElement('input');
+                        itemCheckbox.type = 'checkbox';
+                        itemCheckbox.dataset.amount = itemAmount;
 
                         // Listen for changes on checkbox to update the total amount
-                        featureCheckbox.addEventListener('change', updateTotalAmount);
+                        itemCheckbox.addEventListener('change', updateTotalAmount);
 
-                        const featureImg = document.createElement('img');
-                        featureImg.src = `../websites/kamehouse/img/${feature}.png`;
-                        featureImg.alt = feature;
-                        featureImg.width = 50;
-                        featureImg.onerror = () => {
-                            featureImg.src = defaultImageSrc;
+                        const itemImg = document.createElement('img');
+                        itemImg.src = `../websites/kamehouse/img/${item}.png`;
+                        itemImg.alt = item;
+                        itemImg.width = 50;
+                        itemImg.onerror = () => {
+                            itemImg.src = defaultImageSrc;
                         };
-                        featureImg.classList.add('feature-image');
+                        itemImg.classList.add('item-image');
 
-                        // Add the elements to the feature div
-                        featureDiv.appendChild(featureCheckbox);
-                        featureDiv.appendChild(featureImg);
-                        featureDiv.appendChild(document.createTextNode(`${feature} - Amount: ${featureAmount}`));
+                        // Add the elements to the item div
+                        itemDiv.appendChild(itemCheckbox);
+                        itemDiv.appendChild(itemImg);
+                        itemDiv.appendChild(document.createTextNode(`${item} - Amount: ${itemAmount}`));
 
-                        // Add the feature div to the options container
-                        featureOptions.appendChild(featureDiv);
+                        // Add the item div to the options container
+                        itemOptions.appendChild(itemDiv);
 
-                        // Event listener on featureDiv
-                        featureDiv.addEventListener('click', (event) => {
-                            if (event.target.classList.contains('feature-image')) {
+                        // Event listener on itemDiv
+                        itemDiv.addEventListener('click', (event) => {
+                            if (event.target.classList.contains('item-image')) {
                                 showImageModal(event.target.src);
                                 event.stopPropagation();  // prevent the event from bubbling up to other elements
                             }
                         });
                     });
                 }
-
             });
         });
 
         function updateTotalAmount() {
-            const checkboxes = document.querySelectorAll('#featureOptions input[type="checkbox"]');
+            const checkboxes = document.querySelectorAll('#itemOptions input[type="checkbox"]');
             let total = 0;
 
             checkboxes.forEach(checkbox => {
@@ -291,48 +290,155 @@
             event.preventDefault(); // prevent the default form submission behavior
 
             const category = document.getElementById('categoryInput').value;
+            const selection = document.getElementById('selectionInput').value;
             const item = document.getElementById('itemInput').value;
-            const feature = document.getElementById('featureInput').value;
             const amount = document.getElementById('amountInput').value;
 
-            if (category && item) {
-                let path = `Items/${category}/${item}`;
+            if (category && selection) {
+                let path = `Items/${category}/${selection}`;
 
-                if (feature) {
-                    path += `/${feature}`;
+                if (item) {
+                    path += `/${item}`;
                 }
 
                 set(ref(database, path), amount);
             } else {
-                alert('Category and Item are required!');
+                alert('Category and Selection are required!');
             }
         });
 
+        // Function to store deleted data in localStorage
+        function storeDeletedData(category, selection, itemName, itemAmount) {
+            const deletedData = {
+                category,
+                selection,
+                itemName,
+                itemAmount,
+            };
+            localStorage.setItem('deletedData', JSON.stringify(deletedData));
+        }
+
+        // Function to restore deleted data from localStorage
+        function restoreDeletedData() {
+            const deletedData = localStorage.getItem('deletedData');
+            if (deletedData) {
+                const { category, selection, itemName, itemAmount } = JSON.parse(deletedData);
+
+                // Restore the deleted data by adding it back to the database
+                const path = `Items/${category}/${selection}/${itemName}`;
+                set(ref(database, path), itemAmount)
+                    .then(() => {
+                        alert(`Data for item '${itemName}' restored successfully!`);
+                        localStorage.removeItem('deletedData'); // Clear the deleted data from localStorage
+                    })
+                    .catch((error) => {
+                        console.error(`Error restoring data for item '${itemName}':`, error);
+                        alert(`Failed to restore data for item '${itemName}'!`);
+                    });
+            } else {
+                alert('No deleted data to restore.');
+            }
+        }
+
+        // Attach an event listener to the "Delete" button
         document.getElementById('deleteButton').addEventListener('click', function () {
             const category = document.getElementById('categoryInput').value;
-            const item = document.getElementById('itemInput').value;
-            const feature = document.getElementById('featureInput').value;
+            const selection = document.getElementById('selectionInput').value;
+            const itemInput = document.getElementById('itemInput').value;
 
-            if (category && item) {
-                let path = `Items/${category}/${item}`;
+            if (category && selection) {
+                let path = `Items/${category}/${selection}`;
 
-                if (feature) {
-                    path += `/${feature}`;
-                }
+                const checkedItems = Array.from(document.querySelectorAll('#itemOptions input[type="checkbox"]:checked'));
 
-                // Confirm with the user before deletion
-                if (confirm("Are you sure you want to delete this data?")) {
-                    remove(ref(database, path))
-                        .then(() => {
-                            alert('Data deleted successfully!');
-                        })
-                        .catch((error) => {
-                            console.error("Error deleting data: ", error);
-                            alert('Failed to delete data!');
-                        });
+                if (checkedItems.length > 0) {
+                    checkedItems.forEach((checkbox) => {
+                        const itemName = checkbox.parentElement.querySelector('.item-image').alt;
+                        const itemAmount = checkbox.dataset.amount;
+
+                        // Store the deleted data in localStorage
+                        storeDeletedData(category, selection, itemName, itemAmount);
+
+                        // Remove the data from the database
+                        path = `Items/${category}/${selection}/${itemName}`;
+                        remove(ref(database, path))
+                            .then(() => {
+                                alert('Data deleted successfully!');
+                            })
+                            .catch((error) => {
+                                console.error("Error deleting data: ", error);
+                                alert('Failed to delete data!');
+                            });
+                    });
+                } else if (itemInput) {
+                    // Delete items specified in the "Item" input field
+                    const itemsToDelete = itemInput.split(',').map(item => item.trim());
+                    itemsToDelete.forEach(itemName => {
+                        // Store the deleted data in localStorage
+                        const itemAmount = 'unknown'; // You may need to fetch the amount from the database if it's unknown here
+                        storeDeletedData(category, selection, itemName, itemAmount);
+
+                        // Remove the data from the database
+                        path = `Items/${category}/${selection}/${itemName}`;
+                        remove(ref(database, path))
+                            .then(() => {
+                                alert(`Data for item '${itemName}' deleted successfully!`);
+                            })
+                            .catch((error) => {
+                                console.error(`Error deleting data for item '${itemName}':`, error);
+                                alert(`Failed to delete data for item '${itemName}'!`);
+                            });
+                    });
+                } else {
+                    alert('Please select items to delete or specify items in the "Item" field.');
                 }
             } else {
-                alert('Category and Item are required to delete!');
+                alert('Category and Selection are required to delete!');
+            }
+        });
+
+        // Attach an event listener to the "Undo" button
+        document.getElementById('undoButton').addEventListener('click', function () {
+            // Restore deleted data
+            restoreDeletedData();
+        });
+
+        itemOptions.addEventListener('change', (event) => {
+            const selectedCategoryRadio = document.querySelector('input[name="category"]:checked');
+            if (!selectedCategoryRadio) return;
+
+            const selectedCategory = selectedCategoryRadio.value;
+            const selectedSelection = selectionSelect.value;
+            const checkboxes = document.querySelectorAll('#itemOptions input[type="checkbox"]:checked');
+
+            if (checkboxes.length > 0) {
+                const selectedItems = Array.from(checkboxes).map((checkbox) => {
+                    const itemName = checkbox.parentElement.querySelector('.item-image').alt;
+                    const itemAmount = checkbox.dataset.amount;
+                    return { name: itemName, amount: itemAmount };
+                });
+
+                // Populate the input fields with the information of the checked items
+                const categoryInput = document.getElementById('categoryInput');
+                const selectionInput = document.getElementById('selectionInput');
+                const itemInput = document.getElementById('itemInput');
+                const amountInput = document.getElementById('amountInput');
+
+                categoryInput.value = selectedCategory;
+                selectionInput.value = selectedSelection;
+                itemInput.value = selectedItems.map((item) => item.name).join(', ');
+                amountInput.value = selectedItems.reduce((total, item) => total + parseFloat(item.amount), 0);
+            } else {
+                // If no items are checked, clear the input fields
+                const categoryInput = document.getElementById('categoryInput');
+                const selectionInput = document.getElementById('selectionInput');
+                const itemInput = document.getElementById('itemInput');
+                const amountInput = document.getElementById('amountInput');
+
+                categoryInput.value = '';
+                selectionInput.value = '';
+                itemInput.value = '';
+                amountInput.value = '';
             }
         });
 
@@ -351,8 +457,8 @@
                 modal.style.display = 'none';
             }
         });
-        const featureImages = document.querySelectorAll('.image-container img, #featureOptions img');
-        featureImages.forEach(img => {
+        const itemImages = document.querySelectorAll('.image-container img, #itemOptions img');
+        itemImages.forEach(img => {
             img.addEventListener('click', function () {
                 showImageModal(img.src);
             });
