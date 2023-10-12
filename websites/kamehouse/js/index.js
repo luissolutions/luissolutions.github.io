@@ -26,7 +26,6 @@ function updateTime() {
 
 updateTime();
 
-
 const clocks = document.getElementsByClassName("clock");
 
 for (const clock of clocks) {
