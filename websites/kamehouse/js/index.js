@@ -42,7 +42,7 @@ let isFooterHidden = false;
 hideButton.addEventListener("click", () => {
   if (isFooterHidden) {
     // If the footer is currently hidden, set the custom property to the original height
-    document.documentElement.style.setProperty("--footerHeight", "100px"); // Replace with your original height
+    document.documentElement.style.setProperty("--footerHeight", "60px"); // Replace with your original height
   } else {
     // If the footer is not hidden, set the custom property to the desired height
     document.documentElement.style.setProperty("--footerHeight", "34px");
