@@ -2,7 +2,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebas
 import { getDatabase, ref, onValue, set, update, remove } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
 
 const appSettings = {
-    databaseURL: "https://test-3d36b-default-rtdb.firebaseio.com/"
+    databaseURL: "https://inventory-54829-default-rtdb.firebaseio.com/"
 };
 
 const app = initializeApp(appSettings);
