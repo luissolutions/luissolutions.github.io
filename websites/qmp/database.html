@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <link rel="stylesheet" href="css/index.css">
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quote Database</title>
+</head>
+
+<body>
+    <header class="header">
+        <div class="nav-bar">
+            <h1>Database Entry Page</h1>
+        </div>
+    </header>
+
+    <div class="nav-container">
+        <ul class="nav-links">
+            <li><a href="index.html" class="nav-link">Home</a></li>
+            <li><a href="database.html" class="nav-link">Database</a></li>
+        </ul>
+    </div>
+
+    <main>
+        <section class="entry">
+            <div class="data">
+                <div>
+                    <label for="category">Category:</label>
+                    <input type="text" id="category" required>
+                </div>
+                <div>
+                    <label for="component">Component:</label>
+                    <input type="text" id="component" required>
+                </div>
+                <div>
+                    <label for="partName">Part Name:</label>
+                    <input type="text" id="partName" required>
+                </div>
+                <div>
+                    <label for="price">Price:</label>
+                    <input type="number" id="price" required>
+                </div>
+                <div>
+                    <label for="actualPrice">Actual Price:</label>
+                    <input type="number" id="actualPrice" required>
+                </div>
+                <div>
+                    <label for="quantity">Quantity:</label>
+                    <input type="number" id="quantity" required>
+                </div>
+                <button id="save-button">Save</button>
+            </div>
+            <div id="entries-container"></div>
+        </section>
+    </main>
+
+    <footer>
+    </footer>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
+        import { getDatabase, ref, onValue, set, remove } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
+
+        const appSettings = {
+            databaseURL: "https://test-3d36b-default-rtdb.firebaseio.com/"
+        };
+
+        const app = initializeApp(appSettings);
+        const database = getDatabase(app);
+
+        function loadDatabaseEntries() {
+            const entriesRef = ref(database, 'Items');
+            onValue(entriesRef, (snapshot) => {
+                const entries = snapshot.val();
+                displayEntries(entries);
+            }, (error) => {
+                console.error("Error loading database entries:", error);
+            });
+        }
+
+        loadDatabaseEntries();
+
+        document.getElementById('save-button').addEventListener('click', () => {
+            const category = document.getElementById('category').value;
+            const component = document.getElementById('component').value;
+            const partName = document.getElementById('partName').value;
+            const price = document.getElementById('price').value;
+            const actualPrice = document.getElementById('actualPrice').value; // Added this line
+            const quantity = document.getElementById('quantity').value;
+
+            const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
+            set(entryRef, { price, actualPrice, quantity }) // Updated this line
+                .then(() => {
+                    console.log('Entry saved successfully');
+                })
+                .catch((error) => {
+                    console.error('Error saving entry:', error);
+                });
+        });
+
+        function displayEntries(entries) {
+            const container = document.getElementById('entries-container');
+            container.innerHTML = '';
+
+            for (const category in entries) {
+                for (const component in entries[category]) {
+                    for (const partName in entries[category][component]) {
+                        const entry = entries[category][component][partName];
+                        const entryDiv = document.createElement('div');
+                        entryDiv.classList.add('entry');
+                        entryDiv.innerHTML = `
+                        <label><strong>Category:</strong> <input type="text" class="category" value="${category}" readonly></label>
+                        <label><strong>Component:</strong> <input type="text" class="component" value="${component}" readonly></label>
+                        <label><strong>Part Name:</strong> <input type="text" class="partName" value="${partName}" readonly></label>
+                        <label><strong>Price:</strong> <input type="number" class="price" value="${entry.price}"></label>
+                        <label><strong>Actual Price:</strong> <input type="number" class="actualPrice" value="${entry.actualPrice || ''}"></label>
+
+                        <label><strong>Quantity:</strong> <input type="number" class="quantity" value="${entry.quantity}"></label>
+                        <button class="save-button">Save</button>
+                        <button class="delete-button">Delete</button>
+                        `;
+
+                        const saveButton = entryDiv.querySelector('.save-button');
+                        saveButton.addEventListener('click', () => saveEntry(entryDiv, category, component, partName));
+
+                        const deleteButton = entryDiv.querySelector('.delete-button');
+                        deleteButton.addEventListener('click', () => deleteEntry(category, component, partName, entryDiv));
+
+                        container.appendChild(entryDiv);
+                    }
+                }
+            }
+        }
+
+        function saveEntry(entryDiv, category, component, partName) {
+            const price = entryDiv.querySelector('.price').value;
+            const actualPrice = entryDiv.querySelector('.actualPrice').value;
+            const quantity = entryDiv.querySelector('.quantity').value;
+
+            const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
+            set(entryRef, { price, actualPrice, quantity })
+                .then(() => {
+                    console.log('Entry saved successfully');
+                })
+                .catch((error) => {
+                    console.error('Error saving entry:', error);
+                });
+        }
+
+        function deleteEntry(category, component, partName, entryDiv) {
+            const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
+            remove(entryRef)
+                .then(() => {
+                    console.log('Entry deleted successfully');
+                    entryDiv.remove();
+                })
+                .catch((error) => {
+                    console.error('Error deleting entry:', error);
+                });
+        }
+    </script>
+</body>
+
+</html>
