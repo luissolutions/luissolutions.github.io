@@ -20,7 +20,6 @@ const partSelector = document.getElementById('part-selector');
 const addLaborRowButton = document.getElementById('add-labor-row');
 const laborTableBody = document.querySelector('.labor-table tbody');
 
-
 function loadDatabase() {
     const partsRef = ref(database, 'Items');
 
@@ -39,6 +38,7 @@ function loadDatabase() {
                     option.value = partName;
                     option.textContent = partName;
                     option.dataset.price = part.price;
+                    option.dataset.actualPrice = part.actualPrice;
                     option.dataset.quantity = part.quantity;
                     option.dataset.category = category;
                     option.dataset.component = component;
@@ -106,6 +106,7 @@ function addPartRow(part) {
             <td>${part}</td>
             <td><input type="number" name="part-quantity" min="1" max="${availableQuantity}" value="1"></td>
             <td><input type="number" name="part-price" min="0" value="${price}" readonly></td>
+            <td><input type="number" name="part-actual-price" min="0" value="${actualPrice}" readonly class="actual-price-input"></td>
             <td><input type="number" name="part-total" min="0" value="${price}" readonly></td>
         `;
 
@@ -118,6 +119,8 @@ function addPartRow(part) {
 
         updateTotals();
     }
+    updatePriceDifference();
+
 }
 
 function updatePartRowTotal(row) {
@@ -132,6 +135,7 @@ function updatePartRowTotal(row) {
     totalInput.value = total.toFixed(2);
 
     updateTotals();
+    updatePriceDifference();
 }
 
 function addLaborRow() {
@@ -193,7 +197,7 @@ async function saveInvoice() {
 
             if (!selectedOption) {
                 console.error(`Error: Part ${partName} not found in part selector`);
-                continue; // Skip to the next iteration
+                continue;
             }
 
             const currentQuantity = parseInt(selectedOption.dataset.quantity, 10) || 0;
@@ -261,18 +265,27 @@ saveButton.addEventListener('click', async () => {
 });
 
 function updatePriceDifference() {
+    console.log('Updating price difference');
     let totalDifference = 0;
     const rows = partsTableBody.querySelectorAll('tr');
     rows.forEach(row => {
-        const price = parseFloat(row.querySelector('.price-input').value) || 0;
-        const actualPrice = parseFloat(row.querySelector('.actual-price-input').value) || 0;
+        const price = parseFloat(row.querySelector('input[name="part-price"]').value) || 0;
+        const actualPrice = parseFloat(row.querySelector('input[name="part-actual-price"]').value) || 0;
         totalDifference += (price - actualPrice);
     });
+    console.log('Total Price Difference:', totalDifference.toFixed(2));
     document.getElementById('price-difference').innerText = totalDifference.toFixed(2);
 }
-
 
 document.addEventListener('DOMContentLoaded', () => {
     loadDatabase();
     taxPercentInput.addEventListener('input', updateTotals);
+    updatePriceDifference();
+});
+
+document.addEventListener('input', function (event) {
+    if (event.target.classList.contains('actual-price-input')) {
+        console.log('Actual price input changed');
+        updatePriceDifference();
+    }
 });
