@@ -106,7 +106,7 @@ function addPartRow(part) {
             <td>${part}</td>
             <td><input type="number" name="part-quantity" min="1" max="${availableQuantity}" value="1"></td>
             <td><input type="number" name="part-price" min="0" value="${price}" readonly></td>
-            <td><input type="number" name="part-actual-price" min="0" value="${actualPrice}" readonly class="actual-price-input"></td>
+            <td style="display:none"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" readonly class="actual-price-input"></td>
             <td><input type="number" name="part-total" min="0" value="${price}" readonly></td>
         `;
 
@@ -119,23 +119,26 @@ function addPartRow(part) {
 
         updateTotals();
     }
-    updatePriceDifference();
-
+    updatePriceDifference();  // Update price difference after adding the new part row
+    updatePartRowTotal(newRow);  // Make sure to update the part row total for the new row
 }
 
 function updatePartRowTotal(row) {
     const quantityInput = row.querySelector('input[name="part-quantity"]');
     const priceInput = row.querySelector('input[name="part-price"]');
+    const actualPriceInput = row.querySelector('input[name="part-actual-price"]');
     const totalInput = row.querySelector('input[name="part-total"]');
 
     const quantity = parseInt(quantityInput.value) || 0;
     const price = parseFloat(priceInput.value) || 0;
+    const actualPrice = parseFloat(actualPriceInput.value) || 0;
     const total = quantity * price;
+    const totalActualPrice = quantity * actualPrice;
 
     totalInput.value = total.toFixed(2);
 
     updateTotals();
-    updatePriceDifference();
+    updatePriceDifference();  // Ensure that the price difference is updated when the part row total is updated
 }
 
 function addLaborRow() {
@@ -265,15 +268,18 @@ saveButton.addEventListener('click', async () => {
 });
 
 function updatePriceDifference() {
-    console.log('Updating price difference');
     let totalDifference = 0;
     const rows = partsTableBody.querySelectorAll('tr');
     rows.forEach(row => {
-        const price = parseFloat(row.querySelector('input[name="part-price"]').value) || 0;
-        const actualPrice = parseFloat(row.querySelector('input[name="part-actual-price"]').value) || 0;
-        totalDifference += (price - actualPrice);
+        const quantityInput = row.querySelector('input[name="part-quantity"]');
+        const priceInput = row.querySelector('input[name="part-price"]');
+        const actualPriceInput = row.querySelector('input[name="part-actual-price"]');
+        
+        const quantity = parseInt(quantityInput.value) || 0;
+        const price = parseFloat(priceInput.value) || 0;
+        const actualPrice = parseFloat(actualPriceInput.value) || 0;
+        totalDifference += (quantity * price) - (quantity * actualPrice);
     });
-    console.log('Total Price Difference:', totalDifference.toFixed(2));
     document.getElementById('price-difference').innerText = totalDifference.toFixed(2);
 }
 
