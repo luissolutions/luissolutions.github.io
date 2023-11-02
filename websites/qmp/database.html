@@ -8,6 +8,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Quote Database</title>
     <script src="js/script.js" defer></script>
+    <link rel="apple-touch-icon" sizes="180x180" href="img/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="img/favicon-16x16.png">
+    <link rel="manifest" href="site.webmanifest">
 </head>
 
 <body>
@@ -16,7 +20,7 @@
             <img src="img/logo.png" class="logo" alt="Logo">
             <input class="header-container" value="Quote Maker">
             <div class="dark-container">
-               <p class="dark-mode">dark mode</p>
+                <p class="dark-mode">dark mode</p>
                 <label class="switch">
                     <input type="checkbox" id="dark-mode-toggle">
                     <span class="slider round"></span>
@@ -34,6 +38,14 @@
     <main>
         <section class="entry">
             <div class="data">
+                <div class="padding">
+                    <label for="category-filter">Filter by Category:</label>
+                    <select id="category-filter">
+                        <option value="">All Categories</option>
+                        <!-- Dynamic categories will be added here -->
+                    </select>
+                </div>
+
                 <div class="padding">
                     <label for="category">Category:</label>
                     <input type="text" id="category" required>
@@ -82,12 +94,30 @@
         const database = getDatabase(app);
 
         function loadDatabaseEntries() {
+            loadAndDisplayEntries(); // No filterCategory passed, so it will show all by default
+
             const entriesRef = ref(database, 'Items');
             onValue(entriesRef, (snapshot) => {
                 const entries = snapshot.val();
-                displayEntries(entries);
+                updateCategoryFilter(entries); // new function to update categories
+                displayEntries(entries); // modify to include the selected category
             }, (error) => {
                 console.error("Error loading database entries:", error);
+            });
+        }
+
+        function updateCategoryFilter(entries) {
+            const categorySet = new Set(); // Use a Set to only store unique categories
+            for (const category in entries) {
+                categorySet.add(category);
+            }
+
+            const categoryFilter = document.getElementById('category-filter');
+            categorySet.forEach((category) => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.innerText = category;
+                categoryFilter.appendChild(option);
             });
         }
 
@@ -98,11 +128,11 @@
             const component = document.getElementById('component').value;
             const partName = document.getElementById('partName').value;
             const price = document.getElementById('price').value;
-            const actualPrice = document.getElementById('actualPrice').value; // Added this line
+            const actualPrice = document.getElementById('actualPrice').value;
             const quantity = document.getElementById('quantity').value;
 
             const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
-            set(entryRef, { price, actualPrice, quantity }) // Updated this line
+            set(entryRef, { price, actualPrice, quantity })
                 .then(() => {
                     console.log('Entry saved successfully');
                 })
@@ -111,11 +141,12 @@
                 });
         });
 
-        function displayEntries(entries) {
+        function displayEntries(entries, filterCategory = '') {
             const container = document.getElementById('entries-container');
             container.innerHTML = '';
 
             for (const category in entries) {
+                if (filterCategory && category !== filterCategory) continue; // skip if not the selected category
                 for (const component in entries[category]) {
                     for (const partName in entries[category][component]) {
                         const entry = entries[category][component][partName];
@@ -171,6 +202,23 @@
                     console.error('Error deleting entry:', error);
                 });
         }
+
+        document.getElementById('category-filter').addEventListener('change', (event) => {
+            const selectedCategory = event.target.value;
+            // Call a function to load entries and display with the filter applied.
+            loadAndDisplayEntries(selectedCategory);
+        });
+
+        function loadAndDisplayEntries(filterCategory) {
+            const entriesRef = ref(database, 'Items');
+            onValue(entriesRef, (snapshot) => {
+                const entries = snapshot.val();
+                displayEntries(entries, filterCategory);
+            }, (error) => {
+                console.error("Error loading database entries:", error);
+            });
+        }
+
     </script>
 </body>
 
