@@ -1,4 +1,3 @@
-// script.js
 const filterSwitch = document.getElementById('filter-switch');
 const content = document.querySelector('body');
 
@@ -21,3 +20,4 @@ filterSwitch.addEventListener('click', () => {
 
     localStorage.setItem('darkMode', isFilterActive.toString());
 });
+

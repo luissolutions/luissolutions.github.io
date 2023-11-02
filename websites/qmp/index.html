@@ -86,7 +86,7 @@
                         <tbody></tbody>
                     </table>
 
-                    <textarea class="notes" name="notes" id="" cols="30" rows="10"></textarea>
+                    <textarea class="notes" name="notes" id="notes" cols="30" rows="10"></textarea>
                 </div>
 
                 <div class="total">
@@ -103,6 +103,8 @@
     <footer>
         <button type="button" id="save-button" class="action-btn">Save Invoice</button>
         <button type="button" id="print-button" class="action-btn">Print Invoice</button>
+        <input type="file" id="import-file" accept=".json">
+
     </footer>
 
     <script type="module">
@@ -287,6 +289,8 @@
             const invoiceData = {
                 customerName: document.getElementById('customer-name').value,
                 customerAddress: document.getElementById('customer-address').value,
+                invoiceNumber: document.getElementById('invoice-number').value, // Include invoice-number
+                notes: document.getElementById('notes').value, // Include notes
                 invoiceDate: document.getElementById('invoice-date').value,
                 parts: [...partsTableBody.querySelectorAll('tr')].map(row => ({
                     part: row.querySelector('td').textContent.trim(),
@@ -394,6 +398,78 @@
                 totalDifference += (quantity * price) - (quantity * actualPrice);
             });
             document.getElementById('price-difference').innerText = totalDifference.toFixed(2);
+        }
+
+        const importFileInput = document.getElementById('import-file');
+
+        importFileInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+
+            if (file) {
+                try {
+                    const invoiceData = await readFileAsJSON(file);
+
+                    if (invoiceData) {
+                        document.getElementById('customer-name').value = invoiceData.customerName;
+                        document.getElementById('customer-address').value = invoiceData.customerAddress;
+                        document.getElementById('invoice-date').value = invoiceData.invoiceDate;
+                        document.getElementById('invoice-number').value = invoiceData.invoiceNumber;
+                        document.getElementById('notes').value = invoiceData.notes;
+
+                        const partsTableBody = document.querySelector('.parts-table tbody');
+                        partsTableBody.innerHTML = '';
+                        invoiceData.parts.forEach((part) => {
+                            const partName = part.part;
+                            if (!partsTableBody.querySelector(`[data-part="${partName}"]`)) {
+                                addPartRow(partName);
+                            }
+                            const newRow = partsTableBody.querySelector(`[data-part="${partName}"]`);
+                            newRow.querySelector('input[name="part-quantity"]').value = part.quantity;
+                            newRow.querySelector('input[name="part-price"]').value = part.price;
+                            updatePartRowTotal(newRow);
+                        });
+
+                        const laborTableBody = document.querySelector('.labor-table tbody');
+                        laborTableBody.innerHTML = '';
+                        invoiceData.labor.forEach((labor) => {
+                            addLaborRow();
+                            const newRow = document.querySelector('.labor-table tbody tr:last-child');
+                            newRow.querySelector('input[name="labor-description"]').value = labor.description;
+                            newRow.querySelector('input[name="labor-hours"]').value = labor.hours;
+                            newRow.querySelector('input[name="labor-rate"]').value = labor.rate;
+                            updateTotals();
+                        });
+
+                        document.getElementById('tax-percent').value = invoiceData.taxPercent;
+                        updateTotals();
+                    } else {
+                        console.error('Invalid JSON data in the imported file');
+                    }
+                } catch (error) {
+                    console.error('Error reading the imported file:', error);
+                }
+            }
+        });
+
+        function readFileAsJSON(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+
+                reader.onload = (event) => {
+                    try {
+                        const jsonData = JSON.parse(event.target.result);
+                        resolve(jsonData);
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+
+                reader.onerror = (event) => {
+                    reject(new Error('Error reading the file'));
+                };
+
+                reader.readAsText(file);
+            });
         }
 
         document.addEventListener('DOMContentLoaded', () => {
