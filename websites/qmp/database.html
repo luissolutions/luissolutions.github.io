@@ -2,12 +2,13 @@
 <html lang="en">
 
 <head>
-    <link rel="stylesheet" href="css/index.css">
+    <title>Quote Database</title>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quote Database</title>
     <script src="js/script.js" defer></script>
+    <script src="js/database.js" type="module" defer></script>
+    <link rel="stylesheet" href="css/index.css">
     <link rel="apple-touch-icon" sizes="180x180" href="img/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="img/favicon-16x16.png">
@@ -81,143 +82,6 @@
         </a>
     </footer>
 
-    <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
-        import { getDatabase, ref, onValue, set, remove } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
-
-        const appSettings = {
-            databaseURL: "https://inventory-54829-default-rtdb.firebaseio.com/"
-        };
-
-        const app = initializeApp(appSettings);
-        const database = getDatabase(app);
-
-        function loadDatabaseEntries() {
-            loadAndDisplayEntries();
-
-            const entriesRef = ref(database, 'Items');
-            onValue(entriesRef, (snapshot) => {
-                const entries = snapshot.val();
-                updateCategoryFilter(entries);
-                displayEntries(entries);
-            }, (error) => {
-                console.error("Error loading database entries:", error);
-            });
-        }
-
-        function updateCategoryFilter(entries) {
-            const categorySet = new Set();
-            for (const category in entries) {
-                categorySet.add(category);
-            }
-
-            const categoryFilter = document.getElementById('category-filter');
-            categorySet.forEach((category) => {
-                const option = document.createElement('option');
-                option.value = category;
-                option.innerText = category;
-                categoryFilter.appendChild(option);
-            });
-        }
-
-        loadDatabaseEntries();
-
-        document.getElementById('save-button').addEventListener('click', () => {
-            const category = document.getElementById('category').value;
-            const component = document.getElementById('component').value;
-            const partName = document.getElementById('partName').value;
-            const price = document.getElementById('price').value;
-            const actualPrice = document.getElementById('actualPrice').value;
-            const quantity = document.getElementById('quantity').value;
-
-            const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
-            set(entryRef, { price, actualPrice, quantity })
-                .then(() => {
-                    console.log('Entry saved successfully');
-                })
-                .catch((error) => {
-                    console.error('Error saving entry:', error);
-                });
-        });
-
-        function displayEntries(entries, filterCategory = '') {
-            const container = document.getElementById('entries-container');
-            container.innerHTML = '';
-
-            for (const category in entries) {
-                if (filterCategory && category !== filterCategory) continue;
-                for (const component in entries[category]) {
-                    for (const partName in entries[category][component]) {
-                        const entry = entries[category][component][partName];
-                        const entryDiv = document.createElement('div');
-                        entryDiv.classList.add('entry');
-                        entryDiv.innerHTML = `
-                        <label><strong>Category:</strong> <input type="text" class="category" value="${category}" readonly></label>
-                        <label><strong>Component:</strong> <input type="text" class="component" value="${component}" readonly></label>
-                        <label><strong>Part Name:</strong> <input type="text" class="partName" value="${partName}" readonly></label>
-                        <label><strong>Price:</strong> <input type="number" class="price" value="${entry.price}"></label>
-                        <label><strong>Actual Price:</strong> <input type="number" class="actualPrice" value="${entry.actualPrice || ''}"></label>
-
-                        <label><strong>Quantity:</strong> <input type="number" class="quantity" value="${entry.quantity}"></label>
-                        <button class="save-button">Save</button>
-                        <button class="delete-button">Delete</button>
-                        `;
-
-                        const saveButton = entryDiv.querySelector('.save-button');
-                        saveButton.addEventListener('click', () => saveEntry(entryDiv, category, component, partName));
-
-                        const deleteButton = entryDiv.querySelector('.delete-button');
-                        deleteButton.addEventListener('click', () => deleteEntry(category, component, partName, entryDiv));
-
-                        container.appendChild(entryDiv);
-                    }
-                }
-            }
-        }
-
-        function saveEntry(entryDiv, category, component, partName) {
-            const price = entryDiv.querySelector('.price').value;
-            const actualPrice = entryDiv.querySelector('.actualPrice').value;
-            const quantity = entryDiv.querySelector('.quantity').value;
-
-            const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
-            set(entryRef, { price, actualPrice, quantity })
-                .then(() => {
-                    console.log('Entry saved successfully');
-                })
-                .catch((error) => {
-                    console.error('Error saving entry:', error);
-                });
-        }
-
-        function deleteEntry(category, component, partName, entryDiv) {
-            const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
-            remove(entryRef)
-                .then(() => {
-                    console.log('Entry deleted successfully');
-                    entryDiv.remove();
-                })
-                .catch((error) => {
-                    console.error('Error deleting entry:', error);
-                });
-        }
-
-        document.getElementById('category-filter').addEventListener('change', (event) => {
-            const selectedCategory = event.target.value;
-            loadAndDisplayEntries(selectedCategory);
-        });
-
-        function loadAndDisplayEntries(filterCategory) {
-            const entriesRef = ref(database, 'Items');
-            onValue(entriesRef, (snapshot) => {
-                const entries = snapshot.val();
-                displayEntries(entries, filterCategory);
-            }, (error) => {
-                console.error("Error loading database entries:", error);
-            });
-        }
-
-    </script>
 </body>
 
 </html>
