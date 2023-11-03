@@ -28,6 +28,9 @@ function updateCategoryFilter(entries) {
     }
 
     const categoryFilter = document.getElementById('category-filter');
+
+    categoryFilter.innerHTML = '';
+
     categorySet.forEach((category) => {
         const option = document.createElement('option');
         option.value = category;
@@ -125,10 +128,6 @@ function saveEntry(entryDiv, oldCategory, oldComponent, oldPartName) {
         });
 }
 
-document.getElementById('category-filter').addEventListener('change', (event) => {
-    const selectedCategory = event.target.value;
-    loadAndDisplayEntries(selectedCategory);
-});
 
 function deleteEntry(category, component, partName, entryDiv) {
     const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
@@ -151,3 +150,8 @@ function loadAndDisplayEntries(filterCategory) {
         console.error("Error loading database entries:", error);
     });
 }
+
+document.getElementById('category-filter').addEventListener('change', (event) => {
+    const selectedCategory = event.target.value;
+    loadAndDisplayEntries(selectedCategory);
+});
