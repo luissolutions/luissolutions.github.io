@@ -2,7 +2,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebas
 import { getDatabase, ref, onValue, set, remove } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
 
 const appSettings = {
-    databaseURL: "https://inventory-54829-default-rtdb.firebaseio.com/"
+    databaseURL: "https://test-3d36b-default-rtdb.firebaseio.com/"
 };
 
 const app = initializeApp(appSettings);
@@ -41,7 +41,7 @@ function updateCategoryFilter(entries) {
 
 loadDatabaseEntries();
 
-document.getElementById('save-button').addEventListener('click', () => {
+document.getElementById('save-data-button').addEventListener('click', () => {
     const category = document.getElementById('category').value;
     const component = document.getElementById('component').value;
     const partName = document.getElementById('partName').value;
