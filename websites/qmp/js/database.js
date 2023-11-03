@@ -68,12 +68,11 @@ function displayEntries(entries, filterCategory = '') {
                 const entryDiv = document.createElement('div');
                 entryDiv.classList.add('entry');
                 entryDiv.innerHTML = `
-                <label><strong>Category:</strong> <input type="text" class="category" value="${category}" readonly></label>
-                <label><strong>Component:</strong> <input type="text" class="component" value="${component}" readonly></label>
-                <label><strong>Part Name:</strong> <input type="text" class="partName" value="${partName}" readonly></label>
+                <label><strong>Category:</strong> <input type="text" class="category" value="${category}"></label>
+                <label><strong>Component:</strong> <input type="text" class="component" value="${component}"></label>
+                <label><strong>Part Name:</strong> <input type="text" class="partName" value="${partName}"></label>
                 <label><strong>Price:</strong> <input type="number" class="price" value="${entry.price}"></label>
                 <label><strong>Actual Price:</strong> <input type="number" class="actualPrice" value="${entry.actualPrice || ''}"></label>
-
                 <label><strong>Quantity:</strong> <input type="number" class="quantity" value="${entry.quantity}"></label>
                 <button class="save-button">Save</button>
                 <button class="delete-button">Delete</button>
@@ -91,20 +90,45 @@ function displayEntries(entries, filterCategory = '') {
     }
 }
 
-function saveEntry(entryDiv, category, component, partName) {
+function saveEntry(entryDiv, oldCategory, oldComponent, oldPartName) {
+    const categoryInput = entryDiv.querySelector('.category');
+    const componentInput = entryDiv.querySelector('.component');
+    const partNameInput = entryDiv.querySelector('.partName');
     const price = entryDiv.querySelector('.price').value;
     const actualPrice = entryDiv.querySelector('.actualPrice').value;
     const quantity = entryDiv.querySelector('.quantity').value;
 
-    const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
+    const newCategory = categoryInput.value;
+    const newComponent = componentInput.value;
+    const newPartName = partNameInput.value;
+
+    const entryRef = ref(database, `Items/${newCategory}/${newComponent}/${newPartName}`);
+    const oldEntryRef = ref(database, `Items/${oldCategory}/${oldComponent}/${oldPartName}`);
+
     set(entryRef, { price, actualPrice, quantity })
         .then(() => {
             console.log('Entry saved successfully');
+            // Check if the category, component, or partName has changed
+            if (
+                newCategory !== oldCategory ||
+                newComponent !== oldComponent ||
+                newPartName !== oldPartName
+            ) {
+                // Delete the old entry if any of the key fields have changed
+                remove(oldEntryRef).catch((error) => {
+                    console.error('Error deleting old entry:', error);
+                });
+            }
         })
         .catch((error) => {
             console.error('Error saving entry:', error);
         });
 }
+
+document.getElementById('category-filter').addEventListener('change', (event) => {
+    const selectedCategory = event.target.value;
+    loadAndDisplayEntries(selectedCategory);
+});
 
 function deleteEntry(category, component, partName, entryDiv) {
     const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
@@ -117,11 +141,6 @@ function deleteEntry(category, component, partName, entryDiv) {
             console.error('Error deleting entry:', error);
         });
 }
-
-document.getElementById('category-filter').addEventListener('change', (event) => {
-    const selectedCategory = event.target.value;
-    loadAndDisplayEntries(selectedCategory);
-});
 
 function loadAndDisplayEntries(filterCategory) {
     const entriesRef = ref(database, 'Items');
