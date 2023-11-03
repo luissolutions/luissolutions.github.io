@@ -69,7 +69,7 @@ function displayEntries(entries, filterCategory = '') {
             for (const partName in entries[category][component]) {
                 const entry = entries[category][component][partName];
                 const entryDiv = document.createElement('div');
-                entryDiv.classList.add('entry');
+                entryDiv.classList.add('data');
                 entryDiv.innerHTML = `
                 <label><strong>Category:</strong> <input type="text" class="category" value="${category}"></label>
                 <label><strong>Component:</strong> <input type="text" class="component" value="${component}"></label>
