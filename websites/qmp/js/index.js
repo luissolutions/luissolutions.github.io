@@ -459,7 +459,7 @@ document.getElementById('remaining').addEventListener('change', function () {
     var remainingDiv = document.querySelector('.remaining');
 
     if (this.checked) {
-        remainingDiv.style.display = 'block';
+        remainingDiv.style.display = 'flex';
     } else {
         remainingDiv.style.display = 'none';
     }
