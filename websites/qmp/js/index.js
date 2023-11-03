@@ -409,6 +409,12 @@ importFileInput.addEventListener('change', async (event) => {
                     newRow.querySelector('input[name="labor-description"]').value = labor.description;
                     newRow.querySelector('input[name="labor-hours"]').value = labor.hours;
                     newRow.querySelector('input[name="labor-rate"]').value = labor.rate;
+
+                    const hoursInput = newRow.querySelector('input[name="labor-hours"]');
+                    const rateInput = newRow.querySelector('input[name="labor-rate"]');
+                    const totalInput = newRow.querySelector('input[name="labor-total"]');
+                    updateLaborTotal(hoursInput, rateInput, totalInput);
+
                     updateTotals();
                 });
 
@@ -422,6 +428,18 @@ importFileInput.addEventListener('change', async (event) => {
         }
     }
 });
+
+function updateRemainingBalance() {
+    const amountPaidInput = document.getElementById('amount-paid');
+    const remainingBalanceSpan = document.getElementById('remaining-balance');
+    const totalInput = document.getElementById('total');
+
+    const amountPaid = parseFloat(amountPaidInput.value) || 0;
+    const total = parseFloat(totalInput.value) || 0;
+    const remainingBalance = total - amountPaid;
+
+    remainingBalanceSpan.textContent = remainingBalance.toFixed(2);
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     loadDatabase();
@@ -459,7 +477,6 @@ document.getElementById('invoice-date').addEventListener('input', saveDataToLoca
 document.getElementById('invoice-number').addEventListener('input', saveDataToLocalStorage);
 document.getElementById('notes').addEventListener('input', saveDataToLocalStorage);
 
-
 document.addEventListener('DOMContentLoaded', () => {
     loadDatabase();
     taxPercentInput.addEventListener('input', updateTotals);
@@ -469,3 +486,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 document.getElementById('clear-button').addEventListener('click', clearInvoice);
+
+document.getElementById('amount-paid').addEventListener('input', updateRemainingBalance);
+
+updateRemainingBalance();
