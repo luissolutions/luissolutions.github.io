@@ -1,9 +1,9 @@
 
 function toggleMenu() {
-  const navBar = document.querySelector(".nav-bar");
+  const navBar = document.querySelector("nav");
   navBar.classList.toggle("active");
 
-  const dropdownLinks = document.querySelectorAll(".nav-bar a");
+  const dropdownLinks = document.querySelectorAll("nav a");
   dropdownLinks.forEach(link => {
     link.addEventListener('click', () => {
       navBar.classList.remove('active');
