@@ -182,6 +182,8 @@ function updateLaborTotal(hoursInput, rateInput, totalInput) {
 async function saveInvoice() {
     const invoiceData = {
         customerName: document.getElementById('customer-name').value,
+        customerPhone: document.getElementById('customer-phone').value,
+        customerEmail: document.getElementById('customer-email').value,
         customerAddress: document.getElementById('customer-address').value,
         invoiceNumber: document.getElementById('invoice-number').value,
         notes: document.getElementById('notes').value,
@@ -309,6 +311,8 @@ function readFileAsJSON(file) {
 function saveDataToLocalStorage() {
     const inputData = {
         customerName: document.getElementById('customer-name').value,
+        customerPhone: document.getElementById('customer-phone').value,
+        customerEmail: document.getElementById('customer-email').value,
         customerAddress: document.getElementById('customer-address').value,
         invoiceDate: document.getElementById('invoice-date').value,
         invoiceNumber: document.getElementById('invoice-number').value,
@@ -324,6 +328,8 @@ function loadDataFromLocalStorage() {
         const inputData = JSON.parse(savedData);
 
         document.getElementById('customer-name').value = inputData.customerName || '';
+        document.getElementById('customer-phone').value = inputData.customerPhone || '';
+        document.getElementById('customer-email').value = inputData.customerEmail || '';
         document.getElementById('customer-address').value = inputData.customerAddress || '';
         document.getElementById('invoice-date').value = inputData.invoiceDate || '';
         document.getElementById('invoice-number').value = inputData.invoiceNumber || '';
@@ -334,6 +340,8 @@ function loadDataFromLocalStorage() {
 function clearInvoice() {
     const inputElements = [
         'customer-name',
+        'customer-phone',
+        'customer-email',
         'customer-address',
         'invoice-date',
         'invoice-number',
@@ -383,6 +391,8 @@ importFileInput.addEventListener('change', async (event) => {
 
             if (invoiceData) {
                 document.getElementById('customer-name').value = invoiceData.customerName;
+                document.getElementById('customer-phone').value = invoiceData.customerPhone;
+                document.getElementById('customer-email').value = invoiceData.customerEmail;
                 document.getElementById('customer-address').value = invoiceData.customerAddress;
                 document.getElementById('invoice-date').value = invoiceData.invoiceDate;
                 document.getElementById('invoice-number').value = invoiceData.invoiceNumber;
