@@ -183,8 +183,8 @@ async function saveInvoice() {
     const invoiceData = {
         customerName: document.getElementById('customer-name').value,
         customerAddress: document.getElementById('customer-address').value,
-        invoiceNumber: document.getElementById('invoice-number').value, // Include invoice-number
-        notes: document.getElementById('notes').value, // Include notes
+        invoiceNumber: document.getElementById('invoice-number').value,
+        notes: document.getElementById('notes').value,
         invoiceDate: document.getElementById('invoice-date').value,
         parts: [...partsTableBody.querySelectorAll('tr')].map(row => ({
             part: row.querySelector('td').textContent.trim(),

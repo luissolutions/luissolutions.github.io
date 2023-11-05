@@ -52,3 +52,20 @@ document.addEventListener('dblclick', (event) => {
         }
     }
 });
+
+
+
+
+
+// Get all checkboxes with the class "hide-parent-checkbox"
+const hideParentCheckboxes = document.querySelectorAll('.hide-parent-checkbox');
+
+// Add event listeners to each checkbox
+hideParentCheckboxes.forEach(checkbox => {
+    checkbox.addEventListener('change', () => {
+        const parentDiv = checkbox.closest('div');
+        if (parentDiv) {
+            parentDiv.style.display = checkbox.checked ? 'none' : 'block';
+        }
+    });
+});
