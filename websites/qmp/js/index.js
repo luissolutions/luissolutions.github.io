@@ -1,5 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
-import { getDatabase, ref, onValue, set, update, remove } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
+import { getDatabase, ref, onValue, update } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
 
 const appSettings = {
     databaseURL: "https://test-3d36b-default-rtdb.firebaseio.com/"
@@ -20,19 +20,22 @@ const partSelector = document.getElementById('part-selector');
 const addLaborRowButton = document.getElementById('add-labor-row');
 const laborTableBody = document.querySelector('.labor-table tbody');
 const importFileInput = document.getElementById('import-file');
+const remainingCheckbox = document.getElementById('remaining');
+const remainingDiv = document.querySelector('.remaining');
+const amountPaidInput = document.getElementById('amount-paid');
+const remainingBalanceSpan = document.getElementById('remaining-balance');
 
 function loadDatabase() {
     const partsRef = ref(database, 'Items');
 
     onValue(partsRef, (snapshot) => {
-        const items = snapshot.val(); // Retrieved items from the database
-        const categories = Object.keys(items); // Extract the categories
-        partCategory.innerHTML = ''; // Clear existing options
+        const items = snapshot.val();
+        const categories = Object.keys(items);
+
+        partCategory.innerHTML = '';
 
         categories.forEach(category => {
-            const option = document.createElement('option');
-            option.value = category;
-            option.textContent = category;
+            const option = createOptionElement(category, category);
             partCategory.appendChild(option);
         });
 
@@ -47,6 +50,13 @@ function loadDatabase() {
     });
 }
 
+function createOptionElement(value, text) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = text;
+    return option;
+}
+
 function updatePartSelector(selectedCategory, components) {
     partSelector.innerHTML = '';
 
@@ -54,9 +64,7 @@ function updatePartSelector(selectedCategory, components) {
     for (const component in parts) {
         for (const partName in parts[component]) {
             const part = parts[component][partName];
-            const option = document.createElement('option');
-            option.value = partName;
-            option.textContent = partName;
+            const option = createOptionElement(partName, partName);
             option.dataset.price = part.price;
             option.dataset.actualPrice = part.actualPrice;
             option.dataset.quantity = part.quantity;
@@ -141,6 +149,7 @@ function addPartRow(part) {
         updateTotals();
     }
     updatePriceDifference();
+    updateRemainingBalance();
 }
 
 function updatePartRowTotal(row) {
@@ -158,6 +167,7 @@ function updatePartRowTotal(row) {
 
     updateTotals();
     updatePriceDifference();
+    updateRemainingBalance();
 }
 
 function addLaborRow() {
@@ -190,6 +200,35 @@ function updateLaborTotal(hoursInput, rateInput, totalInput) {
     const total = hours * rate;
     totalInput.value = total.toFixed(2);
     updateTotals();
+    updateRemainingBalance();
+}
+
+function updatePriceDifference() {
+    let totalDifference = 0;
+    const rows = partsTableBody.querySelectorAll('tr');
+    rows.forEach(row => {
+        const quantityInput = row.querySelector('input[name="part-quantity"]');
+        const priceInput = row.querySelector('input[name="part-price"]');
+        const actualPriceInput = row.querySelector('input[name="part-actual-price"]');
+
+        const quantity = parseInt(quantityInput.value) || 0;
+        const price = parseFloat(priceInput.value) || 0;
+        const actualPrice = parseFloat(actualPriceInput.value) || 0;
+        totalDifference += (quantity * price) - (quantity * actualPrice);
+    });
+    document.getElementById('price-difference').innerText = totalDifference.toFixed(2);
+}
+
+function updateRemainingBalance() {
+    const amountPaid = parseFloat(amountPaidInput.value) || 0;
+    const total = parseFloat(totalInput.value) || 0;
+    const remainingBalance = total - amountPaid;
+    remainingBalanceSpan.textContent = remainingBalance.toFixed(2);
+}
+
+async function updatePartQuantityInDatabase(category, component, partName, newQuantity) {
+    const partsRef = ref(database, `Items/${category}/${component}/${partName}`);
+    await update(partsRef, { quantity: newQuantity });
 }
 
 async function saveInvoice() {
@@ -257,11 +296,6 @@ async function saveInvoice() {
     }
 }
 
-async function updatePartQuantityInDatabase(category, component, partName, newQuantity) {
-    const partsRef = ref(database, `Items/${category}/${component}/${partName}`);
-    await update(partsRef, { quantity: newQuantity });
-}
-
 function downloadObjectAsJson(exportObj, exportName) {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj));
     const downloadAnchorNode = document.createElement('a');
@@ -270,22 +304,6 @@ function downloadObjectAsJson(exportObj, exportName) {
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
-}
-
-function updatePriceDifference() {
-    let totalDifference = 0;
-    const rows = partsTableBody.querySelectorAll('tr');
-    rows.forEach(row => {
-        const quantityInput = row.querySelector('input[name="part-quantity"]');
-        const priceInput = row.querySelector('input[name="part-price"]');
-        const actualPriceInput = row.querySelector('input[name="part-actual-price"]');
-
-        const quantity = parseInt(quantityInput.value) || 0;
-        const price = parseFloat(priceInput.value) || 0;
-        const actualPrice = parseFloat(actualPriceInput.value) || 0;
-        totalDifference += (quantity * price) - (quantity * actualPrice);
-    });
-    document.getElementById('price-difference').innerText = totalDifference.toFixed(2);
 }
 
 function readFileAsJSON(file) {
@@ -309,18 +327,6 @@ function readFileAsJSON(file) {
     });
 }
 
-function updateRemainingBalance() {
-    const amountPaidInput = document.getElementById('amount-paid');
-    const remainingBalanceSpan = document.getElementById('remaining-balance');
-    const totalInput = document.getElementById('total');
-
-    const amountPaid = parseFloat(amountPaidInput.value) || 0;
-    const total = parseFloat(totalInput.value) || 0;
-    const remainingBalance = total - amountPaid;
-
-    remainingBalanceSpan.textContent = remainingBalance.toFixed(2);
-}
-
 addPartRowButton.addEventListener('click', () => {
     const selectedPart = partSelector.value;
     if (selectedPart) {
@@ -328,14 +334,14 @@ addPartRowButton.addEventListener('click', () => {
     }
 });
 
+addLaborRowButton.addEventListener('click', addLaborRow);
+
 saveButton.addEventListener('click', async () => {
     const invoiceData = await saveInvoice();
     if (invoiceData) {
         downloadObjectAsJson(invoiceData, 'invoice');
     }
 });
-
-addLaborRowButton.addEventListener('click', addLaborRow);
 
 importFileInput.addEventListener('change', async (event) => {
     const file = event.target.files[0];
@@ -394,12 +400,6 @@ importFileInput.addEventListener('change', async (event) => {
     }
 });
 
-document.addEventListener('DOMContentLoaded', () => {
-    loadDatabase();
-    taxPercentInput.addEventListener('input', updateTotals);
-    updatePriceDifference();
-});
-
 document.addEventListener('input', function (event) {
     if (event.target.classList.contains('actual-price-input') || event.target.classList.contains('part-price-input')) {
         console.log('Part price input or actual price input changed');
@@ -408,21 +408,13 @@ document.addEventListener('input', function (event) {
     }
 });
 
-document.getElementById('remaining').addEventListener('change', function () {
-    var remainingDiv = document.querySelector('.remaining');
-
-    if (this.checked) {
-        remainingDiv.style.display = 'flex';
-    } else {
-        remainingDiv.style.display = 'none';
-    }
+remainingCheckbox.addEventListener('change', function () {
+    remainingDiv.style.display = this.checked ? 'block' : 'none';
 });
 
-window.onload = function () {
-    var checkbox = document.getElementById('remaining');
-    var remainingDiv = document.querySelector('.remaining');
-    remainingDiv.style.display = checkbox.checked ? 'block' : 'none';
-}
+amountPaidInput.addEventListener('input', updateRemainingBalance);
+
+remainingBalanceSpan.textContent = '0.00';
 
 document.addEventListener('DOMContentLoaded', () => {
     loadDatabase();
@@ -430,6 +422,12 @@ document.addEventListener('DOMContentLoaded', () => {
     updatePriceDifference();
 });
 
-document.getElementById('amount-paid').addEventListener('input', updateRemainingBalance);
+document.addEventListener('DOMContentLoaded', () => {
+    loadDatabase();
+    taxPercentInput.addEventListener('input', updateTotals);
+});
 
-updateRemainingBalance();
+taxPercentInput.addEventListener('input', () => {
+    updateTotals();
+    updateRemainingBalance();
+});
