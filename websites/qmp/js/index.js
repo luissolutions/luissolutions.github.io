@@ -15,7 +15,7 @@ const taxInput = document.getElementById('tax');
 const totalInput = document.getElementById('total');
 const addPartRowButton = document.getElementById('add-part-row');
 const saveButton = document.getElementById('save-button');
-const printButton = document.getElementById('print-button');
+const partCategory = document.getElementById('part-category');
 const partSelector = document.getElementById('part-selector');
 const addLaborRowButton = document.getElementById('add-labor-row');
 const laborTableBody = document.querySelector('.labor-table tbody');
@@ -25,34 +25,47 @@ function loadDatabase() {
     const partsRef = ref(database, 'Items');
 
     onValue(partsRef, (snapshot) => {
-        const items = snapshot.val();
+        const items = snapshot.val(); // Retrieved items from the database
+        const categories = Object.keys(items); // Extract the categories
+        partCategory.innerHTML = ''; // Clear existing options
 
-        partSelector.innerHTML = '';
+        categories.forEach(category => {
+            const option = document.createElement('option');
+            option.value = category;
+            option.textContent = category;
+            partCategory.appendChild(option);
+        });
 
-        for (const category in items) {
-            const components = items[category];
-            for (const component in components) {
-                const parts = components[component];
-                for (const partName in parts) {
-                    const part = parts[partName];
-                    const option = document.createElement('option');
-                    option.value = partName;
-                    option.textContent = partName;
-                    option.dataset.price = part.price;
-                    option.dataset.actualPrice = part.actualPrice;
-                    option.dataset.quantity = part.quantity;
-                    option.dataset.category = category;
-                    option.dataset.component = component;
+        updatePartSelector(partCategory.value, items[partCategory.value]);
 
-                    partSelector.appendChild(option);
-                }
-            }
-        }
+        partCategory.addEventListener('change', (event) => {
+            updatePartSelector(event.target.value, items[event.target.value]);
+        });
 
     }, (error) => {
         console.error("Error loading parts database:", error);
-        updateLaborTotal(hoursInput, rateInput, totalInput);
     });
+}
+
+function updatePartSelector(selectedCategory, components) {
+    partSelector.innerHTML = '';
+
+    const parts = components;
+    for (const component in parts) {
+        for (const partName in parts[component]) {
+            const part = parts[component][partName];
+            const option = document.createElement('option');
+            option.value = partName;
+            option.textContent = partName;
+            option.dataset.price = part.price;
+            option.dataset.actualPrice = part.actualPrice;
+            option.dataset.quantity = part.quantity;
+            option.dataset.category = selectedCategory;
+            option.dataset.component = component;
+
+            partSelector.appendChild(option);
+        }
+    }
 }
 
 function updateTotals() {
@@ -229,11 +242,10 @@ async function saveInvoice() {
             const component = selectedOption.dataset.component;
             await updatePartQuantityInDatabase(category, component, partName, newQuantity);
 
-            // Optionally remove the option from the selector if the quantity is now 0
             if (newQuantity === 0) {
                 selectedOption.remove();
             } else {
-                selectedOption.dataset.quantity = newQuantity; // Update quantity in the selector
+                selectedOption.dataset.quantity = newQuantity;
             }
         }
 
@@ -248,17 +260,6 @@ async function saveInvoice() {
 async function updatePartQuantityInDatabase(category, component, partName, newQuantity) {
     const partsRef = ref(database, `Items/${category}/${component}/${partName}`);
     await update(partsRef, { quantity: newQuantity });
-}
-
-addPartRowButton.addEventListener('click', () => {
-    const selectedPart = partSelector.value;
-    if (selectedPart) {
-        addPartRow(selectedPart);
-    }
-});
-
-function printInvoice() {
-    window.print();
 }
 
 function downloadObjectAsJson(exportObj, exportName) {
@@ -308,70 +309,24 @@ function readFileAsJSON(file) {
     });
 }
 
-function saveDataToLocalStorage() {
-    const inputData = {
-        customerName: document.getElementById('customer-name').value,
-        customerPhone: document.getElementById('customer-phone').value,
-        customerEmail: document.getElementById('customer-email').value,
-        customerAddress: document.getElementById('customer-address').value,
-        invoiceDate: document.getElementById('invoice-date').value,
-        invoiceNumber: document.getElementById('invoice-number').value,
-        notes: document.getElementById('notes').value,
-    };
+function updateRemainingBalance() {
+    const amountPaidInput = document.getElementById('amount-paid');
+    const remainingBalanceSpan = document.getElementById('remaining-balance');
+    const totalInput = document.getElementById('total');
 
-    localStorage.setItem('inputData', JSON.stringify(inputData));
+    const amountPaid = parseFloat(amountPaidInput.value) || 0;
+    const total = parseFloat(totalInput.value) || 0;
+    const remainingBalance = total - amountPaid;
+
+    remainingBalanceSpan.textContent = remainingBalance.toFixed(2);
 }
 
-function loadDataFromLocalStorage() {
-    const savedData = localStorage.getItem('inputData');
-    if (savedData) {
-        const inputData = JSON.parse(savedData);
-
-        document.getElementById('customer-name').value = inputData.customerName || '';
-        document.getElementById('customer-phone').value = inputData.customerPhone || '';
-        document.getElementById('customer-email').value = inputData.customerEmail || '';
-        document.getElementById('customer-address').value = inputData.customerAddress || '';
-        document.getElementById('invoice-date').value = inputData.invoiceDate || '';
-        document.getElementById('invoice-number').value = inputData.invoiceNumber || '';
-        document.getElementById('notes').value = inputData.notes || '';
+addPartRowButton.addEventListener('click', () => {
+    const selectedPart = partSelector.value;
+    if (selectedPart) {
+        addPartRow(selectedPart);
     }
-}
-
-function clearInvoice() {
-    const inputElements = [
-        'customer-name',
-        'customer-phone',
-        'customer-email',
-        'customer-address',
-        'invoice-date',
-        'invoice-number',
-        'notes'
-    ];
-
-    inputElements.forEach((elementId) => {
-        document.getElementById(elementId).value = '';
-    });
-
-    const partsTableBody = document.querySelector('.parts-table tbody');
-    partsTableBody.innerHTML = '';
-
-    const laborTableBody = document.querySelector('.labor-table tbody');
-    laborTableBody.innerHTML = '';
-
-    document.getElementById('subtotal').value = '';
-    document.getElementById('tax-percent').value = '';
-    document.getElementById('tax').value = '';
-    document.getElementById('total').value = '';
-
-    document.getElementById('remaining').checked = false;
-    document.querySelector('.remaining').style.display = 'none';
-
-    document.getElementById('price-difference').innerText = '';
-
-    localStorage.removeItem('inputData');
-}
-
-printButton.addEventListener('click', printInvoice);
+});
 
 saveButton.addEventListener('click', async () => {
     const invoiceData = await saveInvoice();
@@ -439,18 +394,6 @@ importFileInput.addEventListener('change', async (event) => {
     }
 });
 
-function updateRemainingBalance() {
-    const amountPaidInput = document.getElementById('amount-paid');
-    const remainingBalanceSpan = document.getElementById('remaining-balance');
-    const totalInput = document.getElementById('total');
-
-    const amountPaid = parseFloat(amountPaidInput.value) || 0;
-    const total = parseFloat(totalInput.value) || 0;
-    const remainingBalance = total - amountPaid;
-
-    remainingBalanceSpan.textContent = remainingBalance.toFixed(2);
-}
-
 document.addEventListener('DOMContentLoaded', () => {
     loadDatabase();
     taxPercentInput.addEventListener('input', updateTotals);
@@ -481,21 +424,11 @@ window.onload = function () {
     remainingDiv.style.display = checkbox.checked ? 'block' : 'none';
 }
 
-document.getElementById('customer-name').addEventListener('input', saveDataToLocalStorage);
-document.getElementById('customer-address').addEventListener('input', saveDataToLocalStorage);
-document.getElementById('invoice-date').addEventListener('input', saveDataToLocalStorage);
-document.getElementById('invoice-number').addEventListener('input', saveDataToLocalStorage);
-document.getElementById('notes').addEventListener('input', saveDataToLocalStorage);
-
 document.addEventListener('DOMContentLoaded', () => {
     loadDatabase();
     taxPercentInput.addEventListener('input', updateTotals);
     updatePriceDifference();
-
-    loadDataFromLocalStorage();
 });
-
-document.getElementById('clear-button').addEventListener('click', clearInvoice);
 
 document.getElementById('amount-paid').addEventListener('input', updateRemainingBalance);
 

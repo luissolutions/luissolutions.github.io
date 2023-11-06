@@ -1,3 +1,4 @@
+//Dark Mode
 const content = document.querySelector('body');
 const darkModeToggle = document.getElementById('dark-mode-toggle');
 
@@ -22,14 +23,3 @@ darkModeToggle.addEventListener('change', () => {
 
     localStorage.setItem('darkMode', isDarkModeEnabled.toString());
 }); 
-
-const hideParentCheckboxes = document.querySelectorAll('.hide-parent-checkbox');
-
-hideParentCheckboxes.forEach(checkbox => {
-    checkbox.addEventListener('change', () => {
-        const parentDiv = checkbox.closest('div');
-        if (parentDiv) {
-            parentDiv.style.display = checkbox.checked ? 'none' : 'block';
-        }
-    });
-});
