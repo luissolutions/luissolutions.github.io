@@ -227,6 +227,20 @@ const handlers = {
       // Save the selected theme to localStorage
       localStorage.setItem('theme', theme);
     });
+
+    const stylesheetInput = document.getElementById('stylesheet-input');
+    const stylesheetLink = document.getElementById('stylesheet');
+
+    stylesheetInput.addEventListener('input', () => {
+        const fileName = stylesheetInput.value.trim();
+        if (fileName) {
+            // Add .css extension if not present
+            const cssFileName = fileName.endsWith('.css') ? fileName : `${fileName}.css`;
+            stylesheetLink.href = cssFileName;
+        } else {
+            stylesheetLink.href = 'assets/css/classic-styles.css';
+        }
+    });
   },
   'apps.html': function () {
     var appNames = [

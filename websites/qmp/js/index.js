@@ -126,7 +126,7 @@ function addPartRow(part) {
         newRow.dataset.part = part;
 
         newRow.innerHTML = `
-            <td>${part}</td>
+            <td id="populated-part">${part}</td>
             <td><input type="number" name="part-quantity" min="1" max="${availableQuantity}" value="1"></td>
             <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
             <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
@@ -413,8 +413,6 @@ remainingCheckbox.addEventListener('change', function () {
 });
 
 amountPaidInput.addEventListener('input', updateRemainingBalance);
-
-remainingBalanceSpan.textContent = '0.00';
 
 document.addEventListener('DOMContentLoaded', () => {
     loadDatabase();
