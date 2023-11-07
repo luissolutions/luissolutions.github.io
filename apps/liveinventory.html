@@ -82,6 +82,10 @@
         .radios input {
             margin-left: 15px;
         }
+
+        #unfinished {
+            display: none;
+        }
     </style>
 </head>
 
@@ -94,9 +98,7 @@
                 <div>
                     <label for="category">Select Category:</label>
                 </div>
-                <div class="radios" id="categoryRadios">
-                    <!-- Radios will be appended here -->
-                </div>
+                <div class="radios" id="categoryRadios"></div>
                 <br>
                 <div class="image-container">
                     <label for="selectionImage">Selection Image:</label>
@@ -110,7 +112,7 @@
                 <br>
                 <div id="itemOptions"></div>
 
-                <h3>Total Amount: <span id="totalAmount">0</span></h3>
+                <h3 id="unfinished">Total Amount: <span id="totalAmount">0</span></h3>
             </div>
         </section>
         <form id="dataModifyForm">
@@ -123,8 +125,14 @@
             <label for="itemInput">Item:</label>
             <input type="text" id="itemInput">
 
-            <label for="amountInput">Amount:</label>
+            <label for="amountInput">Quantity:</label>
             <input type="number" id="amountInput">
+
+            <label for="actualPriceInput">Paid:</label>
+            <input type="number" step=".01" id="actualPriceInput">
+
+            <label for="priceInput">Sell:</label>
+            <input type="number" step=".01" id="priceInput">
 
             <button type="button" id="clearButton">Clear</button>
             <br>
@@ -247,83 +255,100 @@
                     itemOptions.innerHTML = '';
                     const items = Object.keys(itemData).sort();
 
-                    items.forEach((item) => {
-                        const itemQuantity = itemData[item].quantity; // Access the quantity field
+                    items.forEach((itemName) => {
+                        const itemDetails = itemData[itemName];
+                        const itemQuantity = itemDetails.quantity;
+                        const itemPrice = itemDetails.price;
+                        const itemActualPrice = itemDetails.actualPrice;
 
-                        // Create a div to contain the checkbox, image, and label
                         const itemDiv = document.createElement('div');
                         itemDiv.classList.add('item-container');
 
                         const itemCheckbox = document.createElement('input');
                         itemCheckbox.type = 'checkbox';
-                        itemCheckbox.dataset.amount = itemQuantity; // Use the quantity as the dataset
+                        itemCheckbox.dataset.amount = itemQuantity;
+                        itemCheckbox.dataset.price = itemPrice;
+                        itemCheckbox.dataset.actualPrice = itemActualPrice;
 
-                        // Listen for changes on checkbox to update the total amount
                         itemCheckbox.addEventListener('change', updateTotalAmount);
 
                         const itemImg = document.createElement('img');
-                        itemImg.src = `../websites/kamehouse/img/${item}.png`;
-                        itemImg.alt = item;
+                        itemImg.src = `../websites/kamehouse/img/${itemName}.png`;
+                        itemImg.alt = itemName;
                         itemImg.width = 50;
                         itemImg.onerror = () => {
                             itemImg.src = defaultImageSrc;
                         };
                         itemImg.classList.add('item-image');
 
-                        // Add the elements to the item div
                         itemDiv.appendChild(itemCheckbox);
                         itemDiv.appendChild(itemImg);
-                        itemDiv.appendChild(document.createTextNode(`${item} - Quantity: ${itemQuantity}`));
+                        itemDiv.appendChild(document.createTextNode(`${itemName} - Quantity: ${itemQuantity}, Price: $${itemPrice}, Paid: $${itemActualPrice}`));
 
-                        // Add the item div to the options container
                         itemOptions.appendChild(itemDiv);
 
-                        // Event listener on itemDiv
                         itemDiv.addEventListener('click', (event) => {
                             if (event.target.classList.contains('item-image')) {
                                 showImageModal(event.target.src);
-                                event.stopPropagation();  // prevent the event from bubbling up to other elements
+                                event.stopPropagation();
                             }
                         });
+
+                        if (itemCheckbox.checked) {
+                            document.getElementById('priceInput').value = itemPrice;
+                            document.getElementById('actualPriceInput').value = itemActualPrice;
+                        }
                     });
                 }
             });
         });
 
         function updateTotalAmount() {
-            const checkboxes = document.querySelectorAll('#itemOptions input[type="checkbox"]');
+            const checkboxes = document.querySelectorAll('#itemOptions input[type="checkbox"]:checked');
             let total = 0;
+            let actualTotal = 0;
 
             checkboxes.forEach(checkbox => {
+                const itemContainer = checkbox.closest('.item-container');
                 if (checkbox.checked) {
-                    total += parseFloat(checkbox.dataset.amount);
+                    total += parseFloat(itemContainer.dataset.price || 0);
+                    actualTotal += parseFloat(itemContainer.dataset.actualPrice || 0);
                 }
             });
 
-            totalAmountElement.textContent = total.toFixed(0); // Displaying the total with no decimal places
+            totalAmountElement.textContent = `Total: ${total.toFixed(2)}, Actual Total: ${actualTotal.toFixed(2)}`;
         }
+
         loadCategories();
 
         document.getElementById('dataModifyForm').addEventListener('submit', function (event) {
-            event.preventDefault(); // prevent the default form submission behavior
+            event.preventDefault();
 
             const category = document.getElementById('categoryInput').value;
             const selection = document.getElementById('selectionInput').value;
             const item = document.getElementById('itemInput').value;
-            const amount = document.getElementById('amountInput').value;
+            const quantity = document.getElementById('amountInput').value;
+            const price = document.getElementById('priceInput').value;
+            const actualPrice = document.getElementById('actualPriceInput').value;
 
-            if (category && selection) {
-                let path = `Items/${category}/${selection}`;
+            const itemDetails = {
+                quantity: quantity,
+                price: price,
+                actualPrice: actualPrice
+            };
 
-                if (item) {
-                    path += `/${item}`;
-                }
-                set(ref(database, path), amount)
+            if (category && selection && item) {
+                const path = `Items/${category}/${selection}/${item}`;
+
+                set(ref(database, path), itemDetails)
                     .then(() => {
                         alert('Data saved successfully!');
-                    })
+                    }).catch((error) => {
+                        console.error('Error saving data: ', error);
+                        alert('Failed to save data!');
+                    });
             } else {
-                alert('Category and Selection are required!');
+                alert('Category, Selection, and Item are required!');
             }
         });
 
@@ -337,18 +362,16 @@
             localStorage.setItem('deletedData', JSON.stringify(deletedData));
         }
 
-        // Function to restore deleted data from localStorage
         function restoreDeletedData() {
             const deletedData = localStorage.getItem('deletedData');
             if (deletedData) {
                 const { category, selection, itemName, itemAmount } = JSON.parse(deletedData);
 
-                // Restore the deleted data by adding it back to the database
                 const path = `Items/${category}/${selection}/${itemName}`;
                 set(ref(database, path), itemAmount)
                     .then(() => {
                         alert(`Data for item '${itemName}' restored successfully!`);
-                        localStorage.removeItem('deletedData'); // Clear the deleted data from localStorage
+                        localStorage.removeItem('deletedData');
                     })
                     .catch((error) => {
                         console.error(`Error restoring data for item '${itemName}':`, error);
@@ -374,10 +397,8 @@
                         const itemName = checkbox.parentElement.querySelector('.item-image').alt;
                         const itemAmount = checkbox.dataset.amount;
 
-                        // Store the deleted data in localStorage
                         storeDeletedData(category, selection, itemName, itemAmount);
 
-                        // Remove the data from the database
                         path = `Items/${category}/${selection}/${itemName}`;
                         remove(ref(database, path))
                             .then(() => {
@@ -389,14 +410,11 @@
                             });
                     });
                 } else if (itemInput) {
-                    // Delete items specified in the "Item" input field
                     const itemsToDelete = itemInput.split(',').map(item => item.trim());
                     itemsToDelete.forEach(itemName => {
-                        // Store the deleted data in localStorage
-                        const itemAmount = 'unknown'; // You may need to fetch the amount from the database if it's unknown here
+                        const itemAmount = 'unknown';
                         storeDeletedData(category, selection, itemName, itemAmount);
 
-                        // Remove the data from the database
                         path = `Items/${category}/${selection}/${itemName}`;
                         remove(ref(database, path))
                             .then(() => {
@@ -420,41 +438,46 @@
         });
 
         itemOptions.addEventListener('change', (event) => {
-            const selectedCategoryRadio = document.querySelector('input[name="category"]:checked');
-            if (!selectedCategoryRadio) return;
+            if (event.target.type === 'checkbox') {
+                const selectedCategoryRadio = document.querySelector('input[name="category"]:checked');
+                if (!selectedCategoryRadio) return;
 
-            const selectedCategory = selectedCategoryRadio.value;
-            const selectedSelection = selectionSelect.value;
-            const checkboxes = document.querySelectorAll('#itemOptions input[type="checkbox"]:checked');
+                const selectedCategory = selectedCategoryRadio.value;
+                const selectedSelection = selectionSelect.value;
+                const checkboxes = document.querySelectorAll('#itemOptions input[type="checkbox"]:checked');
 
-            if (checkboxes.length > 0) {
-                const selectedItems = Array.from(checkboxes).map((checkbox) => {
-                    const itemName = checkbox.parentElement.querySelector('.item-image').alt;
-                    const itemAmount = checkbox.dataset.amount;
-                    return { name: itemName, amount: itemAmount };
-                });
-
-                // Populate the input fields with the information of the checked items
                 const categoryInput = document.getElementById('categoryInput');
                 const selectionInput = document.getElementById('selectionInput');
                 const itemInput = document.getElementById('itemInput');
                 const amountInput = document.getElementById('amountInput');
+                const priceInput = document.getElementById('priceInput');
+                const actualPriceInput = document.getElementById('actualPriceInput');
+
+                let totalAmount = 0;
+                let totalPrice = 0;
+                let totalActualPrice = 0;
+                let selectedItems = [];
+
+                checkboxes.forEach((checkbox) => {
+                    const itemContainer = checkbox.closest('.item-container');
+                    const itemName = itemContainer.querySelector('.item-image').alt;
+                    const itemAmount = parseInt(checkbox.dataset.amount || 0);
+                    const itemPrice = parseFloat(checkbox.dataset.price || 0);
+                    const itemActualPrice = parseFloat(checkbox.dataset.actualPrice || 0);
+
+                    totalAmount += itemAmount;
+                    totalPrice += itemPrice;
+                    totalActualPrice += itemActualPrice;
+
+                    selectedItems.push(itemName);
+                });
 
                 categoryInput.value = selectedCategory;
                 selectionInput.value = selectedSelection;
-                itemInput.value = selectedItems.map((item) => item.name).join(', ');
-                amountInput.value = selectedItems.reduce((total, item) => total + parseFloat(item.amount), 0);
-            } else {
-                // If no items are checked, clear the input fields
-                const categoryInput = document.getElementById('categoryInput');
-                const selectionInput = document.getElementById('selectionInput');
-                const itemInput = document.getElementById('itemInput');
-                const amountInput = document.getElementById('amountInput');
-
-                categoryInput.value = '';
-                selectionInput.value = '';
-                itemInput.value = '';
-                amountInput.value = '';
+                itemInput.value = selectedItems.join(', '); // Join the item names by comma for the form
+                amountInput.value = totalAmount; // Here you might need to figure out how you want to handle the total quantity
+                priceInput.value = totalPrice.toFixed(2);
+                actualPriceInput.value = totalActualPrice.toFixed(2);
             }
         });
 
@@ -463,6 +486,7 @@
             dataModifyForm.reset();
         });
     </script>
+
     <script>
         function showImageModal(imageSrc) {
             const modal = document.getElementById('imageModal');

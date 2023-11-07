@@ -2,7 +2,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebas
 import { getDatabase, ref, onValue, update } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
 
 const appSettings = {
-    databaseURL: "https://test-3d36b-default-rtdb.firebaseio.com/"
+    databaseURL: "https://inventory-54829-default-rtdb.firebaseio.com/"
 };
 
 const app = initializeApp(appSettings);
@@ -24,6 +24,8 @@ const remainingCheckbox = document.getElementById('remaining');
 const remainingDiv = document.querySelector('.remaining');
 const amountPaidInput = document.getElementById('amount-paid');
 const remainingBalanceSpan = document.getElementById('remaining-balance');
+const invoiceParts = {};
+
 
 function loadDatabase() {
     const partsRef = ref(database, 'Items');
@@ -76,32 +78,6 @@ function updatePartSelector(selectedCategory, components) {
     }
 }
 
-function updateTotals() {
-    let partsTotal = 0;
-    let laborTotal = 0;
-
-    const partRows = document.querySelectorAll('.parts-table tbody tr');
-    partRows.forEach(row => {
-        const total = parseFloat(row.querySelector('input[name="part-total"]').value) || 0;
-        partsTotal += total;
-    });
-
-    const laborRows = document.querySelectorAll('.labor-table tbody tr');
-    laborRows.forEach(row => {
-        const total = parseFloat(row.querySelector('input[name="labor-total"]').value) || 0;
-        laborTotal += total;
-    });
-
-    const subtotal = partsTotal + laborTotal;
-    const taxPercent = parseFloat(taxPercentInput.value) || 0;
-    const tax = partsTotal * (taxPercent / 100);
-    const total = subtotal + tax;
-
-    subtotalInput.value = subtotal.toFixed(2);
-    taxInput.value = tax.toFixed(2);
-    totalInput.value = total.toFixed(2);
-}
-
 function addPartRow(part) {
     const selectedOption = partSelector.querySelector(`option[value="${part}"]`);
     if (!selectedOption) return;
@@ -152,24 +128,6 @@ function addPartRow(part) {
     updateRemainingBalance();
 }
 
-function updatePartRowTotal(row) {
-    const quantityInput = row.querySelector('input[name="part-quantity"]');
-    const priceInput = row.querySelector('input[name="part-price"]');
-    const actualPriceInput = row.querySelector('input[name="part-actual-price"]');
-    const totalInput = row.querySelector('input[name="part-total"]');
-
-    const quantity = parseInt(quantityInput.value) || 0;
-    const price = parseFloat(priceInput.value) || 0;
-    const actualPrice = parseFloat(actualPriceInput.value) || 0;
-    const total = quantity * price;
-
-    totalInput.value = total.toFixed(2);
-
-    updateTotals();
-    updatePriceDifference();
-    updateRemainingBalance();
-}
-
 function addLaborRow() {
     const newRow = document.createElement('tr');
     newRow.innerHTML = `
@@ -194,15 +152,6 @@ function addLaborRow() {
     });
 }
 
-function updateLaborTotal(hoursInput, rateInput, totalInput) {
-    const hours = parseFloat(hoursInput.value) || 0;
-    const rate = parseFloat(rateInput.value) || 0;
-    const total = hours * rate;
-    totalInput.value = total.toFixed(2);
-    updateTotals();
-    updateRemainingBalance();
-}
-
 function updatePriceDifference() {
     let totalDifference = 0;
     const rows = partsTableBody.querySelectorAll('tr');
@@ -219,6 +168,33 @@ function updatePriceDifference() {
     document.getElementById('price-difference').innerText = totalDifference.toFixed(2);
 }
 
+function updateLaborTotal(hoursInput, rateInput, totalInput) {
+    const hours = parseFloat(hoursInput.value) || 0;
+    const rate = parseFloat(rateInput.value) || 0;
+    const total = hours * rate;
+    totalInput.value = total.toFixed(2);
+    updateTotals();
+    updateRemainingBalance();
+}
+
+function updatePartRowTotal(row) {
+    const quantityInput = row.querySelector('input[name="part-quantity"]');
+    const priceInput = row.querySelector('input[name="part-price"]');
+    const actualPriceInput = row.querySelector('input[name="part-actual-price"]');
+    const totalInput = row.querySelector('input[name="part-total"]');
+
+    const quantity = parseInt(quantityInput.value) || 0;
+    const price = parseFloat(priceInput.value) || 0;
+    const actualPrice = parseFloat(actualPriceInput.value) || 0;
+    const total = quantity * price;
+
+    totalInput.value = total.toFixed(2);
+
+    updateTotals();
+    updatePriceDifference();
+    updateRemainingBalance();
+}
+
 function updateRemainingBalance() {
     const amountPaid = parseFloat(amountPaidInput.value) || 0;
     const total = parseFloat(totalInput.value) || 0;
@@ -226,9 +202,61 @@ function updateRemainingBalance() {
     remainingBalanceSpan.textContent = remainingBalance.toFixed(2);
 }
 
-async function updatePartQuantityInDatabase(category, component, partName, newQuantity) {
-    const partsRef = ref(database, `Items/${category}/${component}/${partName}`);
-    await update(partsRef, { quantity: newQuantity });
+function updateTotals() {
+    let partsTotal = 0;
+    let laborTotal = 0;
+
+    const partRows = document.querySelectorAll('.parts-table tbody tr');
+    partRows.forEach(row => {
+        const total = parseFloat(row.querySelector('input[name="part-total"]').value) || 0;
+        partsTotal += total;
+    });
+
+    const laborRows = document.querySelectorAll('.labor-table tbody tr');
+    laborRows.forEach(row => {
+        const total = parseFloat(row.querySelector('input[name="labor-total"]').value) || 0;
+        laborTotal += total;
+    });
+
+    const subtotal = partsTotal + laborTotal;
+    const taxPercent = parseFloat(taxPercentInput.value) || 0;
+    const tax = partsTotal * (taxPercent / 100);
+    const total = subtotal + tax;
+
+    subtotalInput.value = subtotal.toFixed(2);
+    taxInput.value = tax.toFixed(2);
+    totalInput.value = total.toFixed(2);
+}
+
+function downloadObjectAsJson(exportObj, exportName) {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", exportName + ".json");
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+}
+
+function readFileAsJSON(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = (event) => {
+            try {
+                const jsonData = JSON.parse(event.target.result);
+                resolve(jsonData);
+            } catch (error) {
+                reject(error);
+            }
+        };
+
+        reader.onerror = (event) => {
+            reject(new Error('Error reading the file'));
+        };
+
+        reader.readAsText(file);
+    });
 }
 
 async function saveInvoice() {
@@ -296,35 +324,9 @@ async function saveInvoice() {
     }
 }
 
-function downloadObjectAsJson(exportObj, exportName) {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", exportName + ".json");
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-}
-
-function readFileAsJSON(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-
-        reader.onload = (event) => {
-            try {
-                const jsonData = JSON.parse(event.target.result);
-                resolve(jsonData);
-            } catch (error) {
-                reject(error);
-            }
-        };
-
-        reader.onerror = (event) => {
-            reject(new Error('Error reading the file'));
-        };
-
-        reader.readAsText(file);
-    });
+async function updatePartQuantityInDatabase(category, component, partName, newQuantity) {
+    const partsRef = ref(database, `Items/${category}/${component}/${partName}`);
+    await update(partsRef, { quantity: newQuantity });
 }
 
 addPartRowButton.addEventListener('click', () => {
