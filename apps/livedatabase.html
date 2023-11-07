@@ -1,0 +1,315 @@
+<head>
+    <title>Database</title>
+    <style>
+        section {
+            display: flex;
+            flex-direction: column;
+            text-align: center;
+            border-radius: 5px;
+            box-shadow: rgba(149, 157, 165, 0.2) 0px 8px 24px;
+        }
+
+        label {
+            padding: 5px;
+        }
+
+        textarea {
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            width: 98%;
+        }
+
+        table {
+            border-collapse: collapse;
+            flex-direction: column;
+            margin-top: 1em;
+            width: 100%;
+        }
+
+        tbody {
+            display: flex;
+            flex-direction: column;
+        }
+
+        tr {
+            display: flex;
+            flex-direction: row;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        th,
+        td {
+            display: flex;
+            flex-direction: row;
+            flex-shrink: 1;
+            text-align: left;
+            justify-content: center;
+        }
+
+        td,
+        td input {
+            flex: 1;
+            min-width: 0;
+            border-width: 1px;
+            border-style: inset;
+            border-color: rgb(133, 133, 133);
+            border-radius: 3px;
+            align-items: center;
+        }
+
+        td input {
+            border: none;
+            text-align: center;
+        }
+
+        button {
+            margin: 5px;
+            padding: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            border: 1px solid black;
+        }
+
+        .entry {
+            margin: 0 auto;
+            box-sizing: border-box;
+            border-radius: 5px;
+        }
+
+        .data {
+            box-sizing: border-box;
+            border: 1px solid black;
+            border-radius: 5px;
+            display: grid;
+            justify-content: center;
+        }
+
+        .entry-container {
+            margin: 0 auto;
+            border: 1px solid black;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        .copyright a {
+            text-decoration: none;
+            color: var(--textColor);
+        }
+
+        #entries-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body>
+
+    <section>
+        <h1>Database</h1>
+        <div class="entry-container">
+            <h2>Enter New Item:</h2>
+            <div class="entry">
+                <label for="category">Category:</label>
+                <input type="text" id="category" required>
+            </div>
+            <div class="entry">
+                <label for="component">Component:</label>
+                <input type="text" id="component" required>
+            </div>
+            <div class="entry">
+                <label for="partName">Part Name:</label>
+                <input type="text" id="partName" required>
+            </div>
+            <div class="entry">
+                <label for="price">Price:</label>
+                <input type="number" id="price" required>
+            </div>
+            <div class="entry">
+                <label for="actualPrice">Actual Price:</label>
+                <input type="number" id="actualPrice" required>
+            </div>
+            <div class="entry">
+                <label for="quantity">Quantity:</label>
+                <input type="number" id="quantity" required>
+            </div>
+            <button id="save-data-button">Save</button>
+        </div>
+        <br>
+        <div class="entry">
+            <label class="category" for="category-filter">Filter by Category:</label>
+            <select id="category-filter">
+                <option value="">All Categories</option>
+            </select>
+        </div>
+        <br>
+        <div id="entries-container"></div>
+    </section>
+    </main>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
+        import { getDatabase, ref, onValue, set, remove } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
+
+        const appSettings = {
+            databaseURL: "https://inventory-54829-default-rtdb.firebaseio.com/"
+        };
+
+        const app = initializeApp(appSettings);
+        const database = getDatabase(app);
+
+        function loadDatabaseEntries() {
+            loadAndDisplayEntries();
+
+            const entriesRef = ref(database, 'Items');
+            onValue(entriesRef, (snapshot) => {
+                const entries = snapshot.val();
+                updateCategoryFilter(entries);
+                displayEntries(entries);
+            }, (error) => {
+                console.error("Error loading database entries:", error);
+            });
+        }
+
+        function updateCategoryFilter(entries) {
+            const categorySet = new Set();
+            for (const category in entries) {
+                categorySet.add(category);
+            }
+
+            const categoryFilter = document.getElementById('category-filter');
+
+            categoryFilter.innerHTML = '';
+
+            categorySet.forEach((category) => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.innerText = category;
+                categoryFilter.appendChild(option);
+            });
+        }
+
+        loadDatabaseEntries();
+
+        document.getElementById('save-data-button').addEventListener('click', () => {
+            const category = document.getElementById('category').value;
+            const component = document.getElementById('component').value;
+            const partName = document.getElementById('partName').value;
+            const price = document.getElementById('price').value;
+            const actualPrice = document.getElementById('actualPrice').value;
+            const quantity = document.getElementById('quantity').value;
+
+            const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
+            set(entryRef, { price, actualPrice, quantity })
+                .then(() => {
+                    console.log('Entry saved successfully');
+                })
+                .catch((error) => {
+                    console.error('Error saving entry:', error);
+                });
+        });
+
+        function displayEntries(entries, filterCategory = '') {
+            const container = document.getElementById('entries-container');
+            container.innerHTML = '';
+
+            for (const category in entries) {
+                if (filterCategory && category !== filterCategory) continue;
+                for (const component in entries[category]) {
+                    for (const partName in entries[category][component]) {
+                        const entry = entries[category][component][partName];
+                        const entryDiv = document.createElement('div');
+                        entryDiv.classList.add('data');
+                        entryDiv.innerHTML = `
+                <label><strong>Category:</strong> <input type="text" class="category" value="${category}"></label>
+                <label><strong>Component:</strong> <input type="text" class="component" value="${component}"></label>
+                <label><strong>Part Name:</strong> <input type="text" class="partName" value="${partName}"></label>
+                <label><strong>Price:</strong> <input type="number" class="price" value="${entry.price}"></label>
+                <label><strong>Actual Price:</strong> <input type="number" class="actualPrice" value="${entry.actualPrice || ''}"></label>
+                <label><strong>Quantity:</strong> <input type="number" class="quantity" value="${entry.quantity}"></label>
+                <button class="save-button">Save</button>
+                <button class="delete-button">Delete</button>
+                `;
+
+                        const saveButton = entryDiv.querySelector('.save-button');
+                        saveButton.addEventListener('click', () => saveEntry(entryDiv, category, component, partName));
+
+                        const deleteButton = entryDiv.querySelector('.delete-button');
+                        deleteButton.addEventListener('click', () => deleteEntry(category, component, partName, entryDiv));
+
+                        container.appendChild(entryDiv);
+                    }
+                }
+            }
+        }
+
+        function saveEntry(entryDiv, oldCategory, oldComponent, oldPartName) {
+            const categoryInput = entryDiv.querySelector('.category');
+            const componentInput = entryDiv.querySelector('.component');
+            const partNameInput = entryDiv.querySelector('.partName');
+            const price = entryDiv.querySelector('.price').value;
+            const actualPrice = entryDiv.querySelector('.actualPrice').value;
+            const quantity = entryDiv.querySelector('.quantity').value;
+
+            const newCategory = categoryInput.value;
+            const newComponent = componentInput.value;
+            const newPartName = partNameInput.value;
+
+            const entryRef = ref(database, `Items/${newCategory}/${newComponent}/${newPartName}`);
+            const oldEntryRef = ref(database, `Items/${oldCategory}/${oldComponent}/${oldPartName}`);
+
+            set(entryRef, { price, actualPrice, quantity })
+                .then(() => {
+                    console.log('Entry saved successfully');
+                    // Check if the category, component, or partName has changed
+                    if (
+                        newCategory !== oldCategory ||
+                        newComponent !== oldComponent ||
+                        newPartName !== oldPartName
+                    ) {
+                        // Delete the old entry if any of the key fields have changed
+                        remove(oldEntryRef).catch((error) => {
+                            console.error('Error deleting old entry:', error);
+                        });
+                    }
+                })
+                .catch((error) => {
+                    console.error('Error saving entry:', error);
+                });
+        }
+
+
+        function deleteEntry(category, component, partName, entryDiv) {
+            const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
+            remove(entryRef)
+                .then(() => {
+                    console.log('Entry deleted successfully');
+                    entryDiv.remove();
+                })
+                .catch((error) => {
+                    console.error('Error deleting entry:', error);
+                });
+        }
+
+        function loadAndDisplayEntries(filterCategory) {
+            const entriesRef = ref(database, 'Items');
+            onValue(entriesRef, (snapshot) => {
+                const entries = snapshot.val();
+                displayEntries(entries, filterCategory);
+            }, (error) => {
+                console.error("Error loading database entries:", error);
+            });
+        }
+
+        document.getElementById('category-filter').addEventListener('change', (event) => {
+            const selectedCategory = event.target.value;
+            loadAndDisplayEntries(selectedCategory);
+        });
+    </script>
+
+</body>
+
+</html>
