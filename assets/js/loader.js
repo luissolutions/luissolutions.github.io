@@ -102,4 +102,3 @@ if (selectedPage) {
 }
 
 document.addEventListener('click', handleOutsideClick);
-toggleMenu();
