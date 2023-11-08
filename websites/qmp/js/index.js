@@ -26,7 +26,6 @@ const amountPaidInput = document.getElementById('amount-paid');
 const remainingBalanceSpan = document.getElementById('remaining-balance');
 const invoiceParts = {};
 
-
 function loadDatabase() {
     const partsRef = ref(database, 'Items');
 
