@@ -126,7 +126,7 @@
             padding: 15px;
         }
 
-        
+
         .title-container {
             display: flex;
             width: 100%;
@@ -754,6 +754,16 @@
         }
 
         async function saveInvoice() {
+            const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => {
+                return {
+                    category: row.dataset.category,
+                    component: row.dataset.component,
+                    part: row.querySelector('td#populated-part').textContent,
+                    quantity: row.querySelector('input[name="part-quantity"]').value,
+                    price: row.querySelector('input[name="part-price"]').value,
+                    total: row.querySelector('input[name="part-total"]').value,
+                };
+            });
             const invoiceData = {
                 invoiceTitle: document.getElementById('title-input').value,
                 customerName: document.getElementById('customer-name').value,
@@ -763,12 +773,7 @@
                 invoiceNumber: document.getElementById('invoice-number').value,
                 notes: document.getElementById('notes').value,
                 invoiceDate: document.getElementById('invoice-date').value,
-                parts: [...partsTableBody.querySelectorAll('tr')].map(row => ({
-                    part: row.querySelector('td').textContent.trim(),
-                    quantity: row.querySelector('input[name="part-quantity"]').value,
-                    price: row.querySelector('input[name="part-price"]').value,
-                    total: row.querySelector('input[name="part-total"]').value,
-                })),
+                parts: partsData,
                 labor: [...laborTableBody.querySelectorAll('tr')].map(row => ({
                     description: row.querySelector('input[name="labor-description"]').value.trim(),
                     hours: row.querySelector('input[name="labor-hours"]').value,
@@ -781,46 +786,32 @@
                 total: totalInput.value,
             };
 
-            try {
-                for (const part of invoiceData.parts) {
-                    const partName = part.part.trim();
-                    const selectedOption = partSelector.querySelector(`option[value="${partName}"]`);
-
-                    if (!selectedOption) {
-                        console.error(`Error: Part ${partName} not found in part selector`);
-                        continue;
-                    }
-
-                    const currentQuantity = parseInt(selectedOption.dataset.quantity, 10) || 0;
-                    const quantityToDeduct = parseInt(part.quantity, 10) || 0;
-                    const newQuantity = currentQuantity - quantityToDeduct;
-
-                    if (newQuantity < 0) {
-                        console.error(`Error: Quantity for ${partName} cannot be negative`);
-                    }
-
-                    const category = selectedOption.dataset.category;
-                    const component = selectedOption.dataset.component;
-                    await updatePartQuantityInDatabase(category, component, partName, newQuantity);
-
-                    if (newQuantity === 0) {
-                        selectedOption.remove();
-                    } else {
-                        selectedOption.dataset.quantity = newQuantity;
-                    }
+            for (const part of invoiceData.parts) {
+                try {
+                    await updatePartQuantityInDatabase(part.category, part.component, part.part, part.quantity);
+                } catch (error) {
+                    console.error(`Error updating part ${part.part}:`, error);
                 }
-
-                console.log('Invoice saved successfully');
-                return invoiceData;
-            } catch (error) {
-                console.error('Error updating the database:', error);
-                return null;
             }
+
+            console.log('Invoice saved successfully');
+            return invoiceData;
         }
 
         async function updatePartQuantityInDatabase(category, component, partName, newQuantity) {
-            const partsRef = ref(database, `Items/${category}/${component}/${partName}`);
-            await update(partsRef, { quantity: newQuantity });
+            try {
+                const partsRef = ref(database, `Items/${category}/${component}/${partName}`);
+                await update(partsRef, { quantity: Number(newQuantity) });
+            } catch (error) {
+                console.error("Failed to update part quantity in database", {
+                    category,
+                    component,
+                    partName,
+                    newQuantity,
+                    error: error.message || error
+                });
+                throw error;
+            }
         }
 
         addPartRowButton.addEventListener('click', () => {
@@ -929,7 +920,6 @@
     </script>
 
     <script>
-
         // Hiding Fields
         const hideParentCheckboxes = document.querySelectorAll('.hide-parent-checkbox');
 
@@ -941,7 +931,6 @@
                 }
             });
         });
-
         // Local Storage Save/Load State
         function saveDataToLocalStorage() {
             const inputData = {
@@ -984,7 +973,6 @@
         document.getElementById('notes').addEventListener('input', saveDataToLocalStorage);
 
         document.addEventListener('DOMContentLoaded', loadDataFromLocalStorage);
-
         // Clear Invoice Fields
         function clearInvoice() {
             const inputElements = [
