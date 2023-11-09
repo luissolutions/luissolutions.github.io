@@ -494,7 +494,7 @@
 
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
-        import { getDatabase, ref, onValue, update } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
+        import { getDatabase, ref, onValue, update, get, runTransaction } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
 
         const appSettings = {
             databaseURL: "https://persinfo-df93f-default-rtdb.firebaseio.com/"
@@ -580,6 +580,8 @@
             const actualPrice = parseFloat(selectedOption.dataset.actualPrice) || 0;
             const availableQuantity = parseInt(selectedOption.dataset.quantity) || 0;
             const existingRow = partsTableBody.querySelector(`tr[data-part="${part}"]`);
+            const category = selectedOption.dataset.category;
+            const component = selectedOption.dataset.component;
 
             if (existingRow) {
                 const quantityInput = existingRow.querySelector('input[name="part-quantity"]');
@@ -594,6 +596,8 @@
             } else {
                 const newRow = document.createElement('tr');
                 newRow.dataset.part = part;
+                newRow.dataset.category = category;
+                newRow.dataset.component = component;
 
                 newRow.innerHTML = `
                     <td id="populated-part">${part}</td>
@@ -798,21 +802,30 @@
             return invoiceData;
         }
 
-        async function updatePartQuantityInDatabase(category, component, partName, newQuantity) {
-            try {
-                const partsRef = ref(database, `Items/${category}/${component}/${partName}`);
-                await update(partsRef, { quantity: Number(newQuantity) });
-            } catch (error) {
-                console.error("Failed to update part quantity in database", {
-                    category,
-                    component,
-                    partName,
-                    newQuantity,
-                    error: error.message || error
-                });
-                throw error;
+        async function updatePartQuantityInDatabase(category, component, partName, quantity) {
+    if (!category || !component || !partName || quantity === undefined) {
+        throw new Error('Missing parameters to update database.');
+    }
+
+    const partRef = ref(database, `Items/${category}/${component}/${partName}/quantity`);
+    
+    try {
+        await runTransaction(partRef, (currentQuantity) => {
+            if (currentQuantity === null) {
+                throw new Error('Part does not exist in database.'); // Part not found
+            } else {
+                const updatedQuantity = currentQuantity - parseInt(quantity, 10);
+                if (updatedQuantity < 0) {
+                    throw new Error('Not enough stock.'); // Prevent negative stock
+                }
+                return updatedQuantity; // Update the database with the new quantity
             }
-        }
+        });
+    } catch (error) {
+        console.error("Transaction failed: ", error);
+        throw error; // Rethrow the error to handle it elsewhere
+    }
+}
 
         addPartRowButton.addEventListener('click', () => {
             const selectedPart = partSelector.value;
