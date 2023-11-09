@@ -3,33 +3,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Combined Viewer</title>
     <style>
-        body {
-            text-align: center;
-            font-family: Arial, sans-serif;
+        section {
+            overflow: auto;
         }
 
         table {
-            border-collapse: collapse;
             width: 100%;
-            max-width: 800px;
-            margin: 0 auto;
+            border-collapse: collapse;
         }
 
         th,
-        td,
-        tr {
-            border: 1px solid black;
+        td {
+            padding: 8px;
+            border: 1px solid #ddd;
             text-align: left;
-            width: auto;
-            max-width: 300px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        @media only screen and (max-width: 500px) {
-            img {
-                width: 350px;
-            }
         }
     </style>
 </head>
@@ -59,13 +46,22 @@
             URL.revokeObjectURL(url);
         }
 
-        // Function to save CSV data as a file
         function saveCSVFile(data, filename) {
             var csvContent = 'data:text/csv;charset=utf-8,';
+            // Assuming data is an array of objects
+            var headers = Object.keys(data[0]);
+            // Create the header row with each header cell enclosed in quotes
+            csvContent += '"' + headers.join('","') + '"\r\n';
+
             data.forEach(function (row) {
-                var rowData = Object.values(row).join(',');
+                var rowData = headers.map(header => {
+                    var cellData = row[header] == null ? '' : row[header].toString();
+                    // Enclose each piece of cell data in quotes, and escape existing quotes by doubling them
+                    return '"' + cellData.replace(/"/g, '""') + '"';
+                }).join(',');
                 csvContent += rowData + '\r\n';
             });
+
             var encodedUri = encodeURI(csvContent);
             var link = document.createElement('a');
             link.setAttribute('href', encodedUri);
@@ -155,12 +151,31 @@
             reader.readAsText(file);
         });
 
+
+
         function displayTableFromJSON(jsonData) {
             if (jsonData.length === 0) return;
 
-            var headerRow = document.createElement('tr');
+            outputTable.innerHTML = '';
+
             var headers = Object.keys(jsonData[0]);
+            var extendedHeaders = [];
+
             headers.forEach(function (header) {
+                if (header === 'parts' || header === 'labor') {
+                    if (Array.isArray(jsonData[0][header]) && jsonData[0][header].length > 0) {
+                        var subHeaders = Object.keys(jsonData[0][header][0]);
+                        subHeaders.forEach(subHeader => {
+                            extendedHeaders.push(`${header}_${subHeader}`);
+                        });
+                    }
+                } else {
+                    extendedHeaders.push(header);
+                }
+            });
+
+            var headerRow = document.createElement('tr');
+            extendedHeaders.forEach(function (header) {
                 var headerCell = document.createElement('th');
                 headerCell.textContent = header;
                 headerRow.appendChild(headerCell);
@@ -168,13 +183,32 @@
             outputTable.appendChild(headerRow);
 
             jsonData.forEach(function (entry) {
-                var row = document.createElement('tr');
-                headers.forEach(function (header) {
-                    var cell = document.createElement('td');
-                    cell.textContent = entry[header];
-                    row.appendChild(cell);
-                });
-                outputTable.appendChild(row);
+                var maxSubItemsLength = Math.max(
+                    entry.parts ? entry.parts.length : 0,
+                    entry.labor ? entry.labor.length : 0
+                );
+
+                for (let i = 0; i < maxSubItemsLength; i++) {
+                    var row = document.createElement('tr');
+
+                    extendedHeaders.forEach(function (extendedHeader) {
+                        var cell = document.createElement('td');
+
+                        var [originalKey, subKey] = extendedHeader.split('_');
+                        if (originalKey === 'parts' || originalKey === 'labor') {
+                            if (entry[originalKey] && entry[originalKey][i] && subKey) {
+                                cell.textContent = entry[originalKey][i][subKey];
+                                cell.setAttribute('data-label', subKey); // Set the data-label attribute
+                            }
+                        } else if (i === 0) {
+                            cell.textContent = entry[extendedHeader];
+                            cell.setAttribute('data-label', extendedHeader); // Set the data-label attribute
+                        }
+                        row.appendChild(cell);
+                    });
+
+                    outputTable.appendChild(row);
+                }
             });
         }
 

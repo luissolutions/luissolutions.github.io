@@ -758,6 +758,8 @@
         }
 
         async function saveInvoice() {
+            const amountPaid = document.getElementById('amount-paid').value;
+
             const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => {
                 return {
                     category: row.dataset.category,
@@ -788,6 +790,7 @@
                 taxPercent: taxPercentInput.value,
                 tax: taxInput.value,
                 total: totalInput.value,
+                amountPaid: amountPaid, // Assuming you want to store it as a number, you may want to parse it
             };
 
             for (const part of invoiceData.parts) {
@@ -803,29 +806,29 @@
         }
 
         async function updatePartQuantityInDatabase(category, component, partName, quantity) {
-    if (!category || !component || !partName || quantity === undefined) {
-        throw new Error('Missing parameters to update database.');
-    }
-
-    const partRef = ref(database, `Items/${category}/${component}/${partName}/quantity`);
-    
-    try {
-        await runTransaction(partRef, (currentQuantity) => {
-            if (currentQuantity === null) {
-                throw new Error('Part does not exist in database.'); // Part not found
-            } else {
-                const updatedQuantity = currentQuantity - parseInt(quantity, 10);
-                if (updatedQuantity < 0) {
-                    throw new Error('Not enough stock.'); // Prevent negative stock
-                }
-                return updatedQuantity; // Update the database with the new quantity
+            if (!category || !component || !partName || quantity === undefined) {
+                throw new Error('Missing parameters to update database.');
             }
-        });
-    } catch (error) {
-        console.error("Transaction failed: ", error);
-        throw error; // Rethrow the error to handle it elsewhere
-    }
-}
+
+            const partRef = ref(database, `Items/${category}/${component}/${partName}/quantity`);
+
+            try {
+                await runTransaction(partRef, (currentQuantity) => {
+                    if (currentQuantity === null) {
+                        throw new Error('Part does not exist in database.'); // Part not found
+                    } else {
+                        const updatedQuantity = currentQuantity - parseInt(quantity, 10);
+                        if (updatedQuantity < 0) {
+                            throw new Error('Not enough stock.'); // Prevent negative stock
+                        }
+                        return updatedQuantity; // Update the database with the new quantity
+                    }
+                });
+            } catch (error) {
+                console.error("Transaction failed: ", error);
+                throw error; // Rethrow the error to handle it elsewhere
+            }
+        }
 
         addPartRowButton.addEventListener('click', () => {
             const selectedPart = partSelector.value;
@@ -859,6 +862,7 @@
                         document.getElementById('invoice-date').value = invoiceData.invoiceDate;
                         document.getElementById('invoice-number').value = invoiceData.invoiceNumber;
                         document.getElementById('notes').value = invoiceData.notes;
+                        document.getElementById('amount-paid').value = invoiceData.amountPaid;
 
                         const partsTableBody = document.querySelector('.parts-table tbody');
                         partsTableBody.innerHTML = '';
@@ -877,7 +881,7 @@
                         laborTableBody.innerHTML = '';
                         invoiceData.labor.forEach((labor) => {
                             addLaborRow();
-                            const newRow = document.querySelector('.labor-table tbody tr:last-child');
+                            const newRow = laborTableBody.querySelector('tr:last-child');
                             newRow.querySelector('input[name="labor-description"]').value = labor.description;
                             newRow.querySelector('input[name="labor-hours"]').value = labor.hours;
                             newRow.querySelector('input[name="labor-rate"]').value = labor.rate;
@@ -892,6 +896,7 @@
 
                         document.getElementById('tax-percent').value = invoiceData.taxPercent;
                         updateTotals();
+                        updateRemainingBalance();
                     } else {
                         console.error('Invalid JSON data in the imported file');
                     }
