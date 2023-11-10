@@ -384,7 +384,7 @@
                             <option value="quote">Quote:</option>
                             <option value="invoice">Invoice #</option>
                         </select>
-                        <input type="text" id="invoice-number" name="invoice-number">
+                        <input type="text" id="invoice-number" name="invoice-number" required>
                     </div>
                     <label class="no-print" for="customer-name">Customer Name:</label>
                     <input type="text" id="customer-name" name="customer-name">
@@ -486,15 +486,18 @@
 
     <footer>
         <button type="button" id="save-button" class="action-btn">Save Invoice</button>
+        <button id="exportButton">Export as CSV</button>
         <button type="button" id="print-button" class="action-btn" onClick="window.print();">Print Invoice</button>
-        <input type="file" id="import-file" accept=".json">
-        <button id="clear-button" class="action-btn">Reset Fields</button>
+        <select id="invoice-dropdown">
+            <option value="">Select an Invoice</option>
+            <!-- Options for saved invoices will be added here dynamically -->
+        </select> <button id="clear-button" class="action-btn">Reset Fields</button>
         <button id="reset-button" class="action-btn" onClick="window.location.reload();">Reset Layout</button>
     </footer>
 
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
-        import { getDatabase, ref, onValue, update, get, runTransaction } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
+        import { getDatabase, ref, onValue, update, get, runTransaction, push, set } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
 
         const appSettings = {
             databaseURL: "https://persinfo-df93f-default-rtdb.firebaseio.com/"
@@ -509,16 +512,16 @@
         const taxInput = document.getElementById('tax');
         const totalInput = document.getElementById('total');
         const addPartRowButton = document.getElementById('add-part-row');
-        const saveButton = document.getElementById('save-button');
         const partCategory = document.getElementById('part-category');
         const partSelector = document.getElementById('part-selector');
         const addLaborRowButton = document.getElementById('add-labor-row');
         const laborTableBody = document.querySelector('.labor-table tbody');
-        const importFileInput = document.getElementById('import-file');
         const remainingCheckbox = document.getElementById('remaining');
         const remainingDiv = document.querySelector('.remaining');
         const amountPaidInput = document.getElementById('amount-paid');
         const remainingBalanceSpan = document.getElementById('remaining-balance');
+        const saveButton = document.getElementById('save-button');
+        const invoiceDropdown = document.getElementById('invoice-dropdown');
         const invoiceParts = {};
 
         function loadDatabase() {
@@ -726,40 +729,41 @@
             totalInput.value = total.toFixed(2);
         }
 
-        function downloadObjectAsJson(exportObj, exportName) {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj));
-            const downloadAnchorNode = document.createElement('a');
-            downloadAnchorNode.setAttribute("href", dataStr);
-            downloadAnchorNode.setAttribute("download", exportName + ".json");
-            document.body.appendChild(downloadAnchorNode);
-            downloadAnchorNode.click();
-            downloadAnchorNode.remove();
-        }
+        async function updatePartQuantityInDatabase(category, component, partName, quantity) {
+            if (!category || !component || !partName || quantity === undefined) {
+                throw new Error('Missing parameters to update database.');
+            }
 
-        function readFileAsJSON(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
+            const partRef = ref(database, `Items/${category}/${component}/${partName}/quantity`);
 
-                reader.onload = (event) => {
-                    try {
-                        const jsonData = JSON.parse(event.target.result);
-                        resolve(jsonData);
-                    } catch (error) {
-                        reject(error);
+            try {
+                await runTransaction(partRef, (currentQuantity) => {
+                    if (currentQuantity === null) {
+                        throw new Error('Part does not exist in database.');
+                    } else {
+                        const updatedQuantity = currentQuantity - parseInt(quantity, 10);
+                        if (updatedQuantity < 0) {
+                            throw new Error('Not enough stock.');
+                        }
+                        return updatedQuantity;
                     }
-                };
-
-                reader.onerror = (event) => {
-                    reject(new Error('Error reading the file'));
-                };
-
-                reader.readAsText(file);
-            });
+                });
+            } catch (error) {
+                console.error("Transaction failed: ", error);
+                throw error;
+            }
         }
 
         async function saveInvoice() {
-            const amountPaid = document.getElementById('amount-paid').value;
+            const invoiceNumberInput = document.getElementById('invoice-number');
+            const invoiceNumber = invoiceNumberInput.value.trim();
 
+            if (invoiceNumber.length === 0) {
+                console.error('Invoice number is required.');
+                return; // Exit the function without saving
+            }
+
+            const amountPaid = document.getElementById('amount-paid').value;
             const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => {
                 return {
                     category: row.dataset.category,
@@ -790,7 +794,7 @@
                 taxPercent: taxPercentInput.value,
                 tax: taxInput.value,
                 total: totalInput.value,
-                amountPaid: amountPaid, // Assuming you want to store it as a number, you may want to parse it
+                amountPaid: amountPaid,
             };
 
             for (const part of invoiceData.parts) {
@@ -801,34 +805,46 @@
                 }
             }
 
-            console.log('Invoice saved successfully');
-            return invoiceData;
-        }
-
-        async function updatePartQuantityInDatabase(category, component, partName, quantity) {
-            if (!category || !component || !partName || quantity === undefined) {
-                throw new Error('Missing parameters to update database.');
-            }
-
-            const partRef = ref(database, `Items/${category}/${component}/${partName}/quantity`);
+            const invoiceRef = ref(database, 'invoices/' + invoiceNumber);
 
             try {
-                await runTransaction(partRef, (currentQuantity) => {
-                    if (currentQuantity === null) {
-                        throw new Error('Part does not exist in database.'); // Part not found
-                    } else {
-                        const updatedQuantity = currentQuantity - parseInt(quantity, 10);
-                        if (updatedQuantity < 0) {
-                            throw new Error('Not enough stock.'); // Prevent negative stock
-                        }
-                        return updatedQuantity; // Update the database with the new quantity
-                    }
-                });
+                await set(invoiceRef, invoiceData);
+
+                console.log('Invoice saved successfully');
+                populateInvoiceDropdown();
+                return;
             } catch (error) {
-                console.error("Transaction failed: ", error);
-                throw error; // Rethrow the error to handle it elsewhere
+                console.error('Error saving invoice to Realtime Database:', error);
+                throw new Error('Failed to save invoice to Realtime Database.');
             }
         }
+
+        function populateInvoiceDropdown() {
+            const dropdown = document.getElementById('invoice-dropdown');
+            dropdown.innerHTML = '<option value="">Select an Invoice</option>';
+
+            const invoicesRef = ref(database, 'invoices');
+
+            get(invoicesRef).then((snapshot) => {
+                if (snapshot.exists()) {
+                    const invoices = snapshot.val();
+                    for (const invoiceNumber in invoices) {
+                        if (invoices.hasOwnProperty(invoiceNumber)) {
+                            const option = document.createElement('option');
+                            option.value = invoiceNumber;
+                            option.textContent = invoiceNumber;
+                            dropdown.appendChild(option);
+                        }
+                    }
+                }
+            }).catch((error) => {
+                console.error('Error fetching invoices:', error);
+            });
+        }
+
+        saveButton.addEventListener('click', async () => {
+            const invoiceData = await saveInvoice();
+        });
 
         addPartRowButton.addEventListener('click', () => {
             const selectedPart = partSelector.value;
@@ -838,73 +854,6 @@
         });
 
         addLaborRowButton.addEventListener('click', addLaborRow);
-
-        saveButton.addEventListener('click', async () => {
-            const invoiceData = await saveInvoice();
-            if (invoiceData) {
-                downloadObjectAsJson(invoiceData, 'invoice');
-            }
-        });
-
-        importFileInput.addEventListener('change', async (event) => {
-            const file = event.target.files[0];
-
-            if (file) {
-                try {
-                    const invoiceData = await readFileAsJSON(file);
-
-                    if (invoiceData) {
-                        document.getElementById('title-input').value = invoiceData.invoiceTitle;
-                        document.getElementById('customer-name').value = invoiceData.customerName;
-                        document.getElementById('customer-phone').value = invoiceData.customerPhone;
-                        document.getElementById('customer-email').value = invoiceData.customerEmail;
-                        document.getElementById('customer-address').value = invoiceData.customerAddress;
-                        document.getElementById('invoice-date').value = invoiceData.invoiceDate;
-                        document.getElementById('invoice-number').value = invoiceData.invoiceNumber;
-                        document.getElementById('notes').value = invoiceData.notes;
-                        document.getElementById('amount-paid').value = invoiceData.amountPaid;
-
-                        const partsTableBody = document.querySelector('.parts-table tbody');
-                        partsTableBody.innerHTML = '';
-                        invoiceData.parts.forEach((part) => {
-                            const partName = part.part;
-                            if (!partsTableBody.querySelector(`[data-part="${partName}"]`)) {
-                                addPartRow(partName);
-                            }
-                            const newRow = partsTableBody.querySelector(`[data-part="${partName}"]`);
-                            newRow.querySelector('input[name="part-quantity"]').value = part.quantity;
-                            newRow.querySelector('input[name="part-price"]').value = part.price;
-                            updatePartRowTotal(newRow);
-                        });
-
-                        const laborTableBody = document.querySelector('.labor-table tbody');
-                        laborTableBody.innerHTML = '';
-                        invoiceData.labor.forEach((labor) => {
-                            addLaborRow();
-                            const newRow = laborTableBody.querySelector('tr:last-child');
-                            newRow.querySelector('input[name="labor-description"]').value = labor.description;
-                            newRow.querySelector('input[name="labor-hours"]').value = labor.hours;
-                            newRow.querySelector('input[name="labor-rate"]').value = labor.rate;
-
-                            const hoursInput = newRow.querySelector('input[name="labor-hours"]');
-                            const rateInput = newRow.querySelector('input[name="labor-rate"]');
-                            const totalInput = newRow.querySelector('input[name="labor-total"]');
-                            updateLaborTotal(hoursInput, rateInput, totalInput);
-
-                            updateTotals();
-                        });
-
-                        document.getElementById('tax-percent').value = invoiceData.taxPercent;
-                        updateTotals();
-                        updateRemainingBalance();
-                    } else {
-                        console.error('Invalid JSON data in the imported file');
-                    }
-                } catch (error) {
-                    console.error('Error reading the imported file:', error);
-                }
-            }
-        });
 
         document.addEventListener('input', function (event) {
             if (event.target.classList.contains('actual-price-input') || event.target.classList.contains('part-price-input')) {
@@ -935,6 +884,110 @@
             updateTotals();
             updateRemainingBalance();
         });
+
+        populateInvoiceDropdown();
+
+
+        invoiceDropdown.addEventListener('change', () => {
+            const selectedInvoiceNumber = invoiceDropdown.value;
+
+            if (selectedInvoiceNumber) {
+                const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
+
+                clearInvoice();
+
+                get(invoiceRef)
+                    .then((snapshot) => {
+                        if (snapshot.exists()) {
+                            const invoiceData = snapshot.val();
+
+                            document.getElementById('title-input').value = invoiceData.invoiceTitle;
+                            document.getElementById('customer-name').value = invoiceData.customerName;
+                            document.getElementById('customer-phone').value = invoiceData.customerPhone;
+                            document.getElementById('customer-email').value = invoiceData.customerEmail;
+                            document.getElementById('customer-address').value = invoiceData.customerAddress;
+                            document.getElementById('invoice-number').value = invoiceData.invoiceNumber;
+                            document.getElementById('notes').value = invoiceData.notes;
+                            document.getElementById('invoice-date').value = invoiceData.invoiceDate;
+                            document.getElementById('amount-paid').value = invoiceData.amountPaid;
+                            document.getElementById('tax-percent').value = invoiceData.taxPercent;
+
+                            invoiceData.parts.forEach((part) => {
+                                addPartRow(part.part);
+                                const newRow = document.querySelector(`[data-part="${part.part}"]`);
+                                newRow.querySelector('input[name="part-quantity"]').value = part.quantity;
+                                newRow.querySelector('input[name="part-price"]').value = part.price;
+                                updatePartRowTotal(newRow);
+                            });
+
+                            invoiceData.labor.forEach((labor) => {
+                                addLaborRow();
+                                const newRow = laborTableBody.querySelector('tr:last-child');
+
+                                newRow.querySelector('input[name="labor-description"]').value = labor.description;
+                                newRow.querySelector('input[name="labor-hours"]').value = labor.hours;
+                                newRow.querySelector('input[name="labor-rate"]').value = labor.rate;
+
+                                const hoursInput = newRow.querySelector('input[name="labor-hours"]');
+                                const rateInput = newRow.querySelector('input[name="labor-rate"]');
+                                const totalInput = newRow.querySelector('input[name="labor-total"]');
+
+                                updateLaborTotal(hoursInput, rateInput, totalInput);
+                            });
+
+                            updateTotals();
+                            updateRemainingBalance();
+                        }
+                    })
+                    .catch((error) => {
+                        console.error('Error fetching selected invoice:', error);
+                    });
+            } else {
+            }
+        });
+
+
+
+
+
+        document.getElementById('exportButton').addEventListener('click', function() {
+    const selectedInvoiceNumber = document.getElementById('invoice-dropdown').value;
+    
+    // Check if a valid invoice number is selected (not the default empty value)
+    if (selectedInvoiceNumber) {
+        // Fetch the invoice data from the database based on the selected invoice number
+        const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
+
+        get(invoiceRef).then((snapshot) => {
+            if (snapshot.exists()) {
+                const invoiceData = snapshot.val();
+
+                // Convert the invoice data to a JSON string
+                const jsonString = JSON.stringify(invoiceData, null, 2);
+
+                // Create a Blob with the JSON data
+                const blob = new Blob([jsonString], { type: 'application/json' });
+
+                // Create a link and set the URL and download attribute
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `invoice-${selectedInvoiceNumber}.json`; // Suggested filename
+
+                // Append the link, trigger the download, then remove the link
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                console.error('No data available for selected invoice');
+            }
+        }).catch((error) => {
+            console.error('Error fetching invoice:', error);
+        });
+    } else {
+        alert('Please select an invoice to export.');
+    }
+});
+
     </script>
 
     <script>
@@ -1018,14 +1071,12 @@
             document.getElementById('tax-percent').value = '';
             document.getElementById('tax').value = '';
             document.getElementById('total').value = '';
+            document.getElementById('amount-paid').value = '';
 
             document.getElementById('remaining').checked = false;
             document.querySelector('.remaining').style.display = 'none';
 
             document.getElementById('price-difference').innerText = '';
-
-            const fileInput = document.getElementById('import-file');
-            fileInput.value = '';
 
             localStorage.removeItem('inputData');
         }
