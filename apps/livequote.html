@@ -493,13 +493,13 @@
             <!-- Options for saved invoices will be added here dynamically -->
         </select>
         <button id="clear-button" class="action-btn">Reset Fields</button>
-        <button id="deleteButton" style="display: none;">Delete</button>
+        <button id="deleteButton">Delete</button>
         <button id="reset-button" class="action-btn" onClick="window.location.reload();">Reset Layout</button>
     </footer>
 
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
-        import { getDatabase, ref, onValue, update, get, runTransaction, push, set } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
+        import { getDatabase, ref, onValue, update, get, runTransaction, push, set, remove } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
 
         const appSettings = {
             databaseURL: "https://persinfo-df93f-default-rtdb.firebaseio.com/"
@@ -848,6 +848,32 @@
             const invoiceData = await saveInvoice();
         });
 
+        const deleteButton = document.getElementById('deleteButton');
+
+        deleteButton.addEventListener('click', async () => {
+            const selectedInvoiceNumber = invoiceDropdown.value;
+
+            // Check if a valid invoice number is selected (not the default empty value)
+            if (selectedInvoiceNumber) {
+                const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
+
+                try {
+                    // Delete the selected invoice from the database
+                    await remove(invoiceRef);
+
+                    clearInvoice();
+                    console.log(`Invoice ${selectedInvoiceNumber} deleted successfully`);
+                    populateInvoiceDropdown();
+                } catch (error) {
+                    console.error(`Error deleting invoice ${selectedInvoiceNumber}:`, error);
+                }
+            } else {
+                // Handle the case where the user selects the default option (no invoice selected)
+                // You can display an error message or perform other actions
+                console.error('Please select an invoice to delete.');
+            }
+        });
+
         addPartRowButton.addEventListener('click', () => {
             const selectedPart = partSelector.value;
             if (selectedPart) {
@@ -952,43 +978,43 @@
 
 
 
-        document.getElementById('exportButton').addEventListener('click', function() {
-    const selectedInvoiceNumber = document.getElementById('invoice-dropdown').value;
-    
-    // Check if a valid invoice number is selected (not the default empty value)
-    if (selectedInvoiceNumber) {
-        // Fetch the invoice data from the database based on the selected invoice number
-        const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
+        document.getElementById('exportButton').addEventListener('click', function () {
+            const selectedInvoiceNumber = document.getElementById('invoice-dropdown').value;
 
-        get(invoiceRef).then((snapshot) => {
-            if (snapshot.exists()) {
-                const invoiceData = snapshot.val();
+            // Check if a valid invoice number is selected (not the default empty value)
+            if (selectedInvoiceNumber) {
+                // Fetch the invoice data from the database based on the selected invoice number
+                const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
 
-                // Convert the invoice data to a JSON string
-                const jsonString = JSON.stringify(invoiceData, null, 2);
+                get(invoiceRef).then((snapshot) => {
+                    if (snapshot.exists()) {
+                        const invoiceData = snapshot.val();
 
-                // Create a Blob with the JSON data
-                const blob = new Blob([jsonString], { type: 'application/json' });
+                        // Convert the invoice data to a JSON string
+                        const jsonString = JSON.stringify(invoiceData, null, 2);
 
-                // Create a link and set the URL and download attribute
-                const link = document.createElement('a');
-                link.href = URL.createObjectURL(blob);
-                link.download = `invoice-${selectedInvoiceNumber}.json`; // Suggested filename
+                        // Create a Blob with the JSON data
+                        const blob = new Blob([jsonString], { type: 'application/json' });
 
-                // Append the link, trigger the download, then remove the link
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                        // Create a link and set the URL and download attribute
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `invoice-${selectedInvoiceNumber}.json`; // Suggested filename
+
+                        // Append the link, trigger the download, then remove the link
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    } else {
+                        console.error('No data available for selected invoice');
+                    }
+                }).catch((error) => {
+                    console.error('Error fetching invoice:', error);
+                });
             } else {
-                console.error('No data available for selected invoice');
+                alert('Please select an invoice to export.');
             }
-        }).catch((error) => {
-            console.error('Error fetching invoice:', error);
         });
-    } else {
-        alert('Please select an invoice to export.');
-    }
-});
 
     </script>
 
