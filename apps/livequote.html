@@ -490,7 +490,6 @@
         <button type="button" id="print-button" class="action-btn" onClick="window.print();">Print Invoice</button>
         <select id="invoice-dropdown">
             <option value="">Select File</option>
-            <!-- Options for saved invoices will be added here dynamically -->
         </select>
         <button id="clear-button" class="action-btn">Reset Fields</button>
         <button id="deleteButton">Delete</button>
@@ -498,15 +497,7 @@
     </footer>
 
     <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
-        import { getDatabase, ref, onValue, update, get, runTransaction, push, set, remove } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
-
-        const appSettings = {
-            databaseURL: "https://persinfo-df93f-default-rtdb.firebaseio.com/"
-        };
-
-        const app = initializeApp(appSettings);
-        const database = getDatabase(app);
+        import { database, ref, onValue, set, remove, get } from './js/firebase-init.js';
 
         const partsTableBody = document.querySelector('.parts-table tbody');
         const subtotalInput = document.getElementById('subtotal');
@@ -759,6 +750,7 @@
         async function saveInvoice() {
             const invoiceNumberInput = document.getElementById('invoice-number');
             const invoiceNumber = invoiceNumberInput.value.trim();
+            const invoiceType = document.getElementById('invoice-type').value;
 
             if (invoiceNumber.length === 0) {
                 console.error('Invoice number is required.');
@@ -777,6 +769,7 @@
                 };
             });
             const invoiceData = {
+                invoiceType,
                 invoiceTitle: document.getElementById('title-input').value,
                 customerName: document.getElementById('customer-name').value,
                 customerPhone: document.getElementById('customer-phone').value,
@@ -853,12 +846,10 @@
         deleteButton.addEventListener('click', async () => {
             const selectedInvoiceNumber = invoiceDropdown.value;
 
-            // Check if a valid invoice number is selected (not the default empty value)
             if (selectedInvoiceNumber) {
                 const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
 
                 try {
-                    // Delete the selected invoice from the database
                     await remove(invoiceRef);
 
                     clearInvoice();
@@ -914,7 +905,6 @@
         });
 
         populateInvoiceDropdown();
-
 
         invoiceDropdown.addEventListener('change', () => {
             const selectedInvoiceNumber = invoiceDropdown.value;
@@ -977,27 +967,21 @@
         document.getElementById('exportButton').addEventListener('click', function () {
             const selectedInvoiceNumber = document.getElementById('invoice-dropdown').value;
 
-            // Check if a valid invoice number is selected (not the default empty value)
             if (selectedInvoiceNumber) {
-                // Fetch the invoice data from the database based on the selected invoice number
                 const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
 
                 get(invoiceRef).then((snapshot) => {
                     if (snapshot.exists()) {
                         const invoiceData = snapshot.val();
 
-                        // Convert the invoice data to a JSON string
                         const jsonString = JSON.stringify(invoiceData, null, 2);
 
-                        // Create a Blob with the JSON data
                         const blob = new Blob([jsonString], { type: 'application/json' });
 
-                        // Create a link and set the URL and download attribute
                         const link = document.createElement('a');
                         link.href = URL.createObjectURL(blob);
-                        link.download = `invoice-${selectedInvoiceNumber}.json`; // Suggested filename
+                        link.download = `invoice-${selectedInvoiceNumber}.json`;
 
-                        // Append the link, trigger the download, then remove the link
                         document.body.appendChild(link);
                         link.click();
                         document.body.removeChild(link);
