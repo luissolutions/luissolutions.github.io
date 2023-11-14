@@ -148,9 +148,12 @@
             <select id="category-filter">
                 <option value="">All Categories</option>
             </select>
-        </div>
-        <br>
-        <div id="entries-container"></div>
+            <div class="search">
+                <input type="text" id="search-input" placeholder="Search">
+                <button id="search-button">Search</button>
+            </div>
+            <br>
+            <div id="entries-container"></div>
     </section>
     </main>
 
@@ -263,13 +266,11 @@
             set(entryRef, { price, actualPrice, quantity, description })
                 .then(() => {
                     console.log('Entry saved successfully');
-                    // Check if the category, component, or partName has changed
                     if (
                         newCategory !== oldCategory ||
                         newComponent !== oldComponent ||
                         newPartName !== oldPartName
                     ) {
-                        // Delete the old entry if any of the key fields have changed
                         remove(oldEntryRef).catch((error) => {
                             console.error('Error deleting old entry:', error);
                         });
@@ -279,7 +280,6 @@
                     console.error('Error saving entry:', error);
                 });
         }
-
 
         function deleteEntry(category, component, partName, entryDiv) {
             const entryRef = ref(database, `Items/${category}/${component}/${partName}`);
@@ -307,6 +307,57 @@
             const selectedCategory = event.target.value;
             loadAndDisplayEntries(selectedCategory);
         });
+
+
+        document.getElementById('search-button').addEventListener('click', () => {
+            const searchInput = document.getElementById('search-input').value.toLowerCase();
+
+            loadAndDisplayEntriesBySearch(searchInput);
+        });
+
+        function loadAndDisplayEntriesBySearch(searchText) {
+            const entriesRef = ref(database, 'Items');
+            onValue(entriesRef, (snapshot) => {
+                const entries = snapshot.val();
+                const filteredEntries = filterEntries(entries, searchText);
+                displayEntries(filteredEntries);
+            }, (error) => {
+                console.error("Error loading database entries:", error);
+            });
+        }
+
+        function filterEntries(entries, searchText) {
+            const filteredEntries = {};
+
+            for (const category in entries) {
+                for (const component in entries[category]) {
+                    for (const partName in entries[category][component]) {
+                        const entry = entries[category][component][partName];
+                        const entryText = `${category} ${component} ${partName} ${entry.description}`.toLowerCase();
+                        if (entryText.includes(searchText)) {
+                            if (!filteredEntries[category]) {
+                                filteredEntries[category] = {};
+                            }
+                            if (!filteredEntries[category][component]) {
+                                filteredEntries[category][component] = {};
+                            }
+                            filteredEntries[category][component][partName] = entry;
+                        }
+                    }
+                }
+            }
+
+            return filteredEntries;
+        }
+
+        document.getElementById('search-input').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                const searchInput = event.target.value.toLowerCase();
+
+                loadAndDisplayEntriesBySearch(searchInput);
+            }
+        });
+
     </script>
 
 </body>
