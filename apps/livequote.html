@@ -355,7 +355,7 @@
             align-items: center;
         }
 
-        #invoice-dropdown {
+        .input {
             max-width: 100px;
         }
 
@@ -373,9 +373,14 @@
 
     <main>
         <section>
-            <select id="invoice-dropdown">
-                <option value="">Select File</option>
-            </select>
+            <div class="no-print">
+                <input type="text" class="input" id="invoice-search" placeholder="Search">
+
+                <select  id="invoice-dropdown">
+                    <option value="">Select File</option>
+                </select>
+            </div>
+            <br>
             <div class="title-container">
                 <input class="name" id="title-input" value="Title Here">
             </div>
@@ -416,7 +421,6 @@
                 </div>
 
                 <div>
-
                     <div class="no-print">
                         <label for="part-category">Select Category:</label>
                         <select id="part-category"></select>
@@ -488,16 +492,16 @@
     </main>
 
     <footer>
-        <button type="button" id="save-button" class="action-btn">Save Invoice</button>
+        <button type="button" id="save-button" class="action-btn">Save Data</button>
+        <button id="deleteButton">Delete Data</button>
         <button id="exportButton">Export</button>
         <button type="button" id="print-button" class="action-btn" onClick="window.print();">Print Invoice</button>
         <button id="clear-button" class="action-btn">Reset Fields</button>
-        <button id="deleteButton">Delete</button>
         <button id="reset-button" class="action-btn" onClick="window.location.reload();">Reset Layout</button>
     </footer>
 
     <script type="module">
-        import { database, ref, onValue, set, remove, get } from './js/firebase-init.js';
+        import { database, ref, onValue, set, remove, get, runTransaction } from './js/firebase-init.js';
 
         const partsTableBody = document.querySelector('.parts-table tbody');
         const subtotalInput = document.getElementById('subtotal');
@@ -515,6 +519,8 @@
         const remainingBalanceSpan = document.getElementById('remaining-balance');
         const saveButton = document.getElementById('save-button');
         const invoiceDropdown = document.getElementById('invoice-dropdown');
+        const deleteButton = document.getElementById('deleteButton');
+        const searchInput = document.getElementById('invoice-search');
         const invoiceParts = {};
 
         function loadDatabase() {
@@ -540,6 +546,100 @@
             }, (error) => {
                 console.error("Error loading parts database:", error);
             });
+        }
+
+        function updateInvoiceDropdown(searchQuery) {
+            const invoicesRef = ref(database, 'invoices');
+            get(invoicesRef).then((snapshot) => {
+                if (snapshot.exists()) {
+                    const invoices = snapshot.val();
+                    populateDropdownWithFilteredInvoices(invoices, searchQuery);
+                }
+            }).catch((error) => {
+                console.error("Error fetching invoices:", error);
+            });
+        }
+
+        function updateDropdownOptions(invoices, filterText) {
+            invoiceDropdown.innerHTML = '<option value="">Select Invoice</option>';
+
+            for (const invoiceNumber in invoices) {
+                if (invoices.hasOwnProperty(invoiceNumber)) {
+                    if (filterText === '' || invoiceNumber.toLowerCase().includes(filterText)) {
+                        const option = document.createElement('option');
+                        option.value = invoiceNumber;
+                        option.textContent = invoiceNumber;
+                        invoiceDropdown.appendChild(option);
+                    }
+                }
+            }
+        }
+
+        async function saveInvoice() {
+            const invoiceNumberInput = document.getElementById('invoice-number');
+            const invoiceNumber = invoiceNumberInput.value.trim();
+            const invoiceType = document.getElementById('invoice-type').value;
+
+            if (invoiceNumber.length === 0) {
+                console.error('Invoice number is required.');
+                return;
+            }
+
+            const amountPaid = document.getElementById('amount-paid').value;
+            const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => {
+                return {
+                    category: row.dataset.category,
+                    component: row.dataset.component,
+                    part: row.querySelector('td#populated-part').textContent,
+                    quantity: row.querySelector('input[name="part-quantity"]').value,
+                    price: row.querySelector('input[name="part-price"]').value,
+                    total: row.querySelector('input[name="part-total"]').value,
+                };
+            });
+            const invoiceData = {
+                invoiceType,
+                invoiceTitle: document.getElementById('title-input').value,
+                customerName: document.getElementById('customer-name').value,
+                customerPhone: document.getElementById('customer-phone').value,
+                customerEmail: document.getElementById('customer-email').value,
+                customerAddress: document.getElementById('customer-address').value,
+                invoiceNumber: document.getElementById('invoice-number').value,
+                notes: document.getElementById('notes').value,
+                invoiceDate: document.getElementById('invoice-date').value,
+                parts: partsData,
+                labor: [...laborTableBody.querySelectorAll('tr')].map(row => ({
+                    description: row.querySelector('input[name="labor-description"]').value.trim(),
+                    hours: row.querySelector('input[name="labor-hours"]').value,
+                    rate: row.querySelector('input[name="labor-rate"]').value,
+                    cost: row.querySelector('input[name="labor-total"]').value,
+                })),
+                subtotal: subtotalInput.value,
+                taxPercent: taxPercentInput.value,
+                tax: taxInput.value,
+                total: totalInput.value,
+                amountPaid: amountPaid,
+            };
+
+            for (const part of invoiceData.parts) {
+                try {
+                    await updatePartQuantityInDatabase(part.category, part.component, part.part, part.quantity);
+                } catch (error) {
+                    console.error(`Error updating part ${part.part}:`, error);
+                }
+            }
+
+            const invoiceRef = ref(database, 'invoices/' + invoiceNumber);
+
+            try {
+                await set(invoiceRef, invoiceData);
+
+                console.log('Invoice saved successfully');
+                populateInvoiceDropdown();
+                return;
+            } catch (error) {
+                console.error('Error saving invoice to Realtime Database:', error);
+                throw new Error('Failed to save invoice to Realtime Database.');
+            }
         }
 
         function createOptionElement(value, text) {
@@ -747,88 +847,28 @@
             }
         }
 
-        async function saveInvoice() {
-            const invoiceNumberInput = document.getElementById('invoice-number');
-            const invoiceNumber = invoiceNumberInput.value.trim();
-            const invoiceType = document.getElementById('invoice-type').value;
-
-            if (invoiceNumber.length === 0) {
-                console.error('Invoice number is required.');
-                return;
-            }
-
-            const amountPaid = document.getElementById('amount-paid').value;
-            const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => {
-                return {
-                    category: row.dataset.category,
-                    component: row.dataset.component,
-                    part: row.querySelector('td#populated-part').textContent,
-                    quantity: row.querySelector('input[name="part-quantity"]').value,
-                    price: row.querySelector('input[name="part-price"]').value,
-                    total: row.querySelector('input[name="part-total"]').value,
-                };
-            });
-            const invoiceData = {
-                invoiceType,
-                invoiceTitle: document.getElementById('title-input').value,
-                customerName: document.getElementById('customer-name').value,
-                customerPhone: document.getElementById('customer-phone').value,
-                customerEmail: document.getElementById('customer-email').value,
-                customerAddress: document.getElementById('customer-address').value,
-                invoiceNumber: document.getElementById('invoice-number').value,
-                notes: document.getElementById('notes').value,
-                invoiceDate: document.getElementById('invoice-date').value,
-                parts: partsData,
-                labor: [...laborTableBody.querySelectorAll('tr')].map(row => ({
-                    description: row.querySelector('input[name="labor-description"]').value.trim(),
-                    hours: row.querySelector('input[name="labor-hours"]').value,
-                    rate: row.querySelector('input[name="labor-rate"]').value,
-                    cost: row.querySelector('input[name="labor-total"]').value,
-                })),
-                subtotal: subtotalInput.value,
-                taxPercent: taxPercentInput.value,
-                tax: taxInput.value,
-                total: totalInput.value,
-                amountPaid: amountPaid,
-            };
-
-            for (const part of invoiceData.parts) {
-                try {
-                    await updatePartQuantityInDatabase(part.category, part.component, part.part, part.quantity);
-                } catch (error) {
-                    console.error(`Error updating part ${part.part}:`, error);
-                }
-            }
-
-            const invoiceRef = ref(database, 'invoices/' + invoiceNumber);
-
-            try {
-                await set(invoiceRef, invoiceData);
-
-                console.log('Invoice saved successfully');
-                populateInvoiceDropdown();
-                return;
-            } catch (error) {
-                console.error('Error saving invoice to Realtime Database:', error);
-                throw new Error('Failed to save invoice to Realtime Database.');
-            }
-        }
-
-        function populateInvoiceDropdown() {
+        function populateInvoiceDropdown(searchQuery = '') {
             const dropdown = document.getElementById('invoice-dropdown');
-            dropdown.innerHTML = '<option value="">Select File</option>';
+            dropdown.innerHTML = '<option value="">Select Invoice</option>';
 
             const invoicesRef = ref(database, 'invoices');
-
             get(invoicesRef).then((snapshot) => {
                 if (snapshot.exists()) {
                     const invoices = snapshot.val();
                     for (const invoiceNumber in invoices) {
                         if (invoices.hasOwnProperty(invoiceNumber)) {
-                            const option = document.createElement('option');
-                            option.value = invoiceNumber;
-                            option.textContent = invoiceNumber;
-                            dropdown.appendChild(option);
+                            const invoice = invoices[invoiceNumber];
+                            if (searchQuery === '' ||
+                                invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                invoice.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                invoice.customerAddress.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                invoice.customerEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                invoice.customerPhone.toLowerCase().includes(searchQuery.toLowerCase())) {
+                                const option = document.createElement('option');
+                                option.value = invoiceNumber;
+                                option.textContent = invoiceNumber;
+                                dropdown.appendChild(option);
+                            }
                         }
                     }
                 }
@@ -837,11 +877,13 @@
             });
         }
 
+        searchInput.addEventListener('input', () => {
+            populateInvoiceDropdown(searchInput.value);
+        });
+
         saveButton.addEventListener('click', async () => {
             const invoiceData = await saveInvoice();
         });
-
-        const deleteButton = document.getElementById('deleteButton');
 
         deleteButton.addEventListener('click', async () => {
             const selectedInvoiceNumber = invoiceDropdown.value;
@@ -901,8 +943,6 @@
             updateTotals();
             updateRemainingBalance();
         });
-
-        populateInvoiceDropdown();
 
         invoiceDropdown.addEventListener('change', () => {
             const selectedInvoiceNumber = invoiceDropdown.value;
@@ -995,6 +1035,7 @@
             }
         });
 
+        populateInvoiceDropdown();
     </script>
 
     <script>
@@ -1085,6 +1126,7 @@
             document.querySelector('.remaining').style.display = 'none';
 
             document.getElementById('price-difference').innerText = '';
+            document.getElementById('remaining-balance').innerText = '';
 
             localStorage.removeItem('inputData');
         }
