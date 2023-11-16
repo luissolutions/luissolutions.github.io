@@ -98,6 +98,29 @@
             color: var(--textColor);
         }
 
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.4);
+        }
+
+        .modal-content {
+            text-align: center;
+            margin: 15% auto;
+            padding: 20px;
+            width: 80%;
+        } 
+
+        #part-image {
+            width: 100%;
+        }
+
         #entries-container {
             display: flex;
             flex-wrap: wrap;
@@ -121,19 +144,19 @@
                 <input type="text" id="category" required>
             </div>
             <div class="entry">
-                <label for="component">Component:</label>
+                <label for="component">Sub-Category:</label>
                 <input type="text" id="component" required>
             </div>
             <div class="entry">
-                <label for="partName">Part Name:</label>
+                <label for="partName">Part Info:</label>
                 <input type="text" id="partName" required>
             </div>
             <div class="entry">
-                <label for="price">Price:</label>
+                <label for="price">Price: $</label>
                 <input type="number" id="price" step="0.01" required>
             </div>
             <div class="entry">
-                <label for="actualPrice">Actual Price:</label>
+                <label for="actualPrice">Cost: $</label>
                 <input type="number" id="actualPrice" step="0.01" required>
             </div>
             <div class="entry">
@@ -157,66 +180,51 @@
                 <input type="text" id="search-input" placeholder="Search">
                 <button id="unfinished">Search</button>
             </div>
-            <br>
-            <div id="entries-container"></div>
-            <button id="download-csv-button">Download All Data</button>
+        </div>
+        <br>
+        <div id="entries-container"></div>
+        <button id="download-csv-button">Download All Data</button>
     </section>
     </main>
+
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <img id="part-image" src="" alt="Part Image">
+        </div>
+    </div>
 
     <script type="module">
         import { ref, onValue, set, remove, database } from './js/firebase-init.js';
 
-        function loadDatabaseEntries() {
-            loadAndDisplayEntries();
+        const categoryFilter = document.getElementById('category-filter');
+        const entriesContainer = document.getElementById('entries-container');
+        const categoryInput = document.getElementById('category');
+        const componentInput = document.getElementById('component');
+        const partNameInput = document.getElementById('partName');
+        const priceInput = document.getElementById('price');
+        const actualPriceInput = document.getElementById('actualPrice');
+        const quantityInput = document.getElementById('quantity');
+        const descriptionInput = document.getElementById('description');
+        const inventoryRef = ref(database, 'inventory');
 
-            const entriesRef = ref(database, 'inventory');
-            onValue(entriesRef, (snapshot) => {
+        function loadDatabaseEntries() {
+            onValue(inventoryRef, (snapshot) => {
                 const entries = snapshot.val();
                 updateCategoryFilter(entries);
                 displayEntries(entries);
-            }, (error) => {
-                console.error("Error loading database entries:", error);
-            });
+            }, handleError);
         }
 
         function updateCategoryFilter(entries) {
-            const categorySet = new Set();
-            for (const category in entries) {
-                categorySet.add(category);
-            }
-
-            const categoryFilter = document.getElementById('category-filter');
-
+            const categorySet = new Set(Object.keys(entries));
             categoryFilter.innerHTML = '';
-
-            categorySet.forEach((category) => {
+            categorySet.forEach(category => {
                 const option = document.createElement('option');
                 option.value = category;
                 option.innerText = category;
                 categoryFilter.appendChild(option);
             });
         }
-
-        loadDatabaseEntries();
-
-        document.getElementById('save-data-button').addEventListener('click', () => {
-            const category = document.getElementById('category').value;
-            const component = document.getElementById('component').value;
-            const partName = document.getElementById('partName').value;
-            const price = document.getElementById('price').value;
-            const actualPrice = document.getElementById('actualPrice').value;
-            const quantity = document.getElementById('quantity').value;
-            const description = document.getElementById('description').value;
-
-            const entryRef = ref(database, `inventory/${category}/${component}/${partName}`);
-            set(entryRef, { price, actualPrice, quantity, description })
-                .then(() => {
-                    console.log('Entry saved successfully');
-                })
-                .catch((error) => {
-                    console.error('Error saving entry:', error);
-                });
-        });
 
         function displayEntries(entries, filterCategory = '') {
             const container = document.getElementById('entries-container');
@@ -229,14 +237,16 @@
                         const entry = entries[category][component][partName];
                         const entryDiv = document.createElement('div');
                         entryDiv.classList.add('data');
+
                         entryDiv.innerHTML = `
-                        <label><strong>Category:</strong> <input type="text" class="category" value="${category}"></label>
-                        <label><strong>Component:</strong> <input type="text" class="component" value="${component}"></label>
-                        <label><strong>Part Name:</strong> <input type="text" class="partName" value="${partName}"></label>
-                        <label><strong>Price:</strong> <input type="number" class="price" value="${entry.price}"></label>
-                        <label><strong>Actual Price:</strong> <input type="number" class="actualPrice" value="${entry.actualPrice || ''}"></label>
-                        <label><strong>Quantity:</strong> <input type="number" class="quantity" value="${entry.quantity}"></label>
-                        <label><strong>Description:</strong> <textarea class="description">${entry.description || ''}</textarea></label>
+                        <label>Category:<input type="text" class="category" value="${category}"></label>
+                        <label>Sub-Category:<input type="text" class="component" value="${component}"></label>
+                        <label>Part Info:<input type="text" class="partName" value="${partName}"></label>
+                        <label>Price: $<input type="number" class="price" value="${entry.price}"></label>
+                        <label>Cost: $<input type="number" class="actualPrice" value="${entry.actualPrice || ''}"></label>
+                        <label>Quantity:<input type="number" class="quantity" value="${entry.quantity}"></label>
+                        <label>Description:<textarea class="description">${entry.description || ''}</textarea></label>
+                        <button class="view-image-btn" data-partname="${partName}">View Image</button>
                         <button class="save-button">Save</button>
                         <button class="delete-button">Delete</button>
                         `;
@@ -247,56 +257,30 @@
                         const deleteButton = entryDiv.querySelector('.delete-button');
                         deleteButton.addEventListener('click', () => deleteEntry(category, component, partName, entryDiv));
 
+                        const viewImageButton = entryDiv.querySelector('.view-image-btn');
+                        viewImageButton.addEventListener('click', function () {
+                            showPartImage(this.dataset.partname);
+                        });
+
                         container.appendChild(entryDiv);
                     }
                 }
             }
         }
 
-        function saveEntry(entryDiv, oldCategory, oldComponent, oldPartName) {
-            const categoryInput = entryDiv.querySelector('.category');
-            const componentInput = entryDiv.querySelector('.component');
-            const partNameInput = entryDiv.querySelector('.partName');
-            const price = entryDiv.querySelector('.price').value;
-            const actualPrice = entryDiv.querySelector('.actualPrice').value;
-            const quantity = entryDiv.querySelector('.quantity').value;
-            const description = entryDiv.querySelector('.description').value;
-
-            const newCategory = categoryInput.value;
-            const newComponent = componentInput.value;
-            const newPartName = partNameInput.value;
-
-            const entryRef = ref(database, `inventory/${newCategory}/${newComponent}/${newPartName}`);
-            const oldEntryRef = ref(database, `inventory/${oldCategory}/${oldComponent}/${oldPartName}`);
-
-            set(entryRef, { price, actualPrice, quantity, description })
-                .then(() => {
-                    console.log('Entry saved successfully');
-                    if (
-                        newCategory !== oldCategory ||
-                        newComponent !== oldComponent ||
-                        newPartName !== oldPartName
-                    ) {
-                        remove(oldEntryRef).catch((error) => {
-                            console.error('Error deleting old entry:', error);
-                        });
-                    }
-                })
-                .catch((error) => {
-                    console.error('Error saving entry:', error);
-                });
+        function handleError(error) {
+            console.error("Database operation failed:", error);
         }
 
-        function deleteEntry(category, component, partName, entryDiv) {
-            const entryRef = ref(database, `inventory/${category}/${component}/${partName}`);
-            remove(entryRef)
-                .then(() => {
-                    console.log('Entry deleted successfully');
-                    entryDiv.remove();
-                })
-                .catch((error) => {
-                    console.error('Error deleting entry:', error);
-                });
+        function showPartImage(partName) {
+            const modal = document.getElementById('modal');
+            const img = document.getElementById('part-image');
+            img.src = `../websites/kamehouse/img/${partName}.png`;
+            modal.style.display = 'block';
+
+            img.addEventListener('click', function () {
+                modal.style.display = 'none';
+            });
         }
 
         function loadAndDisplayEntries(filterCategory) {
@@ -309,12 +293,6 @@
             });
         }
 
-        document.getElementById('category-filter').addEventListener('change', (event) => {
-            const selectedCategory = event.target.value;
-            loadAndDisplayEntries(selectedCategory);
-        });
-
-
         function loadAndDisplayEntriesBySearch(searchText) {
             const entriesRef = ref(database, 'inventory');
             onValue(entriesRef, (snapshot) => {
@@ -325,7 +303,7 @@
                 console.error("Error loading database entries:", error);
             });
         }
-        
+
         function filterEntries(entries, searchText) {
             const filteredEntries = {};
 
@@ -350,21 +328,66 @@
             return filteredEntries;
         }
 
-        document.getElementById('search-input').addEventListener('input', (event) => {
-            const searchText = event.target.value.toLowerCase();
-            loadAndDisplayEntriesBySearch(searchText);
-        });
+        function sanitizeInput(input) {
+            return input.replace(/\//g, '_');
+        }
 
-        document.getElementById('download-csv-button').addEventListener('click', () => {
-            const entriesRef = ref(database, 'inventory');
-            onValue(entriesRef, (snapshot) => {
-                const entries = snapshot.val();
-                const csvData = convertToCSV(entries);
-                downloadCSV(csvData);
-            }, (error) => {
-                console.error("Error fetching data for CSV:", error);
-            });
-        });
+        function saveEntry(entryDiv, oldCategory, oldComponent, oldPartName) {
+            const categoryInput = entryDiv.querySelector('.category');
+            const componentInput = entryDiv.querySelector('.component');
+            const partNameInput = entryDiv.querySelector('.partName');
+            const price = entryDiv.querySelector('.price').value;
+            const actualPrice = entryDiv.querySelector('.actualPrice').value;
+            const quantity = entryDiv.querySelector('.quantity').value;
+            const description = entryDiv.querySelector('.description').value;
+
+            const sanitizedCategory = sanitizeInput(categoryInput.value);
+            const sanitizedComponent = sanitizeInput(componentInput.value);
+            const sanitizedPartName = sanitizeInput(partNameInput.value);
+
+            if (!sanitizedCategory || !sanitizedComponent || !sanitizedPartName) {
+                console.error('Please fill in all required fields.', error);
+                return;
+            }
+
+            const entryRef = ref(database, `inventory/${sanitizedCategory}/${sanitizedComponent}/${sanitizedPartName}`);
+            const dataToSave = {
+                price: price,
+                actualPrice: actualPrice,
+                quantity: quantity,
+                description: description
+            };
+
+            set(entryRef, dataToSave)
+                .then(() => {
+                    console.log('Entry saved successfully');
+                    if (
+                        sanitizedCategory !== oldCategory ||
+                        sanitizedComponent !== oldComponent ||
+                        sanitizedPartName !== oldPartName
+                    ) {
+                        const oldEntryRef = ref(database, `inventory/${oldCategory}/${oldComponent}/${oldPartName}`);
+                        remove(oldEntryRef).catch((error) => {
+                            console.error('Error deleting old entry:', error);
+                        });
+                    }
+                })
+                .catch((error) => {
+                    console.error('Error saving entry:', error);
+                });
+        }
+
+        function deleteEntry(category, component, partName, entryDiv) {
+            const entryRef = ref(database, `inventory/${category}/${component}/${partName}`);
+            remove(entryRef)
+                .then(() => {
+                    console.log('Entry deleted successfully');
+                    entryDiv.remove();
+                })
+                .catch((error) => {
+                    console.error('Error deleting entry:', error);
+                });
+        }
 
         function convertToCSV(objArray) {
             const array = typeof objArray !== 'object' ? JSON.parse(objArray) : objArray;
@@ -393,6 +416,61 @@
             document.body.removeChild(link);
         }
 
+        document.getElementById('save-data-button').addEventListener('click', (event) => {
+            event.preventDefault();
+
+            const category = sanitizeInput(document.getElementById('category').value);
+            const component = sanitizeInput(document.getElementById('component').value);
+            const partName = sanitizeInput(document.getElementById('partName').value);
+            const price = document.getElementById('price').value;
+            const actualPrice = document.getElementById('actualPrice').value;
+            const quantity = document.getElementById('quantity').value;
+            const description = document.getElementById('description').value;
+
+            if (!category || !component || !partName) {
+                console.error('Please fill in all required fields.', error);
+                return;
+            }
+
+            const entryRef = ref(database, `inventory/${category}/${component}/${partName}`);
+            const dataToSave = {
+                price: price,
+                actualPrice: actualPrice,
+                quantity: quantity,
+                description: description
+            };
+
+            set(entryRef, dataToSave)
+                .then(() => {
+                    console.log('Data saved successfully');
+                })
+                .catch((error) => {
+                    console.error('Error saving data:', error);
+                });
+        });
+
+        document.getElementById('category-filter').addEventListener('change', (event) => {
+            const selectedCategory = event.target.value;
+            loadAndDisplayEntries(selectedCategory);
+        });
+
+        document.getElementById('search-input').addEventListener('input', (event) => {
+            const searchText = event.target.value.toLowerCase();
+            loadAndDisplayEntriesBySearch(searchText);
+        });
+
+        document.getElementById('download-csv-button').addEventListener('click', () => {
+            const entriesRef = ref(database, 'inventory');
+            onValue(entriesRef, (snapshot) => {
+                const entries = snapshot.val();
+                const csvData = convertToCSV(entries);
+                downloadCSV(csvData);
+            }, (error) => {
+                console.error("Error fetching data for CSV:", error);
+            });
+        });
+
+        loadDatabaseEntries();
     </script>
 
 </body>
