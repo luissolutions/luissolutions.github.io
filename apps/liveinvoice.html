@@ -536,6 +536,7 @@
                     part: row.querySelector('td#populated-part').textContent,
                     quantity: row.querySelector('input[name="part-quantity"]').value,
                     price: row.querySelector('input[name="part-price"]').value,
+                    actualPrice: row.querySelector('input[name="part-actual-price"]').value, // Include actualPrice
                     total: row.querySelector('input[name="part-total"]').value,
                 };
             });
@@ -611,39 +612,34 @@
             }
         }
 
-        function addPartRow(part) {
-            const selectedOption = partSelector.querySelector(`option[value="${part}"]`);
-            if (!selectedOption) return;
+        function addPartRow(partName, category = null, component = null, quantity = 1, price = 0, actualPrice = 0) {
+            if (!category || !component) {
+                const selectedOption = partSelector.querySelector(`option[value="${partName}"]`);
+                if (!selectedOption) return;
 
-            const price = parseFloat(selectedOption.dataset.price) || 0;
-            const actualPrice = parseFloat(selectedOption.dataset.actualPrice) || 0;
-            const availableQuantity = parseInt(selectedOption.dataset.quantity) || 0;
-            const existingRow = partsTableBody.querySelector(`tr[data-part="${part}"]`);
-            const category = selectedOption.dataset.category;
-            const component = selectedOption.dataset.component;
+                price = parseFloat(selectedOption.dataset.price) || 0;
+                actualPrice = parseFloat(selectedOption.dataset.actualPrice) || 0;
+                category = selectedOption.dataset.category;
+                component = selectedOption.dataset.component;
+            }
 
+            const existingRow = partsTableBody.querySelector(`tr[data-part="${partName}"][data-category="${category}"][data-component="${component}"]`);
             if (existingRow) {
                 const quantityInput = existingRow.querySelector('input[name="part-quantity"]');
-                const currentQuantity = parseInt(quantityInput.value) || 0;
-
-                if (currentQuantity + 1 <= availableQuantity) {
-                    quantityInput.value = currentQuantity + 1;
-                    updatePartRowTotal(existingRow);
-                } else {
-                    alert("Not enough stock available!");
-                }
+                quantityInput.value = parseInt(quantityInput.value, 10) + quantity;
+                updatePartRowTotal(existingRow);
             } else {
                 const newRow = document.createElement('tr');
-                newRow.dataset.part = part;
+                newRow.dataset.part = partName;
                 newRow.dataset.category = category;
                 newRow.dataset.component = component;
 
                 newRow.innerHTML = `
-                    <td id="populated-part">${part}</td>
-                    <td><input type="number" name="part-quantity" min="1" max="${availableQuantity}" value="1"></td>
+                    <td id="populated-part">${partName}</td>
+                    <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
                     <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
                     <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
-                    <td><input type="number" name="part-total" min="0" value="${price}" readonly></td>
+                    <td><input type="number" name="part-total" min="0" value="${price * quantity}" readonly></td>
                 `;
 
                 partsTableBody.appendChild(newRow);
@@ -651,16 +647,11 @@
                 const priceInput = newRow.querySelector('input[name="part-price"]');
                 const quantityInput = newRow.querySelector('input[name="part-quantity"]');
 
-                priceInput.addEventListener('input', function () {
-                    updatePartRowTotal(newRow);
-                });
-
-                quantityInput.addEventListener('input', function () {
-                    updatePartRowTotal(newRow);
-                });
-
-                updateTotals();
+                priceInput.addEventListener('input', () => updatePartRowTotal(newRow));
+                quantityInput.addEventListener('input', () => updatePartRowTotal(newRow));
             }
+
+            updateTotals();
             updatePriceDifference();
             updateRemainingBalance();
         }
@@ -908,6 +899,7 @@
 
                         document.getElementById('invoice-type').value = invoiceData.invoiceType;
                         document.getElementById('title-input').value = invoiceData.invoiceTitle;
+                        document.getElementById('invoice-type').value = invoiceData.invoiceType;
                         document.getElementById('customer-name').value = invoiceData.customerName;
                         document.getElementById('customer-phone').value = invoiceData.customerPhone;
                         document.getElementById('customer-email').value = invoiceData.customerEmail;
@@ -919,11 +911,12 @@
                         document.getElementById('tax-percent').value = invoiceData.taxPercent;
 
                         if (invoiceData.parts && invoiceData.parts.length > 0) {
-                            invoiceData.parts.forEach((part) => {
-                                addPartRow(part.part);
+                            invoiceData.parts.forEach(part => {
+                                addPartRow(part.part, part.category, part.component);
                                 const newRow = document.querySelector(`[data-part="${part.part}"]`);
                                 newRow.querySelector('input[name="part-quantity"]').value = part.quantity;
                                 newRow.querySelector('input[name="part-price"]').value = part.price;
+                                newRow.querySelector('input[name="part-actual-price"]').value = part.actualPrice;
                                 updatePartRowTotal(newRow);
                             });
                         }
@@ -952,8 +945,8 @@
                     console.error('Error fetching selected invoice:', error);
                 });
             } else {
-            alert('Please select an invoice to load.');
-        }
+                alert('Please select an invoice to load.');
+            }
         });
 
         document.getElementById('exportButton').addEventListener('click', function () {
