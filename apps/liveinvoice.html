@@ -126,7 +126,6 @@
             padding: 15px;
         }
 
-
         .title-container {
             display: flex;
             justify-content: space-evenly;
@@ -319,14 +318,14 @@
         <section>
             <div class="no-print">
                 <input type="text" class="input" id="invoice-search" placeholder="Search">
-
                 <select id="invoice-dropdown">
                     <option value="">Select File</option>
                 </select>
+                <button id="load-invoice-button" type="button">Load Invoice</button>
             </div>
             <br>
             <div class="title-container">
-                <input class="name" id="title-input" value="Title Here">
+                <input class="name" id="title-input" value="...">
             </div>
             <form>
                 <div>
@@ -371,7 +370,7 @@
 
                         <label for="part-selector">Select Part:</label>
                         <select id="part-selector"></select>
-                        <label class="price-difference" id="price-difference-display">Parts Price Profit: $<span
+                        <label class="price-difference" id="price-difference-display">Profit on Parts: $<span
                                 id="price-difference"></span></label>
                     </div>
 
@@ -898,67 +897,63 @@
             updateRemainingBalance();
         });
 
-        invoiceDropdown.addEventListener('change', () => {
+        document.getElementById('load-invoice-button').addEventListener('click', function () {
             const selectedInvoiceNumber = invoiceDropdown.value;
-
             if (selectedInvoiceNumber) {
-                const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
-
                 clearInvoice();
+                const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
+                get(invoiceRef).then((snapshot) => {
+                    if (snapshot.exists()) {
+                        const invoiceData = snapshot.val();
 
-                get(invoiceRef)
-                    .then((snapshot) => {
-                        if (snapshot.exists()) {
-                            const invoiceData = snapshot.val();
+                        document.getElementById('invoice-type').value = invoiceData.invoiceType;
+                        document.getElementById('title-input').value = invoiceData.invoiceTitle;
+                        document.getElementById('customer-name').value = invoiceData.customerName;
+                        document.getElementById('customer-phone').value = invoiceData.customerPhone;
+                        document.getElementById('customer-email').value = invoiceData.customerEmail;
+                        document.getElementById('customer-address').value = invoiceData.customerAddress;
+                        document.getElementById('invoice-number').value = invoiceData.invoiceNumber;
+                        document.getElementById('notes').value = invoiceData.notes;
+                        document.getElementById('invoice-date').value = invoiceData.invoiceDate;
+                        document.getElementById('amount-paid').value = invoiceData.amountPaid;
+                        document.getElementById('tax-percent').value = invoiceData.taxPercent;
 
-                            document.getElementById('invoice-type').value = invoiceData.invoiceType;
-                            document.getElementById('title-input').value = invoiceData.invoiceTitle;
-                            document.getElementById('customer-name').value = invoiceData.customerName;
-                            document.getElementById('customer-phone').value = invoiceData.customerPhone;
-                            document.getElementById('customer-email').value = invoiceData.customerEmail;
-                            document.getElementById('customer-address').value = invoiceData.customerAddress;
-                            document.getElementById('invoice-number').value = invoiceData.invoiceNumber;
-                            document.getElementById('notes').value = invoiceData.notes;
-                            document.getElementById('invoice-date').value = invoiceData.invoiceDate;
-                            document.getElementById('amount-paid').value = invoiceData.amountPaid;
-                            document.getElementById('tax-percent').value = invoiceData.taxPercent;
-
-                            if (invoiceData.parts && invoiceData.parts.length > 0) {
-                                invoiceData.parts.forEach((part) => {
-                                    addPartRow(part.part);
-                                    const newRow = document.querySelector(`[data-part="${part.part}"]`);
-                                    newRow.querySelector('input[name="part-quantity"]').value = part.quantity;
-                                    newRow.querySelector('input[name="part-price"]').value = part.price;
-                                    updatePartRowTotal(newRow);
-                                });
-                            }
-
-                            if (invoiceData.labor && invoiceData.labor.length > 0) {
-                                invoiceData.labor.forEach((labor) => {
-                                    addLaborRow(labor.description, labor.hours, labor.rate);
-                                    const newRow = laborTableBody.querySelector('tr:last-child');
-
-                                    newRow.querySelector('input[name="labor-description"]').value = labor.description;
-                                    newRow.querySelector('input[name="labor-hours"]').value = labor.hours;
-                                    newRow.querySelector('input[name="labor-rate"]').value = labor.rate;
-
-                                    const hoursInput = newRow.querySelector('input[name="labor-hours"]');
-                                    const rateInput = newRow.querySelector('input[name="labor-rate"]');
-                                    const totalInput = newRow.querySelector('input[name="labor-total"]');
-
-                                    updateLaborTotal(hoursInput, rateInput, totalInput);
-                                });
-                            }
-
-                            updateTotals();
-                            updateRemainingBalance();
+                        if (invoiceData.parts && invoiceData.parts.length > 0) {
+                            invoiceData.parts.forEach((part) => {
+                                addPartRow(part.part);
+                                const newRow = document.querySelector(`[data-part="${part.part}"]`);
+                                newRow.querySelector('input[name="part-quantity"]').value = part.quantity;
+                                newRow.querySelector('input[name="part-price"]').value = part.price;
+                                updatePartRowTotal(newRow);
+                            });
                         }
-                    })
-                    .catch((error) => {
-                        console.error('Error fetching selected invoice:', error);
-                    });
+
+                        if (invoiceData.labor && invoiceData.labor.length > 0) {
+                            invoiceData.labor.forEach((labor) => {
+                                addLaborRow(labor.description, labor.hours, labor.rate);
+                                const newRow = laborTableBody.querySelector('tr:last-child');
+
+                                newRow.querySelector('input[name="labor-description"]').value = labor.description;
+                                newRow.querySelector('input[name="labor-hours"]').value = labor.hours;
+                                newRow.querySelector('input[name="labor-rate"]').value = labor.rate;
+
+                                const hoursInput = newRow.querySelector('input[name="labor-hours"]');
+                                const rateInput = newRow.querySelector('input[name="labor-rate"]');
+                                const totalInput = newRow.querySelector('input[name="labor-total"]');
+
+                                updateLaborTotal(hoursInput, rateInput, totalInput);
+                            });
+                        }
+
+                        updateTotals();
+                        updateRemainingBalance();
+                    }
+                }).catch((error) => {
+                    console.error('Error fetching selected invoice:', error);
+                });
             } else {
-            }
+            alert('Please select an invoice to load.');
+        }
         });
 
         document.getElementById('exportButton').addEventListener('click', function () {
