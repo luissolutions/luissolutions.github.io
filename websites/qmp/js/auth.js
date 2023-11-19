@@ -1,10 +1,8 @@
 document.addEventListener("DOMContentLoaded", function () {
-  // Check if the token exists in the local storage
-  var tokenData = JSON.parse(localStorage.getItem("sToken"));  // This will be an object or null
+  var tokenData = JSON.parse(localStorage.getItem("sToken"));
   var currentTime = new Date().getTime();
 
-  if (!tokenData || tokenData.sToken !== "7777777" || tokenData.expiresAt < currentTime) {
-    // Token is not "7777777" or it has expired, and the current page is not the login page
+  if (!tokenData || tokenData.sToken !== "999999999" || tokenData.expiresAt < currentTime) {
     window.location.href = "login.html";
   }
 });
