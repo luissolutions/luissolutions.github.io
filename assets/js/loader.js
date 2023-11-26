@@ -102,3 +102,14 @@ if (selectedPage) {
 }
 
 document.addEventListener('click', handleOutsideClick);
+
+
+// Function to load page based on user input
+function loadPageFromInput() {
+  const inputElement = document.getElementById('pageInput');
+  const userInput = inputElement.value.trim();
+
+  if (userInput) {
+    loadPage(userInput + '.html');
+  }
+}
