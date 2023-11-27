@@ -56,18 +56,7 @@
 
 <body>
   <main>
-    <div id="login-window">
-      <h2>Login</h2>
-      <br>
-      <form id="loginForm">
-        <label for="username">Username:</label>
-        <input type="text" id="username" required><br>
-        <label for="password">Password:</label>
-        <input type="password" id="password" required><br>
-        <input type="submit" value="Login">
-      </form>
-    </div>
-    <section id="main-window" style="display: none;">
+    <section id="main-window">
       <h1>Notes App</h1>
       <form>
         <label for="input-name">Name</label>
@@ -93,54 +82,6 @@
     const notesTextarea = document.getElementById('notes');
     const mainWindow = document.getElementById('main-window')
     const loginWindow = document.getElementById('login-window')
-
-    function checkTokenValidity() {
-      var tokenData = JSON.parse(localStorage.getItem("sToken")); 
-      var currentTime = new Date().getTime();
-
-      if (!tokenData || tokenData.sToken !== "999999999" || tokenData.expiresAt < currentTime) {
-        loginWindow.style.display = "block";
-        mainWindow.style.display = "none";
-      } else {
-        mainWindow.style.display = "block";
-        loginWindow.style.display = "none";
-      }
-    }
-
-    function handleLoginFormSubmit() {
-      document.getElementById("loginForm").addEventListener("submit", event => {
-        event.preventDefault();
-
-        const username = document.getElementById("username").value;
-        const password = document.getElementById("password").value;
-
-        const usersRef = ref(database, "users");
-        const usersListener = onValue(usersRef, snapshot => {
-          const users = snapshot.val();
-
-          if (users) {
-            const matchingUser = Object.values(users).find(user => user.username === username && user.password === password);
-
-            if (matchingUser) {
-              const sToken = "999999999";
-              const expirationMinutes = 480;
-              const expirationTime = new Date().getTime() + (expirationMinutes * 60 * 1000);
-              const tokenData = { sToken, expiresAt: expirationTime };
-              localStorage.setItem("sToken", JSON.stringify(tokenData));
-
-              const delay = expirationTime - new Date().getTime();
-              setTimeout(() => localStorage.removeItem("sToken"), delay);
-              window.location.reload(true);
-            } else {
-              alert("Invalid username or password. Please try again.");
-            }
-          } else {
-            alert("No user data found.");
-          }
-          off(usersRef, usersListener);
-        });
-      });
-    }
 
     function copyNote() {
       notesTextarea.select();
@@ -181,8 +122,8 @@
         if (notes) {
           const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
           if (noteId) {
-            const deletedNote = notes[noteId]; // Get the deleted note
-            storeDeletedNote(deletedNote.name, deletedNote.note); // Store the deleted note
+            const deletedNote = notes[noteId];
+            storeDeletedNote(deletedNote.name, deletedNote.note);
             set(ref(database, `notes/${noteId}`), null)
               .then(() => {
                 nameInput.value = '';
@@ -276,12 +217,10 @@
 
     let deletedNotes = [];
 
-    // Function to store a deleted note
     function storeDeletedNote(name, note) {
       deletedNotes.push({ name, note });
     }
 
-    // Function to undo the last deleted note
     function undoDelete() {
       if (deletedNotes.length > 0) {
         const lastDeletedNote = deletedNotes.pop();
@@ -291,7 +230,7 @@
         set(notesRef, { name, note })
           .then(() => {
             console.log(`Undone the deletion of the note with name: ${name}`);
-            populateNoteList(); // Refresh the note list
+            populateNoteList();
           })
           .catch(error => {
             console.error('Failed to undo the deletion:', error);
@@ -320,11 +259,9 @@
     document.getElementById('undo-btn').addEventListener('click', undoDelete);
 
     document.addEventListener("keydown", event => {
-      // Check if the "Ctrl" key and "S" key are pressed simultaneously
       if (event.ctrlKey && event.key === "s") {
-        event.preventDefault(); // Prevent the browser's default save behavior
+        event.preventDefault();
 
-        // Trigger the click event of the "Save" button
         const saveBtn = document.getElementById("save-btn");
         if (saveBtn) {
           saveBtn.click();
