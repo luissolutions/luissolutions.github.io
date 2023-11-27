@@ -43,7 +43,7 @@
                 <div class="login-container" style="display: none;">
                     <h1>Login</h1>
                     <form id="login-form">
-                        <label for="login-username">Username:</label>
+                        <label for="login-username">Email:</label>
                         <input type="text" id="login-username" name="username" required>
                         <label for="login-password">Password:</label>
                         <input type="password" id="login-password" name="password" required>
@@ -89,97 +89,52 @@
     </script>
 
     <script type="module">
-        import { database, ref, onValue, off, set } from "../../apps/js/firebase-init.js";
+        import { auth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "../../apps/js/firebase-init.js";
 
-        const handleLoginFormSubmit = () => {
-            document.getElementById("login-form").addEventListener("submit", event => {
-                event.preventDefault();
+        // Login form handling
+        document.getElementById("login-form").addEventListener("submit", function (event) {
+            event.preventDefault();
+            const email = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
 
-                const username = document.getElementById("login-username").value;
-                const password = document.getElementById("login-password").value;
-
-                const usersRef = ref(database, "users");
-                const usersListener = onValue(usersRef, snapshot => {
-                    const users = snapshot.val();
-
-                    if (users) {
-                        const matchingUser = Object.values(users).find(user => user.username === username && user.password === password);
-
-                        if (matchingUser) {
-                            const sToken = "999999999";
-                            const expirationMinutes = 480;
-                            const expirationTime = new Date().getTime() + (expirationMinutes * 60 * 1000);
-                            const tokenData = { sToken, expiresAt: expirationTime };
-                            localStorage.setItem("sToken", JSON.stringify(tokenData));
-
-                            const delay = expirationTime - new Date().getTime();
-                            setTimeout(() => localStorage.removeItem("sToken"), delay);
-                            // alert("Login Successful.");
-                            window.location.href = "base.html";
-                        } else {
-                            alert("Invalid username or password. Please try again.");
-                        }
-                    } else {
-                        alert("No user data found.");
-                    }
-                    off(usersRef, usersListener);
+            signInWithEmailAndPassword(auth, email, password)
+                .then((credentials) => {
+                    window.location.href = 'base.html'; // Redirect on successful login
+                })
+                .catch((error) => {
+                    console.error('Login error:', error);
+                    alert("Error during login: " + error.message);
                 });
-            });
-        }
-        handleLoginFormSubmit();
+        });
 
-
+        // Registration form handling
         document.getElementById("registration-form").addEventListener("submit", function (event) {
             event.preventDefault();
-
-            const tokenData = localStorage.getItem("sToken");
-
-            if (!tokenData || tokenData !== '"999999999"') {
-                alert("You don't have the proper permissions to register.");
-                return;
-            }
-
-            var username = document.getElementById("reg-username").value;
-            var email = document.getElementById("reg-email").value;
-            var password = document.getElementById("reg-password").value;
-            var confirmPassword = document.getElementById("reg-confirm-password").value;
+            const email = document.getElementById('reg-email').value;
+            const password = document.getElementById('reg-password').value;
+            const confirmPassword = document.getElementById('reg-confirm-password').value;
 
             if (password !== confirmPassword) {
                 alert("Passwords do not match. Please try again.");
                 return;
             }
 
-            var userInfo = {
-                email: email,
-                username: username,
-                password: password,
-            };
-
-            var userRef = ref(database, "users/" + email.replace(/\W/g, ""));
-            set(userRef, userInfo);
-
-            alert("Registration successful!");
+            createUserWithEmailAndPassword(auth, email, password)
+                .then((userCredential) => {
+                    console.log('User registered:', userCredential.user);
+                    alert("Registration Success");
+                    // Additional user data can be saved to the database here
+                })
+                .catch((error) => {
+                    console.error('Error registering user:', error);
+                    alert("Registration failed: " + error.message);
+                });
 
             document.getElementById("registration-form").reset();
         });
 
-    </script>
-
-    <script>
-        const registerContainer = document.querySelector('.register-container');
-        const loginContainer = document.querySelector('.login-container');
-        if (registerContainer && loginContainer) {
-            const toggleRegister = document.getElementById('toggle-register');
-            const toggleLogin = document.getElementById('toggle-login');
-
-            toggleRegister.removeEventListener('click', toggleToRegister);
-            toggleLogin.removeEventListener('click', toggleToLogin);
-
-            toggleRegister.addEventListener('click', toggleToRegister);
-            toggleLogin.addEventListener('click', toggleToLogin);
-        }
-
-        function toggleToRegister(e) {
+        // Toggling between login and registration forms
+        const toggleToRegister = (e) => {
             e.preventDefault();
             const loginContainer = document.querySelector('.login-container');
             const registerContainer = document.querySelector('.register-container');
@@ -187,7 +142,7 @@
             registerContainer.style.display = 'block';
         }
 
-        function toggleToLogin(e) {
+        const toggleToLogin = (e) => {
             e.preventDefault();
             const loginContainer = document.querySelector('.login-container');
             const registerContainer = document.querySelector('.register-container');
@@ -195,6 +150,8 @@
             loginContainer.style.display = 'block';
         }
 
+        document.getElementById('toggle-register').addEventListener('click', toggleToRegister);
+        document.getElementById('toggle-login').addEventListener('click', toggleToLogin);
     </script>
 </body>
 
