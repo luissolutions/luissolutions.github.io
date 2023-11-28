@@ -1,16 +1,22 @@
-document.addEventListener("DOMContentLoaded", () => {
-    // Check if the token exists in local storage
-    var tokenData = JSON.parse(localStorage.getItem("token")); // This will be an object or null
-    var currentTime = new Date().getTime();
+import { auth, signOut } from "../../../assets/js/firebase-init.js";
 
-    // Define the token expiration time in milliseconds (e.g., 480 minutes)
-    var expirationMinutes = 480;
-    var expirationTime = expirationMinutes * 60 * 1000; // Convert minutes to milliseconds
-
-    if (!tokenData || tokenData.expiresAt < currentTime) {
-        // Token is not present or has expired, redirect to login.html
-        window.location.href = "login.html";
+document.addEventListener('DOMContentLoaded', () => {
+  // Check the auth state
+  auth.onAuthStateChanged((user) => {
+    if (!user) {
+      // User is not logged in, redirect to login page
+      window.location.href = 'login.html';
     } else {
-        // Token is valid, the user can stay on this page
+      // User is logged in, you can optionally perform other actions here
     }
+  });
+});
+
+document.getElementById('logoutButton').addEventListener('click', () => {
+  signOut(auth).then(() => {
+      console.log("You have been logged out");
+      // window.location.href = 'login.html';
+  }).catch((error) => {
+      console.error("Logout error", error);
+  });
 });
