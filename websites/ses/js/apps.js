@@ -837,13 +837,25 @@ function handleError(error) {
 function showPartImage(partName) {
     const modal = document.getElementById('modal');
     const img = document.getElementById('part-image');
-    img.src = `../websites/kamehouse/img/${partName}.png`;
-    modal.style.display = 'block';
+    const imgSrc = `img/database/${partName}.png`;
+    
+    const imageExists = new Promise((resolve) => {
+        const testImage = new Image();
+        testImage.src = imgSrc;
+        testImage.onload = () => resolve(true);
+        testImage.onerror = () => resolve(false);
+    });
 
-    img.addEventListener('click', function () {
-        modal.style.display = 'none';
+    imageExists.then((exists) => {
+        img.src = exists ? imgSrc : 'img/database/default.png';
+        modal.style.display = 'block';
+
+        img.addEventListener('click', function () {
+            modal.style.display = 'none';
+        });
     });
 }
+
 
 function loadAndDisplayEntries(filterCategory) {
     const entriesRef = ref(database, 'inventory');
