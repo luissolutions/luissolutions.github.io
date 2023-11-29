@@ -6,16 +6,16 @@ hamburger.onclick = function() {
 }
 
 function showDescription(id) {
-  // Get the clicked description
+  // Get the clicked descript
   var x = document.getElementById(id);
 
-  // Toggle the display of the clicked description
+  // Toggle the display of the clicked descript
   if (x.style.display === 'block') {
       x.style.display = 'none';
   } else {
-      // Hide all descriptions
-      var descriptions = document.querySelectorAll('.description');
-      descriptions.forEach(function (desc) {
+      // Hide all descripts
+      var descripts = document.querySelectorAll('.descript');
+      descripts.forEach(function (desc) {
           desc.style.display = 'none';
       });
 
@@ -23,23 +23,23 @@ function showDescription(id) {
   }
 }
 
-const descriptions = document.querySelectorAll('.description');
+const descripts = document.querySelectorAll('.descript');
 const closeButtons = document.querySelectorAll('.closeBtn');
 
 closeButtons.forEach(button => {
   button.addEventListener('click', (event) => {
-    const description = event.target.closest('.description');
-    if (description) {
-      description.style.display = 'none';
+    const descript = event.target.closest('.descript');
+    if (descript) {
+      descript.style.display = 'none';
     }
   });
 });
 
 // Add click event listener to the window
 window.addEventListener('click', (event) => {
-  descriptions.forEach(description => {
-    if (event.target === description) {
-      description.style.display = 'none';
+  descripts.forEach(descript => {
+    if (event.target === descript) {
+      descript.style.display = 'none';
     }
   });
 });
