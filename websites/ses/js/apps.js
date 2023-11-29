@@ -15,6 +15,7 @@ const appSettings = {
 const app = initializeApp(appSettings);
 const auth = getAuth(app);
 const database = getDatabase(app);
+
 const nameInput = document.getElementById('input-name');
 const notesTextarea = document.getElementById('notes');
 const mainWindow = document.getElementById('main-window')

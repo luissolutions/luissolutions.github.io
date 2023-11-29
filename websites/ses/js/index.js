@@ -27,8 +27,8 @@ const descripts = document.querySelectorAll('.descript');
 const closeButtons = document.querySelectorAll('.closeBtn');
 
 closeButtons.forEach(button => {
-  button.addEventListener('click', (event) => {
-    const descript = event.target.closest('.descript');
+  button.addEventListener('click', (e) => {
+    const descript = e.target.closest('.descript');
     if (descript) {
       descript.style.display = 'none';
     }
@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   padlock.addEventListener('dblclick', function () {
-    window.location.href = 'login.html';
+    window.location.href = 'notes.html';
   });
 });
 
