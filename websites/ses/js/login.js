@@ -1,20 +1,6 @@
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js';
-import { getDatabase, ref, set } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
-
-const firebaseConfig = {
-    apiKey: "AIzaSyAg4UO0ASr-M19XCtoI8AZiNK2l5ddFDd0",
-    authDomain: "notes-fba33.firebaseapp.com",
-    databaseURL: "https://notes-fba33-default-rtdb.firebaseio.com",
-    projectId: "notes-fba33",
-    storageBucket: "notes-fba33.appspot.com",
-    messagingSenderId: "312617117650",
-    appId: "1:312617117650:web:721cc5bf322af639410a0b"
-};
-
-const app = initializeApp(firebaseConfig);
-const database = getDatabase(app);
-const auth = getAuth(app);
+import {
+    database, auth, signInWithEmailAndPassword, createUserWithEmailAndPassword, ref, set
+} from './firebase-init.js';
 
 const mainForm = document.getElementById('loginForm');
 const emailInp = document.getElementById('loginEmail');
