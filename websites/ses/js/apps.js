@@ -1,24 +1,9 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
-import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
-import { getDatabase, ref, onValue, set, get, off, remove, runTransaction } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
-
-const appSettings = {
-    apiKey: "AIzaSyAg4UO0ASr-M19XCtoI8AZiNK2l5ddFDd0",
-    authDomain: "notes-fba33.firebaseapp.com",
-    databaseURL: "https://notes-fba33-default-rtdb.firebaseio.com",
-    projectId: "notes-fba33",
-    storageBucket: "notes-fba33.appspot.com",
-    messagingSenderId: "312617117650",
-    appId: "1:312617117650:web:721cc5bf322af639410a0b"
-};
-
-const app = initializeApp(appSettings);
-const auth = getAuth(app);
-const database = getDatabase(app);
+import {
+    database, auth, onAuthStateChanged, ref, onValue, set, get, remove, runTransaction, signOut
+} from './firebase-init.js';
 
 const nameInput = document.getElementById('input-name');
 const notesTextarea = document.getElementById('notes');
-const mainWindow = document.getElementById('main-window')
 
 // Check authentication state
 onAuthStateChanged(auth, (user) => {
@@ -68,8 +53,8 @@ async function deleteNote() {
         if (notes) {
             const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
             if (noteId) {
-                const deletedNote = notes[noteId]; // Get the deleted note
-                storeDeletedNote(deletedNote.name, deletedNote.note); // Store the deleted note
+                const deletedNote = notes[noteId];
+                storeDeletedNote(deletedNote.name, deletedNote.note);
                 set(ref(database, `notes/${noteId}`), null)
                     .then(() => {
                         nameInput.value = '';
