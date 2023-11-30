@@ -71,31 +71,6 @@ async function deleteNote() {
     }
 }
 
-function loadNote() {
-    const nameToLoad = nameInput.value.trim();
-
-    if (nameToLoad) {
-        const notesRef = ref(database, 'notes');
-        onValue(notesRef, snapshot => {
-            const notes = snapshot.val();
-            if (notes) {
-                const noteId = Object.keys(notes).find(id => notes[id].name === nameToLoad);
-                if (noteId) {
-                    const selectedNote = notes[noteId];
-                    notesTextarea.value = selectedNote.note;
-                    console.log(`Loaded the note with name: ${nameToLoad}`);
-                } else {
-                    console.log(`No note found with the name: ${nameToLoad}`);
-                }
-            } else {
-                console.log('No notes found');
-            }
-        });
-    } else {
-        console.log('Please enter the name of the note to load');
-    }
-}
-
 function exportNotes() {
     const notesRef = ref(database, 'notes');
     onValue(notesRef, snapshot => {
