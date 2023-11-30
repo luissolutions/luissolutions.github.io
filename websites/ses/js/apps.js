@@ -839,7 +839,7 @@ function showPartImage(partName) {
     const modal = document.getElementById('modal');
     const img = document.getElementById('part-image');
     const imgSrc = `img/database/${partName}.png`;
-    
+
     const imageExists = new Promise((resolve) => {
         const testImage = new Image();
         testImage.src = imgSrc;
@@ -1163,3 +1163,153 @@ for (const clock of clocks) {
         clock.style.display = "none";
     });
 }
+
+async function analyzeInvoiceData() {
+    const invoicesRef = ref(database, 'invoices');
+    try {
+        const snapshot = await get(invoicesRef);
+        if (snapshot.exists()) {
+            const invoices = snapshot.val();
+            let totalAmountPaid = 0;
+            let totalSales = 0;
+            let totalLaborCost = 0;
+            let totalPartsUsed = 0;
+            let totalPartsProfit = 0;
+            let totalPartsValue = 0;
+            let partsSold = {};
+            let totalInvoices = 0;
+
+            for (const invoiceId in invoices) {
+                const invoice = invoices[invoiceId];
+
+                // Check if the entry is an invoice, not a quote
+                if (invoice.invoiceType === "invoice") {
+                    totalAmountPaid += parseFloat(invoice.amountPaid) || 0;
+                    totalSales += parseFloat(invoice.total) || 0;
+
+                    (invoice.labor || []).forEach(labor => {
+                        totalLaborCost += parseFloat(labor.cost) || 0;
+                    });
+
+                    (invoice.parts || []).forEach(part => {
+                        const partName = part.part;
+                        const quantity = parseInt(part.quantity) || 0;
+                        const price = parseFloat(part.price) || 0;
+                        const actualPrice = parseFloat(part.actualPrice) || 0;
+                        totalPartsProfit += (price - actualPrice) * quantity;
+                        totalPartsValue += price * quantity;
+                        totalPartsUsed += quantity;
+                        partsSold[partName] = (partsSold[partName] || 0) + quantity;
+                    });
+
+                    totalInvoices++;
+                }
+            }
+
+            document.getElementById('total-amount-paid').textContent = `$${totalAmountPaid.toFixed(2)}`;
+            document.getElementById('total-sales').textContent = `$${totalSales.toFixed(2)}`;
+            document.getElementById('total-labor-cost').textContent = `$${totalLaborCost.toFixed(2)}`;
+            document.getElementById('total-parts-used').textContent = totalPartsUsed;
+            document.getElementById('total-parts-profit').textContent = `$${totalPartsProfit.toFixed(2)}`;
+            document.getElementById('total-parts-value').textContent = `$${totalPartsValue.toFixed(2)}`;
+            document.getElementById('total-invoices').textContent = totalInvoices;
+
+            const partsSoldList = document.getElementById('parts-sold');
+            partsSoldList.innerHTML = '';
+            Object.keys(partsSold).forEach(partName => {
+                const li = document.createElement('li');
+                li.textContent = `${partName}: ${partsSold[partName]} units`;
+                partsSoldList.appendChild(li);
+            });
+        } else {
+            console.error('No invoice data found.');
+        }
+    } catch (error) {
+        console.error('Error fetching invoices:', error);
+    }
+}
+
+async function populateCustomerDropdown() {
+    const invoicesRef = ref(database, 'invoices');
+    try {
+        const snapshot = await get(invoicesRef);
+        if (snapshot.exists()) {
+            const invoices = snapshot.val();
+            const customerNames = new Set();
+
+            for (const invoiceId in invoices) {
+                const customerName = invoices[invoiceId].customerName;
+                if (customerName) {
+                    customerNames.add(customerName);
+                }
+            }
+
+            const dropdown = document.getElementById('customer-dropdown');
+            dropdown.innerHTML = '<option value="">Select a Customer</option>';
+            customerNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                dropdown.appendChild(option);
+            });
+        } else {
+            console.error('No invoice data found.');
+        }
+    } catch (error) {
+        console.error('Error fetching invoices:', error);
+    }
+}
+
+function updateCustomerDetails(customerName) {
+    const invoicesRef = ref(database, 'invoices');
+    get(invoicesRef).then(snapshot => {
+        if (snapshot.exists()) {
+            const invoices = snapshot.val();
+            const phoneNumbers = new Set();
+            const addresses = new Set();
+
+            for (const invoiceId in invoices) {
+                const invoice = invoices[invoiceId];
+                if (invoice.customerName === customerName) {
+                    phoneNumbers.add(invoice.customerPhone);
+                    addresses.add(invoice.customerAddress);
+                }
+            }
+
+            const phoneNumbersList = document.getElementById('customer-phone-numbers');
+            phoneNumbersList.innerHTML = '';
+            phoneNumbers.forEach(phone => {
+                const li = document.createElement('li');
+                li.textContent = phone;
+                phoneNumbersList.appendChild(li);
+            });
+
+            const addressesList = document.getElementById('customer-addresses');
+            addressesList.innerHTML = '';
+            addresses.forEach(address => {
+                const li = document.createElement('li');
+                li.textContent = address;
+                addressesList.appendChild(li);
+            });
+        }
+    }).catch(error => {
+        console.error('Error fetching invoices:', error);
+    });
+}
+
+document.getElementById('customer-dropdown').addEventListener('change', function () {
+    const selectedCustomer = this.value;
+    if (selectedCustomer) {
+        updateCustomerDetails(selectedCustomer);
+    } else {
+        document.getElementById('customer-phone-numbers').innerHTML = '';
+        document.getElementById('customer-addresses').innerHTML = '';
+    }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    analyzeInvoiceData();
+    populateCustomerDropdown();
+});
+
+document.addEventListener('DOMContentLoaded', analyzeInvoiceData);
