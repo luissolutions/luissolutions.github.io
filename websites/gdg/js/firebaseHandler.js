@@ -8,7 +8,7 @@ export function initializeFirebase() {
     if (isFirebaseInitialized) return;
 
     const appSettings = {
-        databaseURL: "https://persinfo-df93f-default-rtdb.firebaseio.com/"
+        databaseURL: "https://playground-e3690-default-rtdb.firebaseio.com/"
     };
 
     const app = initializeApp(appSettings);
