@@ -8,7 +8,7 @@ export function initializeFirebase() {
     if (isFirebaseInitialized) return;
 
     const appSettings = {
-        databaseURL: "https://persinfo-df93f-default-rtdb.firebaseio.com/"
+        databaseURL: "https://playground-e3690-default-rtdb.firebaseio.com/"
     };
 
     const app = initializeApp(appSettings);
@@ -20,7 +20,7 @@ export function initializeFirebase() {
 function loginUser(username, password) {
     return new Promise((resolve, reject) => {
         const usersRef = ref(database, "users");
-        let usersListener;  // Declare first without initializing
+        let usersListener;
         usersListener = onValue(usersRef, snapshot => {
             const users = snapshot.val();
 
@@ -34,7 +34,7 @@ function loginUser(username, password) {
                 }
             }
 
-            off(usersRef, usersListener);  // Now it should be safe to use
+            off(usersRef, usersListener); 
         });
     });
 }
@@ -140,6 +140,5 @@ export function attachFirebaseEventListeners() {
     attachRegisterEventListener();
 }
 
-// Ensure that the DOM is fully loaded before trying to attach event listeners
 document.addEventListener("DOMContentLoaded", function () {
 });
