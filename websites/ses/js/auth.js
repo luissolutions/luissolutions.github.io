@@ -3,12 +3,11 @@ import { auth, onAuthStateChanged, signOut } from './firebase-init.js';
 // Check authentication state
 onAuthStateChanged(auth, (user) => {
     if (user) {
-        populateNoteList();
+        console.log("Logged in");
     } else {
         window.location.href = 'login.html';
     }
 });
-
 
 document.getElementById('signOutButton').addEventListener('click', function () {
     signOut(auth).then(() => {
