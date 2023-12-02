@@ -3,7 +3,7 @@ import { auth, onAuthStateChanged, signOut } from "../../../assets/js/firebase-i
 // Check authentication state
 onAuthStateChanged(auth, (user) => {
   if (user) {
-    populateNoteList();
+    console.log("Logged in");
   } else {
     console.error('Not Signed In, Some functions not available.');
   }

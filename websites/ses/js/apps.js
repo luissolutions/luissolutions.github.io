@@ -1,5 +1,5 @@
 import {
-    database, auth, ref, onValue, set, get, remove, runTransaction
+    database, ref, onValue, set, get, remove, runTransaction
 } from './firebase-init.js';
 
 const nameInput = document.getElementById('input-name');
@@ -267,7 +267,7 @@ async function saveInvoice() {
         customerEmail: document.getElementById('customer-email').value,
         customerAddress: document.getElementById('customer-address').value,
         invoiceNumber: document.getElementById('invoice-number').value,
-        notes: document.getElementById('notes').value,
+        notes: document.getElementById('inoice-notes').value,
         invoiceDate: document.getElementById('invoice-date').value,
         parts: partsData,
         labor: [...laborTableBody.querySelectorAll('tr')].map(row => ({
@@ -624,7 +624,7 @@ document.getElementById('load-invoice-button').addEventListener('click', functio
                 document.getElementById('customer-email').value = invoiceData.customerEmail;
                 document.getElementById('customer-address').value = invoiceData.customerAddress;
                 document.getElementById('invoice-number').value = invoiceData.invoiceNumber;
-                document.getElementById('notes').value = invoiceData.notes;
+                document.getElementById('invoice-notes').value = invoiceData.notes;
                 document.getElementById('invoice-date').value = invoiceData.invoiceDate;
                 document.getElementById('amount-paid').value = invoiceData.amountPaid;
                 document.getElementById('tax-percent').value = invoiceData.taxPercent;
@@ -1012,7 +1012,7 @@ function saveDataToLocalStorage() {
         customerAddress: document.getElementById('customer-address').value,
         invoiceDate: document.getElementById('invoice-date').value,
         invoiceNumber: document.getElementById('invoice-number').value,
-        notes: document.getElementById('notes').value,
+        notes: document.getElementById('invoice-notes').value,
     };
 
     localStorage.setItem('inputData', JSON.stringify(inputData));
@@ -1030,7 +1030,7 @@ function loadDataFromLocalStorage() {
         document.getElementById('customer-address').value = inputData.customerAddress || '';
         document.getElementById('invoice-date').value = inputData.invoiceDate || '';
         document.getElementById('invoice-number').value = inputData.invoiceNumber || '';
-        document.getElementById('notes').value = inputData.notes || '';
+        document.getElementById('invoice-notes').value = inputData.notes || '';
     }
 }
 
@@ -1041,7 +1041,7 @@ document.getElementById('customer-email').addEventListener('input', saveDataToLo
 document.getElementById('customer-address').addEventListener('input', saveDataToLocalStorage);
 document.getElementById('invoice-date').addEventListener('input', saveDataToLocalStorage);
 document.getElementById('invoice-number').addEventListener('input', saveDataToLocalStorage);
-document.getElementById('notes').addEventListener('input', saveDataToLocalStorage);
+document.getElementById('invoice-notes').addEventListener('input', saveDataToLocalStorage);
 
 document.addEventListener('DOMContentLoaded', loadDataFromLocalStorage);
 // Clear Invoice Fields
@@ -1054,7 +1054,7 @@ function clearInvoice() {
         'customer-address',
         'invoice-date',
         'invoice-number',
-        'notes',
+        'invoice-notes',
     ];
 
     inputElements.forEach((elementId) => {
