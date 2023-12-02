@@ -1,8 +1,19 @@
-document.addEventListener("DOMContentLoaded", function () {
-  var tokenData = JSON.parse(localStorage.getItem("sToken"));
-  var currentTime = new Date().getTime();
+import { auth, onAuthStateChanged, signOut } from "../../../assets/js/firebase-init.js";
 
-  if (!tokenData || tokenData.sToken !== "999999999" || tokenData.expiresAt < currentTime) {
-    window.location.href = "login.html";
+// Check authentication state
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    populateNoteList();
+  } else {
+    console.error('Not Signed In, Some functions not available.');
   }
+});
+
+// Sign out
+document.getElementById('signOutButton').addEventListener('click', function () {
+  signOut(auth).then(() => {
+    console.log('User signed out');
+  }).catch((error) => {
+    console.error('Sign out error:', error);
+  });
 });

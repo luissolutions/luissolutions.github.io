@@ -1,18 +1,9 @@
 import {
-    database, auth, onAuthStateChanged, ref, onValue, set, get, remove, runTransaction, signOut
+    database, auth, ref, onValue, set, get, remove, runTransaction
 } from './firebase-init.js';
 
 const nameInput = document.getElementById('input-name');
 const notesTextarea = document.getElementById('notes');
-
-// Check authentication state
-onAuthStateChanged(auth, (user) => {
-    if (user) {
-        populateNoteList();
-    } else {
-        window.location.href = 'login.html';
-    }
-});
 
 function copyNote() {
     notesTextarea.select();
@@ -173,14 +164,6 @@ document.addEventListener("keydown", event => {
     }
 });
 
-document.getElementById('signOutButton').addEventListener('click', function () {
-    signOut(auth).then(() => {
-        console.log('User signed out');
-        window.location.href = 'login.html';
-    }).catch((error) => {
-        console.error('Sign out error:', error);
-    });
-});
 
 const partsTableBody = document.querySelector('.parts-table tbody');
 const subtotalInput = document.getElementById('subtotal');
