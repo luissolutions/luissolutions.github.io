@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Information Learning App</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+      color: #333;
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+    }
+
+    header {
+      background: #333;
+      color: #fff;
+      padding: 1rem 0;
+      text-align: center;
+    }
+
+    main {
+      padding: 20px;
+      max-width: 800px;
+      margin: 20px auto;
+    }
+
+    footer {
+      background: #333;
+      color: #fff;
+      text-align: center;
+      padding: 1rem 0;
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+    }
+
+    /* Flashcard Styles */
+    #flashcardContainer {
+      background: #fff;
+      border: 1px solid #ddd;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    #flashcard {
+      margin-bottom: 20px;
+    }
+
+    #methodDescription {
+      font-size: 1.2rem;
+      margin-bottom: 15px;
+    }
+
+    #methodExample {
+      background-color: #eee;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: 'Courier New', monospace;
+      overflow: auto;
+    }
+
+    /* Input and Button Styles */
+    #answerSection {
+      margin-bottom: 20px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+
+    button {
+      background: #5cb85c;
+      color: #fff;
+      border: 0;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #4cae4c;
+    }
+
+    /* Hint Styles */
+    #hint {
+      color: red;
+      padding: 10px;
+      border: 1px solid red;
+      border-radius: 5px;
+      display: none;
+      /* Hidden by default */
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Learn whatever you want</h1>
+  </header>
+
+  <main id="flashcardContainer">
+    <section id="flashcard">
+      <p id="methodDescription">Description of the current topic will be loaded here...</p>
+      <pre id="methodExample">Example or question related to the topic will be loaded here...</pre>
+    </section>
+
+    <div id="answerSection">
+      <input type="text" id="userAnswer" placeholder="Type your answer or code here">
+      <button id="submitAnswer">Submit</button>
+    </div>
+
+    <div id="hint">
+      <p id="hintText">Hint for the answer will appear here if needed.</p>
+    </div>
+
+    <section id="addFlashcard">
+      <h2>Add a New Flashcard</h2>
+      <input type="text" id="newDescription" placeholder="Question Description">
+      <input type="text" id="newExample" placeholder="Question Example">
+      <input type="text" id="newExpectedAnswer" placeholder="Expected Answer">
+      <button id="addFlashcardButton">Add Flashcard</button>
+    </section>
+
+  </main>
+
+  <footer>
+    <p>JavaScript Learning App © 2023</p>
+  </footer>
+
+  <script type="module">
+    // Firebase App (the core Firebase SDK) import
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
+    // Firebase Database imports
+    import { getDatabase, ref, onValue, push } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
+
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+      databaseURL: "https://playground-e3690-default-rtdb.firebaseio.com/"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+
+    // DOM Elements
+    const flashcardContainer = document.getElementById('flashcardContainer');
+    const userAnswerInput = document.getElementById('userAnswer');
+    const methodDescription = document.getElementById('methodDescription');
+    const methodExample = document.getElementById('methodExample');
+    const hintText = document.getElementById('hintText');
+    const submitAnswerButton = document.getElementById('submitAnswer');
+    const addFlashcardButton = document.getElementById('addFlashcardButton');
+
+    // Flashcard Data
+    let flashcards = [];
+    let unansweredFlashcards = [];
+    let currentFlashcardIndex = 0;
+
+    // Fetch Flashcards from Firebase
+    function fetchFlashcardsFromFirebase() {
+      const flashcardsRef = ref(database, 'flashcards');
+      onValue(flashcardsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          flashcards = Object.values(data);
+          unansweredFlashcards = [...flashcards];
+          displayFlashcard(flashcards[currentFlashcardIndex]);
+        } else {
+          flashcardContainer.textContent = 'No flashcards available.';
+        }
+      }, (error) => {
+        console.error('Error fetching flashcards:', error);
+      });
+    }
+
+    // Display Flashcard
+    function displayFlashcard(flashcard) {
+      methodDescription.textContent = flashcard.description;
+      methodExample.textContent = flashcard.example;
+      hintText.style.display = 'none';
+      userAnswerInput.value = '';
+    }
+
+    // Add Flashcard
+    addFlashcardButton.addEventListener('click', function () {
+      const newDescription = document.getElementById('newDescription').value;
+      const newExample = document.getElementById('newExample').value;
+      const newExpectedAnswer = document.getElementById('newExpectedAnswer').value;
+
+      if (!newDescription || !newExample || !newExpectedAnswer) {
+        alert('Please fill out all fields.');
+        return;
+      }
+
+      const newFlashcard = { description: newDescription, example: newExample, expectedAnswer: newExpectedAnswer };
+      const flashcardsRef = ref(database, 'flashcards');
+      push(flashcardsRef, newFlashcard).then(() => {
+        alert('New flashcard added!');
+        clearInputFields();
+        fetchFlashcardsFromFirebase();
+      }).catch((error) => {
+        console.error('Error adding new flashcard:', error);
+      });
+    });
+
+    // Submit Answer
+    submitAnswerButton.addEventListener('click', () => {
+      const userAnswer = userAnswerInput.value;
+      const currentFlashcard = unansweredFlashcards[currentFlashcardIndex];
+
+      if (userAnswer.trim() === currentFlashcard.expectedAnswer) {
+        alert('Correct answer!');
+        unansweredFlashcards.splice(currentFlashcardIndex, 1);
+
+        if (unansweredFlashcards.length === 0) {
+          alert("Congratulations! You've answered all questions correctly.");
+          resetGame();
+        } else {
+          currentFlashcardIndex = (currentFlashcardIndex + 1) % unansweredFlashcards.length;
+          displayFlashcard(unansweredFlashcards[currentFlashcardIndex]);
+        }
+      } else {
+        hintText.textContent = 'Hint: ' + currentFlashcard.hint;
+        hintText.style.display = 'block';
+      }
+    });
+
+    // Clear Input Fields
+    function clearInputFields() {
+      document.getElementById('newDescription').value = '';
+      document.getElementById('newExample').value = '';
+      document.getElementById('newExpectedAnswer').value = '';
+      userAnswerInput.value = '';
+    }
+
+    // Reset Game
+    function resetGame() {
+      currentFlashcardIndex = 0;
+      fetchFlashcardsFromFirebase();
+    }
+
+    // Initial Load
+    window.addEventListener('load', fetchFlashcardsFromFirebase);
+  </script>
+</body>
+
+</html>
