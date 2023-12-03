@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase Database Viewer</title>
+    <style>
+        section {
+            overflow: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th, td {
+            padding: 8px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        .nested {
+            margin-top: 10px;
+            border: 2px solid #aaa;
+        }
+    </style>
+</head>
+<body>
+    <section>
+        <table id="output"></table>
+    </section>
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
+        import { getDatabase, ref, onValue } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
+
+        const firebaseConfig = {
+          databaseURL: "https://playground-e3690-default-rtdb.firebaseio.com/"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+        const outputTable = document.getElementById('output');
+
+        function displayData(data, table) {
+            if (typeof data !== 'object' || data === null) {
+                const row = table.insertRow();
+                const cell = row.insertCell();
+                cell.textContent = data;
+                return;
+            }
+
+            for (const [key, value] of Object.entries(data)) {
+                if (typeof value === 'object') {
+                    const header = table.createTHead();
+                    const row = header.insertRow();
+                    const cell = row.insertCell();
+                    cell.textContent = key;
+                    cell.colSpan = 2;
+                    const nestedTable = document.createElement('table');
+                    nestedTable.className = 'nested';
+                    displayData(value, nestedTable);
+                    const nestedRow = table.insertRow();
+                    const nestedCell = nestedRow.insertCell();
+                    nestedCell.appendChild(nestedTable);
+                    nestedCell.colSpan = 2;
+                } else {
+                    const row = table.insertRow();
+                    const keyCell = row.insertCell();
+                    keyCell.textContent = key;
+                    const valueCell = row.insertCell();
+                    valueCell.textContent = value;
+                }
+            }
+        }
+
+        const databaseRef = ref(database, '/'); // Refer to the root of the database
+
+        onValue(databaseRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                displayData(data, outputTable);
+            } else {
+                outputTable.innerHTML = '<p>No data available.</p>';
+            }
+        });
+    </script>
+</body>
+</html>
