@@ -1,3 +1,4 @@
+/*
 document.addEventListener("DOMContentLoaded", function () {
   // Check if the token exists in the local storage
   var tokenData = JSON.parse(localStorage.getItem("sToken"));  // This will be an object or null
@@ -8,4 +9,24 @@ document.addEventListener("DOMContentLoaded", function () {
     // Redirect the user to the login page
     window.location.href = "index.html";
   }
+}); 
+*/
+
+import { auth, onAuthStateChanged, signOut } from '../../../assets/js/firebase-init.js';
+
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+      console.log("Logged in");
+  } else {
+      window.location.href = 'index.html';
+  }
+});
+
+document.getElementById('signOutButton').addEventListener('click', function () {
+  signOut(auth).then(() => {
+      console.log('User signed out');
+      window.location.href = 'index.html';
+  }).catch((error) => {
+      console.error(error);
+  });
 });
