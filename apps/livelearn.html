@@ -204,7 +204,9 @@
       <input type="text" id="filterInput" placeholder="Filter questions">
       <button id="filterButton">Filter</button>
     </div>
-
+    <div id="questionCounter">
+      Questions Remaining: 0
+    </div>
     <section id="flashcard">
       <p id="methodDescription">Description of the current topic will be loaded here...</p>
       <div id="methodExample">Example or question related to the topic will be loaded here...</div>
@@ -285,6 +287,7 @@
     let unansweredFlashcards = [];
     let currentFlashcardIndex = 0;
     let currentFlashcardKey = null;
+    let remainingQuestions = 0;
 
     // Display Flashcard
     function displayFlashcard(flashcard) {
@@ -293,6 +296,21 @@
       methodExample.textContent = flashcard.example;
       hintText.style.display = 'none';
       userAnswerInput.value = '';
+    }
+
+    function updateQuestionCounter() {
+      const questionCounter = document.getElementById('questionCounter');
+      if (unansweredFlashcards.length > 0) {
+        remainingQuestions = unansweredFlashcards.length;
+        questionCounter.textContent = `Questions Remaining: ${remainingQuestions}`;
+      } else {
+        questionCounter.textContent = "All questions answered!";
+      }
+    }
+
+    // Call this function whenever you update the list of unanswered flashcards
+    function refreshQuestionCounter() {
+      updateQuestionCounter();
     }
 
     // Add Flashcard
@@ -332,13 +350,14 @@
 
       if (userAnswer.trim() === currentFlashcard.expectedAnswer.toLowerCase()) {
         alert('Correct answer!');
-        // Remove correctly answered flashcard from the unansweredFlashcards array
-        unansweredFlashcards.splice(currentFlashcardIndex, 1);
+        markQuestionAsAnswered(currentFlashcard.key); // Mark as answered
+        unansweredFlashcards.splice(currentFlashcardIndex, 1); // Remove from array
         if (unansweredFlashcards.length === 0) {
           alert("Congratulations! You've answered all questions correctly.");
           resetGame();
         } else {
           moveToNextFlashcard();
+          updateQuestionCounter();
         }
       } else {
         alert("Incorrect");
@@ -352,11 +371,21 @@
       displayFlashcard(unansweredFlashcards[currentFlashcardIndex]);
     }
 
+    // Mark Question as Answered
+    function markQuestionAsAnswered(key) {
+      let answeredQuestions = JSON.parse(localStorage.getItem('answeredQuestions')) || [];
+      if (!answeredQuestions.includes(key)) {
+        answeredQuestions.push(key);
+        localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
+      }
+    }
+
     // Reset Game
     function resetGame() {
       currentFlashcardIndex = 0;
       unansweredFlashcards = [...flashcards]; // Reset to the full list of flashcards
       displayFlashcard(flashcards[currentFlashcardIndex]);
+      localStorage.removeItem('answeredQuestions');
     }
 
     // Fetch Flashcards from Firebase with filter and shuffle
@@ -364,26 +393,31 @@
       const flashcardsRef = ref(database, 'flashcards');
       onValue(flashcardsRef, (snapshot) => {
         const data = snapshot.val();
+        const answeredQuestions = JSON.parse(localStorage.getItem('answeredQuestions')) || [];
+
         if (data) {
           flashcards = [];
           Object.keys(data).forEach((key) => {
-            const flashcard = { ...data[key], key };
-            if (flashcard.description.toLowerCase().includes(filterText.toLowerCase())) {
-              flashcards.push(flashcard);
+            if (!answeredQuestions.includes(key)) {
+              const flashcard = { ...data[key], key };
+              if (flashcard.description.toLowerCase().includes(filterText.toLowerCase())) {
+                flashcards.push(flashcard);
+              }
             }
           });
           shuffleArray(flashcards);
-          unansweredFlashcards = [...flashcards]; // Copy shuffled flashcards to unansweredFlashcards
+          unansweredFlashcards = [...flashcards]; // Copy shuffled flashcards
 
           if (flashcards.length > 0) {
             currentFlashcardIndex = 0;
             displayFlashcard(unansweredFlashcards[currentFlashcardIndex]);
           } else {
-            flashcardContainer.textContent = 'No matching flashcards found.';
+            return;
           }
         } else {
-          flashcardContainer.textContent = 'No flashcards available.';
+          flashcardContainer.textContent = 'No flashcards found.';
         }
+        refreshQuestionCounter(); // Call this to refresh the question counter
       }, (error) => {
         console.error('Error fetching flashcards:', error);
       });
@@ -511,6 +545,7 @@
     });
 
   </script>
+
   <script>
 
     function generateButtons() {
