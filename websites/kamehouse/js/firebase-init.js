@@ -7,6 +7,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
+
 export {
   database, getDatabase, ref, onValue, push, set, remove, limitToLast, query
 };
