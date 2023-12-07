@@ -108,14 +108,14 @@ function attachRegisterEventListener() {
     }
 }
 
-async function registerNewUser(name, email, password) {
+async function registerNewUser(username, email, password) {
     const ipAddress = await getIP();
     if (!isFirebaseInitialized) {
         throw new Error('Firebase is not initialized');
     }
     const userRef = ref(database, `users/${email.replace(/\W/g, "")}`);
     const userInfo = {
-        name,
+        username,
         email,
         password,
         ipAddress
