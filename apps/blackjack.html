@@ -1,12 +1,12 @@
+<!DOCTYPE html>
+<html lang="en">
 <head>
     <title>Blackjack</title>
     <style>
         body {
             margin: 0;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
             padding: 15px;
         }
-
         #game_container {
             font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
             display: block;
@@ -20,18 +20,15 @@
             border-radius: 5px;
             border: black 1px solid;
         }
-
-        #game_container>h1 {
+        #game_container > h1 {
             color: goldenrod;
             margin-bottom: 20px;
             text-shadow: 0px 2px 5px black;
         }
-
-        #game_container>p {
+        #game_container > p {
             padding: 5px;
         }
-
-        #game_container>button {
+        #game_container > button {
             padding: 5px;
             margin: 5px;
             width: 140px;
@@ -41,7 +38,6 @@
         }
     </style>
 </head>
-
 <body>
     <section>
         <div id="game_container">
@@ -49,9 +45,9 @@
             <p id="message-el">Want to Play a round</p>
             <p id="cards-el">Cards:</p>
             <p id="sum-el">Sum:</p>
-            <button onclick="startGame()">Play Game</button>
-            <button onclick="newCard()">Hit</button>
-            <button onclick="generateDealerHand()">Stand</button>
+            <button id="playGameBtn">Play Game</button>
+            <button id="hitBtn">Hit</button>
+            <button id="standBtn">Stand</button>
             <p id="player-el"></p>
             <p id="dealer-el"></p>
         </div>
@@ -67,24 +63,17 @@
             drawCard(deck) {
                 let card = deck.pop();
                 this.hand.push(card);
-
-                // Update UI to display cards
-                let playerHandDisplay = document.getElementById("player-el");
-                playerHandDisplay.textContent = "Player's Cards: " + this.hand.map(card => card.name).join(", ");
+                let handDisplay = this.isDealer ? document.getElementById("dealer-el") : document.getElementById("player-el");
+                handDisplay.textContent = `${this.name}'s Cards: ` + this.hand.map(card => card.name).join(", ");
             }
 
             getHandTotal() {
                 let total = this.hand.reduce((a, c) => a + c.value, 0);
-
-                // Count the number of aces
-                let aceCount = this.hand.reduce((a, c) => a + (c.name === 'A' ? 1 : 0), 0);
-
-                // While total is over 21 and there's an ace in hand count it as 1 instead of 11
+                let aceCount = this.hand.filter(c => c.name === 'A').length;
                 while (total > 21 && aceCount > 0) {
                     total -= 10;
                     aceCount--;
                 }
-
                 return total;
             }
         }
@@ -102,65 +91,56 @@
                 this.dealer.hand = [];
                 this.player.drawCard(this.deck);
                 this.player.drawCard(this.deck);
-                this.dealer.drawCard(this.deck);  // Dealer's first card is revealed
-                this.dealer.drawCard(this.deck);  // Dealer's second card is hidden
-
-                // Update UI to display initial cards and sum
+                this.dealer.drawCard(this.deck);
+                this.dealer.drawCard(this.deck);
                 let playerHandDisplay = document.getElementById("player-el");
                 playerHandDisplay.textContent = "Player's Cards: " + this.player.hand.map(card => card.name).join(", ");
                 let dealerHandDisplay = document.getElementById("dealer-el");
                 dealerHandDisplay.textContent = "Dealer's Cards: " + this.dealer.hand[0].name + ", [Hidden]";
-
                 document.getElementById("sum-el").textContent = "Sum: " + this.player.getHandTotal();
+                document.getElementById('hitBtn').disabled = false;
+                document.getElementById('standBtn').disabled = false;
             }
 
             getShuffledDeck() {
                 let deck = [];
-
                 ['S', 'H', 'C', 'D'].forEach(suit => {
                     for (let i = 1; i <= 13; i++) {
-                        let value = i > 10 ? 10 : i; // Jack, Queen, and King are worth 10 points each
-                        let name = i === 1 ? 'A' : i === 11 ? 'J' : i === 12 ? 'Q' : i === 13 ? 'K' : i;
+                        let value = i > 10 ? 10 : (i === 1 ? 11 : i);
+                        let name = i === 1 ? 'A' : (i === 11 ? 'J' : (i === 12 ? 'Q' : (i === 13 ? 'K' : i)));
                         deck.push({ suit, name, value });
                     }
                 });
-
-                // Shuffle the deck
                 for (let i = deck.length - 1; i > 0; i--) {
                     let j = Math.floor(Math.random() * (i + 1));
                     [deck[i], deck[j]] = [deck[j], deck[i]];
                 }
-
                 return deck;
             }
 
             playerHit() {
                 this.player.drawCard(this.deck);
-
                 let playerTotal = this.player.getHandTotal();
-
                 if (playerTotal > 21) {
                     document.getElementById("message-el").textContent = "Player Busts";
+                    this.endGame();
                 } else if (playerTotal === 21) {
                     document.getElementById("message-el").textContent = "Player has a Blackjack!";
+                    this.endGame();
                 } else {
                     document.getElementById("message-el").textContent = "Player total is " + playerTotal;
                 }
-
                 document.getElementById("sum-el").textContent = "Sum: " + playerTotal;
             }
 
             playerStand() {
                 let playerTotal = this.player.getHandTotal();
-                document.getElementById("message-el").textContent = "Player total is " + playerTotal;
-
-                // Dealer must hit until they reach 17
                 while (this.dealer.getHandTotal() < 17) {
                     this.dealer.drawCard(this.deck);
                 }
-
                 let dealerTotal = this.dealer.getHandTotal();
-
+                let dealerHandDisplay = document.getElementById("dealer-el");
+                dealerHandDisplay.textContent = "Dealer's Cards: " + this.dealer.hand.map(card => card.name).join(", ");
                 if (dealerTotal > 21) {
                     document.getElementById("message-el").textContent = "Dealer Busts, Player Wins";
                 } else if (dealerTotal > playerTotal) {
@@ -170,6 +150,12 @@
                 } else {
                     document.getElementById("message-el").textContent = "Push. It's a tie.";
                 }
+                this.endGame();
+            }
+
+            endGame() {
+                document.getElementById('hitBtn').disabled = true;
+                document.getElementById('standBtn').disabled = true;
             }
         }
 
@@ -180,17 +166,9 @@
             game.startRound();
         }
 
-        function newCard() {
-            game.playerHit();
-        }
-
-        function generateDealerHand() {
-            game.playerStand();
-        }
-
-        // Connect buttons to functions
-        document.querySelector('#game_container button:nth-child(1)').addEventListener('click', startGame);
-        document.querySelector('#game_container button:nth-child(2)').addEventListener('click', newCard);
-        document.querySelector('#game_container button:nth-child(3)').addEventListener('click', generateDealerHand);
+        document.getElementById('playGameBtn').addEventListener('click', startGame);
+        document.getElementById('hitBtn').addEventListener('click', () => game.playerHit());
+        document.getElementById('standBtn').addEventListener('click', () => game.playerStand());
     </script>
 </body>
+</html>
