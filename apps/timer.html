@@ -24,13 +24,11 @@
 </head>
 
 <body>
-
     <div class="timer-container">
         <div id="timeDisplay"></div>
-
-        <button id="start-timer">Start Timer</button>
-        <span id="work-time">Time</span>
-
+        <input type="text" id="taskName" placeholder="Task Name">
+        <button id="toggleTimer">Start/Stop Timer</button>
+        <div id="currentTaskTime">Time: 00:00:00</div>
         <table id="timer-log">
             <thead>
                 <tr>
@@ -45,85 +43,73 @@
         <button id="export">Export</button>
     </div>
     <script>
-        const workTime = document.getElementById("work-time");
-        const startTimerButton = document.getElementById("start-timer");
+        const toggleTimerButton = document.getElementById("toggleTimer");
+        const taskNameInput = document.getElementById("taskName");
+        const currentTaskTimeDisplay = document.getElementById("currentTaskTime");
+        const timerLogTableBody = document.querySelector("#timer-log tbody");
+        const exportButton = document.getElementById("export");
+
         let timerInterval;
         let startTime;
         let isTimerRunning = false;
-        let elapsedTimeWhenPaused = 0;
         let timerLogs = JSON.parse(localStorage.getItem("timerLogs")) || [];
 
-        function startTimer() {
-            startTime = Date.now() - elapsedTimeWhenPaused;
-            timerInterval = setInterval(function () {
-                const elapsedTime = Date.now() - startTime;
-                const milliseconds = Math.floor(elapsedTime % 1000);
-                const seconds = Math.floor((elapsedTime / 1000) % 60);
-                const minutes = Math.floor((elapsedTime / (1000 * 60)) % 60);
-                const hours = Math.floor((elapsedTime / (1000 * 60 * 60)) % 24);
+        const formatTime = (milliseconds) => {
+            const seconds = Math.floor((milliseconds / 1000) % 60);
+            const minutes = Math.floor((milliseconds / (1000 * 60)) % 60);
+            const hours = Math.floor((milliseconds / (1000 * 60 * 60)) % 24);
+            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        };
 
-                workTime.textContent = `${hours}:${minutes
-                    .toString()
-                    .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
-            }, 1);
+        const updateCurrentTaskTime = () => {
+            const elapsedTime = Date.now() - startTime;
+            currentTaskTimeDisplay.textContent = `Time: ${formatTime(elapsedTime)}`;
+        };
 
-            timerLogs.push({
+        const toggleTimer = () => {
+            if (!isTimerRunning) {
+                startTimer();
+            } else {
+                stopTimer();
+            }
+            isTimerRunning = !isTimerRunning;
+        };
+
+        const startTimer = () => {
+            startTime = Date.now();
+            timerInterval = setInterval(updateCurrentTaskTime, 1000);
+
+            const newLogEntry = {
+                taskName: taskNameInput.value || 'Unnamed Task',
                 startTime: new Date(startTime).toLocaleString(),
                 endTime: "",
-                elapsedTime: "",
-            });
-
+                elapsedTime: ""
+            };
+            timerLogs.push(newLogEntry);
             localStorage.setItem("timerLogs", JSON.stringify(timerLogs));
-        }
+            updateTable();
+        };
 
-        function stopTimer() {
+        const stopTimer = () => {
             clearInterval(timerInterval);
             const lastLog = timerLogs[timerLogs.length - 1];
             lastLog.endTime = new Date().toLocaleString();
-            const elapsedTime = Date.now() - startTime;
-            const milliseconds = Math.floor(elapsedTime % 1000);
-            const seconds = Math.floor((elapsedTime / 1000) % 60);
-            const minutes = Math.floor((elapsedTime / (1000 * 60)) % 60);
-            const hours = Math.floor((elapsedTime / (1000 * 60 * 60)) % 24);
-            lastLog.elapsedTime = `${hours}:${minutes
-                .toString()
-                .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
+            lastLog.elapsedTime = formatTime(Date.now() - startTime);
             localStorage.setItem("timerLogs", JSON.stringify(timerLogs));
             updateTable();
-        }
+        };
 
-        startTimerButton.addEventListener("click", function () {
-            if (!isTimerRunning) {
-                startTimer();
-                startTimerButton.textContent = "Stop Timer";
-            } else {
-                stopTimer();
-                startTimerButton.textContent = "Start Timer";
-            }
-            isTimerRunning = !isTimerRunning;
-        });
-
-        function updateTable() {
-            const logTableBody = document.querySelector("#timer-log tbody");
-            logTableBody.innerHTML = "";
-            timerLogs.forEach((log) => {
-                const newRow = logTableBody.insertRow();
-                const startTimeCell = newRow.insertCell();
-                const endTimeCell = newRow.insertCell();
-                const elapsedTimeCell = newRow.insertCell();
-                startTimeCell.textContent = log.startTime;
-                endTimeCell.textContent = log.endTime;
-                elapsedTimeCell.textContent = log.elapsedTime;
+        const updateTable = () => {
+            timerLogTableBody.innerHTML = "";
+            timerLogs.forEach(log => {
+                const row = timerLogTableBody.insertRow();
+                row.insertCell().textContent = log.startTime;
+                row.insertCell().textContent = log.endTime;
+                row.insertCell().textContent = log.elapsedTime;
             });
-        }
+        };
 
-        window.addEventListener("load", function () {
-            updateTable();
-        });
-
-        const exportButton = document.getElementById("export");
-
-        function downloadTxt(data) {
+        const downloadTxt = (data) => {
             const txtData = "data:text/plain;charset=utf-8," + data;
             const encodedUri = encodeURI(txtData);
             const link = document.createElement("a");
@@ -131,27 +117,21 @@
             link.setAttribute("download", "timer-log.txt");
             document.body.appendChild(link);
             link.click();
-        }
+            document.body.removeChild(link);
+        };
 
-        exportButton.addEventListener("click", function () {
+        exportButton.addEventListener("click", () => {
             let txtData = "Start Time\tEnd Time\tElapsed Time\n";
-            timerLogs.forEach(function (log) {
-                txtData += log.startTime + "\t" + log.endTime + "\t" + log.elapsedTime + "\n";
-            });
+            timerLogs.forEach(log => txtData += `${log.startTime}\t${log.endTime}\t${log.elapsedTime}\n`);
             downloadTxt(txtData);
         });
 
-        function updateTime() {
+        toggleTimerButton.addEventListener('click', toggleTimer);
+        window.addEventListener("load", updateTable);
+
+        setInterval(() => {
             const now = new Date();
-            const hours = String(now.getHours()).padStart(2, '0');
-            const minutes = String(now.getMinutes()).padStart(2, '0');
-            const seconds = String(now.getSeconds()).padStart(2, '0');
-
-            const timeString = `${hours}:${minutes}:${seconds}`;
-            document.getElementById('timeDisplay').textContent = timeString;
-        }
-
-        setInterval(updateTime, 1000); // Update every second
-
+            document.getElementById('timeDisplay').textContent = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+        }, 1000);
     </script>
 </body>
