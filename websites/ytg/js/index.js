@@ -58,19 +58,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!loadedPages.includes('navigation')) {
             document.addEventListener('click', function (event) {
-                const target = event.target;
-    
-                if (target.matches('[data-scroll-to], [data-page]')) {
+                let target = event.target;
+            
+                // Traverse up the DOM tree to find an element with data-page or data-scroll-to
+                while (target && !target.matches('[data-scroll-to], [data-page]')) {
+                    target = target.parentElement;
+                }
+            
+                // If a matching element is found
+                if (target && target.matches('[data-scroll-to], [data-page]')) {
                     event.preventDefault();
                     const sectionId = target.getAttribute('data-scroll-to') || target.getAttribute('data-page');
+            
                     const sectionElement = document.getElementById(sectionId);
                     if (sectionElement) {
+                        // Scroll to the section smoothly
                         sectionElement.scrollIntoView({ behavior: 'smooth' });
                     } else {
+                        // Load the page dynamically
                         loadPage(bodyContainer, `pages/${sectionId}.html`, false);
                     }
                 }
-            });
+            });            
             loadedPages.push('navigation');
             loadedPages.push('login-register');
         }
@@ -114,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const subject = `Contact Request from ${name}`;
     
                 // Use mailto to open the default email client with pre-filled information
-                window.location.href = `mailto:email@yourtechguy.com?subject=${encodeURIComponent(subject)}&body=${emailBody}`;
+                window.location.href = `mailto:smartelectronicssolutionsllc@gmail.com?subject=${encodeURIComponent(subject)}&body=${emailBody}`;
             });
         }
     }
@@ -130,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 emailText.style.color = 'green';
           
                 setTimeout(() => {
-                    emailText.textContent = 'name@yourtechguy.com';
+                    emailText.textContent = 'support@yourtechguy.com';
                     emailText.style.color = '';
                 }, 2000);
             });
@@ -150,4 +159,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadContent(headerContainer, 'header.html');
     loadContent(bodyContainer, 'pages/home.html', true);
     loadContent(footerContainer, 'footer.html');
+});
+
+window.addEventListener('popstate', function(event) {
+    location.reload();
 });
