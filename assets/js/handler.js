@@ -257,7 +257,7 @@ const handlers = {
       "percent",
       "blackjack",
       "mousegame",
-      "mathgame",
+      "livemathgame",
       "chess",
       "viewer",
       "gallery"

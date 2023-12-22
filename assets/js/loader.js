@@ -46,7 +46,7 @@ function loadPage(pageName) {
       localStorage.setItem('selectedPage', JSON.stringify({ pageName }));
 
       let handler = handlers[pageName];
-      console.log(`Handler for ${pageName}: ${handler}`);
+//      console.log(`Handler for ${pageName}: ${handler}`);
       if (handler) {
         handler();
       }
