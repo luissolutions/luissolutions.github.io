@@ -54,7 +54,17 @@
     <section>
         <div id="phaser-game"></div>
     </section>
-    <script>
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js';
+        import { getDatabase, ref, onValue, set } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js';
+
+        const firebaseConfig = {
+            databaseURL: "https://playground-e3690-default-rtdb.firebaseio.com/"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
         var config = {
             type: Phaser.AUTO,
             width: 640,
@@ -79,6 +89,7 @@
         var player, cursors, carriedPiece = null;
         var squareSize = 80;
         var removedPieces = [];
+        var chessPieces = [];
 
         function preload() {
             this.load.image('character', '../assets/img/apple-touch-icon.png');
@@ -287,21 +298,50 @@
                 type: p.type,
                 color: p.color
             }));
-            localStorage.setItem('chessPiecesState', JSON.stringify(savedPieces));
-            localStorage.setItem('removedPiecesState', JSON.stringify(removedPieces));
+
+            const savedRemovedPieces = removedPieces.map(p => ({
+                x: p.x,
+                y: p.y,
+                type: p.type,
+                color: p.color
+            }));
+
+            const gameState = {
+                pieces: savedPieces,
+                removedPieces: savedRemovedPieces
+            };
+
+            const gameStateRef = ref(database, 'gameState');
+            set(gameStateRef, gameState);
         }
 
         function loadChessPiecesState(scene) {
-            const savedPiecesState = localStorage.getItem('chessPiecesState');
-            const savedRemovedPiecesState = localStorage.getItem('removedPiecesState');
+            const gameStateRef = ref(database, 'gameState');
 
-            chessPieces = savedPiecesState ? JSON.parse(savedPiecesState).map(p => createPiece(scene, p)) : initializeChessPieces(scene);
-            removedPieces = savedRemovedPiecesState ? JSON.parse(savedRemovedPiecesState) : [];
+            onValue(gameStateRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    const { pieces, removedPieces } = data;
+
+                    // Clear existing pieces from the scene
+                    chessPieces.forEach(p => p.sprite.destroy());
+                    chessPieces = [];
+
+                    // Create new pieces based on Firebase data
+                    chessPieces = pieces.map(p => createPiece(scene, p));
+                    // Handle removed pieces as needed
+                } else {
+                    // Initialize chess pieces if no data found
+                    chessPieces = initializeChessPieces(scene);
+                }
+            });
         }
 
         function resetGame() {
             localStorage.removeItem('chessPiecesState');
             localStorage.removeItem('removedPiecesState');
+            const gameStateRef = ref(database, 'gameState');
+            set(gameStateRef, null);
 
             window.location.reload();
         }
