@@ -258,7 +258,6 @@ const handlers = {
       "blackjack",
       "mousegame",
       "livemathgame",
-      "livechess",
       "chess",
       "viewer",
       "gallery"
