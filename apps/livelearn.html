@@ -47,10 +47,6 @@
       </div>
     </section>
 
-    <div id="hint">
-      <p id="hintText">Hint for the answer will appear here if needed.</p>
-    </div>
-
     <svg style="cursor: pointer;" id="collapse-toggle" xmlns="http://www.w3.org/2000/svg" height="16" width="18"
       viewBox="0 0 576 512"><!--!Font Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2023 Fonticons, Inc.-->
       <path fill="#b7bbc2"
@@ -69,11 +65,10 @@
         </div>
       </section>
       <br>
-
-      <section class="other" id="quiz-container">
-        <input type="file" id="jsonFileInput" accept=".json">
-        <button id="loadJsonButton">Load JSON File</button>
-      </section>
+    </section>
+    <section class="other" id="quiz-container">
+      <input type="file" id="jsonFileInput" accept=".json">
+      <button id="loadJsonButton">Load JSON File</button>
     </section>
   </main>
 
@@ -90,84 +85,59 @@
     const hintText = document.getElementById('hintText');
     const submitAnswerButton = document.getElementById('submitAnswer');
     const addFlashcardButton = document.getElementById('addFlashcardButton');
+    const saveLinkButton = document.getElementById('saveLinkButton');
+    const linkInput = document.getElementById('linkInput');
+
 
     let flashcards = [];
     let unansweredFlashcards = [];
     let currentFlashcardIndex = 0;
     let currentFlashcardKey = null;
     let remainingQuestions = 0;
+    let totalQuestions = 0;
+    let questions = [];
 
     function displayFlashcard(flashcard) {
+      if (!flashcard) {
+        methodDescription.textContent = 'No more questions available.';
+        methodExample.textContent = '';
+        userAnswerInput.value = '';
+        return;
+      }
       currentFlashcardKey = flashcard.key;
       methodDescription.textContent = flashcard.description;
       methodExample.textContent = flashcard.example;
-      hintText.style.display = 'none';
       userAnswerInput.value = '';
+    }
+
+    function updateTotalQuestions() {
+      totalQuestions = unansweredFlashcards.length + questions.length;
     }
 
     function updateQuestionCounter() {
       const questionCounter = document.getElementById('questionCounter');
-      if (unansweredFlashcards.length > 0) {
-        remainingQuestions = unansweredFlashcards.length;
-        questionCounter.textContent = `Questions Remaining: ${remainingQuestions}`;
+      if (totalQuestions > 0) {
+        const remaining = unansweredFlashcards.length + questions.length;
+        questionCounter.textContent = `Questions Remaining: ${remaining} out of ${totalQuestions}`;
       } else {
-        questionCounter.textContent = "All questions answered!";
+        questionCounter.textContent = "No questions available.";
       }
     }
 
     function refreshQuestionCounter() {
       updateQuestionCounter();
     }
-
-    addFlashcardButton.addEventListener('click', function () {
-      const newDescription = document.getElementById('newDescription').value;
-      const newExample = document.getElementById('newExample').value;
-      const newExpectedAnswer = document.getElementById('newExpectedAnswer').value;
-
-      if (!newDescription || !newExample || !newExpectedAnswer) {
-        alert('Please fill out all fields.');
-        return;
-      }
-
-      const newFlashcard = { description: newDescription, example: newExample, expectedAnswer: newExpectedAnswer };
-      const flashcardsRef = ref(database, 'flashcards');
-      push(flashcardsRef, newFlashcard).then(() => {
-        alert('New flashcard added!');
-        clearInputFields();
-        fetchFlashcardsFromFirebase();
-      }).catch((error) => {
-        console.error('Error adding new flashcard:', error);
-      });
-    });
-
     function clearInputFields() {
       document.getElementById('newExample').value = '';
       document.getElementById('newExpectedAnswer').value = '';
       userAnswerInput.value = '';
     }
 
-    submitAnswerButton.addEventListener('click', () => {
-      const userAnswer = userAnswerInput.value.toLowerCase().trim();
-      const currentFlashcard = unansweredFlashcards[currentFlashcardIndex];
-
-      if (userAnswer === currentFlashcard.expectedAnswer.toLowerCase().trim()) {
-        alert('Correct answer!');
-        markQuestionAsAnswered(currentFlashcard.key);
-        unansweredFlashcards.splice(currentFlashcardIndex, 1);
-        if (unansweredFlashcards.length === 0) {
-          alert("Congratulations! You've answered all questions correctly.");
-          resetGame();
-          refreshQuestionCounter();
-        } else {
-          moveToNextFlashcard();
-          updateQuestionCounter();
-        }
-      } else {
-        alert("Incorrect");
-      }
-    });
-
     function moveToNextFlashcard() {
+      if (unansweredFlashcards.length === 0) {
+        displayFlashcard(null); // Call with null if no more flashcards
+        return;
+      }
       currentFlashcardIndex = (currentFlashcardIndex + 1) % unansweredFlashcards.length;
       displayFlashcard(unansweredFlashcards[currentFlashcardIndex]);
     }
@@ -185,6 +155,8 @@
       unansweredFlashcards = [...flashcards];
       displayFlashcard(flashcards[currentFlashcardIndex]);
       localStorage.removeItem('answeredQuestions');
+      totalQuestions = flashcards.length + questions.length;
+      updateQuestionCounter();
     }
 
     function fetchFlashcardsFromFirebase(filterText = '') {
@@ -216,14 +188,207 @@
           flashcardContainer.textContent = 'No flashcards found.';
         }
         refreshQuestionCounter();
+        updateTotalQuestions();
+        updateQuestionCounter();
       }, (error) => {
         console.error('Error fetching flashcards:', error);
       });
+      updateQuestionCounter();
     }
+
+    function shuffleArray(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+    }
+
+    function getUnansweredQuestions(questions) {
+      let answeredQuestions = JSON.parse(localStorage.getItem('answeredQuestions')) || [];
+      return questions.filter(question => !answeredQuestions.includes(question.id)); // Assuming each question has a unique 'id'
+    }
+
+    function fetchQuizQuestionsFromFirebase() {
+      const questionsRef = ref(database, 'questions');
+      onValue(questionsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          let formattedQuestions = Object.keys(data).map(key => ({
+            id: key,
+            question: data[key].question,
+            options: data[key].options,
+            correctAnswer: data[key].correctAnswer
+          }));
+          formattedQuestions = getUnansweredQuestions(formattedQuestions);
+          displayQuestions(formattedQuestions);
+        }
+        updateTotalQuestions();
+        updateQuestionCounter();
+      }, (error) => {
+        console.error('Error fetching quiz questions:', error);
+      });
+    }
+
+    function displayQuestions(questionsList) {
+      questions = questionsList;
+      const container = document.getElementById('quiz-container');
+      container.innerHTML = '';
+      questions.forEach((question, index) => {
+        const section = document.createElement('section');
+        section.id = `questionSection${index}`;
+        section.innerHTML = `
+            <h2>Question ${index + 1}</h2>
+            <p>${question.question}</p>
+            ${question.options.map((option, i) => `
+                <label>
+                    <input type="radio" name="question${index}" value="${i}">
+                    ${option}
+                </label><br>
+            `).join('')}
+            <button id="submit${index}">Submit</button>
+            <p class="feedback"></p>
+        `;
+        container.appendChild(section);
+
+        document.getElementById(`submit${index}`).addEventListener('click', () => {
+          checkAnswer(index, question.correctAnswer, `questionSection${index}`);
+        });
+      });
+    }
+
+    function checkAnswer(questionIndex, correctAnswer, sectionId) {
+      const selectedOption = document.querySelector(`input[name="question${questionIndex}"]:checked`);
+      const feedbackElement = document.querySelector(`#${sectionId} .feedback`);
+      if (selectedOption && parseInt(selectedOption.value) === correctAnswer) {
+        feedbackElement.textContent = 'Correct!';
+        markQuestionAsAnswered(questions[questionIndex].id);
+        removeQuestionSection(sectionId, questionIndex);
+        updateTotalQuestions();
+        updateQuestionCounter();
+      } else {
+        feedbackElement.textContent = 'Incorrect. Please try again.';
+      }
+    }
+
+    function removeQuestionSection(sectionId, questionIndex) {
+      const section = document.getElementById(sectionId);
+      if (section) {
+        section.remove();
+      }
+      questions.splice(questionIndex, 1);
+      updateQuestionCounter();
+    }
+
+    addFlashcardButton.addEventListener('click', function () {
+      const newDescription = document.getElementById('newDescription').value;
+      const newExample = document.getElementById('newExample').value;
+      const newExpectedAnswer = document.getElementById('newExpectedAnswer').value;
+
+      if (!newDescription || !newExample || !newExpectedAnswer) {
+        alert('Please fill out all fields.');
+        return;
+      }
+
+      const newFlashcard = { description: newDescription, example: newExample, expectedAnswer: newExpectedAnswer };
+      const flashcardsRef = ref(database, 'flashcards');
+      push(flashcardsRef, newFlashcard).then(() => {
+        alert('New flashcard added!');
+        clearInputFields();
+        fetchFlashcardsFromFirebase();
+      }).catch((error) => {
+        console.error('Error adding new flashcard:', error);
+      });
+    });
+
+    submitAnswerButton.addEventListener('click', () => {
+      const userAnswer = userAnswerInput.value.toLowerCase().trim();
+      const currentFlashcard = unansweredFlashcards[currentFlashcardIndex];
+
+      if (userAnswer === currentFlashcard.expectedAnswer.toLowerCase().trim()) {
+        alert('Correct answer!');
+        markQuestionAsAnswered(currentFlashcard.key);
+        unansweredFlashcards.splice(currentFlashcardIndex, 1);
+        if (unansweredFlashcards.length === 0) {
+          alert("Congratulations! You've answered all questions correctly.");
+          resetGame();
+          refreshQuestionCounter();
+        } else {
+          moveToNextFlashcard();
+          updateQuestionCounter();
+        }
+      } else {
+        alert("Incorrect");
+      }
+    });
 
     document.getElementById('filterButton').addEventListener('click', function () {
       const filterText = document.getElementById('filterInput').value;
       fetchFlashcardsFromFirebase(filterText);
+    });
+
+    document.getElementById('skipQuestion').addEventListener('click', function () {
+      moveToNextFlashcard();
+    });
+
+    document.getElementById('delFlashcardButton').addEventListener('click', function () {
+      if (currentFlashcardKey) {
+        const flashcardRef = ref(database, 'flashcards/' + currentFlashcardKey);
+        remove(flashcardRef).then(() => {
+          console.log('Flashcard removed successfully');
+          fetchFlashcardsFromFirebase();
+        }).catch(error => {
+          console.error('Error removing flashcard:', error);
+        });
+      } else {
+        alert("No flashcard selected for deletion.");
+      }
+    });
+
+    document.getElementById('showAnswer').addEventListener('click', function () {
+      if (unansweredFlashcards[currentFlashcardIndex]) {
+        const expectedAnswer = unansweredFlashcards[currentFlashcardIndex].expectedAnswer;
+        alert(expectedAnswer);
+      } else {
+        alert('No current flashcard to show answer for.');
+      }
+    });
+
+    window.addEventListener('load', () => {
+      fetchFlashcardsFromFirebase();
+      fetchLinksFromFirebase();
+    });
+
+    document.getElementById('userAnswer').addEventListener('keyup', function (event) {
+      if (event.key === 'Enter') {
+        document.getElementById('submitAnswer').click();
+      }
+    });
+
+    document.getElementById('collapse-toggle').addEventListener('click', function () {
+      toggleSection();
+    });
+
+    document.getElementById('loadJsonButton').addEventListener('click', () => {
+      const fileInput = document.getElementById('jsonFileInput');
+      if (fileInput.files.length > 0) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          let questions = JSON.parse(e.target.result);
+          questions = getUnansweredQuestions(questions);
+          displayQuestions(questions);
+        };
+        reader.readAsText(fileInput.files[0]);
+      } else {
+        alert('Please select a JSON file.');
+      }
+    });
+
+    window.addEventListener('load', () => {
+      totalQuestions = 0;
+      updateQuestionCounter();
+      fetchFlashcardsFromFirebase();
+      fetchLinksFromFirebase();
+      fetchQuizQuestionsFromFirebase();
     });
 
     function fetchLinksFromFirebase() {
@@ -237,9 +402,6 @@
         console.error('Error fetching links:', error);
       });
     }
-
-    const saveLinkButton = document.getElementById('saveLinkButton');
-    const linkInput = document.getElementById('linkInput');
 
     saveLinkButton.addEventListener('click', () => {
       const linkUrl = linkInput.value;
@@ -293,106 +455,12 @@
       });
     }
 
-    function shuffleArray(array) {
-      for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
-      }
-    }
-
-    document.getElementById('skipQuestion').addEventListener('click', function () {
-      moveToNextFlashcard();
-    });
-
-    document.getElementById('delFlashcardButton').addEventListener('click', function () {
-      if (currentFlashcardKey) {
-        const flashcardRef = ref(database, 'flashcards/' + currentFlashcardKey);
-        remove(flashcardRef).then(() => {
-          console.log('Flashcard removed successfully');
-          fetchFlashcardsFromFirebase();
-        }).catch(error => {
-          console.error('Error removing flashcard:', error);
-        });
-      } else {
-        alert("No flashcard selected for deletion.");
-      }
-    });
-
-    document.getElementById('showAnswer').addEventListener('click', function () {
-      if (unansweredFlashcards[currentFlashcardIndex]) {
-        const expectedAnswer = unansweredFlashcards[currentFlashcardIndex].expectedAnswer;
-        alert(expectedAnswer);
-      } else {
-        alert('No current flashcard to show answer for.');
-      }
-    });
-
-    window.addEventListener('load', () => {
-      fetchFlashcardsFromFirebase();
-      fetchLinksFromFirebase();
-    });
-
-    document.getElementById('userAnswer').addEventListener('keyup', function (event) {
-      if (event.key === 'Enter') {
-        document.getElementById('submitAnswer').click();
-      }
-    });
-
-    document.getElementById('collapse-toggle').addEventListener('click', function () {
-      toggleSection();
-    });
-
     function toggleSection() {
       const sections = document.querySelectorAll('.collapsed');
       sections.forEach(section => {
         section.classList.toggle('collapsed');
       });
     }
-  </script>
-  <script>
-    document.getElementById('loadJsonButton').addEventListener('click', () => {
-      const fileInput = document.getElementById('jsonFileInput');
-      if (fileInput.files.length > 0) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const questions = JSON.parse(e.target.result);
-          displayQuestions(questions);
-        };
-        reader.readAsText(fileInput.files[0]);
-      } else {
-        alert('Please select a JSON file.');
-      }
-    });
 
-    function displayQuestions(questions) {
-      const container = document.getElementById('quiz-container');
-      container.innerHTML = '';
-      questions.forEach((question, index) => {
-        const section = document.createElement('section');
-        section.innerHTML = `
-                    <h2>Question ${index + 1}</h2>
-                    <p>${question.question}</p>
-                    ${question.options.map((option, i) => `
-                        <label>
-                            <input type="radio" name="question${index}" value="${i}">
-                            ${option}
-                        </label><br>
-                    `).join('')}
-                    <button onclick="checkAnswer(${index}, ${question.correctAnswer}, this)">Submit</button>
-                    <p class="feedback"></p>
-                `;
-        container.appendChild(section);
-      });
-    }
-
-    function checkAnswer(questionIndex, correctAnswer, button) {
-      const selectedOption = document.querySelector(`input[name="question${questionIndex}"]:checked`);
-      const feedbackElement = button.nextElementSibling;
-      if (selectedOption && parseInt(selectedOption.value) === correctAnswer) {
-        feedbackElement.textContent = 'Correct!';
-      } else {
-        feedbackElement.textContent = 'Incorrect. Please try again.';
-      }
-    }
   </script>
 </body>
