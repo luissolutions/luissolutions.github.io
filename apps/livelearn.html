@@ -131,38 +131,43 @@
 
     function displayQuestion(question) {
       const quizSection = document.getElementById('quizSection');
-      const questionType = document.querySelector('input[name="questionType"]:checked').value;
-      currentQuestionId = question.id;
+      quizSection.innerHTML = '';
 
-      let optionsHTML = '';
-      if (questionType === 'multipleChoice') {
-        let options = question.options.slice();
-        shuffleArray(options);
-        optionsHTML = options.map(option =>
-          `<label><input type="radio" name="question" value="${option}">${option}</label>`
-        ).join('<br>');
+      const questionHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>`;
+      quizSection.innerHTML += questionHTML;
+
+      if (Array.isArray(question.correctAnswer)) {
+        const optionsHTML = question.options.map(option => {
+          const isChecked = question.correctAnswer.includes(option); // Check if the option is a correct answer
+          return `<label><input type="checkbox" name="question" value="${option}" ${isChecked ? 'checked' : ''}>${option}</label>`;
+        }).join('<br>');
+        quizSection.innerHTML += optionsHTML;
       } else {
-        optionsHTML = `<input type="text" id="textInputAnswer" placeholder="Type your answer">`;
+        const optionsHTML = question.options.map(option =>
+          `<label><input type="radio" name="question" value="${option}" ${option === question.correctAnswer ? 'checked' : ''}>${option}</label>`
+        ).join('<br>');
+        quizSection.innerHTML += optionsHTML;
       }
-
-      quizSection.innerHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>${optionsHTML}`;
     }
 
     function submitAnswer() {
-      const questionType = document.querySelector('input[name="questionType"]:checked').value;
-      let userAnswer;
-      if (questionType === 'multipleChoice') {
-        const selectedOption = document.querySelector('input[name="question"]:checked');
-        userAnswer = selectedOption ? selectedOption.value : null;
+      const question = questions[currentQuestionIndex];
+      let userAnswers;
+
+      if (Array.isArray(question.correctAnswer)) {
+        // Handle multiple correct answers
+        userAnswers = [...document.querySelectorAll('input[name="question"]:checked')].map(el => el.value);
       } else {
-        userAnswer = document.getElementById('textInputAnswer').value;
+        // Handle single correct answer
+        const selectedOption = document.querySelector('input[name="question"]:checked');
+        userAnswers = selectedOption ? [selectedOption.value] : [];
       }
 
-      if (userAnswer) {
-        const correctAnswer = questions[currentQuestionIndex].correctAnswer;
-        if (userAnswer.toLowerCase() === correctAnswer.toLowerCase()) {
+      if (userAnswers.length > 0) {
+        const correct = checkAnswers(userAnswers, Array.isArray(question.correctAnswer) ? question.correctAnswer : [question.correctAnswer]);
+        if (correct) {
           console.log('Correct!');
-          alert("Correct!")
+          alert("Correct!");
           answeredQuestions[questions[currentQuestionIndex].id] = true;
           localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
 
@@ -176,6 +181,11 @@
       } else {
         console.log('Please provide an answer.');
       }
+    }
+
+    function checkAnswers(userAnswers, correctAnswers) {
+      return userAnswers.length === correctAnswers.length &&
+        userAnswers.every(val => correctAnswers.includes(val));
     }
 
     function displayNextQuestion() {
