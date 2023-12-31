@@ -49,8 +49,9 @@
       <button id="submitAnswer">Submit Answer</button>
       <button id="nextQuestion">Next Question</button>
     </section>
-    <section id="addQuestion">
-      <h2>Add a New Question</h2>
+    <button id="toggleAddQuestion">Add New Question</button>
+    <section id="addQuestion" style="display: none;">
+      <h2>Add Question</h2>
       <div>
         <input type="text" id="newDescription" placeholder="Enter description" />
         <br>
@@ -73,7 +74,9 @@
   </main>
 
   <footer>
-    <h3>JavaScript Learning App © <a href="../index.html"> 2023</a></h3>
+    <a href="../websites/kamehouse/index.html"><button id="login">Login</button></a>
+    <h3> JavaScript Learning App © <a href="../index.html"> 2023</a> </h3>
+    <a href="../websites/kamehouse/base.html"><button id="logout">Logout</button></a>
   </footer>
 
   <script type="module">
@@ -119,7 +122,7 @@
             ...data[key]
           };
         });
-        questions = allQuestions.filter(q => !answeredQuestions[q.id]);
+        questions = allQuestions.filter(q => answeredQuestions[q.id] !== 'answered');
         totalQuestions = questions.length;
         updateQuestionCounter();
         shuffleArray(questions);
@@ -131,58 +134,78 @@
 
     function displayQuestion(question) {
       const quizSection = document.getElementById('quizSection');
-      quizSection.innerHTML = '';
-
-      const questionHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>`;
-      quizSection.innerHTML += questionHTML;
-
-      if (Array.isArray(question.correctAnswer)) {
-        const optionsHTML = question.options.map(option => {
-          const isChecked = question.correctAnswer.includes(option); // Check if the option is a correct answer
-          return `<label><input type="checkbox" name="question" value="${option}" ${isChecked ? 'checked' : ''}>${option}</label>`;
-        }).join('<br>');
-        quizSection.innerHTML += optionsHTML;
-      } else {
-        const optionsHTML = question.options.map(option =>
-          `<label><input type="radio" name="question" value="${option}" ${option === question.correctAnswer ? 'checked' : ''}>${option}</label>`
-        ).join('<br>');
-        quizSection.innerHTML += optionsHTML;
+      if (!question) {
+        quizSection.innerHTML = '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
+        document.getElementById('resetQuiz').addEventListener('click', resetQuiz);
+        return;
       }
+      const questionType = document.querySelector('input[name="questionType"]:checked').value;
+      currentQuestionId = question.id;
+
+      let optionsHTML = '';
+      if (questionType === 'multipleChoice') {
+        let options = question.options.slice();
+        shuffleArray(options);
+
+        if (Array.isArray(question.correctAnswer)) {
+          optionsHTML = options.map(option => {
+            const isChecked = question.correctAnswer.includes(option);
+            return `<label><input type="checkbox" name="question" value="${option}" >${option}</label>`;
+          }).join('<br>');
+        } else {
+          optionsHTML = options.map(option =>
+            `<label><input type="radio" name="question" value="${option}">${option}</label>`
+          ).join('<br>');
+        }
+      } else {
+        optionsHTML = `<input type="text" id="textInputAnswer" placeholder="Type your answer">`;
+      }
+
+      quizSection.innerHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>${optionsHTML}`;
     }
 
     function submitAnswer() {
-      const question = questions[currentQuestionIndex];
-      let userAnswers;
+      const questionType = document.querySelector('input[name="questionType"]:checked').value;
+      let userAnswer;
+      let isCorrect = false;
 
-      if (Array.isArray(question.correctAnswer)) {
-        // Handle multiple correct answers
-        userAnswers = [...document.querySelectorAll('input[name="question"]:checked')].map(el => el.value);
-      } else {
-        // Handle single correct answer
-        const selectedOption = document.querySelector('input[name="question"]:checked');
-        userAnswers = selectedOption ? [selectedOption.value] : [];
-      }
+      if (questionType === 'multipleChoice') {
+        const correctAnswer = questions[currentQuestionIndex].correctAnswer;
 
-      if (userAnswers.length > 0) {
-        const correct = checkAnswers(userAnswers, Array.isArray(question.correctAnswer) ? question.correctAnswer : [question.correctAnswer]);
-        if (correct) {
-          console.log('Correct!');
-          alert("Correct!");
-          answeredQuestions[questions[currentQuestionIndex].id] = true;
-          localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
-
-          totalQuestions--;
-          updateQuestionCounter();
-          displayNextQuestion();
+        // For multiple-choice questions with checkboxes
+        if (Array.isArray(correctAnswer)) {
+          let selectedOptions = Array.from(document.querySelectorAll('input[name="question"]:checked')).map(input => input.value);
+          isCorrect = checkAnswers(selectedOptions, correctAnswer);
         } else {
-          console.log('Incorrect. The correct answer was:', correctAnswer);
-          alert("Incorrect")
+          // For single-choice questions (radio buttons)
+          const selectedOption = document.querySelector('input[name="question"]:checked');
+          userAnswer = selectedOption ? selectedOption.value : null;
+          isCorrect = userAnswer === correctAnswer;
         }
       } else {
-        console.log('Please provide an answer.');
+        // For text input questions
+        userAnswer = document.getElementById('textInputAnswer').value;
+        const correctAnswer = questions[currentQuestionIndex].correctAnswer;
+        isCorrect = userAnswer === correctAnswer;
+      }
+
+      if (isCorrect) {
+        // Mark the question as answered
+        answeredQuestions[questions[currentQuestionIndex].id] = 'answered';
+        localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
+
+        // Filter out the answered question
+        questions = questions.filter(q => answeredQuestions[q.id] !== 'answered');
+        totalQuestions = questions.length;
+        updateQuestionCounter();
+        displayNextQuestion();
+      } else {
+        console.log('Incorrect. The correct answer was:', questions[currentQuestionIndex].correctAnswer);
+        alert("Incorrect");
       }
     }
 
+    // Helper function to compare two arrays
     function checkAnswers(userAnswers, correctAnswers) {
       return userAnswers.length === correctAnswers.length &&
         userAnswers.every(val => correctAnswers.includes(val));
@@ -194,8 +217,17 @@
         displayQuestion(questions[currentQuestionIndex]);
         localStorage.setItem('currentQuestionIndex', currentQuestionIndex);
       } else {
-        console.log('End of Quiz');
-        resetQuiz();
+        if (Object.keys(answeredQuestions).length === allQuestions.length) {
+          console.log('End of Quiz. All questions answered.');
+          const quizSection = document.getElementById('quizSection');
+          alert('Quiz completed! Starting over...');
+
+          resetQuiz();
+        } else {
+          console.log('End of filtered questions. Some questions remain unanswered.');
+          currentQuestionIndex = 0;
+          displayQuestion(questions[currentQuestionIndex]);
+        }
       }
     }
 
@@ -224,6 +256,7 @@
       answeredQuestions = {};
       localStorage.removeItem('answeredQuestions');
       localStorage.removeItem('currentQuestionIndex');
+      window.location.reload();
     }
 
     document.getElementById('addQuestionButton').addEventListener('click', () => {
@@ -360,6 +393,15 @@
 
     window.addEventListener('load', () => {
       fetchLinksFromFirebase();
+    });
+
+    document.getElementById('toggleAddQuestion').addEventListener('click', function () {
+      var addQuestionSection = document.getElementById('addQuestion');
+      if (addQuestionSection.style.display === 'none') {
+        addQuestionSection.style.display = 'block';
+      } else {
+        addQuestionSection.style.display = 'none';
+      }
     });
 
   </script>
