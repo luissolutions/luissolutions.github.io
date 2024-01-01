@@ -12,16 +12,26 @@
             height: 200px;
             margin: 10px;
         }
+        body {
+            text-align: center;
+        }
     </style>
+    <link rel="stylesheet" href="../assets/css/gray-styles.css" id="stylesheet">
 </head>
 
 <body>
     <h1>Quiz Question to JSON Converter</h1>
+    <input type="checkbox" id="multiQuestionCheckbox"> <label for="multiQuestionCheckbox">Multiple Questions</label><br>
     <div>
-        <textarea id="textInput" placeholder="Paste quiz question text here..."></textarea><br>
+        <textarea id="textInput" placeholder="
+        Description 
+        Question
+        Options 
+        Correct Answer(s)
+        "></textarea>
+        <br>
         <button id="paste-btn">Paste</button>
     </div>
-    <input type="checkbox" id="multiQuestionCheckbox"> <label for="multiQuestionCheckbox">Multiple Questions</label><br>
     <button id="convertButton">Convert to JSON</button><br>
     <div>
         <textarea id="outputData" placeholder="Converted JSON will appear here..." readonly></textarea>
@@ -43,24 +53,23 @@
 
         function convertTextToJSON(text) {
             var lines = text.split('\n');
-            var question = lines[0].trim(); // Extract the first line as the question
-            var options = lines.slice(1).map(line => line.trim()); // Extract the remaining lines as options
+            var description = lines[0].trim();
+            var question = lines[1].trim(); // Second line as the question
+            var options = lines.slice(2, lines.length - 1).map(line => line.trim()); // All but the first two and last line as options
+            var correctAnswerLine = lines[lines.length - 1].trim();
 
-            // Identify correct answers and clean options
-            var correctAnswers = [];
-            var cleanedOptions = options.map(option => {
-                if (option.includes("( Missed)")) {
-                    correctAnswers.push(option.replace("( Missed)", "").trim());
-                    return option.replace("( Missed)", "").trim();
-                }
-                return option;
-            });
+            var correctAnswers;
+            if (correctAnswerLine.includes(',')) {
+                correctAnswers = correctAnswerLine.split(',').map(answer => answer.trim());
+            } else {
+                correctAnswers = correctAnswerLine;
+            }
 
             var jsonObject = {
-                "correctAnswer": correctAnswers,
-                "description": "Question Description Here",
-                "options": cleanedOptions,
-                "question": question
+                "description": description,
+                "question": question,
+                "options": options,
+                "correctAnswer": correctAnswers
             };
 
             return jsonObject;
@@ -72,17 +81,15 @@
             Object.keys(data.flashcards).forEach(key => {
                 var flashcard = data.flashcards[key];
 
-                // Collect all possible answers
                 var allAnswers = Object.keys(data.flashcards).map(k => data.flashcards[k].expectedAnswer);
 
-                // Randomly pick two different answers from allAnswers
                 var fillerAnswers = allAnswers.filter(answer => answer !== flashcard.expectedAnswer);
                 shuffleArray(fillerAnswers);
                 var selectedFillers = fillerAnswers.slice(0, 2);
 
                 newFormat[key] = {
                     question: flashcard.example,
-                    description: flashcard.description || "description here", // Default description if not provided
+                    description: flashcard.description || "description here",
                     options: [flashcard.expectedAnswer, ...selectedFillers],
                     correctAnswer: flashcard.expectedAnswer
                 };
@@ -91,7 +98,6 @@
             return newFormat;
         }
 
-        // Function to shuffle an array (Fisher-Yates Shuffle)
         function shuffleArray(array) {
             for (let i = array.length - 1; i > 0; i--) {
                 let j = Math.floor(Math.random() * (i + 1));
@@ -102,7 +108,7 @@
         function convertMultiQuestionTextToJSON(text) {
             var allQuestions = text.split('Your answer to this question is incorrect or incomplete.').map(q => q.trim());
             var jsonOutput = {};
-            var questionNumber = Math.floor(Math.random() * 90000) + 10000; // Random five-digit number
+            var questionNumber = Math.floor(Math.random() * 90000) + 10000;
 
             allQuestions.forEach((questionBlock, index) => {
                 if (questionBlock) {

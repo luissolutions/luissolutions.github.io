@@ -49,21 +49,21 @@
       <button id="submitAnswer">Submit Answer</button>
       <button id="nextQuestion">Next Question</button>
     </section>
+    <br>
     <button id="toggleAddQuestion">Add New Question</button>
     <section id="addQuestion" style="display: none;">
       <h2>Add Question</h2>
-      <div>
-        <input type="text" id="newDescription" placeholder="Enter description" />
+      <form>
+        <input type="text" id="newDescription" placeholder="Enter Description" />
         <br>
-        <input type="text" id="newQuestion" placeholder="Enter question" />
+        <input type="text" id="newQuestion" placeholder="Enter Question" />
         <br>
-        <input type="text" id="option1" placeholder="Option 1" />
-        <input type="text" id="option2" placeholder="Option 2" />
-        <input type="text" id="option3" placeholder="Option 3" />
-        <input type="text" id="correctAnswer" placeholder="Correct answer" />
+        <input type="text" id="options" placeholder="Enter Options" />
+        <br>
+        <input type="text" id="correctAnswer" placeholder="Enter Answer" />
         <button id="addQuestionButton">Add Question</button>
         <button id="deleteQuestionButton">Delete Question</button>
-      </div>
+      </form>
     </section>
 
     <section style="display: none;">
@@ -91,6 +91,20 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       const savedAnsweredQuestions = localStorage.getItem('answeredQuestions');
+      const inputFields = document.querySelectorAll('input[type="text"]');
+
+      inputFields.forEach(input => {
+        input.addEventListener('keypress', function (event) {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            const nextSiblingButton = input.nextElementSibling;
+            if (nextSiblingButton && nextSiblingButton.tagName === 'BUTTON') {
+              nextSiblingButton.click();
+            }
+          }
+        });
+      });
+
       if (savedAnsweredQuestions) {
         answeredQuestions = JSON.parse(savedAnsweredQuestions);
       }
@@ -172,31 +186,27 @@
       if (questionType === 'multipleChoice') {
         const correctAnswer = questions[currentQuestionIndex].correctAnswer;
 
-        // For multiple-choice questions with checkboxes
         if (Array.isArray(correctAnswer)) {
           let selectedOptions = Array.from(document.querySelectorAll('input[name="question"]:checked')).map(input => input.value);
           isCorrect = checkAnswers(selectedOptions, correctAnswer);
         } else {
-          // For single-choice questions (radio buttons)
           const selectedOption = document.querySelector('input[name="question"]:checked');
           userAnswer = selectedOption ? selectedOption.value : null;
           isCorrect = userAnswer === correctAnswer;
         }
       } else {
-        // For text input questions
         userAnswer = document.getElementById('textInputAnswer').value;
         const correctAnswer = questions[currentQuestionIndex].correctAnswer;
         isCorrect = userAnswer === correctAnswer;
       }
 
       if (isCorrect) {
-        // Mark the question as answered
         answeredQuestions[questions[currentQuestionIndex].id] = 'answered';
         localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
 
-        // Filter out the answered question
         questions = questions.filter(q => answeredQuestions[q.id] !== 'answered');
         totalQuestions = questions.length;
+        alert("Correct!")
         updateQuestionCounter();
         displayNextQuestion();
       } else {
@@ -205,7 +215,6 @@
       }
     }
 
-    // Helper function to compare two arrays
     function checkAnswers(userAnswers, correctAnswers) {
       return userAnswers.length === correctAnswers.length &&
         userAnswers.every(val => correctAnswers.includes(val));
@@ -259,15 +268,22 @@
       window.location.reload();
     }
 
-    document.getElementById('addQuestionButton').addEventListener('click', () => {
+    document.getElementById('addQuestionButton').addEventListener('click', (event) => {
+      event.preventDefault();
+
       const newQuestion = document.getElementById('newQuestion').value;
       const newDescription = document.getElementById('newDescription').value;
-      const options = [
-        document.getElementById('option1').value,
-        document.getElementById('option2').value,
-        document.getElementById('option3').value
-      ];
-      const correctAnswer = document.getElementById('correctAnswer').value;
+      const optionsInput = document.getElementById('options').value;
+      const correctAnswerInput = document.getElementById('correctAnswer').value;
+
+      const options = optionsInput.split(',').map(option => option.trim());
+
+      let correctAnswer;
+      if (correctAnswerInput.includes(',')) {
+        correctAnswer = correctAnswerInput.split(',').map(answer => answer.trim());
+      } else {
+        correctAnswer = correctAnswerInput.trim();
+      }
 
       if (newQuestion && newDescription && options.every(option => option) && correctAnswer) {
         addQuestionToFirebase(newQuestion, newDescription, options, correctAnswer);
@@ -287,6 +303,7 @@
       }).then(() => {
         console.log('Question added successfully');
         updateQuestionCounter();
+        alert("Question added to database.")
       }).catch(error => {
         console.error('Error adding new question:', error);
       });
@@ -330,8 +347,7 @@
       const questionRef = ref(database, `questions/${questionId}`);
       remove(questionRef).then(() => {
         console.log('Question removed successfully');
-        // Update the local state and UI
-        fetchQuestions(); // Refetch questions or update the local state as needed
+        fetchQuestions();
       }).catch(error => {
         console.error('Error removing question:', error);
       });
