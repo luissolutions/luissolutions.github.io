@@ -46,7 +46,8 @@
             if (fileInput.files.length > 0) {
                 const reader = new FileReader();
                 reader.onload = (e) => {
-                    questions = JSON.parse(e.target.result); // Store the questions globally
+                    const data = JSON.parse(e.target.result);
+                    questions = transformData(data); // Directly pass the data object
                     displayQuestions();
                 };
                 reader.readAsText(fileInput.files[0]);
@@ -54,6 +55,17 @@
                 alert('Please select a JSON file.');
             }
         });
+
+        function transformData(data) {
+            return Object.keys(data).map(key => {
+                const item = data[key];
+                return {
+                    question: item.question,
+                    options: item.options,
+                    correctAnswer: Array.isArray(item.correctAnswer) ? item.correctAnswer : [item.correctAnswer]
+                };
+            });
+        }
 
         function displayQuestions() {
             const container = document.getElementById('quiz-container');
@@ -65,38 +77,46 @@
                     <p>${question.question}</p>
                     ${question.options.map((option, i) => `
                         <label>
-                            <input type="radio" name="question${index}" value="${i}">
+                            <input type="${question.correctAnswer.length > 1 ? 'checkbox' : 'radio'}" name="question${index}" value="${option}">
                             ${option}
                         </label><br>
                     `).join('')}
-                    <button onclick="checkAnswer(${index}, ${question.correctAnswer}, this)">Submit</button>
+                    <button onclick="checkAnswer(${index}, this)">Submit</button>
                     <p class="feedback"></p>
                 `;
                 container.appendChild(section);
             });
         }
 
-        function checkAnswer(questionIndex, correctAnswer, button) {
-            const selectedOption = document.querySelector(`input[name="question${questionIndex}"]:checked`);
-            const feedbackElement = button.nextElementSibling;
-            if (selectedOption) {
-                if (parseInt(selectedOption.value) === correctAnswer) {
-                    feedbackElement.textContent = 'Correct!';
-                    score++;
-                    document.getElementById('score-value').textContent = score;
-                    questions.splice(questionIndex, 1); // Remove the question
-                    button.parentNode.style.display = 'none'; // Hide the question section
-                } else {
-                    feedbackElement.textContent = 'Incorrect. Please try again.';
-                    health -= 10;
-                    document.getElementById('health-value').textContent = health;
-                }
+        function checkAnswer(questionIndex, button) {
+    const selectedOptions = Array.from(document.querySelectorAll(`input[name="question${questionIndex}"]:checked`)).map(el => el.value);
+    const feedbackElement = button.nextElementSibling;
+    const correctAnswers = questions[questionIndex].correctAnswer;
+    let isCorrect = false;
 
-                updateHighScore();
-            } else {
-                feedbackElement.textContent = 'Please select an option.';
-            }
-        }
+    if (correctAnswers.length > 1) {
+        // Multiple correct answers
+        isCorrect = correctAnswers.every(answer => selectedOptions.includes(answer)) && selectedOptions.length === correctAnswers.length;
+    } else {
+        // Single correct answer
+        isCorrect = selectedOptions.length === 1 && selectedOptions[0] === correctAnswers[0];
+    }
+
+    if (isCorrect) {
+        feedbackElement.textContent = 'Correct!';
+        score++;
+        document.getElementById('score-value').textContent = score;
+        questions.splice(questionIndex, 1);
+        button.parentNode.style.display = 'none';
+    } else {
+        feedbackElement.textContent = 'Incorrect. Please try again.';
+        health -= 10;
+        document.getElementById('health-value').textContent = health;
+    }
+
+    updateHighScore();
+}
+
 
         function updateHighScore() {
             if (score > highScore) {
@@ -110,7 +130,6 @@
             window.location.reload();
         }
     </script>
-
 </body>
 
 </html>
