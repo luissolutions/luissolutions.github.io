@@ -34,6 +34,13 @@
 </head>
 
 <body>
+    <div class="stats">
+        <div id="health">Health: <span id="health-value">3</span></div>
+        <div id="score">Score: <span id="score-value">0</span></div>
+        <div id="timer">Time: <span id="timer-value">0</span> s</div>
+        <button id="resetGame">Reset Game</button>
+    </div>
+
     <div id="gameArea">
         <p id="score">Score: 0</p>
         <div id="gameGrid">
@@ -44,11 +51,13 @@
     </div>
 
     <script>
-        const n = 2; // You can adjust this value for different difficulties
-
+        const n = 2; // n-back value
         let sequence = [];
         let currentIndex = 0;
         let score = 0;
+        let health = 3;
+        let timer = 0;
+        let timerInterval;
 
         function generateSequence() {
             for (let i = 0; i < 50; i++) { // Generate a sequence of 50 random cell indices between 0 and 8
@@ -66,45 +75,79 @@
             }
         }
 
+        function updateScore(value) {
+            score = value;
+            document.getElementById('score-value').textContent = score;
+        }
+
+        function updateHealth(value) {
+            health = value;
+            document.getElementById('health-value').textContent = health;
+
+            if (health <= 0) {
+                endGame();
+            }
+        }
+
+        function updateTimer() {
+            timer++;
+            document.getElementById('timer-value').textContent = timer;
+        }
+
         function checkAnswer(answer) {
             let nBackIndex = currentIndex - n;
             let isCorrect = nBackIndex >= 0 && sequence[currentIndex] === sequence[nBackIndex];
 
             if (answer === isCorrect) {
-                score++;
-                document.getElementById('score').textContent = `Score: ${score}`;
+                updateScore(score + 1);
+            } else {
+                updateHealth(health - 1);
             }
 
             currentIndex++;
+            continueGame();
+        }
 
-            if (currentIndex < sequence.length) {
+        function continueGame() {
+            if (currentIndex < sequence.length && health > 0) {
                 highlightCell(sequence[currentIndex]);
             } else {
-                document.getElementById('gameArea').innerHTML = `<p>Game Over. Final score: ${score}</p>`;
+                endGame();
             }
         }
 
-        function highlightCell(index) {
-            // Remove highlight from previous cell
-            const previousCell = document.querySelector('.highlighted');
-            if (previousCell) {
-                previousCell.classList.remove('highlighted');
-            }
+        function endGame() {
+            clearInterval(timerInterval);
+            document.getElementById('gameArea').innerHTML = `<p>Game Over. Final score: ${score}</p>`;
+        }
 
-            // Add highlight to current cell
-            const currentCell = document.getElementById(`cell${index}`);
-            currentCell.classList.add('highlighted');
+        function resetGame() {
+            clearInterval(timerInterval);
+            sequence = [];
+            currentIndex = 0;
+            updateScore(0);
+            updateHealth(3);
+            timer = 0;
+            document.getElementById('timer-value').textContent = timer;
+            // Clear the existing grid
+            document.getElementById('gameGrid').innerHTML = '';
+            initializeGame();
         }
 
         function initializeGame() {
             generateSequence();
             generateGrid();
-            document.getElementById('answerYes').addEventListener('click', () => checkAnswer(true));
-            document.getElementById('answerNo').addEventListener('click', () => checkAnswer(false));
-            setTimeout(() => highlightCell(sequence[currentIndex]), 500); // Initial delay before starting game
+            timerInterval = setInterval(updateTimer, 1000);
+            setTimeout(() => highlightCell(sequence[currentIndex]), 500);
         }
 
+        // Move event listeners setup outside of initializeGame
+        document.getElementById('answerYes').addEventListener('click', () => checkAnswer(true));
+        document.getElementById('answerNo').addEventListener('click', () => checkAnswer(false));
+        document.getElementById('resetGame').addEventListener('click', resetGame);
+
         document.addEventListener('DOMContentLoaded', initializeGame);
+
     </script>
 </body>
 
