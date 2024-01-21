@@ -1,5 +1,7 @@
 import { auth, signOut } from "../../../assets/js/firebase-init.js";
 
+const specificUserEmail = "luis@luis.com";
+
 document.addEventListener('DOMContentLoaded', () => {
   // Check the auth state
   auth.onAuthStateChanged((user) => {
@@ -7,7 +9,13 @@ document.addEventListener('DOMContentLoaded', () => {
       // User is not logged in, redirect to login page
       window.location.href = 'login.html';
     } else {
-      // User is logged in, you can optionally perform other actions here
+      // Check if the logged-in user is the specific user
+      if (user.email === specificUserEmail) {
+        console.log("Specific user is logged in");
+      } else {
+        console.log("Different user is logged in");
+        window.location.href = 'login.html';
+      }
     }
   });
 });
