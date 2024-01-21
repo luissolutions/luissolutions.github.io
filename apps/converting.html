@@ -4,14 +4,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-Time Speedwriting Converter</title>
+    <title>Real-Time Converter</title>
     <style>
         textarea {
             width: 90%;
             height: auto;
-            /* Set initial height to auto */
             overflow-y: hidden;
-            /* Hide vertical scrollbar */
             margin: 10px;
             padding: 10px;
             font-size: 16px;
@@ -25,15 +23,29 @@
 </head>
 
 <body>
-    <h1>Real-Time Speedwriting Converter</h1>
+    <h1>Real-Time Converter</h1>
+    <h2>Select Conversion Type</h2>
+    <div>
+        <input type="radio" id="shorthand" name="conversionType" value="shorthand" checked>
+        <label for="shorthand">Shorthand</label>
+    </div>
+    <div>
+        <input type="radio" id="json" name="conversionType" value="json">
+        <label for="json">JSON</label>
+    </div>
+    <br>
+    <input type="checkbox" id="removeForbiddenChars" name="">
+    <label for="removeForbiddenChars">Remove Forbidden Characters</label>
     <textarea id="standardText" placeholder="Start typing here..."></textarea>
+    <br>
     <textarea id="shorthandText" placeholder="Shorthand will appear here..."></textarea>
-    <button id="copyStandardText">Copy Standard Text</button>
-    <button id="copyShorthandText">Copy Shorthand Text</button>
+    <button id="copyStandardText">Copy Input</button>
+    <button id="copyShorthandText">Copy Output</button>
     <button id="saveToFile">Save to File</button>
 
     <script>
         document.addEventListener('DOMContentLoaded', setupEventListeners);
+
 
         function setupEventListeners() {
             document.getElementById('standardText').addEventListener('input', handleStandardInput);
@@ -45,22 +57,58 @@
 
         function autoResizeTextarea(id) {
             const textarea = document.getElementById(id);
-            textarea.style.height = 'auto'; // Reset height to recalculate
-            textarea.style.height = textarea.scrollHeight + 'px'; // Set new height
+            textarea.style.height = 'auto';
+            textarea.style.height = textarea.scrollHeight + 'px';
         }
 
         function handleStandardInput() {
             const text = this.value;
-            document.getElementById('shorthandText').value = convertToShorthand(text);
-            autoResizeTextarea('standardText'); // Resize standard text area
-            autoResizeTextarea('shorthandText'); // Resize shorthand text area
+            const conversionType = document.querySelector('input[name="conversionType"]:checked').value;
+            let convertedText = '';
+
+            if (conversionType === 'shorthand') {
+                convertedText = convertToShorthand(text);
+            } else if (conversionType === 'json') {
+                convertedText = convertToJSON(text);
+            }
+
+            // Apply forbidden character removal only to the output if the checkbox is checked
+            const removeForbidden = document.getElementById('removeForbiddenChars').checked;
+            if (removeForbidden) {
+                convertedText = removeForbiddenCharacters(convertedText);
+            }
+
+            document.getElementById('shorthandText').value = convertedText;
+            autoResizeTextarea('standardText');
+            autoResizeTextarea('shorthandText');
+        }
+
+        function convertToJSON(input) {
+            const lines = input.split('\n');
+            const headers = lines[0].split('\t').slice(2); // Assuming first two columns are 'Model' and 'Notes'
+            const result = { "Samsung": {} };
+
+            for (let i = 1; i < lines.length; i++) {
+                const parts = lines[i].split('\t');
+                const model = parts[0];
+                if (model) { // Check if the model name exists
+                    result.Samsung[model] = {};
+                    for (let j = 2; j < parts.length; j++) {
+                        if (headers[j - 2] && parts[j]) { // Check if header and value exists
+                            result.Samsung[model][headers[j - 2]] = parts[j];
+                        }
+                    }
+                }
+            }
+
+            return JSON.stringify(result, null, 2); // Beautify the JSON output
         }
 
         function handleShorthandInput() {
             const shorthandText = this.value;
             document.getElementById('standardText').value = convertToStandard(shorthandText);
-            autoResizeTextarea('standardText'); // Resize standard text area
-            autoResizeTextarea('shorthandText'); // Resize shorthand text area
+            autoResizeTextarea('standardText');
+            autoResizeTextarea('shorthandText');
         }
 
         function convertToShorthand(text) {
@@ -90,7 +138,7 @@
         }
 
         function applyReverseRules(word) {
-            return word.replace(/n\b/ig, 'ing'); // Add more rules as needed
+            return word.replace(/n\b/ig, 'ing');
         }
 
         function copyToClipboard(elementId) {
@@ -106,6 +154,16 @@
             anchor.href = window.URL.createObjectURL(blob);
             anchor.click();
             window.URL.revokeObjectURL(anchor.href);
+        }
+
+        function removeForbiddenCharacters(text) {
+            // Correctly escape the forward slash
+            const forbiddenChars = ['\\$', '\\#', '\\[', '\\]', '\\/'];
+            let sanitizedValue = text;
+            for (const char of forbiddenChars) {
+                sanitizedValue = sanitizedValue.replace(new RegExp(char, 'g'), '');
+            }
+            return sanitizedValue;
         }
 
     </script>

@@ -20,7 +20,7 @@
       <li><a href="index.html">Home</a></li>
       <li><a href="repair.html">Price Calc</a></li>
       <li><a href="editor.html">Price Editor</a></li>
-      <li><a href="info-pages/more.html">Info</a></li>
+      <li><a href="pages/more.html">Info</a></li>
       <li class="dropdown">
         <a href="javascript:void(0)">Links</a>
         <div class="dropdown-content">
@@ -78,6 +78,7 @@
             </table>
           </div>
           <br>
+          <button id="undo-button" style="display: none;">Undo Last Action</button>
           <button id="export-button">Export to CSV</button>
         </div>
       </div>
@@ -89,7 +90,7 @@
     </ul>
   </footer>
   <script type="module">
-    import { ref, database, onValue, set, auth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "../../assets/js/firebase-init.js";
+    import { ref, database, onValue, set, update, remove, auth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "../../assets/js/firebase-init.js";
 
     const inputFieldEl = document.getElementById("input-field");
     const repairFieldEl = document.getElementById("repair-field");
@@ -156,16 +157,10 @@
     let selectedCategory = localStorage.getItem("selectedCategory") || "Apple";
 
     document.addEventListener('input', function (event) {
-      // Check if the event target is an input field
       if (event.target.tagName.toLowerCase() === 'input') {
         const inputElement = event.target;
         const inputValue = inputElement.value;
-        const forbiddenChars = ['$', '#', '[', ']', '/'];
-
-        let sanitizedValue = inputValue;
-        for (const char of forbiddenChars) {
-          sanitizedValue = sanitizedValue.replace(new RegExp(char, 'g'), '');
-        }
+        const sanitizedValue = sanitizeInput(inputValue);
 
         if (inputValue !== sanitizedValue) {
           inputElement.value = sanitizedValue;
@@ -174,24 +169,27 @@
     });
 
     document.addEventListener('paste', function (event) {
-      // Check if the event target is an input field
       if (event.target.tagName.toLowerCase() === 'input') {
         const inputElement = event.target;
         const clipboardData = event.clipboardData || window.clipboardData;
         const pastedText = clipboardData.getData('text/plain');
-        const forbiddenChars = ['$', '#', '[', ']', '/'];
+        const sanitizedText = sanitizeInput(pastedText);
 
-        for (const char of forbiddenChars) {
-          if (pastedText.includes(char)) {
-            event.preventDefault();
-            return;
-          }
+        if (pastedText !== sanitizedText) {
+          event.preventDefault();
+          inputElement.value += sanitizedText;
         }
-
-        inputElement.value += pastedText;
-        event.preventDefault();
       }
     });
+
+    function sanitizeInput(input) {
+      const forbiddenChars = ['$', '#', '[', ']', '/'];
+      let sanitizedValue = input;
+      for (const char of forbiddenChars) {
+        sanitizedValue = sanitizedValue.replace(new RegExp(char, 'g'), '');
+      }
+      return sanitizedValue;
+    }
 
     searchButtonEl.addEventListener("click", function () {
       let searchString = searchInputEl.value.trim().toLowerCase();
@@ -342,9 +340,19 @@
             let newModel = modelInput.value.trim();
             let newRepair = repairInput.value.trim();
             let newPrice = priceInput.value.trim();
-            let exactLocationOfItemInDB = ref(database, `devices/Phones/${selectedCategory}/${phoneModel}/${key}`);
+
+            // Check for forbidden characters
+            const forbiddenChars = ['$', '#', '[', ']', '/'];
+            let containsForbiddenChar = forbiddenChars.some(char => newModel.includes(char) || newRepair.includes(char) || newPrice.includes(char));
+
+            if (containsForbiddenChar) {
+              alert("Contains forbidden characters. Remove '$', '#', '[', ']', '/'.");
+              return;
+            }
 
             if (newModel !== "" && newRepair !== "" && newPrice !== "") {
+              let exactLocationOfItemInDB = ref(database, `devices/Phones/${selectedCategory}/${phoneModel}/${key}`);
+
               if (newModel !== phoneModel || newRepair !== key) {
                 remove(exactLocationOfItemInDB);
                 exactLocationOfItemInDB = ref(database, `devices/Phones/${selectedCategory}/${newModel}/${newRepair}`);
@@ -357,6 +365,8 @@
                 .catch((error) => {
                   console.error("Error updating repair:", error);
                 });
+            } else {
+              alert("Please fill in all fields before updating data.");
             }
           });
           actionCell.appendChild(updateButton);
