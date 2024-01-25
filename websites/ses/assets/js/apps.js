@@ -267,7 +267,7 @@ async function saveInvoice() {
         customerEmail: document.getElementById('customer-email').value,
         customerAddress: document.getElementById('customer-address').value,
         invoiceNumber: document.getElementById('invoice-number').value,
-        notes: document.getElementById('inoice-notes').value,
+        notes: document.getElementById('invoice-notes').value,
         invoiceDate: document.getElementById('invoice-date').value,
         parts: partsData,
         labor: [...laborTableBody.querySelectorAll('tr')].map(row => ({
