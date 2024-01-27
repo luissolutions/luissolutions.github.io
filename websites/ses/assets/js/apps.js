@@ -164,7 +164,6 @@ document.addEventListener("keydown", event => {
     }
 });
 
-
 const partsTableBody = document.querySelector('.parts-table tbody');
 const subtotalInput = document.getElementById('subtotal');
 const taxPercentInput = document.getElementById('tax-percent');
@@ -1256,3 +1255,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 document.addEventListener('DOMContentLoaded', analyzeInvoiceData);
+
+document.addEventListener('DOMContentLoaded', function () {
+    const textarea = document.getElementById('invoice-notes');
+    textarea.addEventListener('input', autoResize, false);
+
+    function autoResize() {
+        this.style.height = 'auto';
+        this.style.height = this.scrollHeight + 'px';
+    }
+});

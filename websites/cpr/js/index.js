@@ -1,4 +1,4 @@
-import { ref, database, onValue, auth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "./firebase-init.js";
+import { ref, database, onValue } from "./firebase-init.js";
 
 const phonesInDB = ref(database, "devices");
 

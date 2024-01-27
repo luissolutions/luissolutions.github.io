@@ -16,18 +16,18 @@ import { auth, onAuthStateChanged, signOut } from './firebase-init.js';
 
 onAuthStateChanged(auth, (user) => {
   if (user) {
-      console.log("Logged in");
+    console.log(`Logged in as: ${user.email}`);
   } else {
-      window.location.href = 'index.html';
+    window.location.href = 'index.html';
   }
 });
 
 document.getElementById('signOutButton').addEventListener('click', function () {
   signOut(auth).then(() => {
-      console.log('User signed out');
-      window.location.href = 'index.html';
+    console.log('User signed out');
+    window.location.href = 'index.html';
   }).catch((error) => {
-      console.error(error);
+    console.error(error);
   });
 });
 
