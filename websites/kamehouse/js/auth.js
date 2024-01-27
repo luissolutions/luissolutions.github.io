@@ -12,7 +12,7 @@ document.addEventListener("DOMContentLoaded", function () {
 }); 
 */
 
-import { auth, onAuthStateChanged, signOut } from '../../../assets/js/firebase-init.js';
+import { auth, onAuthStateChanged, signOut } from './firebase-init.js';
 
 onAuthStateChanged(auth, (user) => {
   if (user) {
@@ -30,3 +30,4 @@ document.getElementById('signOutButton').addEventListener('click', function () {
       console.error(error);
   });
 });
+

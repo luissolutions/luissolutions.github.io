@@ -12,9 +12,11 @@
   <link rel="icon" type="img/png" sizes="16x16" href="img/favicon-16x16.png">
   <link rel="manifest" href="site.webmanifest">
   <script type="module" src="js/auth.js" defer></script>
+  <script type="module" src="js/index.js" defer></script>
 </head>
 
 <body>
+
   <header>
     <ul>
       <li><a href="index.html">Home</a></li>
@@ -32,17 +34,19 @@
           <a href="https://imeicheck.com/" target="_blank">IMEI Check</a>
           <a href="https://app.slack.com/" target="_blank">Slack</a>
           <a href="https://webmail.cellphonerepair.com/" target="_blank">Webmail</a>
-          <a href="https://www.apple.com/shop/browse/overlay/tradein_landing/iphone_values" target="_blank">Apple Trade-in</a>
-          <a href=""><button id="logoutButton">Logout</button></a>
+          <a href="https://www.apple.com/shop/browse/overlay/tradein_landing/iphone_values" target="_blank">Apple
+            Trade-in</a>
+          <a href="#" id="logoutButton">Logout</a>
         </div>
       </li>
     </ul>
   </header>
+
   <main>
     <section>
       <div class="container" id="repair-calc">
         <img class="logo" src="img/logo.png">
-        <h1>Repair Price <button id="calcApp">Calculator</button></h1>
+        <h1>Repair Price Calculator</h1>
 
         <div>
           <label for="brand">Select Brand:</label>
@@ -60,194 +64,21 @@
         <select id="modelSelect"></select>
         <br>
         <img id="phoneImage" src="" alt="Phone Image">
-
         <div id="repairOptions"></div>
-
         <h3>Total Price Before Tax: $<span id="totalPrice">0</span></h3>
-
         <input type="number" id="discountAmount" placeholder="Enter discount amount" min="0">
-
         <br>
         <a href="https://docs.google.com/spreadsheets/d/1DJfvnvlLIQYloI3GmJz8nG_3YnvSfBRTOP0DEKfixtI/edit#gid=1923309158"
           target="_blank"><img src="img/sheets.png" alt=""></a>
       </div>
     </section>
   </main>
+
   <footer>
     <ul>
       <li>© of <a href="../../index.html">Luis</a></li>
     </ul>
   </footer>
-
-  <script>
-    const calcApp = document.getElementById("calcApp")
-    const calcCloseBtn = document.getElementById("calc-close-btn")
-
-    calcApp.addEventListener("dblclick", function () {
-      calcApp.innerHTML += `<div class="calc-win" id="calc-win">
-          <div class="close-calc-btn-container">
-          <button onclick=calcClose() class="calc-close-btn" id="calc-close-btn">X</button>
-          </div>  
-          <iframe src="../../apps/calc.html"></iframe>
-          </div>`
-    })
-
-    function calcClose() {
-      calcApp.innerHTML = "Calculator"
-    }
-
-  </script>
-
-  <script type="module">
-    import { ref, database, onValue, auth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "../../assets/js/firebase-init.js";
-    
-    const phonesInDB = ref(database, "devices");
-
-    const modelSelect = document.getElementById('modelSelect');
-    const repairOptions = document.getElementById('repairOptions');
-    const phoneImage = document.getElementById('phoneImage');
-    const totalPriceElement = document.getElementById('totalPrice');
-    const discountAmountInput = document.getElementById('discountAmount');
-
-    const defaultImageSrc = 'img/default.png';
-
-    function loadData() {
-      const brand = document.querySelector('input[name="brand"]:checked').value;
-      const brandRef = ref(database, `devices/Phones/${brand}`);
-
-      onValue(brandRef, (snapshot) => {
-        const brandData = snapshot.val();
-
-        // Reset the fields regardless of whether data was fetched or not
-        modelSelect.innerHTML = '';
-        phoneImage.src = '';
-        phoneImage.alt = '';
-        repairOptions.innerHTML = '';
-        totalPriceElement.textContent = '0';
-
-        if (brandData) {
-          const models = Object.keys(brandData).sort(); // Sort the models alphabetically
-
-          models.forEach((model) => {
-            const option = document.createElement('option');
-            option.value = model;
-            option.textContent = model;
-            modelSelect.appendChild(option);
-          });
-
-          // Check if there is a stored selected phone
-          const storedPhone = localStorage.getItem("selectedPhone");
-          if (storedPhone && models.includes(storedPhone)) {
-            modelSelect.value = storedPhone; // Set the stored phone as the selected phone
-          }
-
-          modelSelect.dispatchEvent(new Event('change'));
-        }
-      });
-    }
-
-    modelSelect.addEventListener('change', () => {
-      const brand = document.querySelector('input[name="brand"]:checked').value;
-      const selectedModel = modelSelect.value;
-      const modelRef = ref(database, `devices/Phones/${brand}/${selectedModel}`);
-
-      onValue(modelRef, (snapshot) => {
-        const modelData = snapshot.val();
-
-        if (modelData) {
-          phoneImage.src = `img/${selectedModel}.png`;
-          phoneImage.alt = selectedModel;
-          phoneImage.onerror = () => {
-            phoneImage.src = defaultImageSrc; // Use default image if specified image is not available
-          }
-
-          repairOptions.innerHTML = '';
-
-          // Get the repairs and sort them alphabetically
-          const repairs = Object.keys(modelData).sort();
-
-          repairs.forEach((repair) => {
-            const repairLabel = document.createElement('label');
-            repairLabel.style.display = 'block';
-
-            const repairCheckbox = document.createElement('input');
-            repairCheckbox.type = 'checkbox';
-            repairCheckbox.dataset.price = modelData[repair];
-
-            repairCheckbox.addEventListener('change', updateTotalPriceWithDiscount);
-
-            let repairText = repair + ': $' + modelData[repair];
-
-            // Check if repair includes "Screen" or "Battery" and color them accordingly
-            repairText = repairText.replace(/screen/gi, '<span style="color: lightblue;">Screen</span>');
-            repairText = repairText.replace(/battery/gi, '<span style="color: lightgreen;">Battery</span>');
-
-            repairLabel.innerHTML = repairText;
-
-            repairLabel.insertBefore(repairCheckbox, repairLabel.firstChild);
-            repairOptions.appendChild(repairLabel);
-          });
-        }
-      });
-    });
-
-    // Add event listener to the discount input field to automatically apply the discount when the discount amount is changed
-    discountAmountInput.addEventListener('input', updateTotalPriceWithDiscount);
-
-    function updateTotalPriceWithDiscount() {
-      const selectedRepairs = repairOptions.querySelectorAll('input[type="checkbox"]:checked');
-      let total = 0;
-
-      selectedRepairs.forEach((selectedRepair) => {
-        total += parseFloat(selectedRepair.dataset.price);
-      });
-
-      const discountAmount = parseFloat(discountAmountInput.value) || 0;
-      total = total - discountAmount;
-
-      if (total < 0) {
-        total = 0;
-      }
-
-      totalPriceElement.textContent = total.toFixed(2);
-    }
-
-    // Add event listeners to the radio buttons
-    const appleRadio = document.getElementById('Apple');
-    const samsungRadio = document.getElementById('Samsung');
-    const otherRadio = document.getElementById('Other');
-
-    appleRadio.addEventListener('change', function () {
-      loadData();
-      localStorage.setItem("selectedPhoneBrand", "Apple");
-    });
-
-    samsungRadio.addEventListener('change', function () {
-      loadData();
-      localStorage.setItem("selectedPhoneBrand", "Samsung");
-    });
-
-    otherRadio.addEventListener('change', function () {
-      loadData();
-      localStorage.setItem("selectedPhoneBrand", "Other");
-    });
-
-    // Check if there is a stored selected brand
-    const storedBrand = localStorage.getItem("selectedPhoneBrand");
-    if (storedBrand) {
-      if (storedBrand === "Apple") {
-        appleRadio.checked = true; // Set Apple as the selected brand
-      } else if (storedBrand === "Samsung") {
-        samsungRadio.checked = true; // Set Samsung as the selected brand
-      } else if (storedBrand === "Other") {
-        otherRadio.checked = true; // Set Other as the selected brand
-      }
-    }
-
-    // Initial load
-    loadData();
-
-  </script>
 
 </body>
 
