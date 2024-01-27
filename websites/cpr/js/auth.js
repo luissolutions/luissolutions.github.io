@@ -1,4 +1,4 @@
-import { auth, signOut } from "../../../assets/js/firebase-init.js";
+import { auth, signOut } from "./firebase-init.js";
 
 const specificUserEmail = "luis@luis.com";
 
