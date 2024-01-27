@@ -1,13 +1,3 @@
-
-function toggleSidebar() {
-    var sidebar = document.getElementById("sidebar");
-    if (sidebar.style.right === "0px") {
-        sidebar.style.right = "-70%";
-    } else {
-        sidebar.style.right = "0px";
-    }
-}
-
 function loadContent(event, path) {
     event.preventDefault();
 
@@ -52,4 +42,11 @@ function loadContent(event, path) {
         });
 }
 
-document.getElementById("toggleSidebar").addEventListener("click", toggleSidebar);
+document.addEventListener('DOMContentLoaded', (event) => {
+    const toggleButton = document.getElementById('toggleSidebar');
+    const sidebar = document.getElementById('sidebar');
+
+    toggleButton.addEventListener('click', () => {
+        sidebar.classList.toggle('hidden');
+    });
+});
