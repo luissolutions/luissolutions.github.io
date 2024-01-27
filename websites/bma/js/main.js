@@ -1,6 +1,6 @@
 const content = document.querySelector('body');
 const darkModeToggle = document.getElementById('dark-mode-toggle');
-const images = document.querySelectorAll('img'); // Select all images
+const images = document.querySelectorAll('img');
 
 let isDarkModeActive = localStorage.getItem('darkMode') === 'true';
 applyDarkMode(isDarkModeActive);

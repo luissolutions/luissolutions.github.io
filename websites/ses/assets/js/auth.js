@@ -3,7 +3,7 @@ import { auth, onAuthStateChanged, signOut } from './firebase-init.js';
 // Check authentication state
 onAuthStateChanged(auth, (user) => {
     if (user) {
-        console.log("Logged in");
+        console.log(`Logged in as: ${user.email}`);
     } else {
         window.location.href = 'login.html';
     }

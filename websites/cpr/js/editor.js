@@ -1,4 +1,4 @@
-import { ref, database, onValue, set, update, remove, auth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "./firebase-init.js";
+import { ref, database, onValue, set, update, remove } from "./firebase-init.js";
 
 const inputFieldEl = document.getElementById("input-field");
 const repairFieldEl = document.getElementById("repair-field");
