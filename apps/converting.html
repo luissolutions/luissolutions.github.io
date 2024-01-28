@@ -33,9 +33,17 @@
         <input type="radio" id="json" name="conversionType" value="json">
         <label for="json">JSON</label>
     </div>
+    <div>
+        <input type="radio" id="quiz" name="conversionType" value="quiz">
+        <label for="quiz">Quiz</label>
+    </div>
     <br>
     <input type="checkbox" id="removeForbiddenChars" name="">
     <label for="removeForbiddenChars">Remove Forbidden Characters</label>
+
+    <input type="checkbox" id="multipleQuestions" name="">
+    <label for="multipleQuestions">Multiple Questions</label>
+
     <textarea id="standardText" placeholder="Start typing here..."></textarea>
     <br>
     <textarea id="shorthandText" placeholder="Shorthand will appear here..."></textarea>
@@ -46,6 +54,81 @@
     <script>
         document.addEventListener('DOMContentLoaded', setupEventListeners);
 
+        function handleStandardInput() {
+            const text = this.value;
+            const conversionType = document.querySelector('input[name="conversionType"]:checked').value;
+            let convertedText = '';
+
+            if (conversionType === 'shorthand') {
+                convertedText = convertToShorthand(text);
+            } else if (conversionType === 'json') {
+                convertedText = convertToJSON(text);
+            } else if (conversionType === 'quiz') {
+                const isMultipleQuestions = document.getElementById('multipleQuestions').checked;
+                convertedText = isMultipleQuestions ? JSON.stringify(convertMultiQuestionTextToJSON(text), null, 2) : JSON.stringify(convertTextToJSON(text), null, 2);
+            }
+
+            // Apply forbidden character removal only to the output if the checkbox is checked
+            const removeForbidden = document.getElementById('removeForbiddenChars').checked;
+            if (removeForbidden) {
+                convertedText = removeForbiddenCharacters(convertedText);
+            }
+
+            document.getElementById('shorthandText').value = convertedText;
+            autoResizeTextarea('standardText');
+            autoResizeTextarea('shorthandText');
+        }
+
+        function convertTextToJSON(text) {
+            var lines = text.split('\n');
+            var description = lines[0].trim();
+            var question = lines[1].trim(); // Second line as the question
+            var options = lines.slice(2, lines.length - 1).map(line => line.trim()); // All but the first two and last line as options
+            var correctAnswerLine = lines[lines.length - 1].trim();
+
+            var correctAnswers;
+            if (correctAnswerLine.includes(',')) {
+                correctAnswers = correctAnswerLine.split(',').map(answer => answer.trim());
+            } else {
+                correctAnswers = correctAnswerLine;
+            }
+
+            var jsonObject = {
+                "description": description,
+                "question": question,
+                "options": options,
+                "correctAnswer": correctAnswers
+            };
+
+            return jsonObject;
+        }
+
+        function convertMultiQuestionTextToJSON(text) {
+            var allQuestions = text.split('Your answer to this question is incorrect or incomplete.').map(q => q.trim());
+            var jsonOutput = {};
+            var questionNumber = Math.floor(Math.random() * 90000) + 10000;
+
+            allQuestions.forEach((questionBlock, index) => {
+                if (questionBlock) {
+                    var lines = questionBlock.split('\n');
+                    var description = index === 0 ? lines[0].trim() : "Additional Question";
+                    var question = index === 0 ? lines[1].trim() : lines[0].trim();
+                    var options = (index === 0 ? lines.slice(2) : lines.slice(1)).map(line => line.trim());
+
+                    var correctAnswers = options.filter(option => option.includes("( Missed)")).map(option => option.replace("( Missed)", "").trim());
+                    var cleanedOptions = options.map(option => option.replace("( Missed)", "").trim());
+
+                    jsonOutput[`question${questionNumber++}`] = {
+                        "correctAnswer": correctAnswers.length > 1 ? correctAnswers : correctAnswers[0],
+                        "description": description,
+                        "options": cleanedOptions,
+                        "question": question
+                    };
+                }
+            });
+
+            return jsonOutput;
+        }
 
         function setupEventListeners() {
             document.getElementById('standardText').addEventListener('input', handleStandardInput);
@@ -59,28 +142,6 @@
             const textarea = document.getElementById(id);
             textarea.style.height = 'auto';
             textarea.style.height = textarea.scrollHeight + 'px';
-        }
-
-        function handleStandardInput() {
-            const text = this.value;
-            const conversionType = document.querySelector('input[name="conversionType"]:checked').value;
-            let convertedText = '';
-
-            if (conversionType === 'shorthand') {
-                convertedText = convertToShorthand(text);
-            } else if (conversionType === 'json') {
-                convertedText = convertToJSON(text);
-            }
-
-            // Apply forbidden character removal only to the output if the checkbox is checked
-            const removeForbidden = document.getElementById('removeForbiddenChars').checked;
-            if (removeForbidden) {
-                convertedText = removeForbiddenCharacters(convertedText);
-            }
-
-            document.getElementById('shorthandText').value = convertedText;
-            autoResizeTextarea('standardText');
-            autoResizeTextarea('shorthandText');
         }
 
         function convertToJSON(input) {
