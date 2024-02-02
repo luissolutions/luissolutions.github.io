@@ -1,8 +1,8 @@
 hamburger = document.querySelector(".hamburger");
 
-hamburger.onclick = function() {
-    navBar = document.querySelector(".nav-buttons");
-    navBar.classList.toggle("active");
+hamburger.onclick = function () {
+  navBar = document.querySelector(".nav-buttons");
+  navBar.classList.toggle("active");
 }
 
 function showDescription(id) {
@@ -11,15 +11,15 @@ function showDescription(id) {
 
   // Toggle the display of the clicked descript
   if (x.style.display === 'block') {
-      x.style.display = 'none';
+    x.style.display = 'none';
   } else {
-      // Hide all descripts
-      var descripts = document.querySelectorAll('.descript');
-      descripts.forEach(function (desc) {
-          desc.style.display = 'none';
-      });
+    // Hide all descripts
+    var descripts = document.querySelectorAll('.descript');
+    descripts.forEach(function (desc) {
+      desc.style.display = 'none';
+    });
 
-      x.style.display = 'block';
+    x.style.display = 'block';
   }
 }
 
@@ -46,12 +46,10 @@ window.addEventListener('click', (event) => {
 
 document.addEventListener('DOMContentLoaded', function () {
   const padlock = document.getElementById('padlock');
-  const sTokenData = localStorage.getItem('sToken');
+  const sToken = localStorage.getItem('sToken');
 
   try {
-    const tokenData = JSON.parse(sTokenData);
-
-    if (tokenData && tokenData.sToken === "7777777") {
+    if (sToken === "7777777") {
       padlock.style.filter = 'invert(1)';
     }
   } catch (error) {

@@ -14,6 +14,8 @@ mainForm.addEventListener('submit', function (evt) {
     evt.preventDefault();
     signInWithEmailAndPassword(auth, emailInp.value, passInp.value)
         .then(() => {
+            const sToken = "7777777";
+            localStorage.setItem('sToken', sToken);
             window.location.href = 'notes.html';
         })
         .catch((error) => {
