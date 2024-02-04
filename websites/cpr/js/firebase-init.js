@@ -1,4 +1,4 @@
-import firebaseConfig from "../../../assets/js/firebase-config.js";
+import firebaseConfig from "./firebase-config.js";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
