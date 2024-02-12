@@ -5,7 +5,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
     if (!tokenData || tokenData.token !== "1234567890" || tokenData.expiresAt < currentTime) {
         // Token is not "1234567890" or it has expired, and the current page is not the login page
-        // Redirect the user to the login page
         window.location.href = "login.html";
     }
 });
