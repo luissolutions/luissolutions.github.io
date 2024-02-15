@@ -15,9 +15,9 @@ document.getElementById("login-form").addEventListener("submit", function (event
         });
 });
 
-document.getElementById('logoutButton').addEventListener('click', () => {
+document.getElementById('logoutButton').addEventListener('click', (event) => {
     event.preventDefault();
-
+    
     signOut(auth).then(() => {
         alert("You have been logged out");
         // window.location.href = 'login.html';

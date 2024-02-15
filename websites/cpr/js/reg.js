@@ -20,6 +20,7 @@ regForm.addEventListener('submit', function (evt) {
     createUserWithEmailAndPassword(auth, regEmail.value, regPass.value)
       .then((credentials) => {
         console.log('User created:', credentials.user);
+        alert('User Created');
       })
       .catch((error) => {
         console.error('Registration error:', error);
