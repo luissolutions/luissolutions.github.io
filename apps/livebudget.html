@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comprehensive Financial Tracker</title>
+    <style>
+        body,
+        table {
+            text-align: center;
+            margin: 0 auto;
+            max-width: 600px;
+        }
+
+        .year-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+            margin: 20px auto;
+        }
+
+        .day-block {
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 1px solid #ddd;
+            cursor: pointer;
+        }
+
+        .day-block.green {
+            background-color: #4CAF50;
+        }
+
+        .day-block.yellow {
+            background-color: #FFEB3B;
+        }
+
+        .day-block.red {
+            background-color: #F44336;
+        }
+
+        .day-block.blue {
+            background-color: #2196F3;
+        }
+
+        .buttons {
+            flex-direction: row;
+        }
+
+        li button {
+            margin: 5px;
+        }
+
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        .day-block.today {
+            background-color: lightgreen;
+            font-weight: bold;
+        }
+
+        .day-block.positive {
+            background-color: lightblue;
+        }
+
+        .day-block.negative {
+            background-color: lightcoral;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Financial Tracker</h1>
+    </header>
+
+    <main>
+        <section id="yearly-budget-calculator">
+            <table id="months-container">
+                <thead>
+                    <tr>
+                        <th>Month</th>
+                        <th>Income</th>
+                        <th>Expenses</th>
+                        <th>Balance</th>
+                        <th>Add Income</th>
+                        <th>Add Expense</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Months will be populated here by JavaScript -->
+                </tbody>
+            </table>
+            <h2>Yearly Budget Calculator:</h2>
+            <div class="totals">
+                <h3>Yearly Income: <span id="total-income">0</span></h3>
+                <h3>Yearly Expenses: <span id="total-expenses">0</span></h3>
+                <h3>Yearly Balance: <span id="yearly-balance">0</span></h3>
+            </div>
+            <h2>Daily Financial Tracker:</h2>
+
+            <div id="income-details"></div>
+            <div id="expense-details"></div>
+            <div id="total-details"></div>
+        </section>
+
+        <section id="daily-tracker">
+            <div id="year-grid" class="year-grid">
+                <!-- Daily grid will be populated here by JavaScript -->
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2024 Comprehensive Financial Tracker</p>
+    </footer>
+
+    <script type="module">
+        import { ref, onValue, set, database, get } from '../websites/game/assets/js/firebase-init.js';
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const yearlyDetailsRef = ref(database, 'budget/');
+            let yearlyDetails = {};
+            const months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+
+
+            function initApp() {
+                onValue(yearlyDetailsRef, (snapshot) => {
+                    yearlyDetails = snapshot.val() || {};
+                    populateMonths();
+                    generateYearGrid();
+                    calculateYearlyTotals();
+                }, {
+                    onlyOnce: true
+                });
+            }
+
+            function populateMonths() {
+                const monthsContainer = document.getElementById('months-container').getElementsByTagName('tbody')[0];
+                months.forEach(month => {
+                    let row = monthsContainer.insertRow();
+                    row.innerHTML = `
+                        <td>${month}</td>
+                        <td id="${month}-income">0</td>
+                        <td id="${month}-expenses">0</td>
+                        <td id="${month}-balance">0</td>
+                        <td><button class="add-income" data-month="${month}">Add Income</button></td>
+                        <td><button class="add-expense" data-month="${month}">Add Expense</button></td>
+                    `;
+                });
+                attachEventListeners();
+            }
+
+            function attachEventListeners() {
+                document.querySelectorAll('.add-income').forEach(button => {
+                    button.addEventListener('click', function () {
+                        const selectedMonth = this.getAttribute('data-month');
+                        addEntry('income', selectedMonth);
+                    });
+                });
+
+                document.querySelectorAll('.add-expense').forEach(button => {
+                    button.addEventListener('click', function () {
+                        const selectedMonth = this.getAttribute('data-month');
+                        addEntry('expenses', selectedMonth);
+                    });
+                });
+            }
+
+            function addEntry(type, selectedMonth) {
+                const amount = parseFloat(prompt(`Enter ${type} amount:`));
+                if (isNaN(amount)) return;
+
+                let inputDate = prompt(`Enter date for ${type} in format DD (default is today):`);
+                let day;
+                if (inputDate) {
+                    day = parseInt(inputDate, 10);
+                    if (isNaN(day) || day < 1 || day > 31) {
+                        alert("Invalid day.");
+                        return;
+                    }
+                } else {
+                    day = new Date().getDate();
+                }
+
+                const monthRefPath = `budget/${selectedMonth}`;
+                const today = new Date();
+                const year = today.getFullYear();
+                const monthIndex = months.indexOf(selectedMonth);
+                const dateKey = `${selectedMonth}-${day}`;
+
+                if (!yearlyDetails[dateKey]) {
+                    yearlyDetails[dateKey] = { income: 0, expenses: 0, details: [] };
+                }
+
+                yearlyDetails[dateKey][type] += amount;
+                yearlyDetails[dateKey].details.push({
+                    type: type.charAt(0).toUpperCase() + type.slice(1),
+                    amount,
+                    date: new Date(year, monthIndex, day).toISOString()
+                });
+
+                set(ref(database, 'budget/'), yearlyDetails).then(() => {
+                });
+
+                calculateYearlyTotals();
+                generateYearGrid();
+            }
+
+            function calculateYearlyTotals() {
+                let totalIncome = 0, totalExpenses = 0;
+                months.forEach(month => {
+                    const monthData = yearlyDetails[month] || { income: 0, expenses: 0 };
+                    document.getElementById(`${month}-income`).textContent = monthData.income.toFixed(2);
+                    document.getElementById(`${month}-expenses`).textContent = monthData.expenses.toFixed(2);
+                    document.getElementById(`${month}-balance`).textContent = (monthData.income - monthData.expenses).toFixed(2);
+                    totalIncome += monthData.income;
+                    totalExpenses += monthData.expenses;
+                });
+                document.getElementById('total-income').textContent = totalIncome.toFixed(2);
+                document.getElementById('total-expenses').textContent = totalExpenses.toFixed(2);
+                document.getElementById('yearly-balance').textContent = (totalIncome - totalExpenses).toFixed(2);
+            }
+
+            function generateYearGrid() {
+                const yearGrid = document.getElementById('year-grid');
+                yearGrid.innerHTML = '';
+
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const startOfYear = new Date(today.getFullYear(), 0, 1);
+                const endOfYear = new Date(today.getFullYear(), 11, 31);
+
+                for (let day = new Date(startOfYear); day <= endOfYear; day.setDate(day.getDate() + 1)) {
+                    const monthName = months[day.getMonth()];
+                    const dayOfMonth = day.getDate();
+                    const dateKey = `${monthName}-${dayOfMonth}`;
+                    const details = yearlyDetails[dateKey];
+
+                    if (day.getDate() === 1) {
+                        const monthLabel = document.createElement('div');
+                        monthLabel.textContent = monthName;
+                        monthLabel.style.gridColumn = "1 / -1";
+                        yearGrid.appendChild(monthLabel);
+                    }
+
+                    const dayBlock = document.createElement('div');
+                    dayBlock.className = 'day-block';
+                    dayBlock.textContent = dayOfMonth;
+                    dayBlock.setAttribute('data-date', dateKey);
+
+                    if (details) {
+                        const totalDifference = details.income - details.expenses;
+                        if (totalDifference > 0) {
+                            dayBlock.classList.add('positive');
+                        } else if (totalDifference < 0) {
+                            dayBlock.classList.add('negative');
+                        }
+                        dayBlock.classList.add('has-data');
+                    }
+
+                    if (day.toDateString() === today.toDateString()) {
+                        dayBlock.classList.add('today');
+                    }
+
+                    dayBlock.addEventListener('click', function () {
+                        displayDayDetails(this.getAttribute('data-date'));
+                    });
+
+                    yearGrid.appendChild(dayBlock);
+                }
+            }
+
+            function displayDayDetails(dateKey) {
+                const details = yearlyDetails[dateKey];
+                const incomeDetailsElement = document.getElementById('income-details');
+                const expenseDetailsElement = document.getElementById('expense-details');
+                const totalDetailsElement = document.getElementById('total-details');
+
+                incomeDetailsElement.innerHTML = `<h4>Income Details for ${dateKey}</h4>`;
+                expenseDetailsElement.innerHTML = `<h4>Expense Details for ${dateKey}</h4>`;
+                totalDetailsElement.innerHTML = `<h4>Total Details for ${dateKey}</h4>`;
+
+                let totalIncome = 0;
+                let totalExpenses = 0;
+
+                if (!details || details.details.length === 0) {
+                    incomeDetailsElement.innerHTML += "No income details available.";
+                    expenseDetailsElement.innerHTML += "No expense details available.";
+                    totalDetailsElement.innerHTML += "No details available.";
+                } else {
+                    details.details.forEach((detail) => {
+                        const entry = document.createElement('p');
+                        entry.textContent = `$${detail.amount} - Recorded on: ${new Date(detail.date).toLocaleDateString()}`;
+
+                        if (detail.type.toLowerCase().includes('income')) {
+                            totalIncome += detail.amount;
+                            incomeDetailsElement.appendChild(entry);
+                        } else if (detail.type.toLowerCase().includes('expense')) {
+                            totalExpenses += detail.amount;
+                            expenseDetailsElement.appendChild(entry);
+                        }
+                    });
+
+                    const totalDifference = totalIncome - totalExpenses;
+                    totalDetailsElement.innerHTML += `<p>$${totalDifference.toFixed(2)}</p>`;
+                }
+            }
+
+
+            initApp();
+        });
+
+    </script>
+</body>
+
+</html>
