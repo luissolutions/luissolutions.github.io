@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Comprehensive Financial Tracker</title>
+    <link rel="icon" href="../assets/img/financial_logo.png">
+    <title>Financial Tracker</title>
     <style>
         body,
         table {
@@ -70,15 +71,23 @@
         .day-block.negative {
             background-color: lightcoral;
         }
+
+        .day-block.yellow {
+            background-color: #FFEB3B;
+        }
     </style>
 </head>
 
 <body>
     <header>
         <h1>Financial Tracker</h1>
+        <button id="export-details">Save Budget Data</button>
+        <button id="clear-details">Clear Temp Data</button>
+        <input type="file" id="import-data-json" accept=".json">
     </header>
 
     <main>
+        <br>
         <section id="yearly-budget-calculator">
             <table id="months-container">
                 <thead>
@@ -95,6 +104,8 @@
                     <!-- Months will be populated here by JavaScript -->
                 </tbody>
             </table>
+        </section>
+        <section>
             <h2>Yearly Budget Calculator:</h2>
             <div class="totals">
                 <h3>Yearly Income: <span id="total-income">0</span></h3>
@@ -113,11 +124,10 @@
                 <!-- Daily grid will be populated here by JavaScript -->
             </div>
         </section>
-        <button id="export-details">Export Budget Details</button>
     </main>
 
     <footer>
-        <p>&copy; 2024 Comprehensive Financial Tracker</p>
+        <h2>&copy; Luis Apps</h2>
     </footer>
 
     <script>
@@ -133,16 +143,17 @@
 
             function populateMonths() {
                 const monthsContainer = document.getElementById('months-container').getElementsByTagName('tbody')[0];
+                monthsContainer.innerHTML = ''; // Clear existing rows
                 months.forEach(month => {
                     let row = monthsContainer.insertRow();
                     row.innerHTML = `
-                        <td>${month}</td>
-                        <td id="${month}-income">0</td>
-                        <td id="${month}-expenses">0</td>
-                        <td id="${month}-balance">0</td>
-                        <td><button class="add-income" data-month="${month}">Add Income</button></td>
-                        <td><button class="add-expense" data-month="${month}">Add Expense</button></td>
-                    `;
+                    <td>${month}</td>
+                    <td id="${month}-income">0</td>
+                    <td id="${month}-expenses">0</td>
+                    <td id="${month}-balance">0</td>
+                    <td><button class="add-income" data-month="${month}">Add Income</button></td>
+                    <td><button class="add-expense" data-month="${month}">Add Expense</button></td>
+                `;
                 });
                 attachEventListeners();
             }
@@ -225,6 +236,7 @@
                     const dayOfMonth = day.getDate();
                     const dateKey = `${monthName}-${dayOfMonth}`;
                     const details = yearlyDetails[dateKey];
+                    const monthTotal = yearlyDetails[monthName] ? yearlyDetails[monthName].income - yearlyDetails[monthName].expenses : 0;
 
                     if (day.getDate() === 1) {
                         const monthLabel = document.createElement('div');
@@ -240,7 +252,9 @@
 
                     if (details) {
                         const totalDifference = details.income - details.expenses;
-                        if (totalDifference > 0) {
+                        if (totalDifference < 0 && monthTotal > 0) {
+                            dayBlock.classList.add('yellow');
+                        } else if (totalDifference > 0) {
                             dayBlock.classList.add('positive');
                         } else if (totalDifference < 0) {
                             dayBlock.classList.add('negative');
@@ -268,7 +282,7 @@
 
                 incomeDetailsElement.innerHTML = `<h4>Income Details for ${dateKey}</h4>`;
                 expenseDetailsElement.innerHTML = `<h4>Expense Details for ${dateKey}</h4>`;
-                totalDetailsElement.innerHTML = `<h4>Total Details for ${dateKey}</h4>`;
+                totalDetailsElement.innerHTML = `<h4>Total Balance for ${dateKey}</h4>`;
 
                 let totalIncome = 0;
                 let totalExpenses = 0;
@@ -296,41 +310,55 @@
                 }
             }
 
-            document.getElementById('export-details').addEventListener('click', exportDetailsToCSV);
+            document.getElementById('export-details').addEventListener('click', exportDetailsToJSON);
 
-            function exportDetailsToCSV() {
-                let csvContent = "data:text/csv;charset=utf-8,";
-
-                csvContent += "Type," + months.join(",") + "\n";
-
-                let incomeRow = "Income,";
-                let expensesRow = "Expenses,";
-                let balanceRow = "Balance,";
-
-                months.forEach(month => {
-                    const income = yearlyDetails[month] ? yearlyDetails[month].income : 0;
-                    const expenses = yearlyDetails[month] ? yearlyDetails[month].expenses : 0;
-                    const balance = income - expenses;
-
-                    incomeRow += `${income},`;
-                    expensesRow += `${expenses},`;
-                    balanceRow += `${balance},`;
-                });
-
-                incomeRow = incomeRow.slice(0, -1);
-                expensesRow = expensesRow.slice(0, -1);
-                balanceRow = balanceRow.slice(0, -1);
-
-                csvContent += `${incomeRow}\n${expensesRow}\n${balanceRow}\n`;
-
-                var encodedUri = encodeURI(csvContent);
-                var link = document.createElement("a");
-                link.setAttribute("href", encodedUri);
-                link.setAttribute("download", "financial_tracker_details.csv");
-                document.body.appendChild(link);
-
-                link.click();
+            function exportDetailsToJSON() {
+                const yearlyDetails = JSON.parse(localStorage.getItem('yearlyDetails')) || {};
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(yearlyDetails));
+                var downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                downloadAnchorNode.setAttribute("download", "financial_tracker_details.json");
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
             }
+
+            document.getElementById('import-data-json').addEventListener('change', function (event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function (e) {
+                        const contents = e.target.result;
+                        loadJSONData(contents);
+                    };
+                    reader.readAsText(file);
+                }
+            });
+
+            function loadJSONData(jsonData) {
+                try {
+                    const parsedDetails = JSON.parse(jsonData);
+                    if (parsedDetails) {
+                        localStorage.setItem('yearlyDetails', jsonData);
+                        yearlyDetails = parsedDetails;
+                        initApp();
+                    } else {
+                        alert("The file does not contain valid JSON data.");
+                    }
+                } catch (e) {
+                    alert("Error parsing JSON data.");
+                    console.error(e);
+                }
+            }
+
+            document.getElementById('clear-details').addEventListener('click', function () {
+                // Confirm before clearing to avoid accidental data loss
+                if (confirm("Are you sure you want to clear all temporary data? This action cannot be undone.")) {
+                    localStorage.removeItem('yearlyDetails'); // Change 'yearlyDetails' if you use a different key for storing your app data
+                    alert("All temporary data has been cleared.");
+                    location.reload(); // Optional: reload the page to reflect changes in the UI
+                }
+            });
 
             initApp();
         });
