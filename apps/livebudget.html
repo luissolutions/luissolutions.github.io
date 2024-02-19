@@ -12,7 +12,6 @@
       text-align: center;
       margin: 0 auto;
       max-width: 600px;
-      background: whitesmoke
     }
 
     .year-grid {
@@ -28,8 +27,23 @@
       justify-content: center;
       align-items: center;
       border: 1px solid #ddd;
-      border-radius: 15px;
       cursor: pointer;
+    }
+
+    .day-block.green {
+      background-color: #4CAF50;
+    }
+
+    .day-block.yellow {
+      background-color: #FFEB3B;
+    }
+
+    .day-block.red {
+      background-color: #F44336;
+    }
+
+    .day-block.blue {
+      background-color: #2196F3;
     }
 
     .buttons {
@@ -55,7 +69,11 @@
     }
 
     .day-block.negative {
-      background-color: lightcyan;
+      background-color: lightcoral;
+    }
+
+    .day-block.yellow {
+      background-color: #FFEB3B;
     }
   </style>
 </head>
@@ -64,7 +82,8 @@
   <header>
     <h1>Financial Tracker</h1>
     <button id="export-details">Save Budget Data</button>
-    <button id="clear-details">Clear Data</button>
+    <button id="clear-details">Clear Temp Data</button>
+    <input type="file" id="import-data-json" accept=".json">
   </header>
 
   <main>
@@ -112,264 +131,306 @@
   </footer>
 
   <script type="module">
-    import { database, ref, onValue, push, query, set } from '../websites/game/assets/js/firebase-init.js';
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+    import { getDatabase, ref, onValue, set, get, off, remove, runTransaction, push, update, limitToLast, query } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
+    const firebaseConfig = {
+      databaseURL: "https://playground-e3690-default-rtdb.firebaseio.com/"
+    };
 
-    const yearlyDetailsRef = ref(database, 'budget');
-    const months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
-    let yearlyDetails = months.reduce((acc, month) => {
-      acc[month] = { income: 0, expenses: 0, details: [] };
-      return acc;
-    }, {});
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
 
-    document.addEventListener('DOMContentLoaded', () => {
-      initApp();
-    });
+    document.addEventListener('DOMContentLoaded', function () {
+      const months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+      let yearlyDetails = {};
 
-    function initApp() {
-      fetchDataOnce();
-      setupEventListeners();
-    }
-
-    function fetchDataOnce() {
-      onValue(yearlyDetailsRef, snapshot => {
-        const details = snapshot.val() || {};
-        const aggregatedData = aggregateMonthlyData(details);
-        Object.keys(yearlyDetails).forEach(month => {
-          yearlyDetails[month] = aggregatedData[month] || { income: 0, expenses: 0, details: [] };
+      function initApp() {
+        const yearlyDetailsRef = ref(database, 'budget');
+        onValue(yearlyDetailsRef, (snapshot) => {
+          const details = snapshot.val() || {};
+          yearlyDetails = aggregateMonthlyData(details); // Aggregate data
+          populateMonths(); // Now use aggregated data
+          generateYearGrid(); // This might also need adjustment based on detailed vs. aggregated data
+          calculateYearlyTotals(); // Adjust as necessary for aggregated data
+        }, {
+          onlyOnce: true
         });
-        populateMonths();
-        generateYearGrid();
-        calculateYearlyTotals();
-      }, {
-        onlyOnce: true
-      });
-    }
-
-    function populateMonths() {
-      const monthsContainer = document.getElementById('months-container').getElementsByTagName('tbody')[0];
-      monthsContainer.innerHTML = '';
-
-      months.forEach(month => {
-        let monthData = yearlyDetails[month] ? yearlyDetails[month] : { income: 0, expenses: 0 };
-        let balance = monthData.income - monthData.expenses;
-        let row = monthsContainer.insertRow();
-        row.innerHTML = `
-      <td>${month}</td>
-      <td>${monthData.income.toFixed(2)}</td>
-      <td>${monthData.expenses.toFixed(2)}</td>
-      <td>${balance.toFixed(2)}</td>
-      <td><button class="add-income" data-month="${month}">Add Income</button></td>
-      <td><button class="add-expense" data-month="${month}">Add Expense</button></td>
-    `;
-      });
-    }
-
-    function aggregateMonthlyData(details) {
-      return Object.keys(details).reduce((acc, dateKey) => {
-        const [month, day] = dateKey.split('-');
-        const entry = details[dateKey];
-
-        if (!acc[month]) {
-          acc[month] = { income: 0, expenses: 0, details: [] };
-        }
-
-        acc[month].income += entry.income;
-        acc[month].expenses += entry.expenses;
-        acc[month].details.push(...entry.details);
-        return acc;
-      }, {});
-    }
-
-    function setupEventListeners() {
-      document.getElementById('export-details').addEventListener('click', exportDetailsToJSON);
-      document.getElementById('clear-details').addEventListener('click', clearDetails);
-      // Dynamic event listeners for dynamically created elements
-      document.addEventListener('click', event => {
-        if (event.target.classList.contains('add-income')) {
-          addEntry('income', event.target.dataset.month);
-        } else if (event.target.classList.contains('add-expense')) {
-          addEntry('expenses', event.target.dataset.month);
-        }
-      });
-    }
-
-    function addEntry(type, selectedMonth) {
-      const amount = parseFloat(prompt(`Enter ${type} amount:`));
-      if (isNaN(amount)) return;
-
-      let inputDate = prompt(`Enter date for ${type} in format DD (default is today):`);
-      let day;
-      if (inputDate) {
-        day = parseInt(inputDate, 10);
-        if (isNaN(day) || day < 1 || day > 31) {
-          alert("Invalid day.");
-          return;
-        }
-      } else {
-        day = new Date().getDate();
       }
 
-      const today = new Date();
-      const year = today.getFullYear();
-      const monthIndex = months.indexOf(selectedMonth);
-      const dateKey = `${selectedMonth}-${day}`;
-      const entryRef = ref(database, `budget/${dateKey}`);
-
-      if (!yearlyDetails[dateKey]) yearlyDetails[dateKey] = { income: 0, expenses: 0, details: [] };
-      yearlyDetails[dateKey][type] += amount;
-      yearlyDetails[dateKey].details.push({ type: type.charAt(0).toUpperCase() + type.slice(1), amount, date: new Date(year, monthIndex, day).toISOString() });
-
-      if (!yearlyDetails[selectedMonth]) yearlyDetails[selectedMonth] = { income: 0, expenses: 0, details: [] };
-      yearlyDetails[selectedMonth][type] += amount;
-
-      get(entryRef).then((snapshot) => {
-        let entryData = snapshot.val() || { income: 0, expenses: 0, details: [] };
-        entryData[type] += amount;
-        entryData.details.push({
-          type: type.charAt(0).toUpperCase() + type.slice(1),
-          amount,
-          date: new Date(year, monthIndex, day).toISOString()
+      function populateMonths() {
+        const monthsContainer = document.getElementById('months-container').getElementsByTagName('tbody')[0];
+        monthsContainer.innerHTML = '';
+        months.forEach(month => {
+          let monthData = yearlyDetails[month] || { income: 0, expenses: 0 };
+          let balance = monthData.income - monthData.expenses;
+          let row = monthsContainer.insertRow();
+          row.innerHTML = `
+            <td>${month}</td>
+            <td>${monthData.income.toFixed(2)}</td>
+            <td>${monthData.expenses.toFixed(2)}</td>
+            <td>${balance.toFixed(2)}</td>
+            <td><button class="add-income" data-month="${month}">Add Income</button></td>
+            <td><button class="add-expense" data-month="${month}">Add Expense</button></td>
+        `;
         });
-
-        set(entryRef, entryData).then(() => {
-          console.log("Data saved successfully.");
-        }).catch((error) => {
-          console.error("Failed to save data: ", error);
-        });
-      });
-      populateMonths();
-      calculateYearlyTotals();
-      generateYearGrid();
-    }
-
-    function calculateYearlyTotals() {
-      let totalIncome = 0, totalExpenses = 0;
-      months.forEach(month => {
-        if (yearlyDetails[month]) {
-          totalIncome += yearlyDetails[month].income;
-          totalExpenses += yearlyDetails[month].expenses;
-        }
-      });
-      document.getElementById('total-income').textContent = totalIncome.toFixed(2);
-      document.getElementById('total-expenses').textContent = totalExpenses.toFixed(2);
-      document.getElementById('yearly-balance').textContent = (totalIncome - totalExpenses).toFixed(2);
-    }
-
-    function generateYearGrid() {
-      const yearGrid = document.getElementById('year-grid');
-      yearGrid.innerHTML = '';
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const startOfYear = new Date(today.getFullYear(), 0, 1);
-      const endOfYear = new Date(today.getFullYear(), 11, 31);
-
-      for (let day = new Date(startOfYear); day <= endOfYear; day.setDate(day.getDate() + 1)) {
-        const monthName = months[day.getMonth()];
-        const dayOfMonth = day.getDate();
-        const dateKey = `${monthName}-${dayOfMonth}`;
-        const details = yearlyDetails[dateKey] || { income: 0, expenses: 0 };
-
-        if (day.getDate() === 1) {
-          const monthLabel = document.createElement('div');
-          monthLabel.textContent = monthName;
-          monthLabel.style.gridColumn = "1 / -1";
-          yearGrid.appendChild(monthLabel);
-        }
-
-        const dayBlock = document.createElement('div');
-        dayBlock.className = 'day-block';
-        dayBlock.textContent = dayOfMonth;
-        dayBlock.setAttribute('data-date', dateKey);
-
-        const balance = details.income - details.expenses;
-        if (balance > 0) {
-          dayBlock.classList.add('positive');
-        } else if (balance < 0) {
-          dayBlock.classList.add('negative');
-        }
-
-        if (day.toDateString() === today.toDateString()) {
-          dayBlock.classList.add('today');
-        }
-
-        dayBlock.addEventListener('click', function () {
-          displayDayDetails(this.getAttribute('data-date'));
-        });
-
-        yearGrid.appendChild(dayBlock);
+        attachEventListeners();
       }
-    }
 
-    function displayDayDetails(dateKey) {
-      const detailsRef = ref(database, `budget/${dateKey}`);
+      function aggregateMonthlyData(details) {
+        const monthlyAggregates = {};
 
-      get(detailsRef).then((snapshot) => {
-        const details = snapshot.val();
-        const incomeDetailsElement = document.getElementById('income-details');
-        const expenseDetailsElement = document.getElementById('expense-details');
-        const totalDetailsElement = document.getElementById('total-details');
+        Object.keys(details).forEach(dateKey => {
+          const [month, day] = dateKey.split('-');
+          const entry = details[dateKey];
 
-        incomeDetailsElement.innerHTML = `<h4>Income Details for ${dateKey}</h4>`;
-        expenseDetailsElement.innerHTML = `<h4>Expense Details for ${dateKey}</h4>`;
-        totalDetailsElement.innerHTML = `<h4>Total Balance for ${dateKey}</h4>`;
+          if (!monthlyAggregates[month]) {
+            monthlyAggregates[month] = { income: 0, expenses: 0, details: [] };
+          }
 
-        let totalIncome = 0;
-        let totalExpenses = 0;
+          monthlyAggregates[month].income += entry.income;
+          monthlyAggregates[month].expenses += entry.expenses;
+          monthlyAggregates[month].details = monthlyAggregates[month].details.concat(entry.details);
+        });
 
-        if (!details || !details.details || details.details.length === 0) {
-          incomeDetailsElement.innerHTML += "No income details available.";
-          expenseDetailsElement.innerHTML += "No expense details available.";
-          totalDetailsElement.innerHTML += "No details available.";
+        return monthlyAggregates;
+      }
+
+      function attachEventListeners() {
+        document.querySelectorAll('.add-income').forEach(button => {
+          button.addEventListener('click', function () {
+            const selectedMonth = this.getAttribute('data-month');
+            addEntry('income', selectedMonth);
+          });
+        });
+
+        document.querySelectorAll('.add-expense').forEach(button => {
+          button.addEventListener('click', function () {
+            const selectedMonth = this.getAttribute('data-month');
+            addEntry('expenses', selectedMonth);
+          });
+        });
+      }
+
+      function addEntry(type, selectedMonth) {
+        const amount = parseFloat(prompt(`Enter ${type} amount:`));
+        if (isNaN(amount)) return;
+
+        let inputDate = prompt(`Enter date for ${type} in format DD (default is today):`);
+        let day;
+        if (inputDate) {
+          day = parseInt(inputDate, 10);
+          if (isNaN(day) || day < 1 || day > 31) {
+            alert("Invalid day.");
+            return;
+          }
         } else {
-          details.details.forEach((detail) => {
-            const entry = document.createElement('p');
-            entry.textContent = `$${detail.amount} - Recorded on: ${new Date(detail.date).toLocaleDateString()}`;
+          day = new Date().getDate();
+        }
 
-            if (detail.type.toLowerCase().includes('income')) {
-              totalIncome += detail.amount;
-              incomeDetailsElement.appendChild(entry);
-            } else if (detail.type.toLowerCase().includes('expense')) {
-              totalExpenses += detail.amount;
-              expenseDetailsElement.appendChild(entry);
-            }
+        const today = new Date();
+        const year = today.getFullYear();
+        const monthIndex = months.indexOf(selectedMonth);
+        const dateKey = `${selectedMonth}-${day}`;
+        const entryRef = ref(database, `budget/${dateKey}`);
+
+        if (!yearlyDetails[dateKey]) yearlyDetails[dateKey] = { income: 0, expenses: 0, details: [] };
+        yearlyDetails[dateKey][type] += amount;
+        yearlyDetails[dateKey].details.push({ type: type.charAt(0).toUpperCase() + type.slice(1), amount, date: new Date(year, monthIndex, day).toISOString() });
+
+        if (!yearlyDetails[selectedMonth]) yearlyDetails[selectedMonth] = { income: 0, expenses: 0, details: [] };
+        yearlyDetails[selectedMonth][type] += amount;
+
+        get(entryRef).then((snapshot) => {
+          let entryData = snapshot.val() || { income: 0, expenses: 0, details: [] };
+          entryData[type] += amount;
+          entryData.details.push({
+            type: type.charAt(0).toUpperCase() + type.slice(1),
+            amount,
+            date: new Date(year, monthIndex, day).toISOString()
           });
 
-          const totalDifference = totalIncome - totalExpenses;
-          totalDetailsElement.innerHTML += `<p>$${totalDifference.toFixed(2)}</p>`;
-        }
-      }).catch((error) => {
-        console.error("Error fetching day details: ", error);
-      });
-    }
-
-    function exportDetailsToJSON() {
-      const yearlyDetailsRef = ref(database, 'budget');
-      get(yearlyDetailsRef).then((snapshot) => {
-        if (snapshot.exists()) {
-          const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(snapshot.val()));
-          var downloadAnchorNode = document.createElement('a');
-          downloadAnchorNode.setAttribute("href", dataStr);
-          downloadAnchorNode.setAttribute("download", "financial_tracker_details.json");
-          document.body.appendChild(downloadAnchorNode);
-          downloadAnchorNode.click();
-          downloadAnchorNode.remove();
-        } else {
-          console.log("No data available");
-        }
-      }).catch((error) => {
-        console.error("Error exporting data: ", error);
-      });
-    }
-
-    function clearDetails() {
-      if (confirm("Are you sure you want to clear all temporary data? This action cannot be undone.")) {
-        set(yearlyDetailsRef, null)
-          .then(() => alert("All temporary data has been cleared."))
-          .catch(error => console.error("Failed to clear data: ", error));
+          set(entryRef, entryData).then(() => {
+            console.log("Data saved successfully.");
+          }).catch((error) => {
+            console.error("Failed to save data: ", error);
+          });
+        });
+        calculateYearlyTotals();
+        generateYearGrid();
       }
-    }
 
+      function calculateYearlyTotals() {
+        let totalIncome = 0, totalExpenses = 0;
+        Object.keys(yearlyDetails).forEach(month => {
+          const monthData = yearlyDetails[month];
+          if (monthData) {
+            totalIncome += monthData.income || 0;
+            totalExpenses += monthData.expenses || 0;
+          }
+        });
+        document.getElementById('total-income').textContent = totalIncome.toFixed(2);
+        document.getElementById('total-expenses').textContent = totalExpenses.toFixed(2);
+        document.getElementById('yearly-balance').textContent = (totalIncome - totalExpenses).toFixed(2);
+      }
+
+      function generateYearGrid() {
+        const yearGrid = document.getElementById('year-grid');
+        yearGrid.innerHTML = '';
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const startOfYear = new Date(today.getFullYear(), 0, 1);
+        const endOfYear = new Date(today.getFullYear(), 11, 31);
+
+        for (let day = new Date(startOfYear); day <= endOfYear; day.setDate(day.getDate() + 1)) {
+          const monthName = months[day.getMonth()];
+          const dayOfMonth = day.getDate();
+          const dateKey = `${monthName}-${dayOfMonth}`;
+          const details = yearlyDetails[dateKey];
+          const monthTotal = yearlyDetails[monthName] ? yearlyDetails[monthName].income - yearlyDetails[monthName].expenses : 0;
+
+          if (day.getDate() === 1) {
+            const monthLabel = document.createElement('div');
+            monthLabel.textContent = monthName;
+            monthLabel.style.gridColumn = "1 / -1";
+            yearGrid.appendChild(monthLabel);
+          }
+
+          const dayBlock = document.createElement('div');
+          dayBlock.className = 'day-block';
+          dayBlock.textContent = dayOfMonth;
+          dayBlock.setAttribute('data-date', dateKey);
+
+          if (details) {
+            const totalDifference = details.income - details.expenses;
+            if (totalDifference < 0 && monthTotal > 0) {
+              dayBlock.classList.add('yellow');
+            } else if (totalDifference > 0) {
+              dayBlock.classList.add('positive');
+            } else if (totalDifference < 0) {
+              dayBlock.classList.add('negative');
+            }
+            dayBlock.classList.add('has-data');
+          }
+
+          if (day.toDateString() === today.toDateString()) {
+            dayBlock.classList.add('today');
+          }
+
+          dayBlock.addEventListener('click', function () {
+            displayDayDetails(this.getAttribute('data-date'));
+          });
+
+          yearGrid.appendChild(dayBlock);
+        }
+      }
+
+      function displayDayDetails(dateKey) {
+        const detailsRef = ref(database, `budget/${dateKey}`);
+
+        get(detailsRef).then((snapshot) => {
+          const details = snapshot.val();
+          const incomeDetailsElement = document.getElementById('income-details');
+          const expenseDetailsElement = document.getElementById('expense-details');
+          const totalDetailsElement = document.getElementById('total-details');
+
+          incomeDetailsElement.innerHTML = `<h4>Income Details for ${dateKey}</h4>`;
+          expenseDetailsElement.innerHTML = `<h4>Expense Details for ${dateKey}</h4>`;
+          totalDetailsElement.innerHTML = `<h4>Total Balance for ${dateKey}</h4>`;
+
+          let totalIncome = 0;
+          let totalExpenses = 0;
+
+          if (!details || !details.details || details.details.length === 0) {
+            incomeDetailsElement.innerHTML += "No income details available.";
+            expenseDetailsElement.innerHTML += "No expense details available.";
+            totalDetailsElement.innerHTML += "No details available.";
+          } else {
+            details.details.forEach((detail) => {
+              const entry = document.createElement('p');
+              entry.textContent = `$${detail.amount} - Recorded on: ${new Date(detail.date).toLocaleDateString()}`;
+
+              if (detail.type.toLowerCase().includes('income')) {
+                totalIncome += detail.amount;
+                incomeDetailsElement.appendChild(entry);
+              } else if (detail.type.toLowerCase().includes('expense')) {
+                totalExpenses += detail.amount;
+                expenseDetailsElement.appendChild(entry);
+              }
+            });
+
+            const totalDifference = totalIncome - totalExpenses;
+            totalDetailsElement.innerHTML += `<p>$${totalDifference.toFixed(2)}</p>`;
+          }
+        }).catch((error) => {
+          console.error("Error fetching day details: ", error);
+        });
+      }
+
+      document.getElementById('export-details').addEventListener('click', exportDetailsToJSON);
+
+      function exportDetailsToJSON() {
+        const yearlyDetailsRef = ref(database, 'budget');
+        get(yearlyDetailsRef).then((snapshot) => {
+          if (snapshot.exists()) {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(snapshot.val()));
+            var downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "financial_tracker_details.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+          } else {
+            console.log("No data available");
+          }
+        }).catch((error) => {
+          console.error("Error exporting data: ", error);
+        });
+      }
+
+      document.getElementById('import-data-json').addEventListener('change', function (event) {
+        const file = event.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = function (e) {
+            const contents = e.target.result;
+            loadJSONData(contents);
+          };
+          reader.readAsText(file);
+        }
+      });
+
+      function loadJSONData(jsonData) {
+        try {
+          const parsedDetails = JSON.parse(jsonData);
+          if (parsedDetails) {
+            localStorage.setItem('yearlyDetails', jsonData);
+            yearlyDetails = parsedDetails;
+            initApp();
+          } else {
+            alert("The file does not contain valid JSON data.");
+          }
+        } catch (e) {
+          alert("Error parsing JSON data.");
+          console.error(e);
+        }
+      }
+
+      document.getElementById('clear-details').addEventListener('click', function () {
+        if (confirm("Are you sure you want to clear all temporary data? This action cannot be undone.")) {
+          const budgetRef = ref(database, 'budget');
+          set(budgetRef, null).then(() => {
+            alert("All temporary data has been cleared.");
+            location.reload(); // Optional: reload the page to reflect changes in the UI
+          }).catch((error) => {
+            console.error("Failed to clear data: ", error);
+          });
+        }
+      });
+
+      initApp();
+    });
   </script>
 </body>
 
