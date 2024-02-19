@@ -50,6 +50,9 @@
       font-weight: bold;
     }
 
+    .day-block.has-data {
+      background-color: lightblue;
+    }
   </style>
 </head>
 
@@ -101,18 +104,11 @@
   </main>
 
   <footer>
-    <h2>&copy; Luis Apps</h2>
+    <h2>&copy; <a href="http://luissolutions.github.io" target="_blank" rel="noopener noreferrer">Luis Apps</a></h2>
   </footer>
 
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
-    import { getDatabase, ref, onValue, set, get, off, remove, runTransaction, push, update, limitToLast, query } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
-    const firebaseConfig = {
-      databaseURL: "https://playground-e3690-default-rtdb.firebaseio.com/"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const database = getDatabase(app);
+    import { database, ref, onValue, set, get, off, remove, runTransaction, push, update, query } from '../websites/game/assets/js/firebase-init.js';
 
     const yearlyDetailsRef = ref(database, 'budget');
     const months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
@@ -133,7 +129,6 @@
     function fetchDataOnce() {
       onValue(yearlyDetailsRef, snapshot => {
         const details = snapshot.val() || {};
-        // Ensure all months are accounted for, even if not present in the fetched data
         const aggregatedData = aggregateMonthlyData(details);
         Object.keys(yearlyDetails).forEach(month => {
           yearlyDetails[month] = aggregatedData[month] || { income: 0, expenses: 0, details: [] };
@@ -179,19 +174,6 @@
         acc[month].details.push(...entry.details);
         return acc;
       }, {});
-    }
-
-    function setupEventListeners() {
-      document.getElementById('export-details').addEventListener('click', exportDetailsToJSON);
-      document.getElementById('clear-details').addEventListener('click', clearDetails);
-      // Dynamic event listeners for dynamically created elements
-      document.addEventListener('click', event => {
-        if (event.target.classList.contains('add-income')) {
-          addEntry('income', event.target.dataset.month);
-        } else if (event.target.classList.contains('add-expense')) {
-          addEntry('expenses', event.target.dataset.month);
-        }
-      });
     }
 
     function addEntry(type, selectedMonth) {
@@ -269,8 +251,7 @@
         const monthName = months[day.getMonth()];
         const dayOfMonth = day.getDate();
         const dateKey = `${monthName}-${dayOfMonth}`;
-        const details = yearlyDetails[dateKey] || { income: 0, expenses: 0 };
-
+        const details = yearlyDetails[monthName] ? yearlyDetails[monthName].details.find(detail => detail.date === day.toISOString().split('T')[0]) : null;
 
         if (day.getDate() === 1) {
           const monthLabel = document.createElement('div');
@@ -283,6 +264,14 @@
         dayBlock.className = 'day-block';
         dayBlock.textContent = dayOfMonth;
         dayBlock.setAttribute('data-date', dateKey);
+        dayBlock.className = 'day-block';
+        dayBlock.textContent = dayOfMonth;
+        dayBlock.setAttribute('data-date', dateKey);
+
+        const hasData = yearlyDetails[monthName].details.some(detail => new Date(detail.date).toDateString() === day.toDateString());
+        if (hasData) {
+          dayBlock.classList.add('has-data');
+        }
 
         if (day.toDateString() === today.toDateString()) {
           dayBlock.classList.add('today');
@@ -363,6 +352,18 @@
           .then(() => alert("All temporary data has been cleared."))
           .catch(error => console.error("Failed to clear data: ", error));
       }
+    }
+
+    function setupEventListeners() {
+      document.getElementById('export-details').addEventListener('click', exportDetailsToJSON);
+      document.getElementById('clear-details').addEventListener('click', clearDetails);
+      document.addEventListener('click', event => {
+        if (event.target.classList.contains('add-income')) {
+          addEntry('income', event.target.dataset.month);
+        } else if (event.target.classList.contains('add-expense')) {
+          addEntry('expenses', event.target.dataset.month);
+        }
+      });
     }
 
   </script>
