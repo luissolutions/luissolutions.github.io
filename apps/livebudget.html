@@ -61,6 +61,7 @@
     <h1>Financial Tracker</h1>
     <button id="export-details">Save Budget Data</button>
     <button id="clear-details">Clear Data</button>
+    <input type="file" id="load-data" accept=".json" style="margin-top: 20px;">
   </header>
 
   <main>
@@ -344,6 +345,22 @@
       });
     }
 
+    async function loadJSONData(event) {
+      const file = event.target.files[0];
+      if (file && file.type === "application/json") {
+        try {
+          const text = await file.text();
+          const data = JSON.parse(text);
+          updateApplicationState(data);
+        } catch (error) {
+          console.error("Error reading or parsing file", error);
+          alert("Failed to load data. Please ensure the file is a valid JSON format.");
+        }
+      } else {
+        alert("Please select a JSON file.");
+      }
+    }
+
     function clearDetails() {
       if (confirm("Are you sure you want to clear all temporary data? This action cannot be undone.")) {
         set(yearlyDetailsRef, null)
@@ -352,9 +369,24 @@
       }
     }
 
+    function updateApplicationState(data) {
+      Object.keys(data).forEach(month => {
+        const dateKey = `budget/${month}`;
+        const entryRef = ref(database, dateKey);
+        set(entryRef, data[month]).then(() => {
+          console.log(`Data for ${month} updated successfully.`);
+        }).catch((error) => {
+          console.error("Failed to update data: ", error);
+        });
+      });
+
+      fetchDataOnce();
+    }
+
     function setupEventListeners() {
       document.getElementById('export-details').addEventListener('click', exportDetailsToJSON);
       document.getElementById('clear-details').addEventListener('click', clearDetails);
+      document.getElementById('load-data').addEventListener('change', loadJSONData);
       document.addEventListener('click', event => {
         if (event.target.classList.contains('add-income')) {
           addEntry('income', event.target.dataset.month);
