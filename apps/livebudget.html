@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" href="../assets/img/financial_logo.png">
   <title>Financial Tracker</title>
+  <link rel="stylesheet" href="../assets/css/classic-styles.css" id="stylesheet">
   <style>
     body,
     table {
@@ -53,18 +54,47 @@
     .day-block.has-data {
       background-color: lightblue;
     }
+
+    .modal {
+      background-color: #fefefe;
+      margin: 15% auto;
+      padding: 20px;
+      border: 1px solid #888;
+      width: 80%;
+      max-width: 600px;
+    }
+
+    #detailsModal {
+      display: none;
+      position: fixed;
+      z-index: 1;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background-color: rgb(0, 0, 0, 0.4);
+    }
+
+    #closeModal {
+      color: #aaa;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+    }
   </style>
 </head>
 
 <body>
   <header>
     <h1>Financial Tracker</h1>
-    <button id="export-details">Save Budget Data</button>
-    <button id="clear-details">Clear Data</button>
-    <input type="file" id="load-data" accept=".json" style="margin-top: 20px;">
   </header>
 
   <main>
+    <button id="export-details">Save Budget Data</button>
+    <button id="clear-details">Clear Data</button>
+    <input type="file" id="load-data" accept=".json" style="margin-top: 20px;">
     <br>
     <section id="yearly-budget-calculator">
       <table id="months-container">
@@ -92,9 +122,14 @@
       </div>
       <h2>Daily Financial Tracker:</h2>
 
-      <div id="income-details"></div>
-      <div id="expense-details"></div>
-      <div id="total-details"></div>
+      <div id="detailsModal">
+        <div class="modal">
+          <span id="closeModal">&times;</span>
+          <h2>Details</h2>
+          <div id="modalContent"></div>
+        </div>
+      </div>
+
     </section>
 
     <section id="daily-tracker">
@@ -105,6 +140,10 @@
   </main>
 
   <footer>
+    <div class="theme-selector">
+      <input type="text" id="stylesheet-input" placeholder="Enter stylesheet name">
+      <button id="loadStylesheet">Load Stylesheet</button>
+    </div>
     <h2>&copy; <a href="http://luissolutions.github.io" target="_blank" rel="noopener noreferrer">Luis Apps</a></h2>
   </footer>
 
@@ -289,41 +328,35 @@
 
       get(detailsRef).then((snapshot) => {
         const details = snapshot.val();
-        const incomeDetailsElement = document.getElementById('income-details');
-        const expenseDetailsElement = document.getElementById('expense-details');
-        const totalDetailsElement = document.getElementById('total-details');
-
-        incomeDetailsElement.innerHTML = `<h4>Income Details for ${dateKey}</h4>`;
-        expenseDetailsElement.innerHTML = `<h4>Expense Details for ${dateKey}</h4>`;
-        totalDetailsElement.innerHTML = `<h4>Total Balance for ${dateKey}</h4>`;
-
-        let totalIncome = 0;
-        let totalExpenses = 0;
+        const modalContentElement = document.getElementById('modalContent');
+        modalContentElement.innerHTML = '';
 
         if (!details || !details.details || details.details.length === 0) {
-          incomeDetailsElement.innerHTML += "No income details available.";
-          expenseDetailsElement.innerHTML += "No expense details available.";
-          totalDetailsElement.innerHTML += "No details available.";
+          modalContentElement.innerHTML = "<p>No details available for this date.</p>";
         } else {
           details.details.forEach((detail) => {
             const entry = document.createElement('p');
-            entry.textContent = `$${detail.amount} - Recorded on: ${new Date(detail.date).toLocaleDateString()}`;
-
-            if (detail.type.toLowerCase().includes('income')) {
-              totalIncome += detail.amount;
-              incomeDetailsElement.appendChild(entry);
-            } else if (detail.type.toLowerCase().includes('expense')) {
-              totalExpenses += detail.amount;
-              expenseDetailsElement.appendChild(entry);
-            }
+            const detailDate = new Date(detail.date);
+            const formattedDate = detailDate.toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' });
+            entry.textContent = `${detail.type}: $${detail.amount} - Recorded on: ${formattedDate}`;
+            modalContentElement.appendChild(entry);
           });
-
-          const totalDifference = totalIncome - totalExpenses;
-          totalDetailsElement.innerHTML += `<p>$${totalDifference.toFixed(2)}</p>`;
         }
+
+        document.getElementById('detailsModal').style.display = 'block';
       }).catch((error) => {
         console.error("Error fetching day details: ", error);
       });
+    }
+
+    document.getElementById('closeModal').onclick = function () {
+      document.getElementById('detailsModal').style.display = "none";
+    }
+
+    window.onclick = function (event) {
+      if (event.target == document.getElementById('detailsModal')) {
+        document.getElementById('detailsModal').style.display = "none";
+      }
     }
 
     function exportDetailsToJSON() {
@@ -395,7 +428,18 @@
         }
       });
     }
+  </script>
 
+  <script>
+    document.getElementById('loadStylesheet').addEventListener('click', function () {
+      var stylesheetName = document.getElementById('stylesheet-input').value;
+      if (stylesheetName) {
+        var fullPath = "../assets/css/" + stylesheetName + ".css";
+        document.getElementById('stylesheet').href = fullPath;
+      } else {
+        alert("Please enter a stylesheet name.");
+      }
+    });
   </script>
 </body>
 
