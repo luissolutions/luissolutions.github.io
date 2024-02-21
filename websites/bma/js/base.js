@@ -17,6 +17,7 @@ var appNamesMap = {
   "Quote/Invoice Maker": "liveinvoice",
   "Fuel Logging": "livegas",
   "Mileage Logging": "livemileage",
+  "Financial Logging": "livebudget",
   "Notes App": "livenotes",
   "View/Edit Inventory": "liveinventory",
   "View/Edit Database": "livedatabase",
