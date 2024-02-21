@@ -23,7 +23,7 @@ function toggleDropdown() {
     "liveinventory",
     "livechess",
     "gallery",
-    "livebudget",
+    "budget",
     "invoice",
     "info",
     "viewer",
