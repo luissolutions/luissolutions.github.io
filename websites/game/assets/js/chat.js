@@ -5,13 +5,6 @@ document.getElementById('toggleChat').addEventListener('click', function () {
     this.textContent = chatModal.classList.contains('hidden') ? 'Open Chat' : 'Close Chat';
 });
 
-document.getElementById('chatInput').addEventListener('keypress', function (e) {
-    if (e.key === 'Enter') {
-        sendChat();
-        e.preventDefault();
-    }
-});
-
 document.addEventListener('click', function (e) {
     const chatModal = document.getElementById('chatModal');
     const toggleChatBtn = document.getElementById('toggleChat');
