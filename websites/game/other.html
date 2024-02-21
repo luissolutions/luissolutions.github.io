@@ -8,6 +8,86 @@
     <title>Pokémon Card Trading Hub</title>
     <link rel="stylesheet" href="assets/css/styles.css">
     <script src="assets/js/chat.js" defer></script>
+    <style>
+        form {
+            justify-content: center;
+            display: grid;
+            flex-direction: column;
+        }
+
+        table {
+            margin: auto;
+            border-collapse: collapse;
+            border: 1px solid black;
+            overflow-x: auto;
+        }
+
+        table td,
+        th {
+            border: 1px solid darkgray;
+        }
+
+        input {
+            text-align: center;
+        }
+
+        input,
+        button {
+            padding: 12px 20px;
+            border: 1px black solid;
+            margin-top: 6px;
+            margin-bottom: 6px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+        }
+
+        .modal-content {
+            margin: 15% auto;
+            padding: 20px;
+            width: 80%;
+            max-width: 600px;
+        }
+
+        .modal-content img {
+            width: 100%;
+            max-width: 100%;
+            height: auto;
+        }
+
+        .item-container input {
+            height: 30px;
+            width: 30px;
+        }
+
+        .radios {
+            display: block;
+        }
+
+        .radios input {
+            margin-left: 15px;
+        }
+
+        .item-options {
+            display: flex;
+            flex-direction: column;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        #unfinished {
+            display: none;
+        }
+    </style>
 </head>
 
 <body>
@@ -30,9 +110,83 @@
         </section>
 
         <section id="main-content">
-            <iframe id="contentIframe"
-                src="https://gooddesignsandgraphics.com/other/apps/liveinventory.html">test</iframe>
+
+
+
+
+            <div class="container">
+                <h1>Inventory</h1>
+
+                <div>
+                    <label for="category">Select Category:</label>
+                </div>
+                <div class="radios" id="categoryRadios"></div>
+                <br>
+                <div class="image-container">
+                    <label for="selectionImage">Selection Image:</label>
+                    <br>
+                    <img id="selectionImage" src="./assets/img/database/default.png" alt="Selected Selection Image"
+                        width="280" />
+                </div>
+                <br>
+                <label for="selectionSelect">Select Type:</label>
+                <select id="selectionSelect"></select>
+                <br>
+                <div id="itemOptions" class="item-options"></div>
+
+                <h3 id="unfinished">Total Amount: <span id="totalAmount">0</span></h3>
+            </div>
         </section>
+        <br>
+        <form id="dataModifyForm">
+            <label for="categoryInput">Category:</label>
+            <input type="text" id="categoryInput" required>
+
+            <label for="selectionInput">Type:</label>
+            <input type="text" id="selectionInput" required>
+
+            <label for="itemInput">Item:</label>
+            <input type="text" id="itemInput">
+
+            <label for="amountInput">Quantity:</label>
+            <input type="number" id="amountInput">
+
+            <label for="actualPriceInput">Paid:</label>
+            <input type="number" step=".01" id="actualPriceInput">
+
+            <label for="priceInput">Sell:</label>
+            <input type="number" step=".01" id="priceInput">
+
+            <button type="button" id="clearButton">Clear</button>
+            <br>
+            <button type="submit">Submit</button>
+            <button type="button" id="deleteButton">Delete</button>
+            <button type="button" id="undoButton">Undo</button>
+        </form>
+    </main>
+
+    <div id="imageModal" class="modal">
+        <div class="modal-content">
+            <img id="modalImage" src="" alt="Enlarged Image">
+        </div>
+    </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    </section>
     </main>
 
     <div id="chatModal" class="hidden">
@@ -71,6 +225,405 @@
             &copy; 2024 Louman 64. All rights reserved.
         </div>
     </footer>
+    <script type="module">
+        import { database, ref, onValue, set, remove, get } from './assets/js/firebase-init.js';
+
+        const selectionSelect = document.getElementById('selectionSelect');
+        const itemOptions = document.getElementById('itemOptions');
+        const totalAmountElement = document.getElementById('totalAmount');
+        const defaultImageSrc = './assets/img/default.png';
+
+        function loadCategories() {
+            const categoriesRef = ref(database, 'inventory');
+            onValue(categoriesRef, (snapshot) => {
+                const categories = snapshot.val();
+                const categoryRadios = document.getElementById('categoryRadios');
+                categoryRadios.innerHTML = '';
+
+                for (let category in categories) {
+                    const radioInput = document.createElement('input');
+                    radioInput.type = 'radio';
+                    radioInput.id = category;
+                    radioInput.name = 'category';
+                    radioInput.value = category;
+
+                    const label = document.createElement('label');
+                    label.htmlFor = category;
+                    label.textContent = category;
+
+                    categoryRadios.appendChild(radioInput);
+                    categoryRadios.appendChild(label);
+
+                    radioInput.addEventListener('change', function () {
+                        loadData();
+                        localStorage.setItem('selectedCategory', category);
+                    });
+
+                    const storedCategory = localStorage.getItem('selectedCategory');
+                    if (storedCategory && storedCategory === category) {
+                        radioInput.checked = true;
+                    }
+                }
+                loadData();
+            });
+        }
+
+        function loadData() {
+            const selectedCategoryRadios = document.querySelector('input[name="category"]:checked');
+            if (!selectedCategoryRadios) return;
+
+            const selectedCategory = selectedCategoryRadios.value;
+            const categoryRef = ref(database, `inventory/${selectedCategory}`);
+
+            onValue(categoryRef, (snapshot) => {
+                const categoryData = snapshot.val();
+
+                selectionSelect.innerHTML = '';
+                itemOptions.innerHTML = '';
+                totalAmountElement.textContent = '0';
+
+                if (categoryData) {
+                    const selections = Object.keys(categoryData).sort();
+
+                    selections.forEach((selection) => {
+                        const option = document.createElement('option');
+                        option.value = selection;
+                        option.textContent = selection;
+                        selectionSelect.appendChild(option);
+                    });
+
+                    const storedSelection = localStorage.getItem('selectedSelection');
+                    if (storedSelection && selections.includes(storedSelection)) {
+                        selectionSelect.value = storedSelection;
+                    }
+
+                    selectionSelect.dispatchEvent(new Event('change'));
+                }
+            });
+        }
+
+        selectionSelect.addEventListener('change', () => {
+            const selectedCategoryRadios = document.querySelector('input[name="category"]:checked');
+            if (!selectedCategoryRadios) return;
+            const clearButton = document.getElementById('clearButton');
+
+            const selectedCategory = selectedCategoryRadios.value;
+            const selectedSelection = selectionSelect.value;
+            localStorage.setItem('selectedSelection', selectedSelection);
+            const selectionImage = document.getElementById('selectionImage');
+            selectionImage.src = `./assets/img/database/${selectedSelection}.png`;
+            selectionImage.onerror = () => {
+                selectionImage.src = defaultImageSrc;
+            };
+
+            const itemRef = ref(database, `inventory/${selectedCategory}/${selectedSelection}`);
+
+            onValue(itemRef, (snapshot) => {
+                const itemData = snapshot.val();
+
+                if (itemData) {
+                    itemOptions.innerHTML = '';
+                    const items = Object.keys(itemData).sort();
+
+                    items.forEach((itemName) => {
+                        const itemDetails = itemData[itemName];
+                        const itemQuantity = itemDetails.quantity;
+                        const itemPrice = itemDetails.price;
+                        const itemActualPrice = itemDetails.actualPrice;
+
+                        const itemLabel = document.createElement('label');
+                        itemLabel.classList.add('item-container');
+
+                        const itemCheckbox = document.createElement('input');
+                        itemCheckbox.type = 'checkbox';
+                        itemCheckbox.dataset.amount = itemQuantity;
+                        itemCheckbox.dataset.price = itemPrice;
+                        itemCheckbox.dataset.actualPrice = itemActualPrice;
+
+                        const itemText = document.createTextNode(`${itemName} - Quantity: ${itemQuantity}, Price: $${itemPrice}, Paid: $${itemActualPrice}`);
+
+                        const itemImg = document.createElement('img');
+                        itemImg.src = `./assets/img/database/${itemName}.png`;
+                        itemImg.alt = itemName;
+                        itemImg.width = 50;
+                        itemImg.onerror = () => {
+                            itemImg.src = defaultImageSrc;
+                        };
+                        itemImg.classList.add('item-image');
+
+                        itemLabel.appendChild(itemCheckbox);
+                        itemLabel.appendChild(itemImg);
+                        itemLabel.appendChild(itemText);
+
+                        itemOptions.appendChild(itemLabel);
+
+                        itemLabel.addEventListener('click', (event) => {
+                            if (event.target.classList.contains('item-image')) {
+                                showImageModal(event.target.src);
+                                event.stopPropagation();
+                            }
+                        });
+
+                        itemCheckbox.addEventListener('change', updateTotalAmount);
+                    });
+                }
+            });
+        });
+
+        function updateTotalAmount() {
+            const checkboxes = document.querySelectorAll('#itemOptions input[type="checkbox"]:checked');
+            let total = 0;
+            let actualTotal = 0;
+
+            checkboxes.forEach(checkbox => {
+                const itemContainer = checkbox.closest('.item-container');
+                if (checkbox.checked) {
+                    total += parseFloat(itemContainer.dataset.price || 0);
+                    actualTotal += parseFloat(itemContainer.dataset.actualPrice || 0);
+                }
+            });
+
+            totalAmountElement.textContent = `Total: ${total.toFixed(2)}, Actual Total: ${actualTotal.toFixed(2)}`;
+        }
+
+        loadCategories();
+
+        document.getElementById('dataModifyForm').addEventListener('submit', function (event) {
+            event.preventDefault();
+
+            function sanitizeInput(input) {
+                return input.replace(/\//g, '_');
+            }
+
+            const category = sanitizeInput(document.getElementById('categoryInput').value);
+            const selection = sanitizeInput(document.getElementById('selectionInput').value);
+            const item = sanitizeInput(document.getElementById('itemInput').value);
+            const quantity = document.getElementById('amountInput').value;
+            const price = document.getElementById('priceInput').value;
+            const actualPrice = document.getElementById('actualPriceInput').value;
+
+            const path = `inventory/${category}/${selection}/${item}`;
+
+            const itemRef = ref(database, path);
+            get(itemRef).then((snapshot) => {
+                if (snapshot.exists()) {
+                    const existingData = snapshot.val();
+
+                    const updatedData = {
+                        ...existingData,
+                        quantity,
+                        price,
+                        actualPrice
+                    };
+
+                    set(ref(database, path), updatedData)
+                        .then(() => {
+                            alert('Data updated successfully!');
+                        }).catch((error) => {
+                            console.error('Error updating data: ', error);
+                            alert('Failed to update data!');
+                        });
+                } else {
+                    const newData = {
+                        quantity,
+                        price,
+                        actualPrice
+                    };
+
+                    set(ref(database, path), newData)
+                        .then(() => {
+                            alert('New entry created successfully!');
+                        })
+                        .catch((error) => {
+                            console.error('Error creating new entry: ', error);
+                            alert('Failed to create new entry!');
+                        });
+                }
+            }).catch((error) => {
+                console.error('Error fetching existing data: ', error);
+            });
+        });
+
+        function sanitizeInput(input) {
+            return input.replace(/\//g, '_');
+        }
+
+        function storeDeletedData(category, selection, itemName, itemAmount) {
+            const deletedData = {
+                category,
+                selection,
+                itemName,
+                itemAmount,
+            };
+            localStorage.setItem('deletedData', JSON.stringify(deletedData));
+        }
+
+        function restoreDeletedData() {
+            const deletedData = localStorage.getItem('deletedData');
+            if (deletedData) {
+                const { category, selection, itemName, itemAmount } = JSON.parse(deletedData);
+
+                const path = `inventory/${category}/${selection}/${itemName}`;
+                set(ref(database, path), itemAmount)
+                    .then(() => {
+                        alert(`Data for item '${itemName}' restored successfully!`);
+                        localStorage.removeItem('deletedData');
+                    })
+                    .catch((error) => {
+                        console.error(`Error restoring data for item '${itemName}':`, error);
+                        alert(`Failed to restore data for item '${itemName}'!`);
+                    });
+            } else {
+                alert('No deleted data to restore.');
+            }
+        }
+
+        document.getElementById('deleteButton').addEventListener('click', function () {
+            const category = document.getElementById('categoryInput').value;
+            const selection = document.getElementById('selectionInput').value;
+            const itemInput = document.getElementById('itemInput').value;
+
+            if (category && selection) {
+                let path = `inventory/${category}/${selection}`;
+
+                const checkedItems = Array.from(document.querySelectorAll('#itemOptions input[type="checkbox"]:checked'));
+
+                if (checkedItems.length > 0) {
+                    checkedItems.forEach((checkbox) => {
+                        const itemName = checkbox.parentElement.querySelector('.item-image').alt;
+                        const itemAmount = checkbox.dataset.amount;
+
+                        storeDeletedData(category, selection, itemName, itemAmount);
+
+                        path = `inventory/${category}/${selection}/${itemName}`;
+                        remove(ref(database, path))
+                            .then(() => {
+                                alert('Data deleted successfully!');
+                            })
+                            .catch((error) => {
+                                console.error("Error deleting data: ", error);
+                                alert('Failed to delete data!');
+                            });
+                    });
+                } else if (itemInput) {
+                    const itemsToDelete = itemInput.split(',').map(item => item.trim());
+                    itemsToDelete.forEach(itemName => {
+                        const itemAmount = 'unknown';
+                        storeDeletedData(category, selection, itemName, itemAmount);
+
+                        path = `inventory/${category}/${selection}/${itemName}`;
+                        remove(ref(database, path))
+                            .then(() => {
+                                alert(`Data for item '${itemName}' deleted successfully!`);
+                            })
+                            .catch((error) => {
+                                console.error(`Error deleting data for item '${itemName}':`, error);
+                                alert(`Failed to delete data for item '${itemName}'!`);
+                            });
+                    });
+                } else {
+                    alert('Please select items to delete or specify items in the "Item" field.');
+                }
+            } else {
+                alert('Category and Selection are required to delete!');
+            }
+        });
+
+        document.getElementById('undoButton').addEventListener('click', function () {
+            restoreDeletedData();
+        });
+
+        itemOptions.addEventListener('change', (event) => {
+            if (event.target.type === 'checkbox') {
+                const selectedCategoryRadios = document.querySelector('input[name="category"]:checked');
+                if (!selectedCategoryRadios) return;
+
+                const selectedCategory = selectedCategoryRadios.value;
+                const selectedSelection = selectionSelect.value;
+                const checkboxes = document.querySelectorAll('#itemOptions input[type="checkbox"]:checked');
+
+                const categoryInput = document.getElementById('categoryInput');
+                const selectionInput = document.getElementById('selectionInput');
+                const itemInput = document.getElementById('itemInput');
+                const amountInput = document.getElementById('amountInput');
+                const priceInput = document.getElementById('priceInput');
+                const actualPriceInput = document.getElementById('actualPriceInput');
+
+                let totalAmount = 0;
+                let totalPrice = 0;
+                let totalActualPrice = 0;
+                let selectedItems = [];
+
+                checkboxes.forEach((checkbox) => {
+                    const itemContainer = checkbox.closest('.item-container');
+                    const itemName = itemContainer.querySelector('.item-image').alt;
+                    const itemAmount = parseInt(checkbox.dataset.amount || 0);
+                    const itemPrice = parseFloat(checkbox.dataset.price || 0);
+                    const itemActualPrice = parseFloat(checkbox.dataset.actualPrice || 0);
+
+                    totalAmount += itemAmount;
+                    totalPrice += itemPrice;
+                    totalActualPrice += itemActualPrice;
+
+                    selectedItems.push(itemName);
+                });
+
+                categoryInput.value = selectedCategory;
+                selectionInput.value = selectedSelection;
+                itemInput.value = selectedItems.join(', ');
+                amountInput.value = totalAmount;
+                priceInput.value = totalPrice.toFixed(2);
+                actualPriceInput.value = totalActualPrice.toFixed(2);
+            }
+        });
+
+        clearButton.addEventListener('click', function () {
+            const dataModifyForm = document.getElementById('dataModifyForm');
+            dataModifyForm.reset();
+        });
+
+        const storedCategory = localStorage.getItem('selectedCategory');
+        if (storedCategory) {
+            const categoryRadios = document.getElementById(storedCategory);
+            if (categoryRadios) categoryRadios.checked = true;
+        }
+
+        const storedSelection = localStorage.getItem('selectedSelection');
+        if (storedSelection) {
+            selectionSelect.value = storedSelection;
+        }
+
+        if (storedCategory) {
+            categoryRadios.checked = true;
+            loadData();
+        }
+
+        if (storedSelection) {
+            selectionSelect.value = storedSelection;
+            selectionSelect.dispatchEvent(new Event('change'));
+        }
+
+    </script>
+
+    <script>
+        function showImageModal(imageSrc) {
+            const modal = document.getElementById('imageModal');
+            const modalImage = document.getElementById('modalImage');
+
+            modalImage.src = imageSrc;
+            modal.style.display = "block";
+        }
+        const modal = document.getElementById('imageModal');
+        modal.addEventListener('click', function (event) {
+            modal.style.display = 'none';
+        });
+        const itemImages = document.querySelectorAll('.image-container img, #itemOptions img');
+        itemImages.forEach(img => {
+            img.addEventListener('click', function () {
+                showImageModal(img.src);
+            });
+        });
+    </script>
 
     <script>
 
@@ -88,11 +641,9 @@
                     const bodyContainer = document.getElementById('main-content');
                     bodyContainer.innerHTML = html;
 
-                    // Process all scripts in the loaded content
                     const scripts = bodyContainer.querySelectorAll('script');
                     scripts.forEach(script => {
                         if (script.type === 'module') {
-                            // Handle module scripts
                             const moduleScript = document.createElement('script');
                             moduleScript.type = 'module';
                             if (script.src) {
@@ -102,7 +653,6 @@
                             }
                             script.parentNode.replaceChild(moduleScript, script);
                         } else {
-                            // Handle regular scripts
                             if (script.src) {
                                 const newScript = document.createElement('script');
                                 newScript.src = script.src;
