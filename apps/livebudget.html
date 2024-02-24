@@ -97,6 +97,7 @@
     <br>
     <section id="yearly-budget-calculator">
       <table id="months-container">
+        <h2>Totals For Each Month</h2>
         <thead>
           <tr>
             <th>Month</th>
@@ -113,11 +114,11 @@
       </table>
     </section>
     <section>
-      <h2>Yearly Budget Calculator:</h2>
+      <h2>Total Budget Calculator:</h2>
       <div class="totals">
-        <h3>Yearly Income: <span id="total-income">0</span></h3>
-        <h3>Yearly Expenses: <span id="total-expenses">0</span></h3>
-        <h3>Yearly Balance: <span id="yearly-balance">0</span></h3>
+        <h3>Total Income: <span id="total-income">0</span></h3>
+        <h3>Total Expenses: <span id="total-expenses">0</span></h3>
+        <h3>Total Balance: <span id="yearly-balance">0</span></h3>
       </div>
       <h2>Daily Financial Tracker:</h2>
 
@@ -132,6 +133,12 @@
     </section>
 
     <section id="daily-tracker">
+      <div>
+        <label for="yearInput">Select Year: </label>
+        <input type="number" id="yearInput" value="2024" min="2000" max="2100">
+        <button id="setYearButton">Set Year</button>
+      </div>
+
       <div id="year-grid" class="year-grid">
         <!-- Daily grid will be populated here by JavaScript -->
       </div>
@@ -170,24 +177,6 @@
       });
     }
 
-    function populateMonths() {
-      const monthsContainer = document.getElementById('months-container').getElementsByTagName('tbody')[0];
-      monthsContainer.innerHTML = '';
-
-      months.forEach(month => {
-        let monthData = yearlyDetails[month] ? yearlyDetails[month] : { income: 0, expenses: 0 };
-        let balance = monthData.income - monthData.expenses;
-        let row = monthsContainer.insertRow();
-        row.innerHTML = `
-      <td>${month}</td>
-      <td>${monthData.income.toFixed(2)}</td>
-      <td>${monthData.expenses.toFixed(2)}</td>
-      <td>${balance.toFixed(2)}</td>
-      <td><button class="add-income" data-month="${month}">Add Income</button></td>
-      <td><button class="add-expense" data-month="${month}">Add Expense</button></td>
-    `;
-      });
-    }
 
     function aggregateMonthlyData(details) {
       return Object.keys(details).reduce((acc, dateKey) => {
@@ -205,6 +194,38 @@
       }, {});
     }
 
+
+
+    function populateMonths() {
+      const monthsContainer = document.getElementById('months-container').getElementsByTagName('tbody')[0];
+      monthsContainer.innerHTML = '';
+
+      months.forEach(month => {
+        let monthData = yearlyDetails[month] ? yearlyDetails[month] : { income: 0, expenses: 0 };
+        let balance = monthData.income - monthData.expenses;
+        let row = monthsContainer.insertRow();
+        let html = `
+      <td>${month}</td>
+      <td>${monthData.income.toFixed(2)}</td>
+      <td>${monthData.expenses.toFixed(2)}</td>
+      <td>${balance.toFixed(2)}</td>
+      <td><button class="add-income" data-month="${month}">Add Income</button></td>
+      <td><button class="add-expense" data-month="${month}">Add Expense</button></td>
+    `;
+        row.innerHTML = html;
+
+        const addIncomeBtn = row.querySelector('.add-income');
+        const addExpenseBtn = row.querySelector('.add-expense');
+
+        addIncomeBtn.addEventListener('click', () => addEntry('income', month));
+        addExpenseBtn.addEventListener('click', () => addEntry('expenses', month));
+      });
+    }
+
+
+
+
+
     function addEntry(type, selectedMonth) {
       const amount = parseFloat(prompt(`Enter ${type} amount:`));
       if (isNaN(amount)) return;
@@ -221,15 +242,21 @@
         day = new Date().getDate();
       }
 
-      const today = new Date();
-      const year = today.getFullYear();
+      const selectedYear = parseInt(document.getElementById('yearInput').value, 10);
+
+      const year = !isNaN(selectedYear) ? selectedYear : new Date().getFullYear();
+
       const monthIndex = months.indexOf(selectedMonth);
       const dateKey = `${selectedMonth}-${day}`;
       const entryRef = ref(database, `budget/${dateKey}`);
 
       if (!yearlyDetails[dateKey]) yearlyDetails[dateKey] = { income: 0, expenses: 0, details: [] };
       yearlyDetails[dateKey][type] += amount;
-      yearlyDetails[dateKey].details.push({ type: type.charAt(0).toUpperCase() + type.slice(1), amount, date: new Date(year, monthIndex, day).toISOString() });
+      yearlyDetails[dateKey].details.push({
+        type: type.charAt(0).toUpperCase() + type.slice(1),
+        amount,
+        date: new Date(year, monthIndex, day).toISOString()
+      });
 
       if (!yearlyDetails[selectedMonth]) yearlyDetails[selectedMonth] = { income: 0, expenses: 0, details: [] };
       yearlyDetails[selectedMonth][type] += amount;
@@ -273,14 +300,15 @@
 
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const startOfYear = new Date(today.getFullYear(), 0, 1);
-      const endOfYear = new Date(today.getFullYear(), 11, 31);
+      const startOfYear = new Date(currentYear, 0, 1);
+      const endOfYear = new Date(currentYear, 11, 31);
 
       for (let day = new Date(startOfYear); day <= endOfYear; day.setDate(day.getDate() + 1)) {
+        const dayFormatted = day.toISOString().split('T')[0];
         const monthName = months[day.getMonth()];
         const dayOfMonth = day.getDate();
         const dateKey = `${monthName}-${dayOfMonth}`;
-        const details = yearlyDetails[monthName] ? yearlyDetails[monthName].details.find(detail => detail.date === day.toISOString().split('T')[0]) : null;
+        const details = yearlyDetails[monthName] ? yearlyDetails[monthName].details.find(detail => detail.date === day.toISOString().split('T')[0] || detail.date.includes(day.toISOString().split('T')[0])) : null;
 
         if (day.getDate() === 1) {
           const monthLabel = document.createElement('div');
@@ -293,12 +321,8 @@
         dayBlock.className = 'day-block';
         dayBlock.textContent = dayOfMonth;
         dayBlock.setAttribute('data-date', dateKey);
-        dayBlock.className = 'day-block';
-        dayBlock.textContent = dayOfMonth;
-        dayBlock.setAttribute('data-date', dateKey);
 
-        const hasData = yearlyDetails[monthName].details.some(detail => new Date(detail.date).toDateString() === day.toDateString());
-        if (hasData) {
+        if (details) {
           dayBlock.classList.add('has-data');
         }
 
@@ -340,16 +364,6 @@
       });
     }
 
-    document.getElementById('closeModal').onclick = function () {
-      document.getElementById('detailsModal').style.display = "none";
-    }
-
-    window.onclick = function (event) {
-      if (event.target == document.getElementById('detailsModal')) {
-        document.getElementById('detailsModal').style.display = "none";
-      }
-    }
-
     function exportDetailsToJSON() {
       const yearlyDetailsRef = ref(database, 'budget');
       get(yearlyDetailsRef).then((snapshot) => {
@@ -376,6 +390,7 @@
           const text = await file.text();
           const data = JSON.parse(text);
           updateApplicationState(data);
+          event.target.value = '';
         } catch (error) {
           console.error("Error reading or parsing file", error);
           alert("Failed to load data. Please ensure the file is a valid JSON format.");
@@ -386,9 +401,9 @@
     }
 
     function clearDetails() {
-      if (confirm("Are you sure you want to clear all temporary data? This action cannot be undone.")) {
+      if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
         set(yearlyDetailsRef, null)
-          .then(() => alert("All temporary data has been cleared."))
+          .then(() => alert("All data has been cleared."))
           .catch(error => console.error("Failed to clear data: ", error));
       }
     }
@@ -407,17 +422,33 @@
       fetchDataOnce();
     }
 
+    let currentYear = new Date().getFullYear(); // Default to current year
+
+    document.getElementById('closeModal').onclick = function () {
+      document.getElementById('detailsModal').style.display = "none";
+    }
+
+    window.onclick = function (event) {
+      if (event.target == document.getElementById('detailsModal')) {
+        document.getElementById('detailsModal').style.display = "none";
+      }
+    }
+
     function setupEventListeners() {
       document.getElementById('export-details').addEventListener('click', exportDetailsToJSON);
       document.getElementById('clear-details').addEventListener('click', clearDetails);
       document.getElementById('load-data').addEventListener('change', loadJSONData);
-      document.addEventListener('click', event => {
-        if (event.target.classList.contains('add-income')) {
-          addEntry('income', event.target.dataset.month);
-        } else if (event.target.classList.contains('add-expense')) {
-          addEntry('expenses', event.target.dataset.month);
-        }
-      });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('setYearButton').addEventListener('click', setYear);
+      initApp();
+    });
+
+    function setYear() {
+      const yearInput = document.getElementById('yearInput').value;
+      currentYear = parseInt(yearInput, 10);
+      initApp(); // Re-initialize the app with the new year
     }
   </script>
 </body>
