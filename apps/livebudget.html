@@ -193,6 +193,17 @@
       }, {});
     }
 
+    function createButton({ className, textContent, dataMonth, onClickCallback }) {
+      const button = document.createElement('button');
+      button.className = className;
+      button.textContent = textContent;
+      if (dataMonth) {
+        button.setAttribute('data-month', dataMonth);
+      }
+      button.addEventListener('click', onClickCallback);
+      return button;
+    }
+
     function populateMonths() {
       const monthsContainer = document.getElementById('months-container').getElementsByTagName('tbody')[0];
       monthsContainer.innerHTML = '';
@@ -201,23 +212,35 @@
         let monthData = yearlyDetails[month] ? yearlyDetails[month] : { income: 0, expenses: 0 };
         let balance = monthData.income - monthData.expenses;
         let row = monthsContainer.insertRow();
-        let html = `
-      <td>${month}</td>
-      <td>${monthData.income.toFixed(2)}</td>
-      <td>${monthData.expenses.toFixed(2)}</td>
-      <td>${balance.toFixed(2)}</td>
-      <td><button class="add-income" data-month="${month}">Add Income</button></td>
-      <td><button class="add-expense" data-month="${month}">Add Expense</button></td>
-    `;
-        row.innerHTML = html;
+        let cells = [
+          month,
+          monthData.income.toFixed(2),
+          monthData.expenses.toFixed(2),
+          balance.toFixed(2),
+        ].map(text => `<td>${text}</td>`).join('');
 
-        const addIncomeBtn = row.querySelector('.add-income');
-        const addExpenseBtn = row.querySelector('.add-expense');
+        row.innerHTML = cells + `<td></td><td></td>`;
 
-        addIncomeBtn.addEventListener('click', () => addEntry('income', month));
-        addExpenseBtn.addEventListener('click', () => addEntry('expenses', month));
+        const addIncomeBtn = createButton({
+          className: 'add-income',
+          textContent: 'Add Income',
+          dataMonth: month,
+          onClickCallback: () => addEntry('income', month)
+        });
+
+        const addExpenseBtn = createButton({
+          className: 'add-expense',
+          textContent: 'Add Expense',
+          dataMonth: month,
+          onClickCallback: () => addEntry('expenses', month)
+        });
+
+        row.cells[4].appendChild(addIncomeBtn);
+        row.cells[5].appendChild(addExpenseBtn);
       });
     }
+
+
 
     function addEntry(type, selectedMonth) {
       const amount = parseFloat(prompt(`Enter ${type} amount:`));
@@ -269,10 +292,13 @@
           console.error("Failed to save data: ", error);
         });
       });
+      console.log(`Adding ${type} for ${dateKey}`);
       populateMonths();
       calculateYearlyTotals();
       generateYearGrid();
     }
+
+
 
     function calculateYearlyTotals() {
       let totalIncome = 0, totalExpenses = 0;
@@ -286,6 +312,8 @@
       document.getElementById('total-expenses').textContent = totalExpenses.toFixed(2);
       document.getElementById('yearly-balance').textContent = (totalIncome - totalExpenses).toFixed(2);
     }
+
+
 
     function generateYearGrid() {
       const yearGrid = document.getElementById('year-grid');
@@ -331,6 +359,8 @@
       }
     }
 
+
+
     function displayDayDetails(dateKey) {
       const detailsRef = ref(database, `budget/${dateKey}`);
 
@@ -343,19 +373,41 @@
           modalContentElement.innerHTML = "<p>No details available for this date.</p>";
         } else {
           details.details.forEach((detail) => {
-            const entry = document.createElement('p');
-            const detailDate = new Date(detail.date);
-            const formattedDate = detailDate.toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' });
-            entry.textContent = `${detail.type}: $${detail.amount}`;
-            modalContentElement.appendChild(entry);
+            const entryDiv = document.createElement('div');
+            entryDiv.classList.add('detail-entry');
+
+            const entryText = document.createElement('p');
+            entryText.textContent = `${detail.type}: $${detail.amount}`;
+            entryDiv.appendChild(entryText);
+
+            modalContentElement.appendChild(entryDiv);
           });
         }
+
+        // Add "Add Income" and "Add Expense" buttons to the modal
+        const addIncomeButton = document.createElement('button');
+        addIncomeButton.textContent = 'Add Income';
+        addIncomeButton.onclick = () => {
+          addEntry('income', dateKey);
+        };
+
+        const addExpenseButton = document.createElement('button');
+        addExpenseButton.textContent = 'Add Expense';
+        addExpenseButton.onclick = () => {
+          addEntry('expenses', dateKey);
+        };
+
+        modalContentElement.appendChild(addIncomeButton);
+        modalContentElement.appendChild(addExpenseButton);
 
         document.getElementById('detailsModal').style.display = 'block';
       }).catch((error) => {
         console.error("Error fetching day details: ", error);
       });
     }
+
+
+
 
     function exportDetailsToJSON() {
       const yearlyDetailsRef = ref(database, 'budget');
