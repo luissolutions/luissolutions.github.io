@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Minecraft Coordinate Visualizer</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        .grid-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        table {
+            border-collapse: collapse;
+        }
+
+        td {
+            width: 30px;
+            height: 30px;
+            border: 1px solid #ccc;
+            text-align: center;
+        }
+
+        .selected {
+            background-color: #add8e6;
+        }
+
+        .player {
+            background-color: #90ee90;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="input-container">
+        <label for="coordinates1">Enter First Coordinates (x,y,z):</label>
+        <input type="text" id="coordinates1" placeholder="~1,~1,~1">
+        <label for="coordinates2">Enter Second Coordinates (x,y,z):</label>
+        <input type="text" id="coordinates2" placeholder="~2,~2,~2">
+        <label for="blockType">Block Type:</label>
+        <select id="blockType">
+            <option value="minecraft:glowstone">Glowstone</option>
+            <option value="minecraft:stone">Stone</option>
+            <option value="minecraft:dirt">Dirt</option>
+            <option value="minecraft:sand">Sand</option>
+            <option value="minecraft:glass">Glass</option>
+            <!-- Add more block types as needed -->
+        </select>
+
+        <label>
+            <input type="checkbox" id="hollowCheckbox"> Hollow
+        </label>
+
+        <button id="visualizeButton">Visualize Region</button>
+    </div>
+    <div id="commandOutput" class="command-output"></div>
+    <button id="copyButton">Copy Command</button>
+
+
+    <div class="grid-container">
+        <div>
+            <div>XY Plane (Top View)</div>
+            <table id="gameTableXY"></table>
+        </div>
+        <div>
+            <div>XZ Plane (Side View)</div>
+            <table id="gameTableXZ"></table>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            generateGrid('gameTableXY', 10, 10); // XY plane
+            generateGrid('gameTableXZ', 10, 10); // XZ plane
+            visualizePlayer(); // Visualize player's position
+
+            // Add event listeners to buttons
+            document.getElementById('visualizeButton').addEventListener('click', visualizeRegion);
+            document.getElementById('copyButton').addEventListener('click', copyCommand);
+        });
+
+        function generateGrid(tableId, rows, cols) {
+            const table = document.getElementById(tableId);
+            for (let i = 0; i < rows; i++) {
+                const row = table.insertRow();
+                for (let j = 0; j < cols; j++) {
+                    const cell = row.insertCell();
+                    cell.id = `${tableId}-${9 - i}-${j}`; // Adjusted for visual consistency
+                }
+            }
+        }
+
+        function visualizePlayer() {
+            document.getElementById(`gameTableXY-0-0`).classList.add('player');
+            document.getElementById(`gameTableXZ-0-0`).classList.add('player');
+        }
+
+        function visualizeRegion() {
+            const coordsInput1 = document.getElementById('coordinates1').value;
+            const coordsInput2 = document.getElementById('coordinates2').value;
+            const [x1, y1, z1] = coordsInput1.split(',').map(coord => parseInt(coord.replace('~', '')));
+            const [x2, y2, z2] = coordsInput2.split(',').map(coord => parseInt(coord.replace('~', '')));
+
+            clearSelection();
+
+            visualizeInPlane('gameTableXY', x1, y1, x2, y2);
+            visualizeInPlane('gameTableXZ', x1, z1, x2, z2);
+
+            displayFillCommand(x1, y1, z1, x2, y2, z2);
+        }
+
+        function visualizeInPlane(plane, x1, y1, x2, y2) {
+            const startX = Math.min(x1, x2), endX = Math.max(x1, x2);
+            const startY = Math.min(y1, y2), endY = Math.max(y1, y2);
+
+            for (let x = startX; x <= endX; x++) {
+                for (let y = startY; y <= endY; y++) {
+                    const cellId = `${plane}-${y}-${x}`;
+                    const cell = document.getElementById(cellId);
+                    if (cell) cell.classList.add('selected');
+                }
+            }
+        }
+
+        function clearSelection() {
+            document.querySelectorAll('.selected').forEach(cell => cell.classList.remove('selected'));
+        }
+
+        let lastCommand = ""; // This variable will hold the last command for copying
+
+        function displayFillCommand(x1, y1, z1, x2, y2, z2) {
+            const blockType = document.getElementById('blockType').value;
+            const isHollow = document.getElementById('hollowCheckbox').checked;
+            const hollowSuffix = isHollow ? " hollow" : ""; // Append " hollow" if checked
+
+            lastCommand = `/fill ~${x1} ~${y1} ~${z1} ~${x2} ~${y2} ~${z2} ${blockType}${hollowSuffix}`;
+            document.getElementById('commandOutput').textContent = "Fill Command: " + lastCommand;
+        }
+
+        function copyCommand() {
+            if (lastCommand === "") {
+                alert("No command to copy!");
+                return;
+            }
+            navigator.clipboard.writeText(lastCommand).then(() => {
+                alert("Command copied to clipboard!");
+            }).catch(err => {
+                console.error('Could not copy command: ', err);
+            });
+        }
+
+    </script>
+
+</body>
+
+</html>
