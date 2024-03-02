@@ -75,7 +75,20 @@
                 <li><a href="https://gamesdonequick.com/" target="_blank">Games Done Quick</a></li>
                 <li><a href="other.html">Pokémon Trading Hub</a></li>
             </ul>
-            <iframe id="chatAppIframe" src="../../apps/livechat.html" style="height: 45vh;"></iframe>
+            <div class="chat-app">
+                <section id="chat-window">
+                    <h2>Chat</h2>
+                    <ul id="messages-list">
+                        <!-- Messages will be displayed here -->
+                    </ul>
+                </section>
+                <form id="message-form">
+                    <input type="text" id="username-input" placeholder="Your Username">
+                    <input type="text" id="message-input" placeholder="Type a message">
+                    <br>
+                    <button type="submit">Send</button>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -111,6 +124,53 @@
             &copy; 2024 Luis Apps. All rights reserved.
         </div>
     </footer>
+    <script type="module">
+        import { database, ref, onValue, push, query, limitToLast, set } from './assets/js/firebase-init.js';
+
+        const messagesList = document.getElementById('messages-list');
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const usernameInput = document.getElementById('username-input');
+
+        function sendMessage(username, text) {
+            const messagesRef = ref(database, 'messages');
+            push(messagesRef, { username, text });
+        }
+
+        function displayMessages(snapshot) {
+            const messages = snapshot.val();
+            messagesList.innerHTML = '';
+            if (messages) {
+                Object.values(messages).forEach(msg => {
+                    const msgElement = document.createElement('li');
+                    msgElement.textContent = `${msg.username}: ${msg.text}`;
+                    messagesList.appendChild(msgElement);
+                });
+            }
+        }
+
+        function listenForMessages() {
+            const messagesRef = ref(database, 'messages');
+            const lastMessagesQuery = query(messagesRef, limitToLast(10));
+            onValue(lastMessagesQuery, displayMessages);
+        }
+
+        messageForm.addEventListener('submit', event => {
+            event.preventDefault();
+            const username = usernameInput.value.trim() || 'Anonymous';
+            const text = messageInput.value.trim();
+
+            if (text) {
+                sendMessage(username, text);
+                messageInput.value = '';
+            }
+        });
+
+        document.addEventListener("DOMContentLoaded", () => {
+            listenForMessages();
+        });
+
+    </script>
 
     <script>
         document.querySelectorAll('a[data-src]').forEach(link => {
