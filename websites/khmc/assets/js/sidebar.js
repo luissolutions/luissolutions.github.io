@@ -3,15 +3,14 @@ document.addEventListener('DOMContentLoaded', (event) => {
     const sidebar = document.getElementById('sidebar');
     const contentItems = sidebar.querySelectorAll('.sidebar-content');
 
-    toggleButton.addEventListener('click', () => {
+    // Function to toggle sidebar visibility
+    function toggleSidebar() {
         sidebar.classList.toggle('hidden');
 
-        var button = document.getElementById('toggleSidebar');
-
-        // Check if sidebar is now visible
+        // Toggle button class and text based on sidebar visibility
+        toggleButton.classList.toggle('xbutton');
         if (!sidebar.classList.contains('hidden')) {
-            button.classList.toggle('xbutton');
-            button.innerText = "Close Sidebar";
+            toggleButton.innerText = "Close Sidebar";
             // Delay content animation until sidebar animation completes
             setTimeout(() => {
                 contentItems.forEach(item => {
@@ -19,12 +18,25 @@ document.addEventListener('DOMContentLoaded', (event) => {
                 });
             }, 500); // Adjust timing to match sidebar animation
         } else {
-            button.classList.toggle('xbutton')
-            button.innerText = "Open Sidebar";
+            toggleButton.innerText = "Open Sidebar";
             // Immediately hide content if sidebar is hidden
             contentItems.forEach(item => {
                 item.classList.remove('visible');
             });
+        }
+    }
+
+    // Event listener for the toggle button
+    toggleButton.addEventListener('click', toggleSidebar);
+
+    // Event listener for clicks outside the sidebar to close it
+    document.addEventListener('click', (event) => {
+        const isClickInsideSidebar = sidebar.contains(event.target);
+        const isClickOnToggleButton = toggleButton.contains(event.target);
+
+        // Close the sidebar if a click outside is detected and the sidebar is open
+        if (!isClickInsideSidebar && !isClickOnToggleButton && !sidebar.classList.contains('hidden')) {
+            toggleSidebar(); // Use the toggleSidebar function to close and update UI
         }
     });
 });
