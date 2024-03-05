@@ -1,16 +1,21 @@
-<!DOCTYPE html>
-<html lang="en">
-
 <head>
     <title>Minecraft Coordinate Visualizer</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        section {
+            background: lightcyan;
+            padding: 10px;
+            margin: 10px;
+            border-radius: 5px;
+        }
+
         .grid-container {
             display: flex;
+            flex-direction: column;
+            flex-wrap: wrap;
             justify-content: center;
             gap: 20px;
             margin-top: 20px;
+            overflow: auto;
         }
 
         table {
@@ -18,10 +23,9 @@
         }
 
         td {
-            width: 30px;
-            height: 30px;
             border: 1px solid #ccc;
             text-align: center;
+            box-sizing: border-box;
         }
 
         .selected {
@@ -34,7 +38,25 @@
     </style>
 </head>
 
-<body>
+<section class="block-types">
+    <h2>Block Types</h2>
+    <div class="block-type">
+        <h3>Impulse Command Blocks</h3>
+        <p>"Impulse" command blocks are orange. They execute once every time they are activated.</p>
+    </div>
+    <div class="block-type">
+        <h3>Chain Command Blocks</h3>
+        <p>"Chain" command blocks are green. They execute once every time they are triggered if they have been
+            activated.</p>
+    </div>
+    <div class="block-type">
+        <h3>Repeat Command Blocks</h3>
+        <p>"Repeat" command blocks are purple. They execute their commands once every game tick as long as they are
+            activated.</p>
+    </div>
+</section>
+<section class="grid">
+    <h2>Fill Command</h2>
     <div class="input-container">
         <label for="coordinates1">Enter First Coordinates (x,y,z):</label>
         <input type="text" id="coordinates1" placeholder="~1,~1,~1">
@@ -59,7 +81,7 @@
     <div id="commandOutput" class="command-output"></div>
     <button id="copyButton">Copy Command</button>
     <div id="common-commands-container">
-        <h2>Common Minecraft Commands</h2>
+        <h3>Other Minecraft Commands</h3>
         <ul id="common-commands-list">
             <li><button class="command-copy-btn" data-command="/gamemode creative">/gamemode creative</button></li>
             <li><button class="command-copy-btn" data-command="/give @p minecraft:diamond_sword">/give @p
@@ -81,100 +103,103 @@
             <table id="gameTableXZ"></table>
         </div>
     </div>
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            generateGrid('gameTableXY', 10, 10); // XY plane
-            generateGrid('gameTableXZ', 10, 10); // XZ plane
-            visualizePlayer(); // Visualize player's position
+</section>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        generateGrid('gameTableXY', 20, 20); // XY plane
+        generateGrid('gameTableXZ', 20, 20); // XZ plane
+        visualizePlayer(); // Visualize player's position
 
-            // Add event listeners to buttons
-            document.getElementById('visualizeButton').addEventListener('click', visualizeRegion);
-            document.getElementById('copyButton').addEventListener('click', copyCommand);
-            document.querySelectorAll('.command-copy-btn').forEach(button => {
-                button.addEventListener('click', event => {
-                    const commandToCopy = event.target.getAttribute('data-command');
-                    navigator.clipboard.writeText(commandToCopy).then(() => {
-                        alert(`Command "${commandToCopy}" copied to clipboard!`);
-                    }).catch(err => {
-                        console.error('Could not copy command: ', err);
-                    });
+        // Add event listeners to buttons
+        document.getElementById('visualizeButton').addEventListener('click', visualizeRegion);
+        document.getElementById('copyButton').addEventListener('click', copyCommand);
+        document.querySelectorAll('.command-copy-btn').forEach(button => {
+            button.addEventListener('click', event => {
+                const commandToCopy = event.target.getAttribute('data-command');
+                navigator.clipboard.writeText(commandToCopy).then(() => {
+                    alert(`Command "${commandToCopy}" copied to clipboard!`);
+                }).catch(err => {
+                    console.error('Could not copy command: ', err);
                 });
             });
         });
+    });
 
 
-        function generateGrid(tableId, rows, cols) {
-            const table = document.getElementById(tableId);
-            for (let i = 0; i < rows; i++) {
-                const row = table.insertRow();
-                for (let j = 0; j < cols; j++) {
-                    const cell = row.insertCell();
-                    cell.id = `${tableId}-${9 - i}-${j}`; // Adjusted for visual consistency
-                }
+    function generateGrid(tableId, rows, cols) {
+        const table = document.getElementById(tableId);
+        const containerWidth = table.parentElement.offsetWidth; // Get the container's width
+        const cellSize = Math.min(containerWidth / cols, 40); // Calculate cell size, max 40px for example
+
+        for (let i = 0; i < rows; i++) {
+            const row = table.insertRow();
+            for (let j = 0; j < cols; j++) {
+                const cell = row.insertCell();
+                cell.style.width = `${cellSize}px`;
+                cell.style.height = `${cellSize}px`; // Set height equal to width for square cells
+                cell.id = `${tableId}-${19 - i}-${j}`; // Adjusted for visual consistency
             }
         }
+    }
 
-        function visualizePlayer() {
-            document.getElementById(`gameTableXY-0-0`).classList.add('player');
-            document.getElementById(`gameTableXZ-0-0`).classList.add('player');
-        }
 
-        function visualizeRegion() {
-            const coordsInput1 = document.getElementById('coordinates1').value;
-            const coordsInput2 = document.getElementById('coordinates2').value;
-            const [x1, y1, z1] = coordsInput1.split(',').map(coord => parseInt(coord.replace('~', '')));
-            const [x2, y2, z2] = coordsInput2.split(',').map(coord => parseInt(coord.replace('~', '')));
+    function visualizePlayer() {
+        document.getElementById(`gameTableXY-0-0`).classList.add('player');
+        document.getElementById(`gameTableXZ-0-0`).classList.add('player');
+    }
 
-            clearSelection();
+    function visualizeRegion() {
+        const coordsInput1 = document.getElementById('coordinates1').value;
+        const coordsInput2 = document.getElementById('coordinates2').value;
+        const [x1, y1, z1] = coordsInput1.split(',').map(coord => parseInt(coord.replace('~', '')));
+        const [x2, y2, z2] = coordsInput2.split(',').map(coord => parseInt(coord.replace('~', '')));
 
-            visualizeInPlane('gameTableXY', x1, y1, x2, y2);
-            visualizeInPlane('gameTableXZ', x1, z1, x2, z2);
+        clearSelection();
 
-            displayFillCommand(x1, y1, z1, x2, y2, z2);
-        }
+        visualizeInPlane('gameTableXY', x1, y1, x2, y2);
+        visualizeInPlane('gameTableXZ', x1, z1, x2, z2);
 
-        function visualizeInPlane(plane, x1, y1, x2, y2) {
-            const startX = Math.min(x1, x2), endX = Math.max(x1, x2);
-            const startY = Math.min(y1, y2), endY = Math.max(y1, y2);
+        displayFillCommand(x1, y1, z1, x2, y2, z2);
+    }
 
-            for (let x = startX; x <= endX; x++) {
-                for (let y = startY; y <= endY; y++) {
-                    const cellId = `${plane}-${y}-${x}`;
-                    const cell = document.getElementById(cellId);
-                    if (cell) cell.classList.add('selected');
-                }
+    function visualizeInPlane(plane, x1, y1, x2, y2) {
+        const startX = Math.min(x1, x2), endX = Math.max(x1, x2);
+        const startY = Math.min(y1, y2), endY = Math.max(y1, y2);
+
+        for (let x = startX; x <= endX; x++) {
+            for (let y = startY; y <= endY; y++) {
+                const cellId = `${plane}-${y}-${x}`;
+                const cell = document.getElementById(cellId);
+                if (cell) cell.classList.add('selected');
             }
         }
+    }
 
-        function clearSelection() {
-            document.querySelectorAll('.selected').forEach(cell => cell.classList.remove('selected'));
+    function clearSelection() {
+        document.querySelectorAll('.selected').forEach(cell => cell.classList.remove('selected'));
+    }
+
+    let lastCommand = ""; // This variable will hold the last command for copying
+
+    function displayFillCommand(x1, y1, z1, x2, y2, z2) {
+        const blockType = document.getElementById('blockType').value;
+        const isHollow = document.getElementById('hollowCheckbox').checked;
+        const hollowSuffix = isHollow ? " hollow" : ""; // Append " hollow" if checked
+
+        lastCommand = `/fill ~${x1} ~${y1} ~${z1} ~${x2} ~${y2} ~${z2} ${blockType}${hollowSuffix}`;
+        document.getElementById('commandOutput').textContent = "Fill Command: " + lastCommand;
+    }
+
+    function copyCommand() {
+        if (lastCommand === "") {
+            alert("No command to copy!");
+            return;
         }
+        navigator.clipboard.writeText(lastCommand).then(() => {
+            alert("Command copied to clipboard!");
+        }).catch(err => {
+            console.error('Could not copy command: ', err);
+        });
+    }
 
-        let lastCommand = ""; // This variable will hold the last command for copying
-
-        function displayFillCommand(x1, y1, z1, x2, y2, z2) {
-            const blockType = document.getElementById('blockType').value;
-            const isHollow = document.getElementById('hollowCheckbox').checked;
-            const hollowSuffix = isHollow ? " hollow" : ""; // Append " hollow" if checked
-
-            lastCommand = `/fill ~${x1} ~${y1} ~${z1} ~${x2} ~${y2} ~${z2} ${blockType}${hollowSuffix}`;
-            document.getElementById('commandOutput').textContent = "Fill Command: " + lastCommand;
-        }
-
-        function copyCommand() {
-            if (lastCommand === "") {
-                alert("No command to copy!");
-                return;
-            }
-            navigator.clipboard.writeText(lastCommand).then(() => {
-                alert("Command copied to clipboard!");
-            }).catch(err => {
-                console.error('Could not copy command: ', err);
-            });
-        }
-
-    </script>
-
-</body>
-
-</html>
+</script>
