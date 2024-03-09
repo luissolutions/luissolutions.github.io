@@ -1106,7 +1106,45 @@ for (const clock of clocks) {
     });
 }
 
-async function analyzeInvoiceData() {
+
+async function populateYearDropdown() {
+    const invoicesRef = ref(database, 'invoices');
+    const years = new Set();
+    try {
+        const snapshot = await get(invoicesRef);
+        if (snapshot.exists()) {
+            const invoices = snapshot.val();
+            for (const invoiceId in invoices) {
+                const invoiceDate = invoices[invoiceId].invoiceDate;
+                if (invoiceDate) {
+                    const year = invoiceDate.split('-')[0];
+                    years.add(year);
+                }
+            }
+            const yearDropdown = document.getElementById('year-dropdown');
+            years.forEach(year => {
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = year;
+                yearDropdown.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error populating year dropdown:', error);
+    }
+}
+
+document.getElementById('year-dropdown').addEventListener('change', function () {
+    analyzeInvoiceData(this.value); // Call analyzeInvoiceData with the selected year
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    populateYearDropdown(); // Populate the year dropdown on page load
+    analyzeInvoiceData(); // You can either call this without a year to show all data or not call it until a year is selected
+});
+
+
+async function analyzeInvoiceData(selectedYear = '') {
     const invoicesRef = ref(database, 'invoices');
     try {
         const snapshot = await get(invoicesRef);
@@ -1123,6 +1161,12 @@ async function analyzeInvoiceData() {
 
             for (const invoiceId in invoices) {
                 const invoice = invoices[invoiceId];
+
+                // Filter by selectedYear if it's provided
+                const invoiceYear = invoice.invoiceDate ? invoice.invoiceDate.split('-')[0] : '';
+                if (selectedYear && invoiceYear !== selectedYear) {
+                    continue; // Skip this invoice if it's not from the selected year
+                }
 
                 // Check if the entry is an invoice, not a quote
                 if (invoice.invoiceType === "invoice") {
@@ -1148,6 +1192,7 @@ async function analyzeInvoiceData() {
                 }
             }
 
+            // Update DOM elements with the calculated values
             document.getElementById('total-amount-paid').textContent = `$${totalAmountPaid.toFixed(2)}`;
             document.getElementById('total-sales').textContent = `$${totalSales.toFixed(2)}`;
             document.getElementById('total-labor-cost').textContent = `$${totalLaborCost.toFixed(2)}`;
@@ -1157,7 +1202,7 @@ async function analyzeInvoiceData() {
             document.getElementById('total-invoices').textContent = totalInvoices;
 
             const partsSoldList = document.getElementById('parts-sold');
-            partsSoldList.innerHTML = '';
+            partsSoldList.innerHTML = ''; // Clear previous entries
             Object.keys(partsSold).forEach(partName => {
                 const li = document.createElement('li');
                 li.textContent = `${partName}: ${partsSold[partName]} units`;
@@ -1170,6 +1215,7 @@ async function analyzeInvoiceData() {
         console.error('Error fetching invoices:', error);
     }
 }
+
 
 async function populateCustomerDropdown() {
     const invoicesRef = ref(database, 'invoices');
