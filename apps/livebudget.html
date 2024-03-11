@@ -96,8 +96,8 @@
     <input type="file" id="load-data" accept=".json" style="margin-top: 20px;">
     <br>
     <section id="yearly-budget-calculator">
+      <h2>Totals For Each Month</h2>
       <table id="months-container">
-        <h2>Totals For Each Month</h2>
         <thead>
           <tr>
             <th>Month</th>
@@ -147,50 +147,59 @@
 
   <script type="module">
     import { database, ref, onValue, set, get, off, remove, runTransaction, push, update, query } from '../websites/game/assets/js/firebase-init.js';
+    let currentYear = new Date().getFullYear();
 
-    const yearlyDetailsRef = ref(database, 'budget');
+    const yearlyDetailsRef = ref(database, 'budget/' + currentYear);
     const months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+
     let yearlyDetails = months.reduce((acc, month) => {
       acc[month] = { income: 0, expenses: 0, details: [] };
       return acc;
     }, {});
 
-    document.addEventListener('DOMContentLoaded', () => {
-      initApp();
-    });
-
     function initApp() {
-      fetchDataOnce();
+      document.getElementById('yearInput').value = currentYear; // Ensure the input reflects the current year
+      fetchDataOnce(currentYear);
       setupEventListeners();
     }
 
-    function fetchDataOnce() {
+    function fetchDataOnce(year) {
+      const yearlyDetailsRef = ref(database, 'budget'); // Assuming all data under 'budget'
       onValue(yearlyDetailsRef, snapshot => {
-        const details = snapshot.val() || {};
-        const aggregatedData = aggregateMonthlyData(details);
-        Object.keys(yearlyDetails).forEach(month => {
-          yearlyDetails[month] = aggregatedData[month] || { income: 0, expenses: 0, details: [] };
-        });
+        const data = snapshot.val() || {};
+        yearlyDetails = aggregateMonthlyData(data, year);
         populateMonths();
         calculateYearlyTotals();
         generateYearGrid();
       });
     }
 
-    function aggregateMonthlyData(details) {
-      return Object.keys(details).reduce((acc, dateKey) => {
-        const [month, day] = dateKey.split('-');
-        const entry = details[dateKey];
-
-        if (!acc[month]) {
-          acc[month] = { income: 0, expenses: 0, details: [] };
-        }
-
-        acc[month].income += entry.income;
-        acc[month].expenses += entry.expenses;
-        acc[month].details.push(...entry.details);
+    function aggregateMonthlyData(data, year) {
+      const result = months.reduce((acc, month) => {
+        acc[month] = { income: 0, expenses: 0, details: [] };
         return acc;
       }, {});
+
+      Object.entries(data).forEach(([key, value]) => {
+        const [month, day] = key.split('-');
+        const details = value.details.filter(detail => new Date(detail.date).getFullYear() === year);
+
+        details.forEach(detail => {
+          if (result[month]) { // Assuming 'month' is like 'April'
+            result[month].income += detail.type === "Income" ? detail.amount : 0;
+            result[month].expenses += detail.type === "Expenses" ? detail.amount : 0;
+            result[month].details.push(detail);
+          }
+        });
+      });
+
+      return result;
+    }
+
+    function setYear() {
+      const yearInput = parseInt(document.getElementById('yearInput').value, 10);
+      currentYear = isNaN(yearInput) ? new Date().getFullYear() : yearInput;
+      fetchDataOnce(currentYear); // Re-fetch and process data for the new year
     }
 
     function createButton({ className, textContent, dataMonth, onClickCallback }) {
@@ -295,8 +304,6 @@
       calculateYearlyTotals();
       generateYearGrid();
     }
-
-
 
     function calculateYearlyTotals() {
       let totalIncome = 0, totalExpenses = 0;
@@ -456,14 +463,6 @@
 
       fetchDataOnce();
     }
-    
-    let currentYear = new Date().getFullYear();
-
-    function setYear() {
-      const yearInput = document.getElementById('yearInput').value;
-      currentYear = parseInt(yearInput, 10);
-      initApp();
-    }
 
     document.getElementById('closeModal').onclick = function () {
       document.getElementById('detailsModal').style.display = "none";
@@ -479,10 +478,11 @@
       document.getElementById('export-details').addEventListener('click', exportDetailsToJSON);
       document.getElementById('clear-details').addEventListener('click', clearDetails);
       document.getElementById('load-data').addEventListener('change', loadJSONData);
+      document.getElementById('setYearButton').addEventListener('click', setYear);
+      document.getElementById('yearInput').value = currentYear;
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('setYearButton').addEventListener('click', setYear);
       initApp();
     });
 
