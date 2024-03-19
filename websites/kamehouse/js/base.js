@@ -23,11 +23,12 @@ function toggleDropdown() {
     "liveinventory",
     "livechess",
     "gallery",
-    "budget",
+    "livebudget",
     "invoice",
     "info",
     "viewer",
     "password",
+    "converting"
   ];
 
   var pages = appNames.map(function (name) {
