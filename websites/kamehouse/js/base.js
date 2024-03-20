@@ -28,7 +28,8 @@ function toggleDropdown() {
     "info",
     "viewer",
     "password",
-    "converting"
+    "converting",
+    "liveshow",
   ];
 
   var pages = appNames.map(function (name) {
