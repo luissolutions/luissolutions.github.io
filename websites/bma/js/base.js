@@ -29,6 +29,7 @@ var appNamesMap = {
   "Wire Counter": "count",
   "Timer": "timer",
   "Analytics": "liveanalytics",
+  "Budget": "livebudget",
 };
 
 var appDisplayNames = Object.keys(appNamesMap);
