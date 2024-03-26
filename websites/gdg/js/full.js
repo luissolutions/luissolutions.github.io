@@ -150,13 +150,6 @@ document.addEventListener('DOMContentLoaded', () => {
         startY = 0;
     }
 
-
-
-
-
-
-    
-
     function attachEventListeners(path) {
         if (!loadedPages.includes('navigation')) {
             document.addEventListener('click', function (event) {
@@ -313,7 +306,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 a.click();
                 document.body.removeChild(a);
             }
-        }        
+        }
 
         function downloadAllCheckedImages() {
             const selectedSubFolder = folderSelect.value;
@@ -328,7 +321,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.body.removeChild(a);
                 }
             });
-        }        
+        }
 
         function fetchPhotoUrls() {
             fetch('js/photos.json')
@@ -362,7 +355,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
             return [...folderSet];
-        }        
+        }
 
         function displayCurrentPhoto() {
             const selectedSubFolder = folderSelect.value;
@@ -413,7 +406,7 @@ document.addEventListener('DOMContentLoaded', () => {
             displayCurrentPhoto();
         }
 
-        
+
 
         // Event listeners
         folderSelect.addEventListener('change', () => {
