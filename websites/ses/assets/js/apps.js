@@ -1141,6 +1141,8 @@ document.getElementById('year-dropdown').addEventListener('change', function () 
 document.addEventListener('DOMContentLoaded', () => {
     populateYearDropdown(); // Populate the year dropdown on page load
     analyzeInvoiceData(); // You can either call this without a year to show all data or not call it until a year is selected
+
+    document.getElementById('export-analytics-btn').addEventListener('click', exportAnalyticsToCSV);
 });
 
 
@@ -1311,3 +1313,55 @@ document.addEventListener('DOMContentLoaded', function () {
         this.style.height = this.scrollHeight + 'px';
     }
 });
+
+async function exportAnalyticsToCSV() {
+    const selectedYear = document.getElementById('year-dropdown').value;
+    if (!selectedYear) {
+        alert('Please select a year first.');
+        return;
+    }
+
+    const invoicesRef = ref(database, 'invoices');
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Invoice ID,Invoice Date,Customer Name,Parts Cost,Labor Cost,Paid,Total Sale\n";
+
+    try {
+        const snapshot = await get(invoicesRef);
+        if (snapshot.exists()) {
+            const invoices = snapshot.val();
+            const sortedInvoices = Object.keys(invoices)
+                .map(key => invoices[key])
+                .filter(invoice => invoice.invoiceDate && invoice.invoiceDate.startsWith(selectedYear) && invoice.invoiceType === "invoice")
+                .sort((a, b) => new Date(a.invoiceDate) - new Date(b.invoiceDate));
+
+            for (const invoice of sortedInvoices) {
+                const partsCost = Array.isArray(invoice.parts) ? invoice.parts.reduce((acc, part) => 
+                    acc + (parseFloat(part.price) * parseInt(part.quantity) || 0), 0) : 0;
+
+                const laborCost = Array.isArray(invoice.labor) ? invoice.labor.reduce((acc, labor) => 
+                    acc + (parseFloat(labor.cost) || 0), 0) : 0;
+
+                const row = [
+                    invoice.invoiceNumber,
+                    invoice.invoiceDate,
+                    invoice.customerName,
+                    partsCost.toFixed(2),
+                    laborCost.toFixed(2),
+                    invoice.amountPaid || '0',
+                    invoice.total || '0',
+                ].join(',');
+                csvContent += row + "\r\n";
+            }
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `Invoice_Summary_${selectedYear}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    } catch (error) {
+        console.error('Error exporting invoice summary to CSV:', error);
+    }
+}
