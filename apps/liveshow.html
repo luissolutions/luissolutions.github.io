@@ -8,21 +8,28 @@
         section {
             overflow: auto;
         }
-
         table {
             border-collapse: collapse;
+            width: 100%;
             max-width: 800px;
+            margin-top: 10px;
         }
-
         th, td {
             padding: 8px;
             border: 1px solid #ddd;
             text-align: left;
         }
-
         .nested {
             margin-top: 10px;
             border: 2px solid #aaa;
+            display: none; /* Initially hide the content */
+        }
+        .collapsible {
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .collapsed {
+            display: block; /* Show when expanded */
         }
     </style>
 </head>
@@ -31,11 +38,12 @@
         <table id="output"></table>
     </section>
     <script type="module">
-    import { getDatabase, database, ref, onValue, push, set, remove } from '../assets/js/firebase-init.js';
+        import { getDatabase, ref, onValue } from '../assets/js/firebase-init.js';
 
         const outputTable = document.getElementById('output');
 
-        function displayData(data, table) {
+        // Dynamically display data with collapsible functionality
+        function displayData(data, table, isRoot = true) {
             if (typeof data !== 'object' || data === null) {
                 const row = table.insertRow();
                 const cell = row.insertCell();
@@ -43,39 +51,44 @@
                 return;
             }
 
-            for (const [key, value] of Object.entries(data)) {
-                if (typeof value === 'object') {
-                    const header = table.createTHead();
-                    const row = header.insertRow();
-                    const cell = row.insertCell();
-                    cell.textContent = key;
-                    cell.colSpan = 2;
+            Object.entries(data).forEach(([key, value]) => {
+                const row = table.insertRow();
+                const cell = row.insertCell();
+                cell.colSpan = 2;
+                if (typeof value === 'object' && Object.keys(value).length) {
+                    const header = document.createElement('div');
+                    header.textContent = key;
+                    header.className = 'collapsible';
+                    cell.appendChild(header);
                     const nestedTable = document.createElement('table');
                     nestedTable.className = 'nested';
-                    displayData(value, nestedTable);
-                    const nestedRow = table.insertRow();
-                    const nestedCell = nestedRow.insertCell();
-                    nestedCell.appendChild(nestedTable);
-                    nestedCell.colSpan = 2;
+                    displayData(value, nestedTable, false);
+                    cell.appendChild(nestedTable);
                 } else {
-                    const row = table.insertRow();
-                    const keyCell = row.insertCell();
-                    keyCell.textContent = key;
-                    const valueCell = row.insertCell();
-                    valueCell.textContent = value;
+                    cell.textContent = `${key}: ${value}`;
                 }
-            }
+            });
         }
 
-        const databaseRef = ref(database, '/'); // Refer to the root of the database
+        document.addEventListener('DOMContentLoaded', () => {
+            outputTable.addEventListener('click', function(event) {
+                if (event.target.classList.contains('collapsible')) {
+                    const nestedContent = event.target.nextElementSibling;
+                    if (nestedContent) {
+                        nestedContent.classList.toggle('collapsed');
+                    }
+                }
+            });
 
-        onValue(databaseRef, (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                displayData(data, outputTable);
-            } else {
-                outputTable.innerHTML = '<p>No data available.</p>';
-            }
+            const databaseRef = ref(getDatabase(), '/');
+            onValue(databaseRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    displayData(data, outputTable);
+                } else {
+                    outputTable.innerHTML = '<p>No data available.</p>';
+                }
+            });
         });
     </script>
 </body>
