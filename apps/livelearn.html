@@ -39,6 +39,9 @@
       <label>
         <input type="radio" name="questionType" value="textInput"> Text Input
       </label>
+      <label>
+        <input type="radio" name="questionType" value="flashcard"> Flashcard
+      </label>
       <div id="questionCounter">Questions Remaining: 0</div>
       <div id="scoreDisplay">Score: 0</div>
     </section>
@@ -47,7 +50,7 @@
       </div>
       <button id="submitAnswer">Submit Answer</button>
       <button id="nextQuestion">Next Question</button>
-      <button id="showAnswerButton">Show Answer</button>
+      <button id="showAnswerButton" style="display: none;">Show Answer</button>
     </section>
     <br>
     <button id="toggleAddQuestion">Add New Question</button>
@@ -169,26 +172,48 @@
       const questionType = document.querySelector('input[name="questionType"]:checked').value;
       currentQuestionId = question.id;
 
-      let optionsHTML = '';
-      if (questionType === 'multipleChoice') {
+      quizSection.innerHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>`;
+
+      if (questionType === 'flashcard') {
+        const revealButton = document.createElement('button');
+        revealButton.textContent = 'Show Answer';
+        revealButton.id = 'revealAnswer';
+        revealButton.addEventListener('click', () => revealFlashcardAnswer(question));
+        quizSection.appendChild(revealButton);
+      } else if (questionType === 'multipleChoice') {
         let options = question.options.slice();
         shuffleArray(options);
 
-        if (Array.isArray(question.correctAnswer)) {
-          optionsHTML = options.map(option => {
+        let optionsHTML = options.map(option => {
+          if (Array.isArray(question.correctAnswer)) {
             const isChecked = question.correctAnswer.includes(option);
-            return `<label><input type="checkbox" name="question" value="${option}" >${option}</label>`;
-          }).join('<br>');
-        } else {
-          optionsHTML = options.map(option =>
-            `<label><input type="radio" name="question" value="${option}">${option}</label>`
-          ).join('<br>');
-        }
+            return `<label><input type="checkbox" name="question" value="${option}">${option}</label>`;
+          } else {
+            return `<label><input type="radio" name="question" value="${option}">${option}</label>`;
+          }
+        }).join('<br>');
+
+        quizSection.innerHTML += optionsHTML;
       } else {
-        optionsHTML = `<input type="text" id="textInputAnswer" placeholder="Type your answer">`;
+        quizSection.innerHTML += `<input type="text" id="textInputAnswer" placeholder="Type your answer">`;
+      }
+    }
+
+    function revealFlashcardAnswer(question) {
+      const quizSection = document.getElementById('quizSection');
+      const revealButton = document.getElementById('revealAnswer');
+      if (revealButton) {
+        revealButton.remove();
       }
 
-      quizSection.innerHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>${optionsHTML}`;
+      let optionsHTML = question.options.map(option => {
+        let isCorrect = Array.isArray(question.correctAnswer) ?
+          question.correctAnswer.includes(option) : question.correctAnswer === option;
+
+        return isCorrect ? `<strong>${option}</strong>` : option;
+      }).join('<br>');
+
+      quizSection.innerHTML += `<div>${optionsHTML}</div>`;
     }
 
     function submitAnswer() {
