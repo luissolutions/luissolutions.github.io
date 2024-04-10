@@ -1,84 +1,74 @@
-function toggleDropdown() {
-    document.getElementById("myDropdown").classList.toggle("show");
-  }
+document.addEventListener('DOMContentLoaded', function () {
+  const dropbtn = document.querySelector('.dropbtn');
+  const dropdown = document.getElementById("myDropdown");
 
-  window.onclick = function (event) {
-    if (!event.target.matches('.dropbtn')) {
-      var dropdowns = document.getElementsByClassName("dropdown-apps");
-      for (var i = 0; i < dropdowns.length; i++) {
-        if (dropdowns[i].classList.contains('show')) {
-          dropdowns[i].classList.remove('show');
-        }
-      }
+  dropbtn.addEventListener('click', toggleDropdown);
+
+  document.addEventListener('click', function (event) {
+    if (!event.target.matches('.dropbtn') && !dropdown.contains(event.target) && dropdown.classList.contains('show')) {
+      dropdown.classList.remove('show');
     }
-  }
-
-  var appNames = [
-    "livelearn",
-    "livenotes",
-    "livechat",
-    "livegas",
-    "livemileage",
-    "livereg",
-    "liveinventory",
-    "livechess",
-    "gallery",
-    "livebudget",
-    "invoice",
-    "info",
-    "viewer",
-    "password",
-    "converting",
-    "liveshow",
-  ];
-
-  var pages = appNames.map(function (name) {
-    return "../../apps/" + name + ".html";
   });
 
-  var iframe = document.getElementById('myIframe');
-  var dropdownContent = document.getElementById('myDropdown');
-  var currentIndex = localStorage.getItem('currentIndex') || 0;
-
-  function setIframeSrc(index) {
-    currentIndex = index;
-    iframe.src = pages[index];
-    localStorage.setItem('currentIndex', currentIndex);
-  }
-
-  function generateButtons() {
-    var buttonsHTML = '';
-    appNames.forEach((name, index) => {
-      buttonsHTML += `<a onclick="setIframeSrc(${index})">${name.toUpperCase()}</a>`;
-    });
-    dropdownContent.innerHTML = buttonsHTML;
-  }
-
-  window.onload = function () {
-    setIframeSrc(currentIndex);
-    generateButtons();
-  }
+  generateButtons();
+  setIframeSrc(parseInt(currentIndex));
 
   document.getElementById('loadContent').addEventListener('click', loadIframeContent);
-
   document.getElementById('iframeSource').addEventListener('keyup', function (event) {
     if (event.key === "Enter") {
       loadIframeContent();
     }
   });
 
-  function loadIframeContent() {
-    var sourceName = document.getElementById('iframeSource').value;
-    var fullPath = "../../apps/" + sourceName + ".html";
-    document.getElementById('myIframe').src = fullPath;
-  }
-
   document.getElementById('loadStylesheet').addEventListener('click', function () {
-    var stylesheetName = document.getElementById('stylesheet-input').value;
+    const stylesheetName = document.getElementById('stylesheet-input').value.trim();
     if (stylesheetName) {
-      var fullPath = "../../assets/css/" + stylesheetName + ".css";
+      const fullPath = "../../assets/css/" + stylesheetName + ".css";
       document.getElementById('stylesheet').href = fullPath;
     } else {
       alert("Please enter a stylesheet name.");
     }
   });
+});
+
+function toggleDropdown() {
+  const dropdown = document.getElementById("myDropdown");
+  dropdown.classList.toggle("show");
+}
+
+var appNames = [
+  "livelearn", "livenotes", "livechat", "livegas", "livemileage",
+  "livereg", "liveinventory", "livechess", "gallery", "livebudget",
+  "invoice", "info", "viewer", "password", "converting", "liveshow",
+];
+
+var pages = appNames.map(name => "../../apps/" + name + ".html");
+var iframe = document.getElementById('myIframe');
+var dropdownContent = document.getElementById('myDropdown');
+var currentIndex = localStorage.getItem('currentIndex') || 0;
+
+function setIframeSrc(index) {
+  currentIndex = index;
+  iframe.src = pages[index];
+  localStorage.setItem('currentIndex', currentIndex);
+}
+
+function generateButtons() {
+  var buttonsHTML = appNames.map((name, index) =>
+    `<a href="#" data-index="${index}">${name.toUpperCase()}</a>`
+  ).join('');
+  dropdownContent.innerHTML = buttonsHTML;
+
+  dropdownContent.querySelectorAll('a').forEach(item => {
+    item.addEventListener('click', function () {
+      setIframeSrc(this.getAttribute('data-index'));
+      dropdownContent.classList.remove('show');
+    });
+  });
+}
+
+function loadIframeContent() {
+  var sourceName = document.getElementById('iframeSource').value.trim();
+  var fullPath = "../../apps/" + sourceName + ".html";
+  iframe.src = fullPath;
+}
