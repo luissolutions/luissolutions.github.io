@@ -33,102 +33,110 @@
         </section>
     </main>
     <script>
-        let score = 0;
-        let health = 100;
-        let highScore = localStorage.getItem('highScore') || 0;
-        let questions = []; // Global questions array
+        document.addEventListener('DOMContentLoaded', () => {
+            let score = 0;
+            let health = 100;
+            let highScore = parseInt(localStorage.getItem('highScore') || 0);
+            let questions = []; // Will hold questions from all loaded JSON files
 
-        document.getElementById('highScore-value').textContent = highScore;
-        document.getElementById('resetGame').addEventListener('click', resetGame);
+            document.getElementById('highScore-value').textContent = highScore;
+            document.getElementById('resetGame').addEventListener('click', resetGame);
 
-        document.getElementById('loadJsonButton').addEventListener('click', () => {
-            const fileInput = document.getElementById('jsonFileInput');
-            if (fileInput.files.length > 0) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const data = JSON.parse(e.target.result);
-                    questions = transformData(data); // Directly pass the data object
-                    displayQuestions();
-                };
-                reader.readAsText(fileInput.files[0]);
-            } else {
-                alert('Please select a JSON file.');
+            document.getElementById('loadJsonButton').addEventListener('click', () => {
+                const fileInput = document.getElementById('jsonFileInput');
+                if (fileInput.files.length > 0) {
+                    Array.from(fileInput.files).forEach(file => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            const data = JSON.parse(e.target.result);
+                            questions = questions.concat(transformData(data)); // Accumulate questions
+                            displayQuestions(); // Consider displaying after all files are processed if needed
+                        };
+                        reader.readAsText(file);
+                    });
+                } else {
+                    alert('Please select one or more JSON files.');
+                }
+            });
+
+            // Transform and accumulate data from each file
+            function transformData(data) {
+                return Object.keys(data).map(key => {
+                    const item = data[key];
+                    return {
+                        question: item.question,
+                        options: item.options,
+                        correctAnswer: Array.isArray(item.correctAnswer) ? item.correctAnswer : [item.correctAnswer]
+                    };
+                });
+            }
+
+            function displayQuestions() {
+                const container = document.getElementById('quiz-container');
+                container.innerHTML = ''; // Clear previous questions
+                questions.forEach((question, index) => {
+                    const section = document.createElement('section');
+                    section.setAttribute('data-question-index', index); // Keep track of question index
+                    section.innerHTML = `
+                <h2>Question ${index + 1}</h2>
+                <p>${question.question}</p>
+                ${question.options.map((option, i) => `
+                    <label>
+                        <input type="${question.correctAnswer.length > 1 ? 'checkbox' : 'radio'}" name="question${index}" value="${option}">
+                        ${option}
+                    </label><br>
+                `).join('')}
+                <button>Submit</button>
+                <p class="feedback"></p>
+            `;
+                    section.querySelector('button').addEventListener('click', () => checkAnswer(index, section)); // Bind event listener
+                    container.appendChild(section);
+                });
+            }
+
+            function checkAnswer(questionIndex, sectionElement) {
+                const inputs = sectionElement.querySelectorAll(`input[name="question${questionIndex}"]:checked`);
+                const selectedOptions = Array.from(inputs).map(el => el.value);
+                const feedbackElement = sectionElement.querySelector('.feedback');
+                const correctAnswers = questions[questionIndex].correctAnswer;
+                let isCorrect = false;
+
+                if (correctAnswers.length > 1) {
+                    // Correct for multiple answers: all selected must be correct and all correct must be selected
+                    const selectedCorrect = selectedOptions.filter(option => correctAnswers.includes(option));
+                    isCorrect = (selectedCorrect.length === correctAnswers.length) && (selectedOptions.length === selectedCorrect.length);
+                } else {
+                    // Single correct answer
+                    isCorrect = selectedOptions.length === 1 && selectedOptions[0] === correctAnswers[0];
+                }
+
+                if (isCorrect) {
+                    feedbackElement.textContent = 'Correct!';
+                    score++;
+                    document.getElementById('score-value').textContent = score;
+                    questions.splice(questionIndex, 1); // Remove answered question
+                    sectionElement.style.display = 'none'; // Hide section
+                } else {
+                    feedbackElement.textContent = 'Incorrect. Please try again.';
+                    health -= 10;
+                    document.getElementById('health-value').textContent = health;
+                }
+
+                updateHighScore();
+            }
+
+            function updateHighScore() {
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('highScore', highScore);
+                    document.getElementById('highScore-value').textContent = highScore;
+                }
+            }
+
+            function resetGame() {
+                window.location.reload();
             }
         });
-
-        function transformData(data) {
-            return Object.keys(data).map(key => {
-                const item = data[key];
-                return {
-                    question: item.question,
-                    options: item.options,
-                    correctAnswer: Array.isArray(item.correctAnswer) ? item.correctAnswer : [item.correctAnswer]
-                };
-            });
-        }
-
-        function displayQuestions() {
-            const container = document.getElementById('quiz-container');
-            container.innerHTML = '';
-            questions.forEach((question, index) => {
-                const section = document.createElement('section');
-                section.innerHTML = `
-                    <h2>Question ${index + 1}</h2>
-                    <p>${question.question}</p>
-                    ${question.options.map((option, i) => `
-                        <label>
-                            <input type="${question.correctAnswer.length > 1 ? 'checkbox' : 'radio'}" name="question${index}" value="${option}">
-                            ${option}
-                        </label><br>
-                    `).join('')}
-                    <button onclick="checkAnswer(${index}, this)">Submit</button>
-                    <p class="feedback"></p>
-                `;
-                container.appendChild(section);
-            });
-        }
-
-        function checkAnswer(questionIndex, button) {
-    const selectedOptions = Array.from(document.querySelectorAll(`input[name="question${questionIndex}"]:checked`)).map(el => el.value);
-    const feedbackElement = button.nextElementSibling;
-    const correctAnswers = questions[questionIndex].correctAnswer;
-    let isCorrect = false;
-
-    if (correctAnswers.length > 1) {
-        // Multiple correct answers
-        isCorrect = correctAnswers.every(answer => selectedOptions.includes(answer)) && selectedOptions.length === correctAnswers.length;
-    } else {
-        // Single correct answer
-        isCorrect = selectedOptions.length === 1 && selectedOptions[0] === correctAnswers[0];
-    }
-
-    if (isCorrect) {
-        feedbackElement.textContent = 'Correct!';
-        score++;
-        document.getElementById('score-value').textContent = score;
-        questions.splice(questionIndex, 1);
-        button.parentNode.style.display = 'none';
-    } else {
-        feedbackElement.textContent = 'Incorrect. Please try again.';
-        health -= 10;
-        document.getElementById('health-value').textContent = health;
-    }
-
-    updateHighScore();
-}
-
-
-        function updateHighScore() {
-            if (score > highScore) {
-                highScore = score;
-                localStorage.setItem('highScore', highScore);
-                document.getElementById('highScore-value').textContent = highScore;
-            }
-        }
-
-        function resetGame() {
-            window.location.reload();
-        }
     </script>
 </body>
 

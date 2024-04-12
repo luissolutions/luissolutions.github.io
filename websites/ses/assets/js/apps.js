@@ -1323,7 +1323,7 @@ async function exportAnalyticsToCSV() {
 
     const invoicesRef = ref(database, 'invoices');
     let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Invoice ID,Invoice Date,Customer Name,Parts Cost,Labor Cost,Paid,Total Sale\n";
+    csvContent += "Invoice ID,Invoice Date,Customer Name,Customer Address,Parts Cost,Labor Cost,Paid,Total Sale\n";
 
     try {
         const snapshot = await get(invoicesRef);
@@ -1341,17 +1341,18 @@ async function exportAnalyticsToCSV() {
                 const laborCost = Array.isArray(invoice.labor) ? invoice.labor.reduce((acc, labor) => 
                     acc + (parseFloat(labor.cost) || 0), 0) : 0;
 
-                const row = [
-                    invoice.invoiceNumber,
-                    invoice.invoiceDate,
-                    invoice.customerName,
-                    partsCost.toFixed(2),
-                    laborCost.toFixed(2),
-                    invoice.amountPaid || '0',
-                    invoice.total || '0',
-                ].join(',');
-                csvContent += row + "\r\n";
-            }
+                    const row = [
+                        invoice.invoiceNumber,
+                        invoice.invoiceDate,
+                        invoice.customerName,
+                        invoice.customerAddress.replace(/,/g, ' '), // Replace commas to prevent CSV format issues
+                        partsCost.toFixed(2),
+                        laborCost.toFixed(2),
+                        invoice.amountPaid || '0',
+                        invoice.total || '0',
+                    ].join(',');
+                    csvContent += row + "\r\n";
+                }
 
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
