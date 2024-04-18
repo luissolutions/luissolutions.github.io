@@ -39,7 +39,7 @@ function toggleDropdown() {
 var appNames = [
   "livelearn", "livenotes", "livechat", "livegas", "livemileage",
   "livereg", "liveinventory", "livechess", "gallery", "livebudget",
-  "invoice", "info", "viewer", "password", "converting", "liveshow",
+  "invoice", "info", "viewer", "password", "converting", "liveshow", "cheatsheet",
 ];
 
 var pages = appNames.map(name => "../../apps/" + name + ".html");
