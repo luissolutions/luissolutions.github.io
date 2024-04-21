@@ -41,6 +41,10 @@
         <input type="radio" id="financial" name="conversionType" value="financial">
         <label for="financial">Financial</label>
     </div>
+    <div>
+        <input type="radio" id="budgeting" name="conversionType" value="budgeting">
+        <label for="budgeting">Budgeting</label>
+    </div>
     <br>
     <input type="checkbox" id="removeForbiddenChars" name="">
     <label for="removeForbiddenChars">Remove Forbidden Characters</label>
@@ -65,15 +69,27 @@
             const conversionType = document.querySelector('input[name="conversionType"]:checked').value;
             let convertedText = '';
 
-            if (conversionType === 'shorthand') {
-                convertedText = convertToShorthand(text);
-            } else if (conversionType === 'json') {
-                convertedText = convertToJSON(text);
-            } else if (conversionType === 'quiz') {
-                const isMultipleQuestions = document.getElementById('multipleQuestions').checked;
-                convertedText = isMultipleQuestions ? JSON.stringify(convertMultiQuestionTextToJSON(text), null, 2) : JSON.stringify(convertTextToJSON(text), null, 2);
-            } else if (conversionType === 'financial') {
-                convertedText = convertToFinancial(text);
+            switch (conversionType) {
+                case 'shorthand':
+                    convertedText = convertToShorthand(text);
+                    break;
+                case 'json':
+                    convertedText = convertToJSON(text);
+                    break;
+                case 'quiz':
+                    const isMultipleQuestions = document.getElementById('multipleQuestions').checked;
+                    convertedText = isMultipleQuestions ? JSON.stringify(convertMultiQuestionTextToJSON(text), null, 2) : JSON.stringify(convertTextToJSON(text), null, 2);
+                    break;
+                case 'financial':
+                    convertedText = convertToFinancial(text);
+                    break;
+                case 'budgeting': // This case is for the "Budgeting" radio option
+                    convertedText = convertToBudgeting(text);
+                    break;
+                default:
+                    // Handle the default case or provide an error message
+                    convertedText = "Unsupported conversion type selected.";
+                    break;
             }
 
             const removeForbidden = document.getElementById('removeForbiddenChars').checked;
@@ -86,12 +102,14 @@
             autoResizeTextarea('shorthandText');
         }
 
+
         function setupEventListeners() {
             document.getElementById('financial').addEventListener('change', handleStandardInput);
             document.getElementById('standardText').addEventListener('input', handleStandardInput);
             document.getElementById('shorthandText').addEventListener('input', handleShorthandInput);
             document.getElementById('copyStandardText').addEventListener('click', () => copyToClipboard('standardText'));
             document.getElementById('copyShorthandText').addEventListener('click', () => copyToClipboard('shorthandText'));
+            document.getElementById('budgeting').addEventListener('change', handleStandardInput);
             document.getElementById('saveToFile').addEventListener('click', () => saveTextToFile('shorthandText', "output.txt"));
             document.getElementById('toTop').addEventListener('click', scrollToTop);
         }
@@ -157,6 +175,67 @@
             }
 
             return JSON.stringify(output, null, 2);
+        }
+
+        function roundToTwo(num) {
+            return Math.round((num + Number.EPSILON) * 100) / 100;
+        }
+
+        function convertToBudgeting(text) {
+            const lines = text.trim().split('\n');
+            const jsonData = {};
+            const monthNames = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+
+            lines.forEach((line, index) => {
+                if (line.trim() === '') return; // Skip empty lines
+
+                const columns = line.split(',').map(item => item.replace(/"/g, '').trim());
+                if (columns.length < 5) {
+                    console.error(`Invalid data format on line ${index + 1}:`, line);
+                    return;
+                }
+
+                const [dateString, , , amountString, transactionType] = columns;
+                const dateComponents = dateString.split('/');
+                if (dateComponents.length === 3) {
+                    const date = new Date(`${dateComponents[2]}-${dateComponents[0]}-${dateComponents[1]}`);
+                    const month = monthNames[date.getMonth()];
+                    const day = date.getDate().toString(); // No more padding
+                    const key = `${month}-${day}`; // Removed padStart
+
+                    if (!jsonData[key]) {
+                        jsonData[key] = { details: [], expenses: 0, income: 0 };
+                    }
+
+                    const amount = parseFloat(amountString.replace(/[^0-9.-]+/g, ""));
+                    if (isNaN(amount)) {
+                        console.error(`Invalid amount format on line ${index + 1}:`, amountString);
+                        return;
+                    }
+
+                    const isIncome = transactionType.toLowerCase() === 'credit';
+
+                    jsonData[key].details.push({
+                        amount: roundToTwo(amount), // Keep as number rounded to two decimals
+                        date: date.toISOString().split('T')[0],
+                        type: isIncome ? 'Income' : 'Expenses'
+                    });
+
+                    if (isIncome) {
+                        jsonData[key].income = roundToTwo(jsonData[key].income + amount);
+                    } else {
+                        jsonData[key].expenses = roundToTwo(jsonData[key].expenses + amount);
+                    }
+                } else {
+                    console.error(`Invalid date format on line ${index + 1}:`, dateString);
+                }
+            });
+
+            return JSON.stringify(jsonData, null, 2);
+        }
+
+        function roundToTwo(num) {
+            return Math.round((num + Number.EPSILON) * 100) / 100;
         }
 
         function autoResizeTextarea(id) {
