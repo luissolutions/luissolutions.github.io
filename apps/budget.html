@@ -11,7 +11,7 @@
             text-align: center;
             margin: 0 auto;
             max-width: 800px;
-            background: whitesmoke
+            background: whitesmoke;
         }
 
         th,
@@ -34,6 +34,12 @@
 
     <main>
         <section>
+            <h3>Upload CSV File</h3>
+            <input type="file" id="csv-file" accept=".csv">
+            <button onclick="loadCSV()">Load Data</button>
+        </section>
+
+        <section>
             <h2>Add New Entry</h2>
             <form id="entry-form">
                 <input type="date" id="entry-date" required>
@@ -46,7 +52,6 @@
                 <button type="submit">Add Entry</button>
             </form>
             <button id="clear-all-data">Clear All Data</button>
-
         </section>
 
         <section>
@@ -65,11 +70,11 @@
                 </thead>
                 <tbody id="yearly-entries-container"></tbody>
             </table>
-            <h2>Yearly Totals</h2>
+            <h2>Year Totals</h2>
             <div>
-                <p>Total Income: <span id="yearly-total-income"></span></p>
-                <p>Total Expenses: <span id="yearly-total-expenses"></span></p>
-                <p>Balance: <span id="yearly-balance"></span></p>
+                <p>Total Income: <span id="year-total-income">0</span></p>
+                <p>Total Expenses: <span id="year-total-expenses">0</span></p>
+                <p>Balance: <span id="year-balance">0</span></p>
             </div>
         </section>
     </main>
@@ -110,9 +115,9 @@
             if (confirm('Are you sure you want to delete all financial data? This action cannot be undone.')) {
                 localStorage.clear();
                 document.getElementById('yearly-entries-container').innerHTML = '';
-                document.getElementById('yearly-total-income').textContent = '0';
-                document.getElementById('yearly-total-expenses').textContent = '0';
-                document.getElementById('yearly-balance').textContent = '0';
+                document.getElementById('year-total-income').textContent = '0';
+                document.getElementById('year-total-expenses').textContent = '0';
+                document.getElementById('year-balance').textContent = '0';
                 alert('All data has been cleared.');
             }
         }
@@ -125,21 +130,21 @@
 
             let totalIncome = 0;
             let totalExpenses = 0;
-            let entries = [];
 
             if (data[selectedYear]) {
                 Object.keys(data[selectedYear]).forEach(month => {
-                    const monthData = data[selectedYear][month];
-                    Object.keys(monthData).forEach(day => {
-                        monthData[day].forEach((entry, index) => {
+                    Object.keys(data[selectedYear][month]).forEach(day => {
+                        data[selectedYear][month][day].forEach((entry, index) => {
                             const fullDate = `${selectedYear}-${month}-${day}`;
-                            entries.push({
-                                date: fullDate,
-                                type: entry.type,
-                                description: entry.description,
-                                amount: entry.amount,
-                                deleteFunction: () => deleteEntry(selectedYear, month, day, index)
-                            });
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                        <td>${fullDate}</td>
+                        <td>${entry.type}</td>
+                        <td>${entry.description}</td>
+                        <td>${entry.amount.toFixed(2)}</td>
+                        <td><button onclick="deleteEntry('${selectedYear}', '${month}', '${day}', ${index})">Delete</button></td>
+                    `;
+                            entriesContainer.appendChild(row);
 
                             if (entry.type === 'income') {
                                 totalIncome += entry.amount;
@@ -149,31 +154,11 @@
                         });
                     });
                 });
-
-                entries.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                entries.forEach(entry => {
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td>${entry.date}</td>
-                        <td>${entry.type}</td>
-                        <td>${entry.description}</td>
-                        <td>${entry.amount.toFixed(2)}</td>
-                    `;
-                    const deleteButton = document.createElement('button');
-                    deleteButton.textContent = 'Delete';
-                    deleteButton.addEventListener('click', entry.deleteFunction);
-                    const actionCell = document.createElement('td');
-                    actionCell.appendChild(deleteButton);
-                    row.appendChild(actionCell);
-
-                    entriesContainer.appendChild(row);
-                });
             }
 
-            document.getElementById('yearly-total-income').textContent = totalIncome.toFixed(2);
-            document.getElementById('yearly-total-expenses').textContent = totalExpenses.toFixed(2);
-            document.getElementById('yearly-balance').textContent = (totalIncome - totalExpenses).toFixed(2);
+            document.getElementById('year-total-income').textContent = totalIncome.toFixed(2);
+            document.getElementById('year-total-expenses').textContent = totalExpenses.toFixed(2);
+            document.getElementById('year-balance').textContent = (totalIncome - totalExpenses).toFixed(2);
         }
 
         function deleteEntry(year, month, day, index) {
@@ -190,10 +175,38 @@
                     }
                 }
                 localStorage.setItem('financialData', JSON.stringify(data));
-                filterEntriesByYear();
+                filterEntriesByYear(); // refresh entries display
             }
         }
 
+        function loadCSV() {
+            const fileInput = document.getElementById('csv-file');
+            if (fileInput.files.length > 0) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    const text = e.target.result;
+                    const data = parseCSV(text);
+                    data.forEach(entry => {
+                        const [date, description, , amount, type] = entry;
+                        const parsedDate = new Date(date);
+                        const year = parsedDate.getFullYear().toString();
+                        const month = (parsedDate.getMonth() + 1).toString().padStart(2, '0');
+                        const day = parsedDate.getDate().toString().padStart(2, '0');
+                        const transactionType = type === "credit" ? "income" : "expense";
+                        addEntry(year, month, day, transactionType, description, parseFloat(amount));
+                    });
+                    filterEntriesByYear();
+                };
+                reader.readAsText(fileInput.files[0]);
+            } else {
+                alert("Please select a file.");
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.split('\n');
+            return lines.map(line => line.split(',').map(cell => cell.replace(/\"/g, '').trim()));
+        }
     </script>
 </body>
 
