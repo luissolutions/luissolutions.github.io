@@ -82,12 +82,21 @@
         <th>Volume Unit</th>
         <th>Cost Per Unit</th>
         <th>Total Cost</th>
-        <th>Miles Driven</th>
         <th>Location</th>
         <th>Actions</th>
       </tr>
     </table>
   </div>
+  <br>
+  <div>
+    <label for="year-selection">Select Year:</label>
+    <select id="year-selection">
+      <!-- Options will be dynamically populated -->
+    </select>
+  </div>
+  <h2>Total Gas Refills for Selected Year: <span id="total-refills-year">0</span></h2>
+  <h2>Total Spent for Selected Year: <span id="total-spent-year">0.00</span></h2>
+
   <br>
   <h2>Total Gas Refills: <span id="total-refills">0</span></h2>
   <h2>Total Spent: <span id="total-spent">0.00</span></h2>
@@ -190,7 +199,6 @@
       row.insertCell(-1).innerText = data.volumeUnit;
       row.insertCell(-1).innerText = data.costPerUnit;
       row.insertCell(-1).innerText = data.totalCost.toFixed(2);
-      row.insertCell(-1).innerText = data.odometer;
       row.insertCell(-1).innerText = data.location;
 
       const deleteButton = document.createElement('button');
@@ -204,16 +212,76 @@
   }
 
   function exportData() {
-    let dataStr = JSON.stringify(gasData, null, 2);
-    let dataBlob = new Blob([dataStr], { type: 'application/json' });
-    let url = URL.createObjectURL(dataBlob);
-    let link = document.createElement('a');
-    link.download = 'gasData.json';
-    link.href = url;
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Vehicle,Date,Odometer,Volume,Volume Unit,Cost Per Unit,Total Cost,Location\n"; // Header row
+
+    gasData.forEach(entry => {
+      let row = [
+        entry.vehicle,
+        entry.date,
+        entry.odometer,
+        entry.volume,
+        entry.volumeUnit,
+        entry.costPerUnit,
+        entry.totalCost.toFixed(2),
+        entry.location
+      ].join(",");
+      csvContent += row + "\n";
+    });
+
+    var encodedUri = encodeURI(csvContent);
+    var link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "gasData.csv");
+    document.body.appendChild(link);
+
     link.click();
+    document.body.removeChild(link);
   }
 
-  window.exportData = exportData;
+  function populateYearDropdown() {
+    const yearSet = new Set(gasData.map(entry => new Date(entry.date).getFullYear()));
+    const yearSelect = document.getElementById('year-selection');
+    yearSelect.innerHTML = '';
+
+    yearSet.forEach(year => {
+      yearSelect.add(new Option(year, year));
+    });
+
+    yearSelect.addEventListener('change', () => {
+      updateDisplayedDataForYear(yearSelect.value);
+    });
+
+    if (yearSet.size > 0) {
+      updateDisplayedDataForYear([...yearSet][0]);
+    }
+  }
+
+  function updateDisplayedDataForYear(selectedYear) {
+    let totalSpent = 0;
+    let totalRefills = 0;
+
+    gasData.forEach(entry => {
+      const year = new Date(entry.date).getFullYear();
+      if (year.toString() === selectedYear) {
+        totalSpent += entry.totalCost;
+        totalRefills++;
+      }
+    });
+
+    document.getElementById('total-refills-year').innerText = totalRefills;
+    document.getElementById('total-spent-year').innerText = totalSpent.toFixed(2);
+  }
+
+  onValue(dbRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      gasData = Object.values(data);
+      populateYearDropdown();
+      updateDisplayedDataForYear(document.getElementById('year-selection').value);
+      updateGasTable();
+    }
+  });
 
   document.getElementById('gas-form').addEventListener('submit', function (event) {
     event.preventDefault();
@@ -221,9 +289,14 @@
   });
 
   window.addEventListener('load', function () {
-    updateDisplayedData();
+    if (gasData.length > 0) {
+      populateYearDropdown();
+    }
+    updateDisplayedDataForYear(document.getElementById('year-selection').value);
     updateGasTable();
   });
+
+  window.exportData = exportData;
 
 </script>
 
