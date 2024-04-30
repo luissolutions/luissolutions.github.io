@@ -229,6 +229,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (registrationForm) {
             registrationForm.addEventListener('submit', handleRegistrationSubmit);
         }
+
+        const toggleLogin = document.getElementById('toggle-login');
+        const toggleRegister = document.getElementById('toggle-register');
+
+        if (toggleLogin && toggleRegister) {
+            toggleLogin.removeEventListener('click', toggleToLogin); // Clear existing listeners to prevent duplication
+            toggleRegister.removeEventListener('click', toggleToRegister); // Clear existing listeners to prevent duplication
+
+            toggleLogin.addEventListener('click', toggleToLogin);
+            toggleRegister.addEventListener('click', toggleToRegister);
+        }
     }
 
     function fetchPhotoUrls() {
@@ -446,5 +457,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // document.oncontextmenu = document.body.oncontextmenu = function () { return false; } // No Right Click
 
+function toggleToRegister(e) {
+    e.preventDefault();
+    document.querySelector('.login-container').style.display = 'none';
+    document.querySelector('.register-container').style.display = 'block';
+}
+
+function toggleToLogin(e) {
+    e.preventDefault();
+    document.querySelector('.register-container').style.display = 'none';
+    document.querySelector('.login-container').style.display = 'block';
+}
+
+// Attach these in the attachEventListeners function
+document.getElementById('toggle-login').addEventListener('click', toggleToLogin);
+document.getElementById('toggle-register').addEventListener('click', toggleToRegister);
 
 
