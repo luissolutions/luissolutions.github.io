@@ -1,48 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timer with Weekly Time Sheet</title>
+    <link rel="stylesheet" href="../assets/css/gray-styles.css" id="stylesheet">
     <style>
-        .timer-container {
+        .container {
             text-align: center;
-            margin: 10px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
         }
 
-        button {
-            margin: 10px;
+        .time-entry {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .time-entry input {
+            margin: 0 5px;
+        }
+
+        .total-hours {
+            font-weight: bold;
         }
 
         #timer-log {
             margin: auto;
         }
-
-        #timeDisplay {
-            text-align: center;
-            padding: 5px 10px;
-            border-radius: 5px;
-            font-size: 1rem;
-        }
     </style>
 </head>
 
 <body>
-    <div class="timer-container">
-        <div id=""></div>
-        <input type="text" id="taskName" placeholder="Task Name">
-        <button id="toggleTimer">Start/Stop Timer</button>
-        <div id="currentTaskTime">Time: 00:00:00</div>
-        <table id="timer-log">
-            <thead>
-                <tr>
-                    <th>Start Time</th>
-                    <th>End Time</th>
-                    <th>Elapsed Time</th>
-                </tr>
-            </thead>
-            <tbody>
-            </tbody>
-        </table>
-        <button id="export">Export</button>
+    <div class="container">
+        <h1>Task Timer</h1>
+        <div class="timer-container">
+            <input type="text" id="taskName" placeholder="Task Name">
+            <button id="toggleTimer">Start/Stop Timer</button>
+            <div id="currentTaskTime">Time: 00:00:00</div>
+            <table id="timer-log">
+                <thead>
+                    <tr>
+                        <th>Task Name</th>
+                        <th>Start Time</th>
+                        <th>End Time</th>
+                        <th>Elapsed Time</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <button id="export">Export</button>
+        </div>
+
+        <h1>Weekly Time Sheet</h1>
+        <div id="timeEntries"></div>
+        <button id="calculateButton">Calculate Total Hours</button>
+        <div class="total-hours">
+            <p>Total Hours: <span id="totalHours">0</span></p>
+        </div>
     </div>
+
     <script>
+        // Weekly Time Sheet Functionality
+        document.addEventListener('DOMContentLoaded', () => {
+            const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            const timeEntriesContainer = document.getElementById('timeEntries');
+
+            days.forEach(day => {
+                const dayContainer = document.createElement('div');
+                dayContainer.className = 'day-container';
+                dayContainer.innerHTML = `
+                    <h3>${day}</h3>
+                    <div id="${day.toLowerCase()}Entries">
+                        <div class="time-entry">
+                            <input type="date" class="start-date" required>
+                            <input type="time" class="start-time" required>
+                            <input type="date" class="end-date" required>
+                            <input type="time" class="end-time" required>
+                            <button onclick="removeEntry(this)">Remove</button>
+                        </div>
+                    </div>
+                    <button onclick="addEntry('${day.toLowerCase()}')">Add Time Entry</button>
+                    <p>Hours Worked: <span id="${day.toLowerCase()}Hours">0</span></p>
+                `;
+                timeEntriesContainer.appendChild(dayContainer);
+            });
+
+            document.getElementById('calculateButton').addEventListener('click', calculateTotalHours);
+        });
+
+        window.addEntry = function (day) {
+            const dayEntries = document.getElementById(`${day}Entries`);
+            const newEntry = document.createElement('div');
+            newEntry.className = 'time-entry';
+            newEntry.innerHTML = `
+                <input type="date" class="start-date" required>
+                <input type="time" class="start-time" required>
+                <input type="date" class="end-date" required>
+                <input type="time" class="end-time" required>
+                <button onclick="removeEntry(this)">Remove</button>
+            `;
+            dayEntries.appendChild(newEntry);
+        };
+
+        window.removeEntry = function (button) {
+            button.parentElement.remove();
+        };
+
+        function calculateTotalHours() {
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            let totalHours = 0;
+
+            days.forEach(day => {
+                const dayEntries = document.getElementById(`${day}Entries`).getElementsByClassName('time-entry');
+                let dayHours = 0;
+
+                Array.from(dayEntries).forEach(entry => {
+                    const startDate = entry.querySelector('.start-date').value;
+                    const startTime = entry.querySelector('.start-time').value;
+                    const endDate = entry.querySelector('.end-date').value;
+                    const endTime = entry.querySelector('.end-time').value;
+
+                    if (startDate && startTime && endDate && endTime) {
+                        let start = new Date(`${startDate}T${startTime}:00`);
+                        let end = new Date(`${endDate}T${endTime}:00`);
+
+                        if (end <= start) {
+                            end = new Date(end.getTime() + 24 * 60 * 60 * 1000); // Add 24 hours to end time if it is less than or equal to start time
+                        }
+
+                        let hoursWorked = (end - start) / (1000 * 60 * 60);
+                        dayHours += hoursWorked;
+                    }
+                });
+
+                document.getElementById(`${day}Hours`).textContent = dayHours.toFixed(2);
+                totalHours += dayHours;
+            });
+
+            document.getElementById('totalHours').textContent = totalHours.toFixed(2);
+        }
+
+        // Task Timer Functionality
         const toggleTimerButton = document.getElementById("toggleTimer");
         const taskNameInput = document.getElementById("taskName");
         const currentTaskTimeDisplay = document.getElementById("currentTaskTime");
@@ -54,7 +154,7 @@
         let isTimerRunning = false;
         let timerLogs = JSON.parse(localStorage.getItem("timerLogs")) || [];
 
-        const formatTime = (milliseconds) => {
+        const formatTime = milliseconds => {
             const seconds = Math.floor((milliseconds / 1000) % 60);
             const minutes = Math.floor((milliseconds / (1000 * 60)) % 60);
             const hours = Math.floor((milliseconds / (1000 * 60 * 60)) % 24);
@@ -67,10 +167,10 @@
         };
 
         const toggleTimer = () => {
-            if (!isTimerRunning) {
-                startTimer();
-            } else {
+            if (isTimerRunning) {
                 stopTimer();
+            } else {
+                startTimer();
             }
             isTimerRunning = !isTimerRunning;
         };
@@ -99,32 +199,45 @@
             updateTable();
         };
 
+        const deleteLogEntry = index => {
+            timerLogs.splice(index, 1);
+            localStorage.setItem("timerLogs", JSON.stringify(timerLogs));
+            updateTable();
+        };
+
         const updateTable = () => {
             timerLogTableBody.innerHTML = "";
-            timerLogs.forEach(log => {
+            timerLogs.forEach((log, index) => {
                 const row = timerLogTableBody.insertRow();
+                row.insertCell().textContent = log.taskName;
                 row.insertCell().textContent = log.startTime;
                 row.insertCell().textContent = log.endTime;
                 row.insertCell().textContent = log.elapsedTime;
+                const deleteCell = row.insertCell();
+                const deleteButton = document.createElement("button");
+                deleteButton.textContent = "X";
+                deleteButton.onclick = () => deleteLogEntry(index);
+                deleteCell.appendChild(deleteButton);
             });
         };
 
-        const downloadTxt = (data) => {
-            const txtData = "data:text/plain;charset=utf-8," + data;
-            const encodedUri = encodeURI(txtData);
+        const downloadCSV = data => {
+            const csvData = "data:text/csv;charset=utf-8," + data;
+            const encodedUri = encodeURI(csvData);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "timer-log.txt");
+            link.setAttribute("download", "timer-log.csv");
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
         };
 
         exportButton.addEventListener("click", () => {
-            let txtData = "Start Time\tEnd Time\tElapsed Time\n";
-            timerLogs.forEach(log => txtData += `${log.startTime}\t${log.endTime}\t${log.elapsedTime}\n`);
-            downloadTxt(txtData);
+            let csvData = "Task Name,Start Date,Start Time,End Date,End Time,Elapsed Time\n";
+            timerLogs.forEach(log => csvData += `${log.taskName},${log.startTime},${log.endTime},${log.elapsedTime}\n`);
+            downloadCSV(csvData);
         });
+
 
         toggleTimerButton.addEventListener('click', toggleTimer);
         window.addEventListener("load", updateTable);
@@ -135,3 +248,5 @@
         }, 1000);
     </script>
 </body>
+
+</html>
