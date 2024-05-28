@@ -40,18 +40,18 @@
             background-color: #ddd;
         }
 
-        td button {
-            display: none;
+        #currentTaskTime {
+            display: inline; /* Changed from 'none' to 'inline' */
         }
     </style>
 </head>
 
 <body>
     <div class="timer-container">
-        <div id="timeDisplay"></div>
+        <div>Clock: <span id="timeDisplay"></span></div>
         <input type="text" id="taskName" placeholder="Task Name">
         <button id="toggleTimer">Start/Stop Timer</button>
-        <div id="currentTaskTime">Time: 00:00:00</div>
+        <div>Timer: <span id="currentTaskTime">00:00:00</span></div>
         <table id="timer-log">
             <thead>
                 <tr>
@@ -86,35 +86,40 @@
         };
 
         function formatTime(milliseconds) {
-            let seconds = Math.floor((milliseconds / 1000) % 60),
-                minutes = Math.floor((milliseconds / 60000) % 60),
-                hours = Math.floor(milliseconds / 3600000);
+            const seconds = Math.floor((milliseconds / 1000) % 60);
+            const minutes = Math.floor((milliseconds / 60000) % 60);
+            const hours = Math.floor(milliseconds / 3600000);
             return [hours, minutes, seconds].map(unit => String(unit).padStart(2, '0')).join(':');
         }
 
         function updateCurrentTaskTime() {
             const elapsedTime = Date.now() - timer.startTime;
-            elements.currentTaskTimeDisplay.textContent = `Time: ${formatTime(elapsedTime)}`;
+            elements.currentTaskTimeDisplay.textContent = `${formatTime(elapsedTime)}`;
         }
 
         function toggleTimer() {
-            timer.isRunning ? stopTimer() : startTimer();
-            timer.isRunning = !timer.isRunning;
+            if (timer.isRunning) {
+                stopTimer();
+            } else {
+                startTimer();
+            }
         }
 
         function startTimer() {
-            timer.startTime = Date.now();
-            timer.interval = setInterval(updateCurrentTaskTime, 1000);
-            recordStartTime();
-        }
-
-        function recordStartTime() {
-            push(timer.logsRef, {
-                taskName: elements.taskNameInput.value || 'Unnamed Task',
-                startTime: new Date(timer.startTime).toLocaleString(),
-                endTime: "",
-                elapsedTime: ""
-            });
+            if (!timer.isRunning) {
+                timer.startTime = Date.now();
+                timer.interval = setInterval(updateCurrentTaskTime, 1000);
+                elements.currentTaskTimeDisplay.style.display = 'inline'; // Show timer display
+                push(timer.logsRef, {
+                    taskName: elements.taskNameInput.value || 'Unnamed Task',
+                    startTime: new Date(timer.startTime).toLocaleString(),
+                    endTime: "",
+                    elapsedTime: ""
+                }).then(() => {
+                    timer.isRunning = true;
+                    console.log("New timer started.");
+                });
+            }
         }
 
         function stopTimer() {
@@ -123,28 +128,46 @@
             const endTime = new Date().toLocaleString();
             const elapsedTime = formatTime(Date.now() - timer.startTime);
 
-            if (!timer.startTime) {
-                console.error("No timer was started.");
-                return;
-            }
-
-            elements.currentTaskTimeDisplay.textContent = `Time: 00:00:00`;
+            elements.currentTaskTimeDisplay.textContent = `${elapsedTime}`;
 
             get(timer.logsRef).then(snapshot => {
                 if (snapshot.exists()) {
                     const data = snapshot.val();
-                    const lastEntryKey = Object.keys(data).pop();
+                    const lastEntryKey = Object.keys(data).find(key => data[key].endTime === "");
                     if (lastEntryKey) {
                         const lastEntryRef = ref(database, `times/${lastEntryKey}`);
-                        set(lastEntryRef, { ...data[lastEntryKey], endTime, elapsedTime });
+                        set(lastEntryRef, { ...data[lastEntryKey], endTime, elapsedTime }).then(() => {
+                            resetTimerState();
+                        });
                     }
                 }
             }).catch(error => console.error("Firebase access error:", error));
         }
 
+        function resetTimerState() {
+            timer.startTime = null;
+            timer.interval = null;
+            timer.isRunning = false;
+            elements.currentTaskTimeDisplay.textContent = "00:00:00";
+            elements.currentTaskTimeDisplay.style.display = 'none';
+        }
+        
         function deleteLog(logKey) {
             const logRef = ref(database, `times/${logKey}`);
-            remove(logRef);
+            get(logRef).then(snapshot => {
+                if (snapshot.exists()) {
+                    const log = snapshot.val();
+                    const isActive = !log.endTime;
+
+                    remove(logRef).then(() => {
+                        if (isActive) {
+                            location.reload();
+                        } else {
+                            updateTable();
+                        }
+                    });
+                }
+            });
         }
 
         function updateTable() {
@@ -164,9 +187,29 @@
         }
 
         function init() {
-            elements.toggleTimerButton.addEventListener('click', toggleTimer);
-            elements.exportButton.addEventListener('click', exportLogs);
-            updateTable();
+            onValue(timer.logsRef, snapshot => {
+                if (snapshot.exists()) {
+                    const data = snapshot.val();
+                    const activeEntry = Object.entries(data).find(([key, log]) => log.startTime && !log.endTime);
+
+                    if (activeEntry) {
+                        const [, log] = activeEntry;
+                        timer.startTime = new Date(log.startTime).getTime();
+                        timer.interval = setInterval(updateCurrentTaskTime, 1000);
+                        timer.isRunning = true;
+                        updateCurrentTaskTime();
+                        elements.currentTaskTimeDisplay.style.display = 'inline';
+                        console.log("Resumed active timer.");
+                    } else {
+                        console.log("No active timer. Ready to start a new one.");
+                    }
+                } else {
+                    console.log("No entries found. Ready to start a new timer.");
+                }
+                elements.toggleTimerButton.addEventListener('click', toggleTimer);
+                elements.exportButton.addEventListener('click', exportLogs);
+                updateTable();
+            });
             setInterval(() => {
                 const now = new Date();
                 elements.timeDisplay.textContent = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
@@ -199,5 +242,6 @@
 
         window.addEventListener("load", init);
     </script>
-
 </body>
+
+</html>
