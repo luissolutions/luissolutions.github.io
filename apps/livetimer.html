@@ -66,6 +66,13 @@
             </tbody>
         </table>
         <button id="export">Export</button>
+
+        <h1>Weekly Time Sheet</h1>
+        <div id="timeEntries"></div>
+        <button id="calculateButton">Calculate Total Hours</button>
+        <div class="total-hours">
+            <p>Total Hours: <span id="totalHours">0</span></p>
+        </div>
     </div>
     <script type="module">
         import { database, ref, set, get, push, onValue, remove } from '../assets/js/firebase-init.js';
@@ -152,7 +159,7 @@
             elements.currentTaskTimeDisplay.textContent = "00:00:00";
             elements.currentTaskTimeDisplay.style.display = 'none';
         }
-        
+
         function deleteLog(logKey) {
             const logRef = ref(database, `times/${logKey}`);
             get(logRef).then(snapshot => {
@@ -242,6 +249,88 @@
         }
 
         window.addEventListener("load", init);
+
+        // Weekly Time Sheet Functionality
+        document.addEventListener('DOMContentLoaded', () => {
+            const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            const timeEntriesContainer = document.getElementById('timeEntries');
+
+            days.forEach(day => {
+                const dayContainer = document.createElement('div');
+                dayContainer.className = 'day-container';
+                dayContainer.innerHTML = `
+                    <h3>${day}</h3>
+                    <div id="${day.toLowerCase()}Entries">
+                        <div class="time-entry">
+                            <input type="date" class="start-date" required>
+                            <input type="time" class="start-time" required>
+                            <input type="date" class="end-date" required>
+                            <input type="time" class="end-time" required>
+                            <button onclick="removeEntry(this)">Remove</button>
+                        </div>
+                    </div>
+                    <button onclick="addEntry('${day.toLowerCase()}')">Add Time Entry</button>
+                    <p>Hours Worked: <span id="${day.toLowerCase()}Hours">0</span></p>
+                `;
+                timeEntriesContainer.appendChild(dayContainer);
+            });
+
+            document.getElementById('timeEntries').addEventListener('change', calculateTotalHours);
+        });
+
+        window.addEntry = function (day) {
+            const dayEntries = document.getElementById(`${day}Entries`);
+            const newEntry = document.createElement('div');
+            newEntry.className = 'time-entry';
+            newEntry.innerHTML = `
+                <input type="date" class="start-date" required>
+                <input type="time" class="start-time" required>
+                <input type="date" class="end-date" required>
+                <input type="time" class="end-time" required>
+                <button onclick="removeEntry(this)">Remove</button>
+            `;
+            dayEntries.appendChild(newEntry);
+            calculateTotalHours();
+        };
+
+        window.removeEntry = function (button) {
+            button.parentElement.remove();
+            calculateTotalHours();
+        };
+
+        function calculateTotalHours() {
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            let totalHours = 0;
+
+            days.forEach(day => {
+                const dayEntries = document.getElementById(`${day}Entries`).getElementsByClassName('time-entry');
+                let dayHours = 0;
+
+                Array.from(dayEntries).forEach(entry => {
+                    const startDate = entry.querySelector('.start-date').value;
+                    const startTime = entry.querySelector('.start-time').value;
+                    const endDate = entry.querySelector('.end-date').value;
+                    const endTime = entry.querySelector('.end-time').value;
+
+                    if (startDate && startTime && endDate && endTime) {
+                        let start = new Date(`${startDate}T${startTime}:00`);
+                        let end = new Date(`${endDate}T${endTime}:00`);
+
+                        if (end <= start) {
+                            end = new Date(end.getTime() + 24 * 60 * 60 * 1000); // Add 24 hours to end time if it is less than or equal to start time
+                        }
+
+                        let hoursWorked = (end - start) / (1000 * 60 * 60);
+                        dayHours += hoursWorked;
+                    }
+                });
+
+                document.getElementById(`${day}Hours`).textContent = dayHours.toFixed(2);
+                totalHours += dayHours;
+            });
+
+            document.getElementById('totalHours').textContent = totalHours.toFixed(2);
+        }
     </script>
 </body>
 
