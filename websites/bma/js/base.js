@@ -22,7 +22,6 @@ var appNamesMap = {
   "View/Edit Inventory": "liveinventory",
   "View/Edit Database": "livedatabase",
   "Password Generator": "password",
-  "Budget Caclulator": "budget",
   "Conversion Calculator": "conversion",
   "Percentage Calculator": "percent",
   "Calculator": "calc",
