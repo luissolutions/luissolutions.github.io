@@ -51,6 +51,12 @@
         <h3>Total Expenses: <span id="total-expenses">0</span></h3>
         <h3>Total Balance: <span id="yearly-balance">0</span></h3>
       </div>
+      <h2>Overall Totals:</h2>
+      <div class="totals">
+        <h3>Overall Income: <span id="overall-income">0</span></h3>
+        <h3>Overall Expenses: <span id="overall-expenses">0</span></h3>
+        <h3>Overall Balance: <span id="overall-balance">0</span></h3>
+      </div>
       <h2>Daily Financial Tracker:</h2>
       <div id="detailsModal">
         <div class="modal">
@@ -77,6 +83,7 @@
     function initApp() {
       document.getElementById('yearInput').value = currentYear;
       fetchDataOnce(currentYear);
+      fetchOverallTotals();
       setupEventListeners();
     }
 
@@ -171,6 +178,7 @@
         return set(entryRef, entryData);
       }).then(() => {
         updateUI();
+        fetchOverallTotals(); // Update overall totals whenever a new entry is added
       }).catch(console.error);
     }
 
@@ -193,6 +201,25 @@
       document.getElementById('total-income').textContent = totalIncome.toFixed(2);
       document.getElementById('total-expenses').textContent = totalExpenses.toFixed(2);
       document.getElementById('yearly-balance').textContent = (totalIncome - totalExpenses).toFixed(2);
+    }
+
+    function fetchOverallTotals() {
+      const yearlyDetailsRef = ref(database, 'budget');
+      get(yearlyDetailsRef).then(snapshot => {
+        const data = snapshot.val() || {};
+        let overallIncome = 0, overallExpenses = 0;
+
+        Object.values(data).forEach(dayData => {
+          if (dayData.details) {
+            overallIncome += calculateTotal(dayData.details, 'Income');
+            overallExpenses += calculateTotal(dayData.details, 'Expenses');
+          }
+        });
+
+        document.getElementById('overall-income').textContent = overallIncome.toFixed(2);
+        document.getElementById('overall-expenses').textContent = overallExpenses.toFixed(2);
+        document.getElementById('overall-balance').textContent = (overallIncome - overallExpenses).toFixed(2);
+      }).catch(console.error);
     }
 
     function generateYearGrid() {
@@ -286,6 +313,7 @@
         return set(entryRef, currentDetails);
       }).then(() => {
         displayDayDetails(dateKey);
+        fetchOverallTotals(); // Update overall totals whenever a new entry is added
       }).catch(console.error);
     }
 
@@ -302,6 +330,7 @@
         }
       }).then(() => {
         displayDayDetails(dateKey);
+        fetchOverallTotals(); // Update overall totals whenever an entry is deleted
       }).catch(console.error);
     }
 
@@ -342,7 +371,10 @@
     function clearDetails() {
       if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
         set(ref(database, 'budget'), null)
-          .then(() => alert("All data has been cleared."))
+          .then(() => {
+            alert("All data has been cleared.");
+            fetchOverallTotals(); // Update overall totals after clearing all data
+          })
           .catch(console.error);
       }
     }
@@ -363,6 +395,7 @@
         return set(yearlyDetailsRef, existingData);
       }).then(() => {
         fetchDataOnce(currentYear);
+        fetchOverallTotals(); // Update overall totals after merging new data
       }).catch(console.error);
     }
 
