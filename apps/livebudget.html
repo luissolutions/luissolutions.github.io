@@ -70,11 +70,9 @@
 
     let currentYear = new Date().getFullYear();
     const months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+    let yearlyDetails = initializeYearlyDetails();
 
-    let yearlyDetails = months.reduce((acc, month) => {
-      acc[month] = { details: [] };
-      return acc;
-    }, {});
+    document.addEventListener('DOMContentLoaded', initApp);
 
     function initApp() {
       document.getElementById('yearInput').value = currentYear;
@@ -82,34 +80,29 @@
       setupEventListeners();
     }
 
+    function initializeYearlyDetails() {
+      return months.reduce((acc, month) => {
+        acc[month] = { details: [] };
+        return acc;
+      }, {});
+    }
+
     function fetchDataOnce(year) {
       const yearlyDetailsRef = ref(database, 'budget');
       onValue(yearlyDetailsRef, snapshot => {
         const data = snapshot.val() || {};
         yearlyDetails = aggregateMonthlyData(data, year);
-        populateMonths();
-        calculateYearlyTotals();
-        generateYearGrid();
+        updateUI();
       });
     }
 
     function aggregateMonthlyData(data, year) {
-      const result = months.reduce((acc, month) => {
-        acc[month] = { details: [] };
-        return acc;
-      }, {});
-
+      const result = initializeYearlyDetails();
       Object.entries(data).forEach(([key, value]) => {
         const [month, day] = key.split('-');
-        const details = Array.isArray(value.details) ? value.details.filter(detail => new Date(detail.date).getFullYear() === year) : [];
-
-        details.forEach(detail => {
-          if (result[month]) {
-            result[month].details.push(detail);
-          }
-        });
+        const details = value.details.filter(detail => new Date(detail.date).getFullYear() === year);
+        details.forEach(detail => result[month].details.push(detail));
       });
-
       return result;
     }
 
@@ -123,24 +116,22 @@
       const button = document.createElement('button');
       button.className = className;
       button.textContent = textContent;
-      if (dataMonth) {
-        button.setAttribute('data-month', dataMonth);
-      }
+      if (dataMonth) button.setAttribute('data-month', dataMonth);
       button.addEventListener('click', onClickCallback);
       return button;
     }
 
     function populateMonths() {
-      const monthsContainer = document.getElementById('months-container').getElementsByTagName('tbody')[0];
+      const monthsContainer = document.querySelector('#months-container tbody');
       monthsContainer.innerHTML = '';
 
       months.forEach(month => {
-        let monthData = yearlyDetails[month] || { details: [] };
-        let income = monthData.details.filter(detail => detail.type === "Income").reduce((acc, detail) => acc + detail.amount, 0);
-        let expenses = monthData.details.filter(detail => detail.type === "Expenses").reduce((acc, detail) => acc + detail.amount, 0);
-        let balance = income - expenses;
+        const monthData = yearlyDetails[month];
+        const income = calculateTotal(monthData.details, 'Income');
+        const expenses = calculateTotal(monthData.details, 'Expenses');
+        const balance = income - expenses;
 
-        let row = monthsContainer.insertRow();
+        const row = monthsContainer.insertRow();
         row.innerHTML = `
           <td>${month}</td>
           <td>${income.toFixed(2)}</td>
@@ -150,12 +141,13 @@
           <td></td>
         `;
 
-        const addIncomeBtn = createButton('add-income', 'Add Income', month, () => addEntry('Income', month));
-        const addExpenseBtn = createButton('add-expense', 'Add Expense', month, () => addEntry('Expenses', month));
-
-        row.cells[4].appendChild(addIncomeBtn);
-        row.cells[5].appendChild(addExpenseBtn);
+        row.cells[4].appendChild(createButton('add-income', 'Add Income', month, () => addEntry('Income', month)));
+        row.cells[5].appendChild(createButton('add-expense', 'Add Expense', month, () => addEntry('Expenses', month)));
       });
+    }
+
+    function calculateTotal(details, type) {
+      return details.filter(detail => detail.type === type).reduce((acc, detail) => acc + detail.amount, 0);
     }
 
     function addEntry(type, selectedMonth) {
@@ -163,45 +155,26 @@
       if (isNaN(amount)) return;
 
       let inputDate = prompt(`Enter date for ${type} in format DD (default is today):`);
-      let day;
-      if (inputDate) {
-        day = parseInt(inputDate, 10);
-        if (isNaN(day) || day < 1 || day > 31) {
-          alert("Invalid day.");
-          return;
-        }
-      } else {
-        day = new Date().getDate();
-      }
+      let day = parseInt(inputDate, 10);
+      if (isNaN(day) || day < 1 || day > 31) day = new Date().getDate();
 
-      const selectedYear = parseInt(document.getElementById('yearInput').value, 10);
-      const year = !isNaN(selectedYear) ? selectedYear : new Date().getFullYear();
-      const monthIndex = months.indexOf(selectedMonth);
       const dateKey = `${selectedMonth}-${day}`;
       const entryRef = ref(database, `budget/${dateKey}`);
 
       if (!yearlyDetails[selectedMonth]) yearlyDetails[selectedMonth] = { details: [] };
-      yearlyDetails[selectedMonth].details.push({
-        type,
-        amount,
-        date: new Date(year, monthIndex, day).toISOString()
-      });
+      const newEntry = { type, amount, date: new Date(currentYear, months.indexOf(selectedMonth), day).toISOString() };
+      yearlyDetails[selectedMonth].details.push(newEntry);
 
-      get(entryRef).then((snapshot) => {
-        let entryData = snapshot.val() || { details: [] };
-        entryData.details.push({
-          type,
-          amount,
-          date: new Date(year, monthIndex, day).toISOString()
-        });
+      get(entryRef).then(snapshot => {
+        const entryData = snapshot.val() || { details: [] };
+        entryData.details.push(newEntry);
+        return set(entryRef, entryData);
+      }).then(() => {
+        updateUI();
+      }).catch(console.error);
+    }
 
-        set(entryRef, entryData).then(() => {
-          console.log("Data saved successfully.");
-        }).catch((error) => {
-          console.error("Failed to save data: ", error);
-        });
-      });
-
+    function updateUI() {
       populateMonths();
       calculateYearlyTotals();
       generateYearGrid();
@@ -212,10 +185,8 @@
 
       months.forEach(month => {
         if (yearlyDetails[month]) {
-          let monthIncome = yearlyDetails[month].details.filter(detail => detail.type === "Income").reduce((acc, detail) => acc + detail.amount, 0);
-          let monthExpenses = yearlyDetails[month].details.filter(detail => detail.type === "Expenses").reduce((acc, detail) => acc + detail.amount, 0);
-          totalIncome += monthIncome;
-          totalExpenses += monthExpenses;
+          totalIncome += calculateTotal(yearlyDetails[month].details, 'Income');
+          totalExpenses += calculateTotal(yearlyDetails[month].details, 'Expenses');
         }
       });
 
@@ -233,12 +204,12 @@
       const startOfYear = new Date(currentYear, 0, 1);
       const endOfYear = new Date(currentYear, 11, 31);
 
-      for (let day = new Date(startOfYear); day <= endOfYear; day.setDate(day.getDate() + 1)) {
+      for (let day = startOfYear; day <= endOfYear; day.setDate(day.getDate() + 1)) {
         const dayFormatted = day.toISOString().split('T')[0];
         const monthName = months[day.getMonth()];
         const dayOfMonth = day.getDate();
         const dateKey = `${monthName}-${dayOfMonth}`;
-        const details = yearlyDetails[monthName] ? yearlyDetails[monthName].details.filter(detail => detail.date.includes(dayFormatted)) : null;
+        const details = yearlyDetails[monthName]?.details.filter(detail => detail.date.includes(dayFormatted)) || [];
 
         if (day.getDate() === 1) {
           const monthLabel = document.createElement('div');
@@ -251,31 +222,22 @@
         dayBlock.className = 'day-block';
         dayBlock.textContent = dayOfMonth;
         dayBlock.setAttribute('data-date', dateKey);
+        if (details.length > 0) dayBlock.classList.add('has-data');
+        if (day.toDateString() === today.toDateString()) dayBlock.classList.add('today');
 
-        if (details && details.length > 0) {
-          dayBlock.classList.add('has-data');
-        }
-
-        if (day.toDateString() === today.toDateString()) {
-          dayBlock.classList.add('today');
-        }
-
-        dayBlock.addEventListener('click', function () {
-          displayDayDetails(this.getAttribute('data-date'));
-        });
-
+        dayBlock.addEventListener('click', () => displayDayDetails(dateKey));
         yearGrid.appendChild(dayBlock);
       }
     }
 
     function displayDayDetails(dateKey) {
       const detailsRef = ref(database, `budget/${dateKey}`);
-      get(detailsRef).then((snapshot) => {
+      get(detailsRef).then(snapshot => {
         const details = snapshot.val();
         const modalContentElement = document.getElementById('modalContent');
         modalContentElement.innerHTML = '';
 
-        if (details && details.details && details.details.length > 0) {
+        if (details && details.details.length > 0) {
           const filteredDetails = details.details.filter(detail => new Date(detail.date).getFullYear() === currentYear);
           filteredDetails.forEach((detail, index) => {
             const entryDiv = document.createElement('div');
@@ -298,84 +260,57 @@
 
         const addIncomeButton = document.createElement('button');
         addIncomeButton.textContent = 'Add Income';
-        addIncomeButton.onclick = () => {
-          addEntryFromModal(dateKey, 'Income');
-        };
+        addIncomeButton.onclick = () => addEntryFromModal(dateKey, 'Income');
         modalContentElement.appendChild(addIncomeButton);
 
         const addExpenseButton = document.createElement('button');
         addExpenseButton.textContent = 'Add Expense';
-        addExpenseButton.onclick = () => {
-          addEntryFromModal(dateKey, 'Expenses');
-        };
+        addExpenseButton.onclick = () => addEntryFromModal(dateKey, 'Expenses');
         modalContentElement.appendChild(addExpenseButton);
 
         document.getElementById('detailsModal').style.display = 'block';
-      }).catch((error) => {
-        console.error("Error fetching day details: ", error);
-      });
+      }).catch(console.error);
     }
 
     function addEntryFromModal(dateKey, type) {
       const amount = parseFloat(prompt(`Enter ${type} amount:`));
-      if (isNaN(amount)) {
-        alert("Please enter a valid number for the amount.");
-        return;
-      }
+      if (isNaN(amount)) return;
 
       const [month, day] = dateKey.split('-');
-      const year = document.getElementById('yearInput').value;
-      const formattedDate = new Date(year, months.indexOf(month), day).toISOString();
-
+      const newEntry = { type, amount, date: new Date(currentYear, months.indexOf(month), day).toISOString() };
       const entryRef = ref(database, `budget/${dateKey}/details`);
 
-      get(entryRef).then((snapshot) => {
+      get(entryRef).then(snapshot => {
         const currentDetails = snapshot.val() || [];
-        currentDetails.push({
-          type,
-          amount,
-          date: formattedDate,
-        });
-
-        set(entryRef, currentDetails).then(() => {
-          console.log("Entry added successfully.");
-          displayDayDetails(dateKey);
-        }).catch((error) => {
-          console.error("Failed to add entry: ", error);
-        });
-      });
+        currentDetails.push(newEntry);
+        return set(entryRef, currentDetails);
+      }).then(() => {
+        displayDayDetails(dateKey);
+      }).catch(console.error);
     }
 
     function deleteEntry(dateKey, entryIndex) {
       const confirmDelete = confirm("Are you sure you want to delete this entry?");
-      if (!confirmDelete) {
-        return;
-      }
+      if (!confirmDelete) return;
 
       const entryRef = ref(database, `budget/${dateKey}/details`);
-      get(entryRef).then((snapshot) => {
+      get(entryRef).then(snapshot => {
         const details = snapshot.val();
         if (details && details.length > entryIndex) {
           details.splice(entryIndex, 1);
-
-          set(entryRef, details).then(() => {
-            console.log("Entry deleted successfully.");
-            displayDayDetails(dateKey);
-          }).catch((error) => {
-            console.error("Error deleting entry: ", error);
-          });
+          return set(entryRef, details);
         }
-      }).catch((error) => {
-        console.error("Failed to fetch entry details for deletion: ", error);
-      });
+      }).then(() => {
+        displayDayDetails(dateKey);
+      }).catch(console.error);
     }
 
     function exportDetailsToJSON() {
       const yearlyDetailsRef = ref(database, 'budget');
-      get(yearlyDetailsRef).then((snapshot) => {
+      get(yearlyDetailsRef).then(snapshot => {
         if (snapshot.exists()) {
           const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(snapshot.val()));
-          var downloadAnchorNode = document.createElement('a');
+          const downloadAnchorNode = document.createElement('a');
           downloadAnchorNode.setAttribute("href", dataStr);
           downloadAnchorNode.setAttribute("download", "financial_tracker_details.json");
           document.body.appendChild(downloadAnchorNode);
@@ -384,9 +319,7 @@
         } else {
           console.log("No data available");
         }
-      }).catch((error) => {
-        console.error("Error exporting data: ", error);
-      });
+      }).catch(console.error);
     }
 
     async function loadJSONData(event) {
@@ -410,13 +343,13 @@
       if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
         set(ref(database, 'budget'), null)
           .then(() => alert("All data has been cleared."))
-          .catch(error => console.error("Failed to clear data: ", error));
+          .catch(console.error);
       }
     }
 
     function mergeAndUpdateData(newData) {
       const yearlyDetailsRef = ref(database, 'budget');
-      get(yearlyDetailsRef).then((snapshot) => {
+      get(yearlyDetailsRef).then(snapshot => {
         const existingData = snapshot.val() || {};
 
         Object.keys(newData).forEach(dateKey => {
@@ -427,25 +360,10 @@
           }
         });
 
-        set(yearlyDetailsRef, existingData).then(() => {
-          console.log("Data merged and updated successfully.");
-          fetchDataOnce(currentYear);
-        }).catch((error) => {
-          console.error("Failed to update data: ", error);
-        });
-      }).catch((error) => {
-        console.error("Failed to fetch existing data: ", error);
-      });
-    }
-
-    document.getElementById('closeModal').onclick = function () {
-      document.getElementById('detailsModal').style.display = "none";
-    }
-
-    window.onclick = function (event) {
-      if (event.target == document.getElementById('detailsModal')) {
-        document.getElementById('detailsModal').style.display = "none";
-      }
+        return set(yearlyDetailsRef, existingData);
+      }).then(() => {
+        fetchDataOnce(currentYear);
+      }).catch(console.error);
     }
 
     function setupEventListeners() {
@@ -453,13 +371,17 @@
       document.getElementById('clear-details').addEventListener('click', clearDetails);
       document.getElementById('load-data').addEventListener('change', loadJSONData);
       document.getElementById('setYearButton').addEventListener('click', setYear);
-      document.getElementById('yearInput').value = currentYear;
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      initApp();
-    });
+    document.getElementById('closeModal').onclick = () => {
+      document.getElementById('detailsModal').style.display = "none";
+    };
 
+    window.onclick = event => {
+      if (event.target === document.getElementById('detailsModal')) {
+        document.getElementById('detailsModal').style.display = "none";
+      }
+    };
   </script>
 </body>
 
