@@ -110,12 +110,19 @@
   </header>
 
   <main>
-    <button id="export-details">Save Budget Data</button>
-    <button id="clear-details">Clear Data</button>
-    <input type="file" id="load-data" accept=".json" style="margin-top: 20px;">
+    <div class="buttons">
+      <button id="export-details">Save Budget Data</button>
+      <button id="clear-details">Clear Data</button>
+      <input type="file" id="load-data" accept=".json" style="margin-top: 20px;">
+    </div>
     <br>
+      <div>
+        <label for="yearInput">Select Year: </label>
+        <input type="number" id="yearInput" value="2024" min="2000" max="2100">
+        <button id="setYearButton">Set Year</button>
+      </div>
     <section id="yearly-budget-calculator">
-      <h2>Totals For Each Month</h2>
+      <h2>Totals For Months</h2>
       <table id="months-container">
         <thead>
           <tr>
@@ -133,14 +140,13 @@
       </table>
     </section>
     <section>
-      <h2>Total Budget Calculator:</h2>
+      <h2>Totals For Year:</h2>
       <div class="totals">
         <h3>Total Income: <span id="total-income">0</span></h3>
         <h3>Total Expenses: <span id="total-expenses">0</span></h3>
         <h3>Total Balance: <span id="yearly-balance">0</span></h3>
       </div>
       <h2>Daily Financial Tracker:</h2>
-
       <div id="detailsModal">
         <div class="modal">
           <span id="closeModal">&times;</span>
@@ -148,30 +154,19 @@
           <div id="modalContent"></div>
         </div>
       </div>
-
     </section>
-
     <section id="daily-tracker">
-      <div>
-        <label for="yearInput">Select Year: </label>
-        <input type="number" id="yearInput" value="2024" min="2000" max="2100">
-        <button id="setYearButton">Set Year</button>
-      </div>
-
-      <div id="year-grid" class="year-grid">
-      </div>
+      <div id="year-grid" class="year-grid"></div>
     </section>
   </main>
 
   <script type="module">
     import { database, ref, onValue, set, get, off, remove, runTransaction, push, update, query } from '../websites/game/assets/js/firebase-init.js';
     let currentYear = new Date().getFullYear();
-
-    const yearlyDetailsRef = ref(database, 'budget/' + currentYear);
     const months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
 
     let yearlyDetails = months.reduce((acc, month) => {
-      acc[month] = { income: 0, expenses: 0, details: [] };
+      acc[month] = { details: [] };
       return acc;
     }, {});
 
@@ -194,20 +189,16 @@
 
     function aggregateMonthlyData(data, year) {
       const result = months.reduce((acc, month) => {
-        acc[month] = { income: 0, expenses: 0, details: [] };
+        acc[month] = { details: [] };
         return acc;
       }, {});
 
       Object.entries(data).forEach(([key, value]) => {
         const [month, day] = key.split('-');
-        const details = Array.isArray(value.details) ? value.details.filter(detail => {
-          return new Date(detail.date).getFullYear() === year;
-        }) : [];
+        const details = Array.isArray(value.details) ? value.details.filter(detail => new Date(detail.date).getFullYear() === year) : [];
 
         details.forEach(detail => {
           if (result[month]) {
-            result[month].income += detail.type === "Income" ? detail.amount : 0;
-            result[month].expenses += detail.type === "Expenses" ? detail.amount : 0;
             result[month].details.push(detail);
           }
         });
@@ -222,7 +213,7 @@
       fetchDataOnce(currentYear);
     }
 
-    function createButton({ className, textContent, dataMonth, onClickCallback }) {
+    function createButton(className, textContent, dataMonth, onClickCallback) {
       const button = document.createElement('button');
       button.className = className;
       button.textContent = textContent;
@@ -238,31 +229,23 @@
       monthsContainer.innerHTML = '';
 
       months.forEach(month => {
-        let monthData = yearlyDetails[month] ? yearlyDetails[month] : { income: 0, expenses: 0 };
-        let balance = monthData.income - monthData.expenses;
+        let monthData = yearlyDetails[month] || { details: [] };
+        let income = monthData.details.filter(detail => detail.type === "Income").reduce((acc, detail) => acc + detail.amount, 0);
+        let expenses = monthData.details.filter(detail => detail.type === "Expenses").reduce((acc, detail) => acc + detail.amount, 0);
+        let balance = income - expenses;
+
         let row = monthsContainer.insertRow();
-        let cells = [
-          month,
-          monthData.income.toFixed(2),
-          monthData.expenses.toFixed(2),
-          balance.toFixed(2),
-        ].map(text => `<td>${text}</td>`).join('');
+        row.innerHTML = `
+          <td>${month}</td>
+          <td>${income.toFixed(2)}</td>
+          <td>${expenses.toFixed(2)}</td>
+          <td>${balance.toFixed(2)}</td>
+          <td></td>
+          <td></td>
+        `;
 
-        row.innerHTML = cells + `<td></td><td></td>`;
-
-        const addIncomeBtn = createButton({
-          className: 'add-income',
-          textContent: 'Add Income',
-          dataMonth: month,
-          onClickCallback: () => addEntry('income', month)
-        });
-
-        const addExpenseBtn = createButton({
-          className: 'add-expense',
-          textContent: 'Add Expense',
-          dataMonth: month,
-          onClickCallback: () => addEntry('expenses', month)
-        });
+        const addIncomeBtn = createButton('add-income', 'Add Income', month, () => addEntry('Income', month));
+        const addExpenseBtn = createButton('add-expense', 'Add Expense', month, () => addEntry('Expenses', month));
 
         row.cells[4].appendChild(addIncomeBtn);
         row.cells[5].appendChild(addExpenseBtn);
@@ -293,22 +276,17 @@
       const dateKey = `${selectedMonth}-${day}`;
       const entryRef = ref(database, `budget/${dateKey}`);
 
-      if (!yearlyDetails[dateKey]) yearlyDetails[dateKey] = { income: 0, expenses: 0, details: [] };
-      yearlyDetails[dateKey][type] += amount;
+      if (!yearlyDetails[dateKey]) yearlyDetails[dateKey] = { details: [] };
       yearlyDetails[dateKey].details.push({
-        type: type.charAt(0).toUpperCase() + type.slice(1),
+        type,
         amount,
         date: new Date(year, monthIndex, day).toISOString()
       });
 
-      if (!yearlyDetails[selectedMonth]) yearlyDetails[selectedMonth] = { income: 0, expenses: 0, details: [] };
-      yearlyDetails[selectedMonth][type] += amount;
-
       get(entryRef).then((snapshot) => {
-        let entryData = snapshot.val() || { income: 0, expenses: 0, details: [] };
-        entryData[type] += amount;
+        let entryData = snapshot.val() || { details: [] };
         entryData.details.push({
-          type: type.charAt(0).toUpperCase() + type.slice(1),
+          type,
           amount,
           date: new Date(year, monthIndex, day).toISOString()
         });
@@ -319,7 +297,7 @@
           console.error("Failed to save data: ", error);
         });
       });
-      console.log(`Adding ${type} for ${dateKey}`);
+
       populateMonths();
       calculateYearlyTotals();
       generateYearGrid();
@@ -327,12 +305,16 @@
 
     function calculateYearlyTotals() {
       let totalIncome = 0, totalExpenses = 0;
+
       months.forEach(month => {
         if (yearlyDetails[month]) {
-          totalIncome += yearlyDetails[month].income;
-          totalExpenses += yearlyDetails[month].expenses;
+          let monthIncome = yearlyDetails[month].details.filter(detail => detail.type === "Income").reduce((acc, detail) => acc + detail.amount, 0);
+          let monthExpenses = yearlyDetails[month].details.filter(detail => detail.type === "Expenses").reduce((acc, detail) => acc + detail.amount, 0);
+          totalIncome += monthIncome;
+          totalExpenses += monthExpenses;
         }
       });
+
       document.getElementById('total-income').textContent = totalIncome.toFixed(2);
       document.getElementById('total-expenses').textContent = totalExpenses.toFixed(2);
       document.getElementById('yearly-balance').textContent = (totalIncome - totalExpenses).toFixed(2);
@@ -352,7 +334,7 @@
         const monthName = months[day.getMonth()];
         const dayOfMonth = day.getDate();
         const dateKey = `${monthName}-${dayOfMonth}`;
-        const details = yearlyDetails[monthName] ? yearlyDetails[monthName].details.find(detail => detail.date === day.toISOString().split('T')[0] || detail.date.includes(day.toISOString().split('T')[0])) : null;
+        const details = yearlyDetails[monthName] ? yearlyDetails[monthName].details.find(detail => detail.date.includes(dayFormatted)) : null;
 
         if (day.getDate() === 1) {
           const monthLabel = document.createElement('div');
@@ -508,7 +490,7 @@
         try {
           const text = await file.text();
           const data = JSON.parse(text);
-          updateApplicationState(data);
+          mergeAndUpdateData(data);
           event.target.value = '';
         } catch (error) {
           console.error("Error reading or parsing file", error);
@@ -527,18 +509,28 @@
       }
     }
 
-    function updateApplicationState(data) {
-      Object.keys(data).forEach(month => {
-        const dateKey = `budget/${month}`;
-        const entryRef = ref(database, dateKey);
-        set(entryRef, data[month]).then(() => {
-          console.log(`Data for ${month} updated successfully.`);
+    function mergeAndUpdateData(newData) {
+      const yearlyDetailsRef = ref(database, 'budget');
+      get(yearlyDetailsRef).then((snapshot) => {
+        const existingData = snapshot.val() || {};
+
+        Object.keys(newData).forEach(dateKey => {
+          if (existingData[dateKey]) {
+            existingData[dateKey].details = existingData[dateKey].details.concat(newData[dateKey].details);
+          } else {
+            existingData[dateKey] = newData[dateKey];
+          }
+        });
+
+        set(yearlyDetailsRef, existingData).then(() => {
+          console.log("Data merged and updated successfully.");
+          fetchDataOnce(currentYear);
         }).catch((error) => {
           console.error("Failed to update data: ", error);
         });
+      }).catch((error) => {
+        console.error("Failed to fetch existing data: ", error);
       });
-
-      fetchDataOnce();
     }
 
     document.getElementById('closeModal').onclick = function () {
