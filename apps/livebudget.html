@@ -16,15 +16,13 @@
 
   <main>
     <div class="buttons">
-      <button id="export-details">Save Budget Data</button>
       <button class="clear-button" id="clear-details">Clear Data</button>
       <input type="file" id="load-data" accept=".json">
     </div>
     <br>
     <div>
-      <label for="yearInput">Select Year: </label>
-      <input type="number" id="yearInput" value="2024" min="2000" max="2100">
-      <button id="setYearButton">Set Year</button>
+      <label for="yearSelect">Select Year: </label>
+      <select id="yearSelect"></select>
     </div>
     <section id="yearly-budget-calculator">
       <h2>Totals For Months</h2>
@@ -71,6 +69,8 @@
     <section id="daily-tracker">
       <div id="year-grid" class="year-grid"></div>
     </section>
+    <button id="export-details">Export Data</button>
+
   </main>
 
   <script type="module">
@@ -83,8 +83,7 @@
     document.addEventListener('DOMContentLoaded', initApp);
 
     function initApp() {
-      document.getElementById('yearInput').value = currentYear;
-      fetchDataOnce(currentYear);
+      populateYearDropdown();
       fetchOverallTotals();
       setupEventListeners();
     }
@@ -94,6 +93,38 @@
         acc[month] = { details: [] };
         return acc;
       }, {});
+    }
+
+    function populateYearDropdown() {
+      const yearSelect = document.getElementById('yearSelect');
+      const yearlyDetailsRef = ref(database, 'budget');
+
+      get(yearlyDetailsRef).then(snapshot => {
+        const data = snapshot.val() || {};
+        const years = new Set();
+
+        Object.values(data).forEach(dayData => {
+          if (dayData.details) {
+            dayData.details.forEach(detail => {
+              const year = new Date(detail.date).getFullYear();
+              years.add(year);
+            });
+          }
+        });
+
+        yearSelect.innerHTML = '';
+        years.forEach(year => {
+          const option = document.createElement('option');
+          option.value = year;
+          option.textContent = year;
+          if (year === currentYear) {
+            option.selected = true;
+          }
+          yearSelect.appendChild(option);
+        });
+
+        fetchDataOnce(currentYear);
+      }).catch(console.error);
     }
 
     function fetchDataOnce(year) {
@@ -113,12 +144,6 @@
         details.forEach(detail => result[month].details.push(detail));
       });
       return result;
-    }
-
-    function setYear() {
-      const yearInput = parseInt(document.getElementById('yearInput').value, 10);
-      currentYear = isNaN(yearInput) ? new Date().getFullYear() : yearInput;
-      fetchDataOnce(currentYear);
     }
 
     function createButton(className, textContent, dataMonth, onClickCallback) {
@@ -316,7 +341,7 @@
         return set(entryRef, currentDetails);
       }).then(() => {
         displayDayDetails(dateKey);
-        fetchOverallTotals(); // Update overall totals whenever a new entry is added
+        fetchOverallTotals();
       }).catch(console.error);
     }
 
@@ -333,7 +358,7 @@
         }
       }).then(() => {
         displayDayDetails(dateKey);
-        fetchOverallTotals(); // Update overall totals whenever an entry is deleted
+        fetchOverallTotals();
       }).catch(console.error);
     }
 
@@ -398,7 +423,7 @@
         return set(yearlyDetailsRef, existingData);
       }).then(() => {
         fetchDataOnce(currentYear);
-        fetchOverallTotals(); // Update overall totals after merging new data
+        fetchOverallTotals();
       }).catch(console.error);
     }
 
@@ -406,7 +431,10 @@
       document.getElementById('export-details').addEventListener('click', exportDetailsToJSON);
       document.getElementById('clear-details').addEventListener('click', clearDetails);
       document.getElementById('load-data').addEventListener('change', loadJSONData);
-      document.getElementById('setYearButton').addEventListener('click', setYear);
+      document.getElementById('yearSelect').addEventListener('change', () => {
+        currentYear = parseInt(document.getElementById('yearSelect').value, 10);
+        fetchDataOnce(currentYear);
+      });
     }
 
     document.getElementById('closeModal').onclick = () => {
