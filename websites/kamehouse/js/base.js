@@ -37,9 +37,25 @@ function toggleDropdown() {
 }
 
 var appNames = [
-  "livelearn", "livenotes", "livechat", "livegas", "livemileage",
-  "livereg", "liveinventory", "livechess", "gallery", "livebudget",
-  "invoice", "info", "viewer", "password", "converting", "liveshow", "livetimer" ,"cheatsheet",
+  "livelearn", 
+  "livenotes", 
+  "livegas", 
+  "livemileage",
+  "livebudget",
+  "livetimer", 
+  "liveinventory", 
+  "livedatabase", 
+  "livechat", 
+  "liveshow", 
+  "livereg", 
+  "livechess", 
+  "gallery", 
+  "invoice", 
+  "info", 
+  "viewer", 
+  "password", 
+  "converting", 
+  "cheatsheet",
 ];
 
 var pages = appNames.map(name => "../../apps/" + name + ".html");
