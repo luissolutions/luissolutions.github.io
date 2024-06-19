@@ -92,19 +92,23 @@
     <script type="module">
         import { database, ref, onValue, set, remove, push } from '../assets/js/firebase-init.js';
 
-        const dbRef = ref(database, 'mileagedata');
-
         class MileageApp {
             constructor() {
+                this.mileageData = [];
+                this.totalTrips = 0;
+                this.online = navigator.onLine;
+
                 this.initializeFirebase();
                 this.setEventListeners();
                 this.updateTripFieldsVisibility();
+                this.loadLocalData();
+
+                window.addEventListener('online', this.syncData.bind(this));
+                window.addEventListener('offline', this.updateOnlineStatus.bind(this));
             }
 
             initializeFirebase() {
                 this.dbRef = ref(database, 'mileagedata');
-                this.mileageData = [];
-                this.totalTrips = 0;
                 this.listenForDataChanges();
             }
 
@@ -147,7 +151,6 @@
                     const row = table.insertRow();
                     row.insertCell().textContent = entry.vehicle;
                     row.insertCell().textContent = entry.client;
-
                     row.insertCell().textContent = entry.startDate || "";
                     row.insertCell().textContent = entry.startTime || "";
                     row.insertCell().textContent = entry.startOdometer || "";
@@ -156,7 +159,6 @@
                     row.insertCell().textContent = entry.endTime || "";
                     row.insertCell().textContent = entry.endOdometer || "";
                     row.insertCell().textContent = entry.endLocation || "";
-
                     row.insertCell().textContent = entry.distanceUnit || "";
                     row.insertCell().textContent = this.calculateDistance(entry) || "";
                     row.insertCell().textContent = this.calculateDuration(entry) || "";
@@ -170,7 +172,9 @@
                 });
             }
 
-            addMileage() {
+            addMileage(event) {
+                event.preventDefault();
+
                 const tripType = document.querySelector('input[name="trip-type"]:checked').value;
 
                 const mileageEntry = {
@@ -185,8 +189,6 @@
                     mileageEntry.startTime = document.getElementById('start-time').value;
                     mileageEntry.startOdometer = document.getElementById('start-odometer').value;
                     mileageEntry.startLocation = document.getElementById('start-location').value;
-
-                    push(this.dbRef, mileageEntry);
                 } else if (tripType === 'end') {
                     mileageEntry.endDate = document.getElementById('end-date').value;
                     mileageEntry.endTime = document.getElementById('end-time').value;
@@ -204,17 +206,24 @@
                                 endLocation: mileageEntry.endLocation,
                                 tripType: 'completed'
                             };
-                            set(ref(database, `mileagedata/${keyToUpdate}`), {
-                                ...lastEntry,
-                                ...updates
-                            });
+                            if (this.online) {
+                                set(ref(database, `mileagedata/${keyToUpdate}`), {
+                                    ...lastEntry,
+                                    ...updates
+                                });
+                            } else {
+                                this.saveToLocal(keyToUpdate, updates);
+                            }
                             this.clearFormFields();
                             return;
                         }
                     }
+                }
 
-                    // If no matching start trip found, add the end trip as a standalone entry
+                if (this.online) {
                     push(this.dbRef, mileageEntry);
+                } else {
+                    this.saveToLocal(null, mileageEntry);
                 }
 
                 this.clearFormFields();
@@ -222,7 +231,11 @@
 
             deleteMileage(index) {
                 const keyToDelete = this.mileageData[index].key;
-                remove(ref(database, `mileagedata/${keyToDelete}`));
+                if (this.online) {
+                    remove(ref(database, `mileagedata/${keyToDelete}`));
+                } else {
+                    this.deleteFromLocal(keyToDelete);
+                }
             }
 
             exportData() {
@@ -284,6 +297,53 @@
                 document.getElementById('end-odometer').value = '';
                 document.getElementById('end-location').value = '';
                 document.getElementById('distance-unit').value = 'miles';
+            }
+
+            saveToLocal(key, data) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineMileageData')) || {};
+                if (key) {
+                    offlineData[key] = data;
+                } else {
+                    const newKey = `offline-${Date.now()}`;
+                    offlineData[newKey] = data;
+                }
+                localStorage.setItem('offlineMileageData', JSON.stringify(offlineData));
+                this.loadLocalData();
+            }
+
+            deleteFromLocal(key) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineMileageData')) || {};
+                delete offlineData[key];
+                localStorage.setItem('offlineMileageData', JSON.stringify(offlineData));
+                this.loadLocalData();
+            }
+
+            loadLocalData() {
+                const offlineData = JSON.parse(localStorage.getItem('offlineMileageData')) || {};
+                this.mileageData = [...this.mileageData, ...Object.values(offlineData)];
+                this.totalTrips = this.mileageData.length;
+                document.getElementById('total-trips').textContent = this.totalTrips;
+                this.updateMileageTable();
+            }
+
+            syncData() {
+                const offlineData = JSON.parse(localStorage.getItem('offlineMileageData')) || {};
+                for (const [key, data] of Object.entries(offlineData)) {
+                    if (key.startsWith('offline-')) {
+                        push(this.dbRef, data);
+                    } else {
+                        set(ref(database, `mileagedata/${key}`), data);
+                    }
+                }
+                localStorage.removeItem('offlineMileageData');
+                this.loadLocalData();
+            }
+
+            updateOnlineStatus() {
+                this.online = navigator.onLine;
+                if (this.online) {
+                    this.syncData();
+                }
             }
         }
 
