@@ -78,9 +78,11 @@
         document.addEventListener('DOMContentLoaded', initApp);
 
         function initApp() {
-            populateYearDropdown();
-            fetchOverallTotals();
             setupEventListeners();
+            const savedData = getSavedData();
+            populateYearDropdown(savedData);
+            fetchOverallTotals(savedData);
+            yearlyDetails = aggregateMonthlyData(savedData, currentYear);
             populateMonths();
             calculateYearlyTotals();
             generateYearGrid();
@@ -108,17 +110,17 @@
 
         function handleYearChange() {
             currentYear = parseInt(document.getElementById('yearSelect').value, 10);
-            fetchDataOnce(currentYear);
+            const savedData = getSavedData();
+            yearlyDetails = aggregateMonthlyData(savedData, currentYear);
+            populateMonths();
+            calculateYearlyTotals();
+            generateYearGrid();
         }
 
-        function populateYearDropdown() {
+        function populateYearDropdown(savedData) {
             const yearSelect = document.getElementById('yearSelect');
-            const savedData = getSavedData();
             const years = getYearsFromData(savedData);
-
             yearSelect.innerHTML = years.map(year => `<option value="${year}" ${year === currentYear ? 'selected' : ''}>${year}</option>`).join('');
-
-            fetchDataOnce(currentYear);
         }
 
         function getYearsFromData(data) {
@@ -132,11 +134,6 @@
                 }
             });
             return Array.from(years);
-        }
-
-        function fetchDataOnce(year) {
-            const savedData = getSavedData();
-            yearlyDetails = aggregateMonthlyData(savedData, year);
         }
 
         function aggregateMonthlyData(data, year) {
@@ -170,13 +167,13 @@
 
                 const row = monthsContainer.insertRow();
                 row.innerHTML = `
-                    <td>${month}</td>
-                    <td>${income.toFixed(2)}</td>
-                    <td>${expenses.toFixed(2)}</td>
-                    <td>${balance.toFixed(2)}</td>
-                    <td></td>
-                    <td></td>
-                `;
+            <td>${month}</td>
+            <td>${income.toFixed(2)}</td>
+            <td>${expenses.toFixed(2)}</td>
+            <td>${balance.toFixed(2)}</td>
+            <td></td>
+            <td></td>
+        `;
 
                 row.cells[4].appendChild(createButton('add-income', 'Add Income', month, () => addEntry('Income', month)));
                 row.cells[5].appendChild(createButton('add-expense', 'Add Expense', month, () => addEntry('Expenses', month)));
@@ -223,8 +220,7 @@
             document.getElementById('yearly-balance').textContent = (totalIncome - totalExpenses).toFixed(2);
         }
 
-        function fetchOverallTotals() {
-            const savedData = getSavedData();
+        function fetchOverallTotals(savedData) {
             let overallIncome = 0, overallExpenses = 0;
 
             Object.values(savedData).forEach(dayData => {
