@@ -238,7 +238,7 @@
             });
 
             document.getElementById('timeEntries').addEventListener('change', calculateTotalHours);
-            loadEntriesFromLocalStorage();
+            loadEntriesFromFirebase();
         });
 
         window.addEntry = function (day) {
@@ -254,13 +254,13 @@
             `;
             dayEntries.appendChild(newEntry);
             calculateTotalHours();
-            saveEntriesToLocalStorage();
+            saveEntriesToFirebase();
         };
 
         window.removeEntry = function (button) {
             button.parentElement.remove();
             calculateTotalHours();
-            saveEntriesToLocalStorage();
+            saveEntriesToFirebase();
         };
 
         function calculateTotalHours() {
@@ -295,10 +295,10 @@
             });
 
             document.getElementById('totalHours').textContent = totalHours.toFixed(2);
-            saveEntriesToLocalStorage();
+            saveEntriesToFirebase();
         }
 
-        function saveEntriesToLocalStorage() {
+        function saveEntriesToFirebase() {
             const entries = {};
             const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -323,39 +323,45 @@
                 });
             });
 
-            localStorage.setItem('timeSheetEntries', JSON.stringify(entries));
+            set(ref(database, 'weeklyTimeSheetEntries'), entries);
         }
 
-        function loadEntriesFromLocalStorage() {
-            const entries = JSON.parse(localStorage.getItem('timeSheetEntries'));
-            if (!entries) return;
-
+        function loadEntriesFromFirebase() {
             const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
-            days.forEach(day => {
-                const dayEntries = document.getElementById(`${day}Entries`);
-                entries[day].forEach(entryData => {
-                    const newEntry = document.createElement('div');
-                    newEntry.className = 'time-entry';
-                    newEntry.innerHTML = `
-                        <input type="date" class="start-date" value="${entryData.startDate}" required>
-                        <input type="time" class="start-time" value="${entryData.startTime}" required>
-                        <input type="date" class="end-date" value="${entryData.endDate}" required>
-                        <input type="time" class="end-time" value="${entryData.endTime}" required>
-                        <button onclick="removeEntry(this)">Remove</button>
-                    `;
-                    dayEntries.appendChild(newEntry);
-                });
-            });
+            get(ref(database, 'weeklyTimeSheetEntries')).then(snapshot => {
+                if (snapshot.exists()) {
+                    const entries = snapshot.val();
 
-            calculateTotalHours();
+                    days.forEach(day => {
+                        const dayEntries = document.getElementById(`${day}Entries`);
+                        if (entries[day]) {
+                            entries[day].forEach(entryData => {
+                                const newEntry = document.createElement('div');
+                                newEntry.className = 'time-entry';
+                                newEntry.innerHTML = `
+                                    <input type="date" class="start-date" value="${entryData.startDate}" required>
+                                    <input type="time" class="start-time" value="${entryData.startTime}" required>
+                                    <input type="date" class="end-date" value="${entryData.endDate}" required>
+                                    <input type="time" class="end-time" value="${entryData.endTime}" required>
+                                    <button onclick="removeEntry(this)">Remove</button>
+                                `;
+                                dayEntries.appendChild(newEntry);
+                            });
+                        }
+                    });
+
+                    calculateTotalHours();
+                }
+            });
         }
 
         function clearEntries() {
-            localStorage.removeItem('timeSheetEntries');
-            document.querySelectorAll('.time-entry').forEach(entry => entry.remove());
-            document.querySelectorAll('.day-container p span').forEach(span => span.textContent = "0");
-            document.getElementById('totalHours').textContent = "0";
+            remove(ref(database, 'weeklyTimeSheetEntries')).then(() => {
+                document.querySelectorAll('.time-entry').forEach(entry => entry.remove());
+                document.querySelectorAll('.day-container p span').forEach(span => span.textContent = "0");
+                document.getElementById('totalHours').textContent = "0";
+            });
         }
     </script>
 </body>
