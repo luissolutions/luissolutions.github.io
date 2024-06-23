@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0,  user-scalable=no">
+    <title>Saved Links</title>
+    <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
+    <link rel="icon" type="image/png" href="../assets/img/t_logo.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="../assets/img/t_logo.png" sizes="16x16" />
+</head>
+
+<body>
+    <header>
+        <div>
+            <h1>Saved Links</h1>
+        </div>
+    </header>
+
+    <main>
+        <div>
+            <input type="text" placeholder="insert link" id="linkInput">
+            <button id="saveLinkButton">Save</button>
+        </div>
+        <ul id="linksList"></ul>
+    </main>
+
+    <footer>
+        <a href="../websites/kamehouse/index.html"><button id="login">Login</button></a>
+        <h3>Learning App © 2024</h3>
+        <a href="../websites/kamehouse/base.html"><button id="logout">Logout</button></a>
+    </footer>
+
+    <script type="module">
+        import { getDatabase, database, ref, push, set, onValue, remove } from '../assets/js/firebase-init.js';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const linkInput = document.getElementById('linkInput');
+            const saveLinkButton = document.getElementById('saveLinkButton');
+            const linksList = document.getElementById('linksList');
+
+            saveLinkButton.addEventListener('click', () => {
+                const linkUrl = linkInput.value;
+                if (!linkUrl) {
+                    alert('Please enter a link.');
+                    return;
+                }
+
+                const newLinkRef = push(ref(database, 'links'));
+                set(newLinkRef, { url: linkUrl })
+                    .then(() => {
+                        console.log('Link saved successfully!');
+                        linkInput.value = '';
+                        fetchLinksFromFirebase();
+                    })
+                    .catch((error) => {
+                        console.error('Error saving link:', error);
+                    });
+            });
+
+            function fetchLinksFromFirebase() {
+                const linksRef = ref(database, 'links');
+                onValue(linksRef, (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        displayLinks(data);
+                    }
+                }, (error) => {
+                    console.error('Error fetching links:', error);
+                });
+            }
+
+            function displayLinks(links) {
+                linksList.innerHTML = '';
+
+                Object.keys(links).forEach(key => {
+                    const link = links[key];
+                    const listItem = document.createElement('li');
+                    const aTag = document.createElement('a');
+                    aTag.href = link.url;
+                    aTag.target = "_blank";
+                    aTag.rel = "noopener noreferrer";
+                    aTag.textContent = link.url;
+
+                    const deleteButton = document.createElement('button');
+                    deleteButton.classList.add('clear-button');
+                    deleteButton.textContent = 'X';
+                    deleteButton.onclick = () => deleteLink(key);
+
+                    listItem.appendChild(aTag);
+                    listItem.appendChild(deleteButton);
+                    linksList.appendChild(listItem);
+                });
+            }
+
+            function deleteLink(key) {
+                const linkRef = ref(database, 'links/' + key);
+                remove(linkRef).then(() => {
+                    console.log('Link removed successfully');
+                    fetchLinksFromFirebase();
+                }).catch(error => {
+                    console.error('Error removing link:', error);
+                });
+            }
+
+            fetchLinksFromFirebase();
+        });
+    </script>
+</body>
+
+</html>
