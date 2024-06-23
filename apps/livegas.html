@@ -48,6 +48,10 @@
           <br>
         </div>
 
+        <label for="notes">Notes:</label>
+        <textarea id="notes"></textarea>
+        <br>
+
         <button type="submit">Add Gas Data</button>
       </form>
     </div>
@@ -63,6 +67,8 @@
           <th>Cost Per Unit</th>
           <th>Total Cost</th>
           <th>Location</th>
+          <th>MPG</th>
+          <th>Notes</th>
           <th>Actions</th>
         </tr>
       </table>
@@ -113,6 +119,7 @@
       let volumeUnit = document.getElementById('volume-unit').value;
       let costPerUnit = parseFloat(document.getElementById('cost').value);
       let location = document.getElementById('location').value;
+      let notes = document.getElementById('notes').value;
 
       let totalCost = costPerUnit * volume;
 
@@ -124,7 +131,8 @@
         volume,
         volumeUnit,
         costPerUnit,
-        totalCost
+        totalCost,
+        notes
       };
 
       gasData.push(newEntry);
@@ -168,6 +176,11 @@
       return 0;
     }
 
+    function calculateMPG(currentEntry, previousEntry) {
+      const distance = currentEntry.odometer - previousEntry.odometer;
+      return distance / currentEntry.volume;
+    }
+
     function updateGasTable() {
       const table = document.getElementById('gas-table');
 
@@ -190,6 +203,16 @@
         row.insertCell(-1).innerText = data.totalCost.toFixed(2);
         row.insertCell(-1).innerText = data.location;
 
+        const mpgCell = row.insertCell(-1);
+        if (i > 0 && data.vehicle === gasData[i - 1].vehicle) {
+          const mpg = calculateMPG(data, gasData[i - 1]);
+          mpgCell.innerText = mpg.toFixed(2);
+        } else {
+          mpgCell.innerText = 'N/A';
+        }
+
+        row.insertCell(-1).innerText = data.notes;
+
         const deleteButton = document.createElement('button');
         deleteButton.classList.add('clear-button');
         deleteButton.innerText = 'Delete';
@@ -203,9 +226,14 @@
 
     function exportData() {
       let csvContent = "data:text/csv;charset=utf-8,";
-      csvContent += "Vehicle,Date,Odometer,Volume,Volume Unit,Cost Per Unit,Total Cost,Location\n";
+      csvContent += "Vehicle,Date,Odometer,Volume,Volume Unit,Cost Per Unit,Total Cost,Location,MPG,Notes\n";
 
-      gasData.forEach(entry => {
+      gasData.forEach((entry, index) => {
+        let mpg = 'N/A';
+        if (index > 0 && entry.vehicle === gasData[index - 1].vehicle) {
+          mpg = calculateMPG(entry, gasData[index - 1]).toFixed(2);
+        }
+
         let row = [
           entry.vehicle,
           entry.date,
@@ -214,7 +242,9 @@
           entry.volumeUnit,
           entry.costPerUnit,
           entry.totalCost.toFixed(2),
-          entry.location
+          entry.location,
+          mpg,
+          entry.notes
         ].join(",");
         csvContent += row + "\n";
       });
