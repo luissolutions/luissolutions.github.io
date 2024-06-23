@@ -38,6 +38,7 @@ function toggleDropdown() {
 
 var appNames = [
   "livelearn", 
+  "livelinks",
   "livenotes", 
   "livebudget",
   "livegas", 
