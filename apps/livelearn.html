@@ -35,7 +35,7 @@
         <input type="radio" name="questionType" value="flashcard"> Flashcard
       </label>
       <div id="questionCounter">Questions Remaining: 0</div>
-      <div id="scoreDisplay">Score: 0%</div>
+      <div id="scoreDisplay">Score: 0% (0 correct / 0 wrong)</div>
     </section>
     <section>
       <div id="quizSection"></div>
@@ -75,7 +75,7 @@
 
     let currentQuestionIndex = 0;
     let correctAnswersCount = 0;
-    let totalQuestionsAnswered = 0;
+    let wrongAnswersCount = 0;
     let questions = [];
     let allQuestions = [];
     let answeredQuestions = {};
@@ -87,6 +87,17 @@
         answeredQuestions = JSON.parse(savedAnsweredQuestions);
       }
 
+      addEventListeners();
+      fetchQuestions();
+
+      const savedIndex = localStorage.getItem('currentQuestionIndex');
+      if (savedIndex) {
+        currentQuestionIndex = parseInt(savedIndex);
+      }
+      updateScoreDisplay();
+    });
+
+    function addEventListeners() {
       const inputFields = document.querySelectorAll('input[type="text"]');
       inputFields.forEach(input => {
         input.addEventListener('keypress', event => {
@@ -99,8 +110,6 @@
           }
         });
       });
-
-      fetchQuestions();
 
       document.getElementById('submitAnswer').addEventListener('click', submitAnswer);
       document.getElementById('nextQuestion').addEventListener('click', displayNextQuestion);
@@ -115,13 +124,7 @@
           }
         });
       });
-
-      const savedIndex = localStorage.getItem('currentQuestionIndex');
-      if (savedIndex) {
-        currentQuestionIndex = parseInt(savedIndex);
-      }
-      updateScoreDisplay();
-    });
+    }
 
     function showAnswer() {
       const currentQuestion = questions[currentQuestionIndex];
@@ -227,21 +230,21 @@
         answeredQuestions[questions[currentQuestionIndex].id] = 'answered';
         localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
         correctAnswersCount++;
-        totalQuestionsAnswered++;
+        questions = questions.filter(q => answeredQuestions[q.id] !== 'answered');
         alert("Correct!");
       } else {
-        totalQuestionsAnswered++;
+        wrongAnswersCount++;
         alert("Incorrect");
       }
-
       updateScoreDisplay();
       updateQuestionCounter();
       displayNextQuestion();
     }
 
     function updateScoreDisplay() {
-      const scorePercentage = totalQuestionsAnswered === 0 ? 0 : Math.round((correctAnswersCount / totalQuestionsAnswered) * 100);
-      document.getElementById('scoreDisplay').textContent = `Score: ${scorePercentage}%`;
+      const totalAnswers = correctAnswersCount + wrongAnswersCount;
+      const scorePercentage = totalAnswers === 0 ? 0 : Math.round((correctAnswersCount / totalAnswers) * 100);
+      document.getElementById('scoreDisplay').textContent = `Score: ${scorePercentage}% (${correctAnswersCount} correct / ${wrongAnswersCount} wrong)`;
     }
 
     function checkAnswers(userAnswers, correctAnswers) {
@@ -279,14 +282,13 @@
     function resetQuiz() {
       currentQuestionIndex = 0;
       correctAnswersCount = 0;
-      totalQuestionsAnswered = 0;
-      shuffleArray(questions);
-      updateQuestionCounter();
-      displayQuestion(questions[currentQuestionIndex]);
+      wrongAnswersCount = 0;
+      fetchQuestions();
       answeredQuestions = {};
       localStorage.removeItem('answeredQuestions');
       localStorage.removeItem('currentQuestionIndex');
-      window.location.reload();
+      updateQuestionCounter();
+      updateScoreDisplay();
     }
 
     document.getElementById('addQuestionButton').addEventListener('click', event => {
