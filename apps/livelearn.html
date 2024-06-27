@@ -34,9 +34,6 @@
       <label>
         <input type="radio" name="questionType" value="flashcard"> Flashcard
       </label>
-      <label>
-        <input type="checkbox" id="hideIncorrect" name="hideIncorrect"> Hide Incorrect Answers
-      </label>
       <div id="questionCounter">Questions Remaining: 0</div>
       <div id="scoreDisplay">Score: 0%</div>
     </section>
@@ -111,7 +108,6 @@
       document.getElementById('showAnswerButton').addEventListener('click', showAnswer);
       document.getElementById('editQuestionButton').addEventListener('click', editCurrentQuestion);
       document.getElementById('addNewQuestionButton').addEventListener('click', showAddQuestionForm);
-      document.getElementById('hideIncorrect').addEventListener('change', filterQuestions);
       document.querySelectorAll('input[name="questionType"]').forEach(radio => {
         radio.addEventListener('change', () => {
           if (questions.length > 0) {
@@ -143,7 +139,10 @@
           id: key,
           ...data[key]
         }));
-        filterQuestions();
+        questions = allQuestions.filter(q => answeredQuestions[q.id] !== 'answered');
+        updateQuestionCounter();
+        shuffleArray(questions);
+        displayQuestion(questions[currentQuestionIndex]);
       }, error => {
         console.error('Error fetching questions:', error);
       });
@@ -228,11 +227,13 @@
         answeredQuestions[questions[currentQuestionIndex].id] = 'answered';
         localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
         correctAnswersCount++;
+        totalQuestionsAnswered++;
+        alert("Correct!");
       } else {
-        answeredQuestions[questions[currentQuestionIndex].id] = 'incorrect';
-        localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
+        totalQuestionsAnswered++;
+        alert("Incorrect");
       }
-      totalQuestionsAnswered++;
+
       updateScoreDisplay();
       updateQuestionCounter();
       displayNextQuestion();
@@ -334,15 +335,9 @@
 
     function filterQuestions() {
       const filterText = document.getElementById('filterInput').value.toLowerCase();
-      const hideIncorrect = document.getElementById('hideIncorrect').checked;
-
-      questions = allQuestions.filter(q => {
-        const answeredStatus = answeredQuestions[q.id];
-        const matchesFilter = q.description.toLowerCase().includes(filterText);
-        const notIncorrect = !hideIncorrect || answeredStatus !== 'incorrect';
-        return matchesFilter && notIncorrect;
-      });
-
+      questions = allQuestions.filter(q =>
+        !answeredQuestions[q.id] && q.description.toLowerCase().includes(filterText)
+      );
       shuffleArray(questions);
       updateQuestionCounter();
       currentQuestionIndex = 0;
