@@ -34,8 +34,11 @@
       <label>
         <input type="radio" name="questionType" value="flashcard"> Flashcard
       </label>
+      <label>
+        <input type="checkbox" id="hideIncorrect" name="hideIncorrect"> Hide Incorrect Answers
+      </label>
       <div id="questionCounter">Questions Remaining: 0</div>
-      <div id="scoreDisplay">Score: 0</div>
+      <div id="scoreDisplay">Score: 0%</div>
     </section>
     <section>
       <div id="quizSection"></div>
@@ -74,7 +77,8 @@
     import { getDatabase, database, ref, onValue, push, set, remove } from '../assets/js/firebase-init.js';
 
     let currentQuestionIndex = 0;
-    let score = 0;
+    let correctAnswersCount = 0;
+    let totalQuestionsAnswered = 0;
     let questions = [];
     let allQuestions = [];
     let answeredQuestions = {};
@@ -107,6 +111,7 @@
       document.getElementById('showAnswerButton').addEventListener('click', showAnswer);
       document.getElementById('editQuestionButton').addEventListener('click', editCurrentQuestion);
       document.getElementById('addNewQuestionButton').addEventListener('click', showAddQuestionForm);
+      document.getElementById('hideIncorrect').addEventListener('change', filterQuestions);
       document.querySelectorAll('input[name="questionType"]').forEach(radio => {
         radio.addEventListener('change', () => {
           if (questions.length > 0) {
@@ -138,10 +143,7 @@
           id: key,
           ...data[key]
         }));
-        questions = allQuestions.filter(q => answeredQuestions[q.id] !== 'answered');
-        updateQuestionCounter();
-        shuffleArray(questions);
-        displayQuestion(questions[currentQuestionIndex]);
+        filterQuestions();
       }, error => {
         console.error('Error fetching questions:', error);
       });
@@ -225,21 +227,20 @@
       if (isCorrect) {
         answeredQuestions[questions[currentQuestionIndex].id] = 'answered';
         localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
-        score += 10;
-        questions = questions.filter(q => answeredQuestions[q.id] !== 'answered');
-        alert("Correct!");
-        updateScoreDisplay();
-        updateQuestionCounter();
-        displayNextQuestion();
+        correctAnswersCount++;
       } else {
-        score -= 10;
-        alert("Incorrect");
-        updateScoreDisplay();
+        answeredQuestions[questions[currentQuestionIndex].id] = 'incorrect';
+        localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
       }
+      totalQuestionsAnswered++;
+      updateScoreDisplay();
+      updateQuestionCounter();
+      displayNextQuestion();
     }
 
     function updateScoreDisplay() {
-      document.getElementById('scoreDisplay').textContent = `Score: ${score}`;
+      const scorePercentage = totalQuestionsAnswered === 0 ? 0 : Math.round((correctAnswersCount / totalQuestionsAnswered) * 100);
+      document.getElementById('scoreDisplay').textContent = `Score: ${scorePercentage}%`;
     }
 
     function checkAnswers(userAnswers, correctAnswers) {
@@ -276,6 +277,8 @@
 
     function resetQuiz() {
       currentQuestionIndex = 0;
+      correctAnswersCount = 0;
+      totalQuestionsAnswered = 0;
       shuffleArray(questions);
       updateQuestionCounter();
       displayQuestion(questions[currentQuestionIndex]);
@@ -324,7 +327,6 @@
       set(questionRef, { question, description, options, correctAnswer }).then(() => {
         alert("Question updated in database.");
         resetAddQuestionForm();
-        fetchQuestions();
       }).catch(error => {
         console.error('Error updating question:', error);
       });
@@ -332,9 +334,15 @@
 
     function filterQuestions() {
       const filterText = document.getElementById('filterInput').value.toLowerCase();
-      questions = allQuestions.filter(q =>
-        !answeredQuestions[q.id] && q.description.toLowerCase().includes(filterText)
-      );
+      const hideIncorrect = document.getElementById('hideIncorrect').checked;
+
+      questions = allQuestions.filter(q => {
+        const answeredStatus = answeredQuestions[q.id];
+        const matchesFilter = q.description.toLowerCase().includes(filterText);
+        const notIncorrect = !hideIncorrect || answeredStatus !== 'incorrect';
+        return matchesFilter && notIncorrect;
+      });
+
       shuffleArray(questions);
       updateQuestionCounter();
       currentQuestionIndex = 0;
