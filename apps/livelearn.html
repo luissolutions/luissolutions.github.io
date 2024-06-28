@@ -34,6 +34,9 @@
       <label>
         <input type="radio" name="questionType" value="flashcard"> Flashcard
       </label>
+      <div>
+        <input type="checkbox" id="showIncorrect"> Show Incorrect Answers
+      </div>
       <div id="questionCounter">Questions Remaining: 0</div>
       <div id="scoreDisplay">Score: 0% (0 correct / 0 wrong)</div>
     </section>
@@ -127,6 +130,7 @@
       document.getElementById('showAnswerButton').addEventListener('click', showAnswer);
       document.getElementById('editQuestionButton').addEventListener('click', editCurrentQuestion);
       document.getElementById('addNewQuestionButton').addEventListener('click', showAddQuestionForm);
+      document.getElementById('showIncorrect').addEventListener('change', fetchQuestions);
       document.querySelectorAll('input[name="questionType"]').forEach(radio => {
         radio.addEventListener('change', () => {
           if (questions.length > 0) {
@@ -145,6 +149,7 @@
     }
 
     function fetchQuestions() {
+      const showIncorrect = document.getElementById('showIncorrect').checked;
       const questionsRef = ref(database, 'questions');
       onValue(questionsRef, snapshot => {
         const data = snapshot.val();
@@ -152,7 +157,15 @@
           id: key,
           ...data[key]
         }));
-        questions = allQuestions.filter(q => answeredQuestions[q.id] !== 'answered');
+        questions = allQuestions.filter(q => {
+          if (answeredQuestions[q.id] === 'answered') {
+            return false;
+          }
+          if (!showIncorrect && answeredQuestions[q.id] === 'incorrect') {
+            return false;
+          }
+          return true;
+        });
         updateQuestionCounter();
         shuffleArray(questions);
         displayQuestion(questions[currentQuestionIndex]);
@@ -243,6 +256,8 @@
         questions = questions.filter(q => answeredQuestions[q.id] !== 'answered');
         alert("Correct!");
       } else {
+        answeredQuestions[questions[currentQuestionIndex].id] = 'incorrect';
+        localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
         wrongAnswersCount++;
         alert("Incorrect");
       }
