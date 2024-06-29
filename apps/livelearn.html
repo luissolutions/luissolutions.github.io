@@ -85,45 +85,23 @@
     let currentQuestionId = null;
 
     document.addEventListener('DOMContentLoaded', () => {
-      const savedAnsweredQuestions = localStorage.getItem('answeredQuestions');
-      if (savedAnsweredQuestions) {
-        answeredQuestions = JSON.parse(savedAnsweredQuestions);
-      }
-
-      const savedCorrectAnswersCount = localStorage.getItem('correctAnswersCount');
-      if (savedCorrectAnswersCount) {
-        correctAnswersCount = parseInt(savedCorrectAnswersCount);
-      }
-
-      const savedWrongAnswersCount = localStorage.getItem('wrongAnswersCount');
-      if (savedWrongAnswersCount) {
-        wrongAnswersCount = parseInt(savedWrongAnswersCount);
-      }
-
+      loadSavedData();
       addEventListeners();
       fetchQuestions();
-
-      const savedIndex = localStorage.getItem('currentQuestionIndex');
-      if (savedIndex) {
-        currentQuestionIndex = parseInt(savedIndex);
-      }
-      updateScoreDisplay();
     });
 
-    function addEventListeners() {
-      const inputFields = document.querySelectorAll('input[type="text"]');
-      inputFields.forEach(input => {
-        input.addEventListener('keypress', event => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            const nextButton = input.nextElementSibling;
-            if (nextButton && nextButton.tagName === 'BUTTON') {
-              nextButton.click();
-            }
-          }
-        });
-      });
+    function loadSavedData() {
+      answeredQuestions = JSON.parse(localStorage.getItem('answeredQuestions') || '{}');
+      correctAnswersCount = parseInt(localStorage.getItem('correctAnswersCount') || '0');
+      wrongAnswersCount = parseInt(localStorage.getItem('wrongAnswersCount') || '0');
+      currentQuestionIndex = parseInt(localStorage.getItem('currentQuestionIndex') || '0');
+      updateScoreDisplay();
+    }
 
+    function addEventListeners() {
+      document.querySelectorAll('input[type="text"]').forEach(input => {
+        input.addEventListener('keypress', handleEnterKey);
+      });
       document.getElementById('submitAnswer').addEventListener('click', submitAnswer);
       document.getElementById('nextQuestion').addEventListener('click', displayNextQuestion);
       document.getElementById('filterButton').addEventListener('click', filterQuestions);
@@ -138,14 +116,29 @@
           }
         });
       });
+      document.getElementById('addQuestionButton').addEventListener('click', handleAddOrUpdateQuestion);
+      document.getElementById('downloadData').addEventListener('click', downloadQuestions);
+      document.getElementById('deleteQuestionButton').addEventListener('click', deleteCurrentQuestion);
+      document.addEventListener('keydown', handleEnterKeyGlobal);
     }
 
-    function showAnswer() {
-      const currentQuestion = questions[currentQuestionIndex];
-      const answerText = Array.isArray(currentQuestion.correctAnswer)
-        ? `Correct Answers: ${currentQuestion.correctAnswer.join(', ')}`
-        : `Correct Answer: ${currentQuestion.correctAnswer}`;
-      alert(answerText);
+    function handleEnterKey(event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        const nextButton = event.target.nextElementSibling;
+        if (nextButton && nextButton.tagName === 'BUTTON') {
+          nextButton.click();
+        }
+      }
+    }
+
+    function handleEnterKeyGlobal(event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (document.activeElement.id === "textInputAnswer" || document.activeElement.tagName === "INPUT" && document.activeElement.type === "radio") {
+          submitAnswer();
+        }
+      }
     }
 
     function fetchQuestions() {
@@ -153,25 +146,22 @@
       const questionsRef = ref(database, 'questions');
       onValue(questionsRef, snapshot => {
         const data = snapshot.val();
-        allQuestions = Object.keys(data).map(key => ({
-          id: key,
-          ...data[key]
-        }));
-        questions = allQuestions.filter(q => {
-          if (answeredQuestions[q.id] === 'answered') {
-            return false;
-          }
-          if (!showIncorrect && answeredQuestions[q.id] === 'incorrect') {
-            return false;
-          }
-          return true;
-        });
-        updateQuestionCounter();
+        allQuestions = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        questions = filterQuestionsList(allQuestions, showIncorrect);
         shuffleArray(questions);
-        currentQuestionIndex = 0; // Reset to first question
+        currentQuestionIndex = 0;
         displayQuestion(questions[currentQuestionIndex]);
+        updateQuestionCounter();
       }, error => {
         console.error('Error fetching questions:', error);
+      });
+    }
+
+    function filterQuestionsList(questionList, showIncorrect) {
+      return questionList.filter(q => {
+        if (answeredQuestions[q.id] === 'answered') return false;
+        if (!showIncorrect && answeredQuestions[q.id] === 'incorrect') return false;
+        return true;
       });
     }
 
@@ -185,7 +175,6 @@
 
       const questionType = document.querySelector('input[name="questionType"]:checked').value;
       currentQuestionId = question.id;
-
       quizSection.innerHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>`;
 
       if (questionType === 'flashcard') {
@@ -195,21 +184,18 @@
         revealButton.addEventListener('click', () => revealFlashcardAnswer(question));
         quizSection.appendChild(revealButton);
       } else if (questionType === 'multipleChoice') {
-        let options = question.options.slice();
-        shuffleArray(options);
-
-        let optionsHTML = options.map(option => {
-          if (Array.isArray(question.correctAnswer)) {
-            return `<label><input type="checkbox" name="question" value="${option}">${option}</label>`;
-          } else {
-            return `<label><input type="radio" name="question" value="${option}">${option}</label>`;
-          }
-        }).join('<br>');
-
-        quizSection.innerHTML += optionsHTML;
+        let options = shuffleArray([...question.options]);
+        quizSection.innerHTML += generateOptionsHTML(options, question.correctAnswer);
       } else {
         quizSection.innerHTML += `<input type="text" id="textInputAnswer" placeholder="Type your answer">`;
       }
+    }
+
+    function generateOptionsHTML(options, correctAnswer) {
+      return options.map(option => {
+        const inputType = Array.isArray(correctAnswer) ? 'checkbox' : 'radio';
+        return `<label><input type="${inputType}" name="question" value="${option}">${option}</label>`;
+      }).join('<br>');
     }
 
     function revealFlashcardAnswer(question) {
@@ -220,51 +206,57 @@
       }
 
       const optionsHTML = question.options.map(option => {
-        const isCorrect = Array.isArray(question.correctAnswer)
-          ? question.correctAnswer.includes(option)
-          : question.correctAnswer === option;
+        const isCorrect = Array.isArray(question.correctAnswer) ? question.correctAnswer.includes(option) : question.correctAnswer === option;
         return isCorrect ? `<strong>${option}</strong>` : option;
       }).join('<br>');
 
       quizSection.innerHTML += `<div>${optionsHTML}</div>`;
     }
 
+    function showAnswer() {
+      const currentQuestion = questions[currentQuestionIndex];
+      const answerText = Array.isArray(currentQuestion.correctAnswer)
+        ? `Correct Answers: ${currentQuestion.correctAnswer.join(', ')}`
+        : `Correct Answer: ${currentQuestion.correctAnswer}`;
+      alert(answerText);
+    }
+
     function submitAnswer() {
       const questionType = document.querySelector('input[name="questionType"]:checked').value;
-      let isCorrect = false;
-
-      if (questionType === 'multipleChoice') {
-        const correctAnswer = questions[currentQuestionIndex].correctAnswer;
-
-        if (Array.isArray(correctAnswer)) {
-          const selectedOptions = Array.from(document.querySelectorAll('input[name="question"]:checked')).map(input => input.value);
-          isCorrect = checkAnswers(selectedOptions, correctAnswer);
-        } else {
-          const selectedOption = document.querySelector('input[name="question"]:checked');
-          const userAnswer = selectedOption ? selectedOption.value : null;
-          isCorrect = userAnswer === correctAnswer;
-        }
-      } else {
-        const userAnswer = document.getElementById('textInputAnswer').value;
-        const correctAnswer = questions[currentQuestionIndex].correctAnswer;
-        isCorrect = userAnswer.toLowerCase() === correctAnswer.toLowerCase();
-      }
+      const isCorrect = checkAnswer(questionType, questions[currentQuestionIndex]);
 
       if (isCorrect) {
         answeredQuestions[questions[currentQuestionIndex].id] = 'answered';
-        localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
         correctAnswersCount++;
         questions = questions.filter(q => answeredQuestions[q.id] !== 'answered');
         alert("Correct!");
       } else {
         answeredQuestions[questions[currentQuestionIndex].id] = 'incorrect';
-        localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
         wrongAnswersCount++;
         alert("Incorrect");
       }
+
+      localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
       updateScoreDisplay();
       updateQuestionCounter();
       displayNextQuestion();
+    }
+
+    function checkAnswer(questionType, currentQuestion) {
+      if (questionType === 'multipleChoice') {
+        const correctAnswer = currentQuestion.correctAnswer;
+        if (Array.isArray(correctAnswer)) {
+          const selectedOptions = Array.from(document.querySelectorAll('input[name="question"]:checked')).map(input => input.value);
+          return checkAnswers(selectedOptions, correctAnswer);
+        } else {
+          const selectedOption = document.querySelector('input[name="question"]:checked');
+          const userAnswer = selectedOption ? selectedOption.value : null;
+          return userAnswer === correctAnswer;
+        }
+      } else {
+        const userAnswer = document.getElementById('textInputAnswer').value;
+        return userAnswer.toLowerCase() === currentQuestion.correctAnswer.toLowerCase();
+      }
     }
 
     function updateScoreDisplay() {
@@ -276,8 +268,7 @@
     }
 
     function checkAnswers(userAnswers, correctAnswers) {
-      return userAnswers.length === correctAnswers.length &&
-        userAnswers.every(val => correctAnswers.includes(val));
+      return userAnswers.length === correctAnswers.length && userAnswers.every(val => correctAnswers.includes(val));
     }
 
     function displayNextQuestion() {
@@ -301,6 +292,7 @@
         const j = Math.floor(Math.random() * (i + 1));
         [array[i], array[j]] = [array[j], array[i]];
       }
+      return array;
     }
 
     function updateQuestionCounter() {
@@ -321,7 +313,7 @@
       updateScoreDisplay();
     }
 
-    document.getElementById('addQuestionButton').addEventListener('click', event => {
+    function handleAddOrUpdateQuestion(event) {
       event.preventDefault();
       const newQuestion = document.getElementById('newQuestion').value;
       const newDescription = document.getElementById('newDescription').value;
@@ -342,7 +334,7 @@
       } else {
         alert('Please fill in all fields.');
       }
-    });
+    }
 
     function addQuestionToFirebase(question, description, options, correctAnswer) {
       const questionsRef = ref(database, 'questions');
@@ -367,8 +359,7 @@
 
     function filterQuestions() {
       const filterText = document.getElementById('filterInput').value.toLowerCase();
-      questions = allQuestions.filter(q =>
-        (!answeredQuestions[q.id] || (document.getElementById('showIncorrect').checked && answeredQuestions[q.id] === 'incorrect')) &&
+      questions = filterQuestionsList(allQuestions, document.getElementById('showIncorrect').checked).filter(q =>
         q.description.toLowerCase().includes(filterText)
       );
       shuffleArray(questions);
@@ -377,7 +368,7 @@
       displayQuestion(questions[currentQuestionIndex]);
     }
 
-    document.getElementById('downloadData').addEventListener('click', () => {
+    function downloadQuestions() {
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(questions));
       const downloadAnchorNode = document.createElement('a');
       downloadAnchorNode.setAttribute("href", dataStr);
@@ -385,41 +376,26 @@
       document.body.appendChild(downloadAnchorNode); // Required for Firefox
       downloadAnchorNode.click();
       downloadAnchorNode.remove();
-    });
+    }
 
-    document.getElementById('deleteQuestionButton').addEventListener('click', () => {
+    function deleteCurrentQuestion() {
       if (currentQuestionId) {
         const userConfirmed = confirm('Are you sure you want to delete this question?');
         if (userConfirmed) {
-          deleteQuestionFromFirebase(currentQuestionId);
+          const questionRef = ref(database, `questions/${currentQuestionId}`);
+          remove(questionRef).then(() => {
+            fetchQuestions();
+          }).catch(error => {
+            console.error('Error removing question:', error);
+          });
         }
       }
-    });
-
-    function deleteQuestionFromFirebase(questionId) {
-      const questionRef = ref(database, `questions/${questionId}`);
-      remove(questionRef).then(() => {
-        fetchQuestions();
-      }).catch(error => {
-        console.error('Error removing question:', error);
-      });
     }
 
     function showAddQuestionForm() {
       document.getElementById('addQuestion').style.display = 'block';
       resetAddQuestionForm();
     }
-
-    document.addEventListener('keydown', event => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        if (document.activeElement.id === "textInputAnswer" ||
-          document.activeElement.tagName === "INPUT" &&
-          document.activeElement.type === "radio") {
-          submitAnswer();
-        }
-      }
-    });
 
     function editCurrentQuestion() {
       const currentQuestion = questions[currentQuestionIndex];
