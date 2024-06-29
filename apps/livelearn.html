@@ -108,7 +108,9 @@
       document.getElementById('showAnswerButton').addEventListener('click', showAnswer);
       document.getElementById('editQuestionButton').addEventListener('click', editCurrentQuestion);
       document.getElementById('addNewQuestionButton').addEventListener('click', showAddQuestionForm);
-      document.getElementById('showIncorrect').addEventListener('change', fetchQuestions);
+      document.getElementById('showIncorrect').addEventListener('change', () => {
+        fetchQuestions(true);
+      });
       document.querySelectorAll('input[name="questionType"]').forEach(radio => {
         radio.addEventListener('change', () => {
           if (questions.length > 0) {
@@ -141,13 +143,17 @@
       }
     }
 
-    function fetchQuestions() {
+    function fetchQuestions(applyFilter = false) {
       const showIncorrect = document.getElementById('showIncorrect').checked;
+      const filterText = document.getElementById('filterInput').value.toLowerCase();
       const questionsRef = ref(database, 'questions');
       onValue(questionsRef, snapshot => {
         const data = snapshot.val();
         allQuestions = Object.keys(data).map(key => ({ id: key, ...data[key] }));
         questions = filterQuestionsList(allQuestions, showIncorrect);
+        if (applyFilter) {
+          questions = questions.filter(q => q.description.toLowerCase().includes(filterText));
+        }
         shuffleArray(questions);
         currentQuestionIndex = 0;
         displayQuestion(questions[currentQuestionIndex]);
@@ -342,6 +348,7 @@
       set(newQuestionRef, { question, description, options, correctAnswer }).then(() => {
         alert("Question added to database.");
         resetAddQuestionForm();
+        fetchQuestions(); // Refresh questions list and counter after adding a new question
       }).catch(error => {
         console.error('Error adding new question:', error);
       });
@@ -352,6 +359,7 @@
       set(questionRef, { question, description, options, correctAnswer }).then(() => {
         alert("Question updated in database.");
         resetAddQuestionForm();
+        fetchQuestions(); // Refresh questions list and counter after updating a question
       }).catch(error => {
         console.error('Error updating question:', error);
       });
@@ -384,7 +392,7 @@
         if (userConfirmed) {
           const questionRef = ref(database, `questions/${currentQuestionId}`);
           remove(questionRef).then(() => {
-            fetchQuestions();
+            fetchQuestions(); // Refresh questions list and counter after deleting a question
           }).catch(error => {
             console.error('Error removing question:', error);
           });
