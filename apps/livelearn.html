@@ -83,6 +83,7 @@
     let allQuestions = [];
     let answeredQuestions = {};
     let currentQuestionId = null;
+    let currentDescription = '';
 
     document.addEventListener('DOMContentLoaded', () => {
       loadSavedData();
@@ -147,7 +148,15 @@
       const questionsRef = ref(database, 'questions');
       onValue(questionsRef, snapshot => {
         const data = snapshot.val();
-        allQuestions = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        allQuestions = [];
+
+        // Flatten the questions structure
+        for (const [description, questions] of Object.entries(data)) {
+          for (const [key, value] of Object.entries(questions)) {
+            allQuestions.push({ id: key, description, ...value });
+          }
+        }
+
         questions = filterQuestionsList(allQuestions, showIncorrect);
         if (applyFilter) {
           questions = questions.filter(q => q.description.toLowerCase().includes(filterText));
@@ -179,6 +188,7 @@
 
       const questionType = document.querySelector('input[name="questionType"]:checked').value;
       currentQuestionId = question.id;
+      currentDescription = question.description;
       quizSection.innerHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>`;
 
       if (questionType === 'flashcard') {
@@ -288,8 +298,9 @@
         localStorage.setItem('currentQuestionIndex', currentQuestionIndex);
       } else {
         if (Object.keys(answeredQuestions).length === allQuestions.length) {
-          alert('Quiz completed! Starting over...');
-          resetQuiz();
+          quizSection.innerHTML = '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
+          document.getElementById('resetQuiz').addEventListener('click', resetQuiz);
+          return;
         } else {
           currentQuestionIndex = 0;
           displayQuestion(questions[currentQuestionIndex]);
@@ -347,9 +358,9 @@
     }
 
     function addQuestionToFirebase(question, description, options, correctAnswer) {
-      const questionsRef = ref(database, 'questions');
+      const questionsRef = ref(database, `questions/${description}`);
       const newQuestionRef = push(questionsRef);
-      set(newQuestionRef, { question, description, options, correctAnswer }).then(() => {
+      set(newQuestionRef, { question, options, correctAnswer }).then(() => {
         alert("Question added to database.");
         resetAddQuestionForm();
         fetchQuestions(); // Refresh questions list and counter after adding a new question
@@ -359,8 +370,8 @@
     }
 
     function updateQuestionInFirebase(questionId, question, description, options, correctAnswer) {
-      const questionRef = ref(database, `questions/${questionId}`);
-      set(questionRef, { question, description, options, correctAnswer }).then(() => {
+      const questionRef = ref(database, `questions/${currentDescription}/${questionId}`);
+      set(questionRef, { question, options, correctAnswer }).then(() => {
         alert("Question updated in database.");
         resetAddQuestionForm();
         fetchQuestions(); // Refresh questions list and counter after updating a question
@@ -394,7 +405,7 @@
       if (currentQuestionId) {
         const userConfirmed = confirm('Are you sure you want to delete this question?');
         if (userConfirmed) {
-          const questionRef = ref(database, `questions/${currentQuestionId}`);
+          const questionRef = ref(database, `questions/${currentDescription}/${currentQuestionId}`);
           remove(questionRef).then(() => {
             fetchQuestions(); // Refresh questions list and counter after deleting a question
           }).catch(error => {
