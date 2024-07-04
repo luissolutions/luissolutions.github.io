@@ -102,7 +102,7 @@
         <h2>Total Trips: <span id="total-trips">0</span></h2>
     </main>
     <script type="module">
-        import { database, ref, onValue, set, remove, push } from '../assets/js/firebase-init.js';
+        import { database, ref, onValue, set, remove } from '../assets/js/firebase-init.js';
         import { initializeAuth } from '../assets/js/auth.js';
 
         class MileageApp {
@@ -236,8 +236,8 @@
                     mileageEntry.endLocation = document.getElementById('end-location').value;
 
                     if (this.mileageData.length > 0) {
-                        const lastEntry = this.mileageData[this.mileageData.length - 1];
-                        if (lastEntry.client === mileageEntry.client && lastEntry.vehicle === mileageEntry.vehicle && lastEntry.tripType === 'start' && !lastEntry.endDate) {
+                        const lastEntry = this.mileageData.find(entry => entry.client === mileageEntry.client && entry.vehicle === mileageEntry.vehicle && entry.tripType === 'start' && !entry.endDate);
+                        if (lastEntry) {
                             const keyToUpdate = lastEntry.key;
                             const updates = {
                                 endDate: mileageEntry.endDate,
@@ -260,10 +260,11 @@
                     }
                 }
 
+                const timestamp = Math.floor(Date.now() / 1000).toString(); // Get UTC timestamp as string
                 if (this.isAuthenticated) {
-                    push(this.dbRef, mileageEntry);
+                    set(ref(database, `mileagedata/${timestamp}`), mileageEntry);
                 } else {
-                    this.saveToLocal(null, mileageEntry);
+                    this.saveToLocal(timestamp, mileageEntry);
                 }
 
                 this.clearFormFields();
@@ -342,9 +343,9 @@
             saveToLocal(key, data) {
                 let offlineData = JSON.parse(localStorage.getItem('offlineMileageData')) || {};
                 if (key) {
-                    offlineData[key] = data;
+                    offlineData[key] = { ...offlineData[key], ...data }; // Merge data for updates
                 } else {
-                    const newKey = `offline-${Date.now()}`;
+                    const newKey = Math.floor(Date.now() / 1000).toString();
                     offlineData[newKey] = data;
                 }
                 localStorage.setItem('offlineMileageData', JSON.stringify(offlineData));
@@ -370,11 +371,7 @@
                 if (this.isAuthenticated) {
                     const offlineData = JSON.parse(localStorage.getItem('offlineMileageData')) || {};
                     for (const [key, data] of Object.entries(offlineData)) {
-                        if (key.startsWith('offline-')) {
-                            push(this.dbRef, data);
-                        } else {
-                            set(ref(database, `mileagedata/${key}`), data);
-                        }
+                        set(ref(database, `mileagedata/${key}`), data);
                     }
                     localStorage.removeItem('offlineMileageData');
                     this.loadLocalData();
