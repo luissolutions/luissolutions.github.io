@@ -68,14 +68,32 @@
             timerLogTableBody: document.querySelector("#timer-log tbody"),
             exportButton: document.getElementById("export"),
             clearEntriesButton: document.getElementById("clearEntriesButton"),
-            timeDisplay: document.getElementById("timeDisplay")
+            timeDisplay: document.getElementById("timeDisplay"),
+            loginForm: document.getElementById("login-form"),
+            loginSection: document.getElementById("login-section"),
+            logoutButton: document.getElementById("logout")
         };
 
         let timer = {
             interval: null,
             startTime: null,
             isRunning: false,
-            logsRef: ref(database, 'times')
+            logsRef: ref(database, 'times'),
+            logs: []
+        };
+
+        let app = {
+            isAuthenticated: false,
+            initializeFirebase: function () {
+                timer.logsRef = ref(database, 'times');
+                loadEntriesFromFirebase();
+                updateTable();
+            },
+            loadLocalData: function () {
+                timer.logs = JSON.parse(localStorage.getItem('times')) || [];
+                loadEntriesFromLocalStorage();
+                updateTable();
+            }
         };
 
         function formatTime(milliseconds) {
@@ -87,7 +105,10 @@
 
         function updateCurrentTaskTime() {
             const elapsedTime = Date.now() - timer.startTime;
-            elements.currentTaskTimeDisplay.textContent = `${formatTime(elapsedTime)}`;
+            elements.currentTaskTimeDisplay.textContent = formatTime(elapsedTime);
+            if (timer.isRunning) {
+                requestAnimationFrame(updateCurrentTaskTime);
+            }
         }
 
         function toggleTimer() {
@@ -101,41 +122,63 @@
         function startTimer() {
             if (!timer.isRunning) {
                 timer.startTime = Date.now();
-                timer.interval = setInterval(updateCurrentTaskTime, 1000);
+                timer.isRunning = true;
+                updateCurrentTaskTime();
                 elements.currentTaskTimeDisplay.style.display = 'inline';
-                push(timer.logsRef, {
+                const logEntry = {
                     taskName: elements.taskNameInput.value || 'Unnamed Task',
                     startTime: new Date(timer.startTime).toLocaleString(),
                     endTime: "",
                     elapsedTime: ""
-                }).then(() => {
-                    timer.isRunning = true;
-                    console.log("New timer started.");
-                });
+                };
+                if (app.isAuthenticated) {
+                    push(timer.logsRef, logEntry).then(() => {
+                        console.log("New timer started.");
+                    }).catch(error => {
+                        console.error("Error starting timer:", error);
+                    });
+                } else {
+                    timer.logs.push(logEntry);
+                    saveLogsToLocalStorage();
+                    updateTable();
+                }
             }
         }
 
         function stopTimer() {
-            clearInterval(timer.interval);
-
+            timer.isRunning = false;
             const endTime = new Date().toLocaleString();
             const elapsedTime = formatTime(Date.now() - timer.startTime);
 
-            elements.currentTaskTimeDisplay.textContent = `${elapsedTime}`;
+            elements.currentTaskTimeDisplay.textContent = elapsedTime;
 
-            get(timer.logsRef).then(snapshot => {
-                if (snapshot.exists()) {
-                    const data = snapshot.val();
-                    const lastEntryKey = Object.keys(data).find(key => data[key].endTime === "");
-                    if (lastEntryKey) {
-                        const lastEntryRef = ref(database, `times/${lastEntryKey}`);
-                        set(lastEntryRef, { ...data[lastEntryKey], endTime, elapsedTime }).then(() => {
-                            updateWeeklyTimeSheet(data[lastEntryKey].taskName, data[lastEntryKey].startTime, endTime);
-                            resetTimerState();
-                        });
+            if (app.isAuthenticated) {
+                get(timer.logsRef).then(snapshot => {
+                    if (snapshot.exists()) {
+                        const data = snapshot.val();
+                        const lastEntryKey = Object.keys(data).find(key => data[key].endTime === "");
+                        if (lastEntryKey) {
+                            const lastEntryRef = ref(database, `times/${lastEntryKey}`);
+                            set(lastEntryRef, { ...data[lastEntryKey], endTime, elapsedTime }).then(() => {
+                                updateWeeklyTimeSheet(data[lastEntryKey].taskName, data[lastEntryKey].startTime, endTime);
+                                resetTimerState();
+                            }).catch(error => {
+                                console.error("Error stopping timer:", error);
+                            });
+                        }
                     }
+                }).catch(error => console.error("Firebase access error:", error));
+            } else {
+                const lastEntry = timer.logs.find(log => log.endTime === "");
+                if (lastEntry) {
+                    lastEntry.endTime = endTime;
+                    lastEntry.elapsedTime = elapsedTime;
+                    updateWeeklyTimeSheet(lastEntry.taskName, lastEntry.startTime, endTime);
+                    saveLogsToLocalStorage();
+                    resetTimerState();
+                    updateTable();
                 }
-            }).catch(error => console.error("Firebase access error:", error));
+            }
         }
 
         function updateWeeklyTimeSheet(taskName, startTime, endTime) {
@@ -146,102 +189,128 @@
             const newEntry = document.createElement('div');
             newEntry.className = 'time-entry';
             newEntry.innerHTML = `
-        <input type="date" class="start-date" value="${start.toISOString().slice(0, 10)}" required>
-        <input type="time" class="start-time" value="${start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}" required>
-        <input type="date" class="end-date" value="${end.toISOString().slice(0, 10)}" required>
-        <input type="time" class="end-time" value="${end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}" required>
-        <button onclick="removeEntry(this)">Remove</button>
-    `;
+                <input type="date" class="start-date" value="${start.toISOString().slice(0, 10)}" required>
+                <input type="time" class="start-time" value="${start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}" required>
+                <input type="date" class="end-date" value="${end.toISOString().slice(0, 10)}" required>
+                <input type="time" class="end-time" value="${end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}" required>
+                <button onclick="removeEntry(this)">Remove</button>
+            `;
             dayEntries.appendChild(newEntry);
             calculateTotalHours();
-            saveEntriesToFirebase();
+            if (app.isAuthenticated) {
+                saveEntriesToFirebase();
+            } else {
+                saveEntriesToLocalStorage();
+            }
         }
 
         function resetTimerState() {
             timer.startTime = null;
-            timer.interval = null;
             timer.isRunning = false;
             elements.currentTaskTimeDisplay.textContent = "00:00:00";
             elements.currentTaskTimeDisplay.style.display = 'none';
         }
 
-        function deleteLog(logKey) {
-            const logRef = ref(database, `times/${logKey}`);
-            get(logRef).then(snapshot => {
-                if (snapshot.exists()) {
-                    const log = snapshot.val();
-                    const isActive = !log.endTime;
+        function deleteLog(index, logKey) {
+            if (app.isAuthenticated) {
+                const logRef = ref(database, `times/${logKey}`);
+                get(logRef).then(snapshot => {
+                    if (snapshot.exists()) {
+                        const log = snapshot.val();
+                        const isActive = !log.endTime;
 
-                    remove(logRef).then(() => {
-                        if (isActive) {
-                            location.reload();
-                        } else {
-                            updateTable();
-                        }
-                    });
-                }
-            });
+                        remove(logRef).then(() => {
+                            if (isActive) {
+                                location.reload();
+                            } else {
+                                updateTable();
+                            }
+                        }).catch(error => {
+                            console.error("Error deleting log:", error);
+                        });
+                    }
+                });
+            } else {
+                timer.logs.splice(index, 1);
+                saveLogsToLocalStorage();
+                updateTable();
+            }
         }
 
         function updateTable() {
-            onValue(timer.logsRef, snapshot => {
-                const data = snapshot.val();
-                elements.timerLogTableBody.innerHTML = "";
-                Object.entries(data).forEach(([key, log]) => {
+            elements.timerLogTableBody.innerHTML = "";
+            if (app.isAuthenticated) {
+                onValue(timer.logsRef, snapshot => {
+                    const data = snapshot.val();
+                    elements.timerLogTableBody.innerHTML = "";
+                    Object.entries(data).forEach(([key, log]) => {
+                        const row = elements.timerLogTableBody.insertRow();
+                        row.innerHTML = `<td>${log.taskName}</td><td>${log.startTime}</td><td>${log.endTime}</td><td>${log.elapsedTime}</td>`;
+                        const deleteCell = row.insertCell();
+                        const deleteButton = document.createElement("button");
+                        deleteButton.classList.add('clear-button');
+                        deleteButton.textContent = "Delete";
+                        deleteButton.addEventListener('click', () => deleteLog(null, key));
+                        deleteCell.appendChild(deleteButton);
+                    });
+                });
+            } else {
+                timer.logs.forEach((log, index) => {
                     const row = elements.timerLogTableBody.insertRow();
                     row.innerHTML = `<td>${log.taskName}</td><td>${log.startTime}</td><td>${log.endTime}</td><td>${log.elapsedTime}</td>`;
                     const deleteCell = row.insertCell();
                     const deleteButton = document.createElement("button");
                     deleteButton.classList.add('clear-button');
                     deleteButton.textContent = "Delete";
-                    deleteButton.addEventListener('click', () => deleteLog(key));
+                    deleteButton.addEventListener('click', () => deleteLog(index));
                     deleteCell.appendChild(deleteButton);
                 });
-            });
+            }
         }
 
         function init() {
-            onValue(timer.logsRef, snapshot => {
-                if (snapshot.exists()) {
-                    const data = snapshot.val();
-                    const activeEntry = Object.entries(data).find(([key, log]) => log.startTime && !log.endTime);
+            elements.toggleTimerButton.addEventListener('click', toggleTimer);
+            elements.exportButton.addEventListener('click', exportLogs);
+            elements.clearEntriesButton.addEventListener('click', clearEntries);
 
-                    if (activeEntry) {
-                        const [, log] = activeEntry;
-                        timer.startTime = new Date(log.startTime).getTime();
-                        timer.interval = setInterval(updateCurrentTaskTime, 1000);
-                        timer.isRunning = true;
-                        updateCurrentTaskTime();
-                        elements.currentTaskTimeDisplay.style.display = 'inline';
-                        console.log("Resumed active timer.");
-                    } else {
-                        console.log("No active timer. Ready to start a new one.");
-                    }
-                } else {
-                    console.log("No entries found. Ready to start a new timer.");
-                }
-                elements.toggleTimerButton.addEventListener('click', toggleTimer);
-                elements.exportButton.addEventListener('click', exportLogs);
-                elements.clearEntriesButton.addEventListener('click', clearEntries);
-                updateTable();
-            });
             setInterval(() => {
                 const now = new Date();
-                elements.timeDisplay.textContent = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+                elements.timeDisplay.textContent = now.toLocaleTimeString('en-US', { hour12: false });
             }, 1000);
+
+            const savedTimer = localStorage.getItem('currentTimer');
+            if (savedTimer) {
+                timer = JSON.parse(savedTimer);
+                if (timer.isRunning) {
+                    timer.startTime = new Date(timer.startTime).getTime();
+                    updateCurrentTaskTime();
+                    elements.currentTaskTimeDisplay.style.display = 'inline';
+                }
+            }
+
+            initializeAuth(app);
         }
 
         function exportLogs() {
-            get(timer.logsRef).then(snapshot => {
-                if (snapshot.exists()) {
-                    const data = snapshot.val();
-                    let csvData = "Task Name,Start Time,End Time,Elapsed Time\n";
-                    Object.values(data).forEach(log => {
-                        csvData += `${log.taskName},"${log.startTime}","${log.endTime}","${log.elapsedTime}"\n`;
-                    });
-                    downloadCsv(csvData);
-                }
-            });
+            let csvData = "Task Name,Start Time,End Time,Elapsed Time\n";
+            if (app.isAuthenticated) {
+                get(timer.logsRef).then(snapshot => {
+                    if (snapshot.exists()) {
+                        const data = snapshot.val();
+                        Object.values(data).forEach(log => {
+                            csvData += `${log.taskName},"${log.startTime}","${log.endTime}","${log.elapsedTime}"\n`;
+                        });
+                        downloadCsv(csvData);
+                    }
+                }).catch(error => {
+                    console.error("Error exporting logs:", error);
+                });
+            } else {
+                timer.logs.forEach(log => {
+                    csvData += `${log.taskName},"${log.startTime}","${log.endTime}","${log.elapsedTime}"\n`;
+                });
+                downloadCsv(csvData);
+            }
         }
 
         function downloadCsv(csvData) {
@@ -255,7 +324,10 @@
             window.URL.revokeObjectURL(url);
         }
 
-        window.addEventListener("load", init);
+        function saveLogsToLocalStorage() {
+            localStorage.setItem('times', JSON.stringify(timer.logs));
+            localStorage.setItem('currentTimer', JSON.stringify(timer));
+        }
 
         // Weekly Time Sheet Functionality
         document.addEventListener('DOMContentLoaded', () => {
@@ -275,7 +347,11 @@
             });
 
             document.getElementById('timeEntries').addEventListener('change', calculateTotalHours);
-            loadEntriesFromFirebase();
+            if (app.isAuthenticated) {
+                loadEntriesFromFirebase();
+            } else {
+                loadEntriesFromLocalStorage();
+            }
         });
 
         window.addEntry = function (day) {
@@ -291,13 +367,21 @@
             `;
             dayEntries.appendChild(newEntry);
             calculateTotalHours();
-            saveEntriesToFirebase();
+            if (app.isAuthenticated) {
+                saveEntriesToFirebase();
+            } else {
+                saveEntriesToLocalStorage();
+            }
         };
 
         window.removeEntry = function (button) {
             button.parentElement.remove();
             calculateTotalHours();
-            saveEntriesToFirebase();
+            if (app.isAuthenticated) {
+                saveEntriesToFirebase();
+            } else {
+                saveEntriesToLocalStorage();
+            }
         };
 
         function calculateTotalHours() {
@@ -332,7 +416,65 @@
             });
 
             document.getElementById('totalHours').textContent = totalHours.toFixed(2);
-            saveEntriesToFirebase();
+            if (app.isAuthenticated) {
+                saveEntriesToFirebase();
+            } else {
+                saveEntriesToLocalStorage();
+            }
+        }
+
+        function saveEntriesToLocalStorage() {
+            const entries = {};
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+            days.forEach(day => {
+                const dayEntries = document.getElementById(`${day}Entries`).getElementsByClassName('time-entry');
+                entries[day] = [];
+
+                Array.from(dayEntries).forEach(entry => {
+                    const startDate = entry.querySelector('.start-date').value;
+                    const startTime = entry.querySelector('.start-time').value;
+                    const endDate = entry.querySelector('.end-date').value;
+                    const endTime = entry.querySelector('.end-time').value;
+
+                    if (startDate || startTime || endDate || endTime) {
+                        entries[day].push({
+                            startDate,
+                            startTime,
+                            endDate,
+                            endTime
+                        });
+                    }
+                });
+            });
+
+            localStorage.setItem('weeklyTimes', JSON.stringify(entries));
+        }
+
+        function loadEntriesFromLocalStorage() {
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            const entries = JSON.parse(localStorage.getItem('weeklyTimes')) || {};
+
+            days.forEach(day => {
+                const dayEntries = document.getElementById(`${day}Entries`);
+                dayEntries.innerHTML = ""; // Clear existing entries
+                if (entries[day]) {
+                    entries[day].forEach(entryData => {
+                        const newEntry = document.createElement('div');
+                        newEntry.className = 'time-entry';
+                        newEntry.innerHTML = `
+                            <input type="date" class="start-date" value="${entryData.startDate}" required>
+                            <input type="time" class="start-time" value="${entryData.startTime}" required>
+                            <input type="date" class="end-date" value="${entryData.endDate}" required>
+                            <input type="time" class="end-time" value="${entryData.endTime}" required>
+                            <button onclick="removeEntry(this)">Remove</button>
+                        `;
+                        dayEntries.appendChild(newEntry);
+                    });
+                }
+            });
+
+            calculateTotalHours();
         }
 
         function saveEntriesToFirebase() {
@@ -360,7 +502,9 @@
                 });
             });
 
-            set(ref(database, 'weeklyTimes'), entries);
+            set(ref(database, 'weeklyTimes'), entries).catch(error => {
+                console.error("Error saving entries:", error);
+            });
         }
 
         function loadEntriesFromFirebase() {
@@ -372,6 +516,7 @@
 
                     days.forEach(day => {
                         const dayEntries = document.getElementById(`${day}Entries`);
+                        dayEntries.innerHTML = ""; // Clear existing entries
                         if (entries[day]) {
                             entries[day].forEach(entryData => {
                                 const newEntry = document.createElement('div');
@@ -390,16 +535,29 @@
 
                     calculateTotalHours();
                 }
+            }).catch(error => {
+                console.error("Error loading entries:", error);
             });
         }
 
         function clearEntries() {
-            remove(ref(database, 'weeklyTimes')).then(() => {
+            if (app.isAuthenticated) {
+                remove(ref(database, 'weeklyTimes')).then(() => {
+                    document.querySelectorAll('.time-entry').forEach(entry => entry.remove());
+                    document.querySelectorAll('.day-container p span').forEach(span => span.textContent = "0");
+                    document.getElementById('totalHours').textContent = "0";
+                }).catch(error => {
+                    console.error("Error clearing entries:", error);
+                });
+            } else {
+                localStorage.removeItem('weeklyTimes');
                 document.querySelectorAll('.time-entry').forEach(entry => entry.remove());
                 document.querySelectorAll('.day-container p span').forEach(span => span.textContent = "0");
                 document.getElementById('totalHours').textContent = "0";
-            });
+            }
         }
+
+        window.addEventListener("load", init);
     </script>
 </body>
 
