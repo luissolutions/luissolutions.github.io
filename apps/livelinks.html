@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0,  user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Saved Links</title>
     <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
     <link rel="icon" type="image/png" href="../assets/img/t_logo.png" sizes="32x32" />
@@ -20,8 +20,14 @@
 
     <main>
         <div>
-            <input type="text" placeholder="insert link" id="linkInput">
+            <input type="text" placeholder="Insert link" id="linkInput">
+            <input type="text" placeholder="categories" id="categoryInput">
             <button id="saveLinkButton">Save</button>
+        </div>
+        <div>
+            <select id="categoryFilter">
+                <option value="">All Categories</option>
+            </select>
         </div>
         <ul id="linksList"></ul>
     </main>
@@ -37,21 +43,28 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             const linkInput = document.getElementById('linkInput');
+            const categoryInput = document.getElementById('categoryInput');
             const saveLinkButton = document.getElementById('saveLinkButton');
             const linksList = document.getElementById('linksList');
+            const categoryFilter = document.getElementById('categoryFilter');
 
             saveLinkButton.addEventListener('click', () => {
                 const linkUrl = linkInput.value;
+                const categoryInputValue = categoryInput.value;
                 if (!linkUrl) {
                     alert('Please enter a link.');
                     return;
                 }
 
+                const categories = categoryInputValue.split(',').map(cat => cat.trim()).filter(cat => cat);
                 const newLinkRef = push(ref(database, 'links'));
-                set(newLinkRef, { url: linkUrl })
+                const linkData = { url: linkUrl, categories: categories.length > 0 ? categories : null };
+
+                set(newLinkRef, linkData)
                     .then(() => {
                         console.log('Link saved successfully!');
                         linkInput.value = '';
+                        categoryInput.value = '';
                         fetchLinksFromFirebase();
                     })
                     .catch((error) => {
@@ -59,11 +72,16 @@
                     });
             });
 
+            categoryFilter.addEventListener('change', () => {
+                fetchLinksFromFirebase();
+            });
+
             function fetchLinksFromFirebase() {
                 const linksRef = ref(database, 'links');
                 onValue(linksRef, (snapshot) => {
                     const data = snapshot.val();
                     if (data) {
+                        populateCategoryFilter(data);
                         displayLinks(data);
                     }
                 }, (error) => {
@@ -73,9 +91,14 @@
 
             function displayLinks(links) {
                 linksList.innerHTML = '';
+                const selectedCategory = categoryFilter.value;
 
                 Object.keys(links).forEach(key => {
                     const link = links[key];
+                    const linkCategories = link.categories || [];
+
+                    if (selectedCategory && selectedCategory !== '' && !linkCategories.includes(selectedCategory)) return;
+
                     const listItem = document.createElement('li');
                     const aTag = document.createElement('a');
                     aTag.href = link.url;
@@ -92,6 +115,25 @@
                     listItem.appendChild(deleteButton);
                     linksList.appendChild(listItem);
                 });
+            }
+
+            function populateCategoryFilter(links) {
+                const categories = new Set(['All Categories']);
+                Object.keys(links).forEach(key => {
+                    const linkCategories = links[key].categories || [];
+                    linkCategories.forEach(category => categories.add(category));
+                });
+
+                const currentSelection = categoryFilter.value;
+                categoryFilter.innerHTML = '';
+                categories.forEach(category => {
+                    const option = document.createElement('option');
+                    option.value = category === 'All Categories' ? '' : category;
+                    option.textContent = category;
+                    categoryFilter.appendChild(option);
+                });
+
+                categoryFilter.value = currentSelection;
             }
 
             function deleteLink(key) {
