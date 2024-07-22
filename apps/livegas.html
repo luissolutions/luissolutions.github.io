@@ -9,7 +9,7 @@
 
 <body>
     <header>
-        <h1>Gas Tracker</h1>
+        <h1>Online Gas Tracker</h1>
         <section id="login-section">
             <form id="login-form">
                 <label for="username">Email:</label>
@@ -88,7 +88,7 @@
         <h2>Total Spent: <span id="total-spent">0.00</span></h2>
     </main>
     <script type="module">
-        import { database, ref, onValue, set, push, remove } from '../assets/js/firebase-init.js';
+        import { database, ref, onValue, push, remove } from '../assets/js/firebase-init.js';
         import { initializeAuth } from '../assets/js/auth.js';
 
         class GasApp {
@@ -97,7 +97,6 @@
                 this.isAuthenticated = false;
                 this.dbRef = null;
                 this.initialize();
-                this.loadLocalData();
                 window.addEventListener('online', this.syncData.bind(this));
                 window.addEventListener('offline', this.updateOnlineStatus.bind(this));
             }
@@ -156,8 +155,6 @@
 
                 if (this.isAuthenticated) {
                     await push(this.dbRef, newEntry);
-                } else {
-                    this.saveToLocal(null, newEntry);
                 }
 
                 this.updateDisplayedData();
@@ -165,43 +162,14 @@
                 this.clearForm();
             }
 
-            saveToLocal(key, data) {
-                let offlineData = JSON.parse(localStorage.getItem('offlineGasData')) || {};
-                if (key) {
-                    offlineData[key] = { ...offlineData[key], ...data };
-                } else {
-                    const newKey = `offline-${Date.now()}`;
-                    offlineData[newKey] = data;
-                }
-                localStorage.setItem('offlineGasData', JSON.stringify(offlineData));
-                this.loadLocalData();
-            }
-
-            loadLocalData() {
-                const offlineData = JSON.parse(localStorage.getItem('offlineGasData')) || {};
-                this.gasData = Object.entries(offlineData).map(([key, value]) => ({ key, ...value }));
-                this.updateDisplayedData();
-                this.updateGasTable();
-                this.populateYearDropdown();
-            }
-
             async deleteGasData(index) {
                 const keyToDelete = this.gasData[index].key;
                 if (this.isAuthenticated) {
                     await remove(ref(database, `gasData/${keyToDelete}`));
-                } else {
-                    this.deleteFromLocal(keyToDelete);
                 }
 
                 this.updateDisplayedData();
                 this.updateGasTable();
-            }
-
-            deleteFromLocal(key) {
-                let offlineData = JSON.parse(localStorage.getItem('offlineGasData')) || {};
-                delete offlineData[key];
-                localStorage.setItem('offlineGasData', JSON.stringify(offlineData));
-                this.loadLocalData();
             }
 
             updateDisplayedData() {
@@ -346,15 +314,6 @@
 
             syncData() {
                 if (this.isAuthenticated) {
-                    const offlineData = JSON.parse(localStorage.getItem('offlineGasData')) || {};
-                    for (const [key, data] of Object.entries(offlineData)) {
-                        if (key.startsWith('offline-')) {
-                            push(this.dbRef, data);
-                        } else {
-                            set(ref(database, `gasData/${key}`), data);
-                        }
-                    }
-                    localStorage.removeItem('offlineGasData');
                     this.loadLocalData();
                 }
             }
