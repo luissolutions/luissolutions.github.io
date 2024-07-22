@@ -58,7 +58,6 @@
 
     <script type="module">
         import { database, ref, set, get, push, onValue, remove } from '../assets/js/firebase-init.js';
-        import { auth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from '../assets/js/firebase-init.js';
         import { initializeAuth } from '../assets/js/auth.js';
 
         const elements = {
@@ -251,41 +250,16 @@
 
             initializeAuth(app);
 
-            onAuthStateChanged(auth, user => {
-                if (user) {
-                    app.isAuthenticated = true;
-                    document.getElementById('login-section').style.display = 'none';
-                    document.getElementById('logout').style.display = 'block';
-                    app.initializeFirebase();
-                    loadTimerState();
-                } else {
-                    app.isAuthenticated = false;
-                    document.getElementById('login-section').style.display = 'block';
-                    document.getElementById('logout').style.display = 'none';
-                    app.loadLocalData();
-                }
-            });
-
-            const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-            const timeEntriesContainer = document.getElementById('timeEntries');
-
-            days.forEach(day => {
-                const dayContainer = document.createElement('div');
-                dayContainer.className = 'day-container';
-                dayContainer.innerHTML = `
-                    <h3>${day}</h3>
-                    <div id="${day.toLowerCase()}Entries"></div>
-                    <button onclick="addEntry('${day.toLowerCase()}')">Add Time Entry</button>
-                    <p>Hours Worked: <span id="${day.toLowerCase()}Hours">0</span></p>
-                `;
-                timeEntriesContainer.appendChild(dayContainer);
-            });
-
-            document.getElementById('timeEntries').addEventListener('change', calculateTotalHours);
             if (app.isAuthenticated) {
-                loadEntriesFromFirebase();
+                loadTimerState();
             } else {
-                loadEntriesFromLocalStorage();
+                const savedTimer = JSON.parse(localStorage.getItem('currentTimer') || '{}');
+                Object.assign(timer, savedTimer);
+                if (timer.isRunning) {
+                    timer.startTime = new Date(timer.startTime).getTime();
+                    updateCurrentTaskTime();
+                    elements.currentTaskTimeDisplay.style.display = 'inline';
+                }
             }
         };
 
@@ -518,24 +492,34 @@
             }
         };
 
-        const loadTimerState = () => {
-            get(ref(database, 'currentTimer')).then(snapshot => {
-                if (snapshot.exists()) {
-                    const savedState = snapshot.val();
-                    Object.assign(timer, savedState);
-                    if (timer.isRunning) {
-                        timer.startTime = new Date(timer.startTime).getTime();
-                        updateCurrentTaskTime();
-                        elements.currentTaskTimeDisplay.style.display = 'inline';
-                    }
-                }
-            }).catch(console.error);
-        };
+        document.addEventListener('DOMContentLoaded', () => {
+            const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            const timeEntriesContainer = document.getElementById('timeEntries');
 
-        document.addEventListener('DOMContentLoaded', init);
+            days.forEach(day => {
+                const dayContainer = document.createElement('div');
+                dayContainer.className = 'day-container';
+                dayContainer.innerHTML = `
+                    <h3>${day}</h3>
+                    <div id="${day.toLowerCase()}Entries"></div>
+                    <button onclick="addEntry('${day.toLowerCase()}')">Add Time Entry</button>
+                    <p>Hours Worked: <span id="${day.toLowerCase()}Hours">0</span></p>
+                `;
+                timeEntriesContainer.appendChild(dayContainer);
+            });
+
+            document.getElementById('timeEntries').addEventListener('change', calculateTotalHours);
+            if (navigator.onLine) {
+                loadEntriesFromFirebase();
+            } else {
+                loadEntriesFromLocalStorage();
+            }
+        });
 
         window.addEntry = addEntry;
         window.removeEntry = removeEntry;
+
+        window.addEventListener("load", init);
     </script>
 </body>
 
