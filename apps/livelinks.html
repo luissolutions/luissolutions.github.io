@@ -13,18 +13,31 @@
 
 <body>
     <header>
-        <div>
-            <h1>Saved Links</h1>
-        </div>
+        <h1>Saved Links</h1>
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+        </section>
+        <button id="logout" style="display: none;">Logout</button>
     </header>
 
     <main>
         <div>
             <input type="text" placeholder="Insert link" id="linkInput">
             <input type="text" placeholder="categories" id="categoryInput">
+            <br>
             <button id="saveLinkButton">Save</button>
+            <button id="updateLinkButton" style="display: none;">Update</button>
         </div>
         <div>
+            <br>
             <select id="categoryFilter">
                 <option value="">All Categories</option>
             </select>
@@ -33,20 +46,31 @@
     </main>
 
     <footer>
-        <a href="../websites/kamehouse/index.html"><button id="login">Login</button></a>
         <h3>Learning App © 2024</h3>
-        <a href="../websites/kamehouse/base.html"><button id="logout">Logout</button></a>
     </footer>
 
     <script type="module">
-        import { getDatabase, database, ref, push, set, onValue, remove } from '../assets/js/firebase-init.js';
+        import { database, ref, push, set, onValue, remove, update } from '../assets/js/firebase-init.js';
+        import { initializeAuth } from '../assets/js/auth.js';
 
         document.addEventListener('DOMContentLoaded', () => {
             const linkInput = document.getElementById('linkInput');
             const categoryInput = document.getElementById('categoryInput');
             const saveLinkButton = document.getElementById('saveLinkButton');
+            const updateLinkButton = document.getElementById('updateLinkButton');
             const linksList = document.getElementById('linksList');
             const categoryFilter = document.getElementById('categoryFilter');
+            let editingLinkKey = null;
+
+            const app = {
+                isAuthenticated: false,
+                initializeFirebase() {
+                    fetchLinksFromFirebase();
+                },
+                loadLocalData() {
+                    linksList.innerHTML = ''; // Clear the links list when not authenticated
+                }
+            };
 
             saveLinkButton.addEventListener('click', () => {
                 const linkUrl = linkInput.value;
@@ -63,12 +87,34 @@
                 set(newLinkRef, linkData)
                     .then(() => {
                         console.log('Link saved successfully!');
-                        linkInput.value = '';
-                        categoryInput.value = '';
+                        clearForm();
                         fetchLinksFromFirebase();
                     })
                     .catch((error) => {
                         console.error('Error saving link:', error);
+                    });
+            });
+
+            updateLinkButton.addEventListener('click', () => {
+                const linkUrl = linkInput.value;
+                const categoryInputValue = categoryInput.value;
+                if (!linkUrl) {
+                    alert('Please enter a link.');
+                    return;
+                }
+
+                const categories = categoryInputValue.split(',').map(cat => cat.trim()).filter(cat => cat);
+                const linkData = { url: linkUrl, categories: categories.length > 0 ? categories : null };
+
+                const linkRef = ref(database, 'links/' + editingLinkKey);
+                update(linkRef, linkData)
+                    .then(() => {
+                        console.log('Link updated successfully!');
+                        clearForm();
+                        fetchLinksFromFirebase();
+                    })
+                    .catch((error) => {
+                        console.error('Error updating link:', error);
                     });
             });
 
@@ -111,7 +157,13 @@
                     deleteButton.textContent = 'X';
                     deleteButton.onclick = () => deleteLink(key);
 
+                    const editButton = document.createElement('button');
+                    editButton.classList.add('edit-button');
+                    editButton.textContent = '✏';
+                    editButton.onclick = () => editLink(key, link);
+
                     listItem.appendChild(aTag);
+                    listItem.appendChild(editButton);
                     listItem.appendChild(deleteButton);
                     linksList.appendChild(listItem);
                 });
@@ -146,7 +198,23 @@
                 });
             }
 
-            fetchLinksFromFirebase();
+            function editLink(key, link) {
+                editingLinkKey = key;
+                linkInput.value = link.url;
+                categoryInput.value = (link.categories || []).join(', ');
+                saveLinkButton.style.display = 'none';
+                updateLinkButton.style.display = 'block';
+            }
+
+            function clearForm() {
+                linkInput.value = '';
+                categoryInput.value = '';
+                saveLinkButton.style.display = 'block';
+                updateLinkButton.style.display = 'none';
+                editingLinkKey = null;
+            }
+
+            initializeAuth(app);
         });
     </script>
 </body>

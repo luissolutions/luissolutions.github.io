@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-    <title>Time Sheet</title>
+    <title>Timer App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
 </head>
@@ -13,6 +13,7 @@
         <div>Clock: <span id="timeDisplay"></span></div>
     </header>
     <main class="timer-container">
+        <h1>Times</h1>
         <input type="text" id="taskName" placeholder="Task Name">
         <button id="toggleTimer">Start/Stop Timer</button>
         <div>Timer: <span id="currentTaskTime">00:00:00</span></div>
@@ -27,22 +28,39 @@
                         <th>Actions</th>
                     </tr>
                 </thead>
-                <tbody>
-                </tbody>
+                <tbody></tbody>
             </table>
         </div>
         <button id="export">Export</button>
 
         <h1>Weekly Time Sheet</h1>
         <div id="timeEntries"></div>
-        <button id="calculateButton" style="display: none;">Calculate Total Hours</button>
         <button class="clear-button" id="clearEntriesButton">Clear Entries</button>
         <div class="total-hours">
             <p>Total Hours: <span id="totalHours">0</span></p>
         </div>
     </main>
 
-    <script>
+    <footer>
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+        </section>
+        <button id="logout" style="display: none;">Logout</button>
+    </footer>
+
+    <script type="module">
+        import { database, ref, set, get, push, onValue, remove } from '../assets/js/firebase-init.js';
+        import { auth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from '../assets/js/firebase-init.js';
+        import { initializeAuth } from '../assets/js/auth.js';
+
         const elements = {
             toggleTimerButton: document.getElementById("toggleTimer"),
             taskNameInput: document.getElementById("taskName"),
@@ -50,76 +68,108 @@
             timerLogTableBody: document.querySelector("#timer-log tbody"),
             exportButton: document.getElementById("export"),
             clearEntriesButton: document.getElementById("clearEntriesButton"),
-            timeDisplay: document.getElementById("timeDisplay")
+            timeDisplay: document.getElementById("timeDisplay"),
+            loginForm: document.getElementById("login-form"),
+            loginSection: document.getElementById("login-section"),
+            logoutButton: document.getElementById("logout")
         };
 
         let timer = {
             interval: null,
             startTime: null,
             isRunning: false,
-            logs: JSON.parse(localStorage.getItem('times')) || []
+            taskName: '',
+            logs: [],
+            logsRef: ref(database, 'times')
         };
 
-        function formatTime(milliseconds) {
+        let app = {
+            isAuthenticated: false,
+            initializeFirebase: function () {
+                loadEntriesFromFirebase();
+                updateTable();
+            },
+            loadLocalData: function () {
+                loadEntriesFromLocalStorage();
+                updateTable();
+            }
+        };
+
+        const formatTime = milliseconds => {
             const seconds = Math.floor((milliseconds / 1000) % 60);
             const minutes = Math.floor((milliseconds / 60000) % 60);
             const hours = Math.floor(milliseconds / 3600000);
             return [hours, minutes, seconds].map(unit => String(unit).padStart(2, '0')).join(':');
-        }
+        };
 
-        function updateCurrentTaskTime() {
+        const calculateElapsedTime = (startTime, endTime) => {
+            const start = new Date(startTime);
+            const end = new Date(endTime);
+            const elapsed = end - start;
+            return formatTime(elapsed);
+        };
+
+        const updateCurrentTaskTime = () => {
             const elapsedTime = Date.now() - timer.startTime;
             elements.currentTaskTimeDisplay.textContent = formatTime(elapsedTime);
-            if (timer.isRunning) {
-                requestAnimationFrame(updateCurrentTaskTime);
-            }
-        }
+            if (timer.isRunning) requestAnimationFrame(updateCurrentTaskTime);
+        };
 
-        function toggleTimer() {
-            if (timer.isRunning) {
-                stopTimer();
+        const toggleTimer = () => timer.isRunning ? stopTimer() : startTimer();
+
+        const startTimer = () => {
+            if (timer.isRunning) return;
+            timer.startTime = Date.now();
+            timer.isRunning = true;
+            timer.taskName = elements.taskNameInput.value || 'Unnamed Task';
+            updateCurrentTaskTime();
+            elements.currentTaskTimeDisplay.style.display = 'inline';
+
+            const logEntry = { taskName: timer.taskName, startTime: new Date(timer.startTime).toLocaleString(), endTime: "" };
+            if (app.isAuthenticated) {
+                push(timer.logsRef, logEntry).catch(console.error);
             } else {
-                startTimer();
-            }
-        }
-
-        function startTimer() {
-            if (!timer.isRunning) {
-                timer.startTime = Date.now();
-                timer.isRunning = true;
-                updateCurrentTaskTime();
-                elements.currentTaskTimeDisplay.style.display = 'inline';
-                timer.logs.push({
-                    taskName: elements.taskNameInput.value || 'Unnamed Task',
-                    startTime: new Date(timer.startTime).toLocaleString(),
-                    endTime: "",
-                    elapsedTime: ""
-                });
+                timer.logs.push(logEntry);
                 saveLogsToLocalStorage();
                 updateTable();
-                console.log("New timer started.");
             }
-        }
+            saveTimerState();
+        };
 
-        function stopTimer() {
+        const stopTimer = () => {
             timer.isRunning = false;
             const endTime = new Date().toLocaleString();
-            const elapsedTime = formatTime(Date.now() - timer.startTime);
 
-            elements.currentTaskTimeDisplay.textContent = elapsedTime;
+            elements.currentTaskTimeDisplay.textContent = calculateElapsedTime(timer.startTime, endTime);
 
-            const lastEntry = timer.logs.find(log => log.endTime === "");
-            if (lastEntry) {
-                lastEntry.endTime = endTime;
-                lastEntry.elapsedTime = elapsedTime;
-                updateWeeklyTimeSheet(lastEntry.taskName, lastEntry.startTime, endTime);
-                saveLogsToLocalStorage();
-                resetTimerState();
-                updateTable();
+            if (app.isAuthenticated) {
+                get(timer.logsRef).then(snapshot => {
+                    if (snapshot.exists()) {
+                        const data = snapshot.val();
+                        const lastEntryKey = Object.keys(data).find(key => !data[key].endTime);
+                        if (lastEntryKey) {
+                            set(ref(database, `times/${lastEntryKey}`), { ...data[lastEntryKey], endTime })
+                                .then(() => {
+                                    updateWeeklyTimeSheet(data[lastEntryKey].taskName, data[lastEntryKey].startTime, endTime);
+                                    resetTimerState();
+                                }).catch(console.error);
+                        }
+                    }
+                }).catch(console.error);
+            } else {
+                const lastEntry = timer.logs.find(log => !log.endTime);
+                if (lastEntry) {
+                    lastEntry.endTime = endTime;
+                    updateWeeklyTimeSheet(lastEntry.taskName, lastEntry.startTime, endTime);
+                    saveLogsToLocalStorage();
+                    resetTimerState();
+                    updateTable();
+                }
             }
-        }
+            saveTimerState();
+        };
 
-        function updateWeeklyTimeSheet(taskName, startTime, endTime) {
+        const updateWeeklyTimeSheet = (taskName, startTime, endTime) => {
             const start = new Date(startTime);
             const end = new Date(endTime);
             const day = start.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
@@ -127,93 +177,95 @@
             const newEntry = document.createElement('div');
             newEntry.className = 'time-entry';
             newEntry.innerHTML = `
+                <input type="text" class="task-name" value="${taskName}" required>
                 <input type="date" class="start-date" value="${start.toISOString().slice(0, 10)}" required>
                 <input type="time" class="start-time" value="${start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}" required>
                 <input type="date" class="end-date" value="${end.toISOString().slice(0, 10)}" required>
                 <input type="time" class="end-time" value="${end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}" required>
-                <button onclick="removeEntry(this)">Remove</button>
+                <button class="clear-button" onclick="removeEntry(this)">Remove</button>
             `;
             dayEntries.appendChild(newEntry);
             calculateTotalHours();
-            saveEntriesToLocalStorage();
-        }
+            saveEntries();
+        };
 
-        function resetTimerState() {
+        const resetTimerState = () => {
             timer.startTime = null;
             timer.isRunning = false;
+            timer.taskName = '';
             elements.currentTaskTimeDisplay.textContent = "00:00:00";
             elements.currentTaskTimeDisplay.style.display = 'none';
-        }
+        };
 
-        function deleteLog(index) {
-            timer.logs.splice(index, 1);
-            saveLogsToLocalStorage();
-            updateTable();
-        }
-
-        function updateTable() {
-            elements.timerLogTableBody.innerHTML = "";
-            timer.logs.forEach((log, index) => {
-                const row = elements.timerLogTableBody.insertRow();
-                row.innerHTML = `<td>${log.taskName}</td><td>${log.startTime}</td><td>${log.endTime}</td><td>${log.elapsedTime}</td>`;
-                const deleteCell = row.insertCell();
-                const deleteButton = document.createElement("button");
-                deleteButton.classList.add('clear-button');
-                deleteButton.textContent = "Delete";
-                deleteButton.addEventListener('click', () => deleteLog(index));
-                deleteCell.appendChild(deleteButton);
-            });
-        }
-
-        function init() {
-            const savedTimer = localStorage.getItem('currentTimer');
-            if (savedTimer) {
-                timer = JSON.parse(savedTimer);
-                if (timer.isRunning) {
-                    timer.startTime = new Date(timer.startTime).getTime();
-                    updateCurrentTaskTime();
-                    elements.currentTaskTimeDisplay.style.display = 'inline';
-                }
+        const deleteLog = (index, logKey) => {
+            if (app.isAuthenticated) {
+                remove(ref(database, `times/${logKey}`)).then(() => {
+                    updateTable();
+                }).catch(console.error);
+            } else {
+                timer.logs.splice(index, 1);
+                saveLogsToLocalStorage();
+                updateTable();
             }
+        };
 
+        const updateTable = () => {
+            elements.timerLogTableBody.innerHTML = "";
+            if (app.isAuthenticated) {
+                onValue(timer.logsRef, snapshot => {
+                    const data = snapshot.val();
+                    elements.timerLogTableBody.innerHTML = "";
+                    Object.entries(data).forEach(([key, log]) => {
+                        const row = elements.timerLogTableBody.insertRow();
+                        row.innerHTML = `<td>${log.taskName}</td><td>${log.startTime}</td><td>${log.endTime}</td><td>${calculateElapsedTime(log.startTime, log.endTime)}</td>`;
+                        const deleteCell = row.insertCell();
+                        const deleteButton = document.createElement("button");
+                        deleteButton.classList.add('clear-button');
+                        deleteButton.textContent = "Delete";
+                        deleteButton.addEventListener('click', () => deleteLog(null, key));
+                        deleteCell.appendChild(deleteButton);
+                    });
+                });
+            } else {
+                timer.logs.forEach((log, index) => {
+                    const row = elements.timerLogTableBody.insertRow();
+                    row.innerHTML = `<td>${log.taskName}</td><td>${log.startTime}</td><td>${log.endTime}</td><td>${calculateElapsedTime(log.startTime, log.endTime)}</td>`;
+                    const deleteCell = row.insertCell();
+                    const deleteButton = document.createElement("button");
+                    deleteButton.classList.add('clear-button');
+                    deleteButton.textContent = "Delete";
+                    deleteButton.addEventListener('click', () => deleteLog(index));
+                    deleteCell.appendChild(deleteButton);
+                });
+            }
+        };
+
+        const init = () => {
             elements.toggleTimerButton.addEventListener('click', toggleTimer);
             elements.exportButton.addEventListener('click', exportLogs);
             elements.clearEntriesButton.addEventListener('click', clearEntries);
 
             setInterval(() => {
-                const now = new Date();
-                elements.timeDisplay.textContent = now.toLocaleTimeString('en-US', { hour12: false });
+                elements.timeDisplay.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
             }, 1000);
 
-            updateTable();
-        }
+            initializeAuth(app);
 
-        function exportLogs() {
-            let csvData = "Task Name,Start Time,End Time,Elapsed Time\n";
-            timer.logs.forEach(log => {
-                csvData += `${log.taskName},"${log.startTime}","${log.endTime}","${log.elapsedTime}"\n`;
+            onAuthStateChanged(auth, user => {
+                if (user) {
+                    app.isAuthenticated = true;
+                    document.getElementById('login-section').style.display = 'none';
+                    document.getElementById('logout').style.display = 'block';
+                    app.initializeFirebase();
+                    loadTimerState();
+                } else {
+                    app.isAuthenticated = false;
+                    document.getElementById('login-section').style.display = 'block';
+                    document.getElementById('logout').style.display = 'none';
+                    app.loadLocalData();
+                }
             });
-            downloadCsv(csvData);
-        }
 
-        function downloadCsv(csvData) {
-            const blob = new Blob([csvData], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'time_sheet.csv';
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-        }
-
-        function saveLogsToLocalStorage() {
-            localStorage.setItem('times', JSON.stringify(timer.logs));
-            localStorage.setItem('currentTimer', JSON.stringify(timer));
-        }
-
-        // Weekly Time Sheet Functionality
-        document.addEventListener('DOMContentLoaded', () => {
             const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
             const timeEntriesContainer = document.getElementById('timeEntries');
 
@@ -230,32 +282,88 @@
             });
 
             document.getElementById('timeEntries').addEventListener('change', calculateTotalHours);
-            loadEntriesFromLocalStorage();
-        });
+            if (app.isAuthenticated) {
+                loadEntriesFromFirebase();
+            } else {
+                loadEntriesFromLocalStorage();
+            }
+        };
 
-        window.addEntry = function (day) {
+        const exportLogs = () => {
+            let csvData = "Task Name,Start Time,End Time,Elapsed Time\n";
+            if (app.isAuthenticated) {
+                get(timer.logsRef).then(snapshot => {
+                    if (snapshot.exists()) {
+                        Object.values(snapshot.val()).forEach(log => {
+                            csvData += `${log.taskName},"${log.startTime}","${log.endTime}","${calculateElapsedTime(log.startTime, log.endTime)}"\n`;
+                        });
+                        downloadCsv(csvData);
+                    }
+                }).catch(console.error);
+            } else {
+                timer.logs.forEach(log => {
+                    csvData += `${log.taskName},"${log.startTime}","${log.endTime}","${calculateElapsedTime(log.startTime, log.endTime)}"\n`;
+                });
+                downloadCsv(csvData);
+            }
+        };
+
+        const downloadCsv = csvData => {
+            const blob = new Blob([csvData], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'time_sheet.csv';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+        };
+
+        const saveLogsToLocalStorage = () => {
+            localStorage.setItem('times', JSON.stringify(timer.logs));
+            saveTimerState();
+        };
+
+        const saveTimerState = () => {
+            const state = { isRunning: timer.isRunning, startTime: timer.startTime, taskName: timer.taskName };
+            localStorage.setItem('currentTimer', JSON.stringify(state));
+            if (app.isAuthenticated) {
+                set(ref(database, 'currentTimer'), state).catch(console.error);
+            }
+        };
+
+        const saveEntries = () => {
+            if (app.isAuthenticated) {
+                saveEntriesToFirebase();
+            } else {
+                saveEntriesToLocalStorage();
+            }
+        };
+
+        const addEntry = day => {
             const dayEntries = document.getElementById(`${day}Entries`);
             const newEntry = document.createElement('div');
             newEntry.className = 'time-entry';
             newEntry.innerHTML = `
+                <input type="text" class="task-name" placeholder="Task Name" required>
                 <input type="date" class="start-date" required>
                 <input type="time" class="start-time" required>
                 <input type="date" class="end-date" required>
                 <input type="time" class="end-time" required>
-                <button onclick="removeEntry(this)">Remove</button>
+                <button class="clear-button" onclick="removeEntry(this)">Remove</button>
             `;
             dayEntries.appendChild(newEntry);
             calculateTotalHours();
-            saveEntriesToLocalStorage();
+            saveEntries();
         };
 
-        window.removeEntry = function (button) {
+        const removeEntry = button => {
             button.parentElement.remove();
             calculateTotalHours();
-            saveEntriesToLocalStorage();
+            saveEntries();
         };
 
-        function calculateTotalHours() {
+        const calculateTotalHours = () => {
             const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
             let totalHours = 0;
 
@@ -273,9 +381,7 @@
                         let start = new Date(`${startDate}T${startTime}:00`);
                         let end = new Date(`${endDate}T${endTime}:00`);
 
-                        if (end <= start) {
-                            end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
-                        }
+                        if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
 
                         let hoursWorked = (end - start) / (1000 * 60 * 60);
                         dayHours += hoursWorked;
@@ -287,10 +393,10 @@
             });
 
             document.getElementById('totalHours').textContent = totalHours.toFixed(2);
-            saveEntriesToLocalStorage();
-        }
+            saveEntries();
+        };
 
-        function saveEntriesToLocalStorage() {
+        const saveEntriesToLocalStorage = () => {
             const entries = {};
             const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -299,41 +405,39 @@
                 entries[day] = [];
 
                 Array.from(dayEntries).forEach(entry => {
+                    const taskName = entry.querySelector('.task-name').value;
                     const startDate = entry.querySelector('.start-date').value;
                     const startTime = entry.querySelector('.start-time').value;
                     const endDate = entry.querySelector('.end-date').value;
                     const endTime = entry.querySelector('.end-time').value;
 
                     if (startDate || startTime || endDate || endTime) {
-                        entries[day].push({
-                            startDate,
-                            startTime,
-                            endDate,
-                            endTime
-                        });
+                        entries[day].push({ taskName, startDate, startTime, endDate, endTime });
                     }
                 });
             });
 
             localStorage.setItem('weeklyTimes', JSON.stringify(entries));
-        }
+        };
 
-        function loadEntriesFromLocalStorage() {
+        const loadEntriesFromLocalStorage = () => {
             const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
             const entries = JSON.parse(localStorage.getItem('weeklyTimes')) || {};
 
             days.forEach(day => {
                 const dayEntries = document.getElementById(`${day}Entries`);
+                dayEntries.innerHTML = "";
                 if (entries[day]) {
                     entries[day].forEach(entryData => {
                         const newEntry = document.createElement('div');
                         newEntry.className = 'time-entry';
                         newEntry.innerHTML = `
+                            <input type="text" class="task-name" value="${entryData.taskName}" required>
                             <input type="date" class="start-date" value="${entryData.startDate}" required>
                             <input type="time" class="start-time" value="${entryData.startTime}" required>
                             <input type="date" class="end-date" value="${entryData.endDate}" required>
                             <input type="time" class="end-time" value="${entryData.endTime}" required>
-                            <button onclick="removeEntry(this)">Remove</button>
+                            <button class="clear-button" onclick="removeEntry(this)">Remove</button>
                         `;
                         dayEntries.appendChild(newEntry);
                     });
@@ -341,16 +445,97 @@
             });
 
             calculateTotalHours();
-        }
+        };
 
-        function clearEntries() {
-            localStorage.removeItem('weeklyTimes');
-            document.querySelectorAll('.time-entry').forEach(entry => entry.remove());
-            document.querySelectorAll('.day-container p span').forEach(span => span.textContent = "0");
-            document.getElementById('totalHours').textContent = "0";
-        }
+        const saveEntriesToFirebase = () => {
+            const entries = {};
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
-        window.addEventListener("load", init);
+            days.forEach(day => {
+                const dayEntries = document.getElementById(`${day}Entries`).getElementsByClassName('time-entry');
+                entries[day] = [];
+
+                Array.from(dayEntries).forEach(entry => {
+                    const taskName = entry.querySelector('.task-name').value;
+                    const startDate = entry.querySelector('.start-date').value;
+                    const startTime = entry.querySelector('.start-time').value;
+                    const endDate = entry.querySelector('.end-date').value;
+                    const endTime = entry.querySelector('.end-time').value;
+
+                    if (startDate || startTime || endDate || endTime) {
+                        entries[day].push({ taskName, startDate, startTime, endDate, endTime });
+                    }
+                });
+            });
+
+            set(ref(database, 'weeklyTimes'), entries).catch(console.error);
+        };
+
+        const loadEntriesFromFirebase = () => {
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+            get(ref(database, 'weeklyTimes')).then(snapshot => {
+                if (snapshot.exists()) {
+                    const entries = snapshot.val();
+
+                    days.forEach(day => {
+                        const dayEntries = document.getElementById(`${day}Entries`);
+                        dayEntries.innerHTML = "";
+                        if (entries[day]) {
+                            entries[day].forEach(entryData => {
+                                const newEntry = document.createElement('div');
+                                newEntry.className = 'time-entry';
+                                newEntry.innerHTML = `
+                                    <input type="text" class="task-name" value="${entryData.taskName}" required>
+                                    <input type="date" class="start-date" value="${entryData.startDate}" required>
+                                    <input type="time" class="start-time" value="${entryData.startTime}" required>
+                                    <input type="date" class="end-date" value="${entryData.endDate}" required>
+                                    <input type="time" class="end-time" value="${entryData.endTime}" required>
+                                    <button class="clear-button" onclick="removeEntry(this)">Remove</button>
+                                `;
+                                dayEntries.appendChild(newEntry);
+                            });
+                        }
+                    });
+
+                    calculateTotalHours();
+                }
+            }).catch(console.error);
+        };
+
+        const clearEntries = () => {
+            if (app.isAuthenticated) {
+                remove(ref(database, 'weeklyTimes')).then(() => {
+                    document.querySelectorAll('.time-entry').forEach(entry => entry.remove());
+                    document.querySelectorAll('.day-container p span').forEach(span => span.textContent = "0");
+                    document.getElementById('totalHours').textContent = "0";
+                }).catch(console.error);
+            } else {
+                localStorage.removeItem('weeklyTimes');
+                document.querySelectorAll('.time-entry').forEach(entry => entry.remove());
+                document.querySelectorAll('.day-container p span').forEach(span => span.textContent = "0");
+                document.getElementById('totalHours').textContent = "0";
+            }
+        };
+
+        const loadTimerState = () => {
+            get(ref(database, 'currentTimer')).then(snapshot => {
+                if (snapshot.exists()) {
+                    const savedState = snapshot.val();
+                    Object.assign(timer, savedState);
+                    if (timer.isRunning) {
+                        timer.startTime = new Date(timer.startTime).getTime();
+                        updateCurrentTaskTime();
+                        elements.currentTaskTimeDisplay.style.display = 'inline';
+                    }
+                }
+            }).catch(console.error);
+        };
+
+        document.addEventListener('DOMContentLoaded', init);
+
+        window.addEntry = addEntry;
+        window.removeEntry = removeEntry;
     </script>
 </body>
 
