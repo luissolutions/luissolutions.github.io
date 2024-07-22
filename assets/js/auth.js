@@ -28,4 +28,19 @@ export function initializeAuth(app) {
             console.error('Logout error:', error);
         });
     });
+
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            console.log(`Logged in as: ${user.email}`);
+            document.getElementById('login-section').style.display = 'none';
+            document.getElementById('logout').style.display = 'block';
+            app.isAuthenticated = true;
+            app.initializeFirebase();
+        } else {
+            document.getElementById('login-section').style.display = 'block';
+            document.getElementById('logout').style.display = 'none';
+            app.isAuthenticated = false;
+            app.loadLocalData();
+        }
+    });
 }
