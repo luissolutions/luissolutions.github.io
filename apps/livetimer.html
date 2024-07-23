@@ -87,6 +87,7 @@
             initializeFirebase: function () {
                 loadEntriesFromFirebase();
                 updateTable();
+                loadTimerState();
             }
         };
 
@@ -123,14 +124,13 @@
             const logEntry = { taskName: timer.taskName, startTime: new Date(timer.startTime).toLocaleString(), endTime: "" };
             if (app.isAuthenticated) {
                 push(timer.logsRef, logEntry).catch(console.error);
+                saveTimerState();
             }
-            saveTimerState();
         };
 
         const stopTimer = () => {
             timer.isRunning = false;
             const endTime = new Date().toLocaleString();
-
             elements.currentTaskTimeDisplay.textContent = calculateElapsedTime(timer.startTime, endTime);
 
             if (app.isAuthenticated) {
@@ -148,7 +148,6 @@
                     }
                 }).catch(console.error);
             }
-            saveTimerState();
         };
 
         const updateWeeklyTimeSheet = (taskName, startTime, endTime) => {
@@ -176,13 +175,12 @@
             timer.taskName = '';
             elements.currentTaskTimeDisplay.textContent = "00:00:00";
             elements.currentTaskTimeDisplay.style.display = 'none';
+            saveTimerState();
         };
 
-        const deleteLog = (logKey) => {
+        const deleteLog = logKey => {
             if (app.isAuthenticated) {
-                remove(ref(database, `times/${logKey}`)).then(() => {
-                    updateTable();
-                }).catch(console.error);
+                remove(ref(database, `times/${logKey}`)).then(updateTable).catch(console.error);
             }
         };
 
@@ -409,7 +407,10 @@
             });
 
             document.getElementById('timeEntries').addEventListener('change', calculateTotalHours);
-            loadEntriesFromFirebase();
+            if (app.isAuthenticated) {
+                loadEntriesFromFirebase();
+            }
+            loadTimerState();
         });
 
         window.addEntry = addEntry;
