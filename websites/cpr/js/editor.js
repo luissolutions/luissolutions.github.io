@@ -7,7 +7,6 @@ const addButtonEl = document.getElementById("add-button");
 const phonesListEl = document.getElementById("phones-list");
 const phoneNameEl = document.getElementById("phone-name-input");
 const searchInputEl = document.getElementById('search-input');
-const searchButtonEl = document.getElementById('search-button');
 const exportButtonEl = document.getElementById("export-button");
 
 let csvContent = ""; // Declare csvContent variable
@@ -99,23 +98,8 @@ function sanitizeInput(input) {
   return sanitizedValue;
 }
 
-searchButtonEl.addEventListener("click", function () {
-  let searchString = searchInputEl.value.trim().toLowerCase();
-  clearPhoneListEl();
-  const phonesInDB = ref(database, `devices/Phones/${selectedCategory}`);
-
-  onValue(phonesInDB, function (snapshot) {
-    let itemsObject = snapshot.val();
-    let filteredItemsObject = filterItemsBySearch(itemsObject, searchString);
-    recursivelyAppendItemsToPhonesListEl(filteredItemsObject);
-  });
-});
-
-searchInputEl.addEventListener("keydown", function (event) {
-  if (event.keyCode === 13) {
-    event.preventDefault();
-    searchButtonEl.click();
-  }
+searchInputEl.addEventListener("input", function () {
+  performSearch();
 });
 
 categoryRadios.forEach(function (radio) {
@@ -123,6 +107,7 @@ categoryRadios.forEach(function (radio) {
     selectedCategory = this.value;
     fetchDataForSelectedCategory();
     updateCategoryRadios();
+    performSearch();
   });
 });
 
@@ -138,6 +123,7 @@ addButtonEl.addEventListener("click", function () {
         clearInputFieldEl();
         repairFieldEl.value = "";
         phoneNameEl.value = "";
+        performSearch();
       })
       .catch((error) => {
         console.error("Error adding data:", error);
@@ -146,6 +132,18 @@ addButtonEl.addEventListener("click", function () {
     alert("Please fill in all fields before adding data.");
   }
 });
+
+function performSearch() {
+  let searchString = searchInputEl.value.trim().toLowerCase();
+  clearPhoneListEl();
+  const phonesInDB = ref(database, `devices/Phones/${selectedCategory}`);
+
+  onValue(phonesInDB, function (snapshot) {
+    let itemsObject = snapshot.val();
+    let filteredItemsObject = filterItemsBySearch(itemsObject, searchString);
+    recursivelyAppendItemsToPhonesListEl(filteredItemsObject);
+  });
+}
 
 function fetchDataForSelectedCategory() {
   const phonesInDB = ref(database, `devices/Phones/${selectedCategory}`);
@@ -233,7 +231,7 @@ function recursivelyAppendItemsToPhonesListEl(obj, prefix = "") {
 
           update(exactLocationOfItemInDB, updates)
             .then(() => {
-              location.reload();
+              performSearch();
             })
             .catch((error) => {
               console.error("Error adding repair:", error);
@@ -268,7 +266,7 @@ function recursivelyAppendItemsToPhonesListEl(obj, prefix = "") {
 
           set(exactLocationOfItemInDB, newPrice)
             .then(() => {
-              location.reload();
+              performSearch();
             })
             .catch((error) => {
               console.error("Error updating repair:", error);
@@ -283,7 +281,10 @@ function recursivelyAppendItemsToPhonesListEl(obj, prefix = "") {
       deleteButton.textContent = "Delete";
       deleteButton.addEventListener("click", function () {
         let exactLocationOfItemInDB = ref(database, `devices/Phones/${selectedCategory}/${currentKey}`);
-        remove(exactLocationOfItemInDB);
+        remove(exactLocationOfItemInDB)
+          .then(() => {
+            performSearch();
+          });
       });
       actionCell.appendChild(deleteButton);
     }
