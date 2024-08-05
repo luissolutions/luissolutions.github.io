@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-    <title>Service Tech Toolkit</title>
+    <title>Online Task Manager</title>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,8 +19,11 @@
             <div class="name-column-input">
                 <input type="text" id="taskName" placeholder="Task Name">
             </div>
-            <div class="odometer-column-input">
-                <input type="number" id="taskOdometer" placeholder="Odometer">
+            <div class="start-odometer-column-input odometer-input">
+                <input type="number" id="startOdometer" placeholder="Start Odometer">
+            </div>
+            <div class="end-odometer-column-input odometer-input">
+                <input type="number" id="endOdometer" placeholder="End Odometer" disabled>
             </div>
             <div class="notes-column-input">
                 <textarea id="taskNotes" placeholder="Notes"></textarea>
@@ -28,9 +31,10 @@
             <button id="toggleTimer">Start/Stop Timer</button>
             <div>Timer: <span id="currentTaskTime">00:00:00</span></div>
             <div class="checkbox">
-                <label style="display: none;"><input type="checkbox" class="toggle-column" value="name-column" checked> Task Name</label>
-                <label><input type="checkbox" class="toggle-column" value="odometer-column" checked> Odometer</label>
-                <label><input type="checkbox" class="toggle-column" value="location-column" unchecked> Location</label>
+                <label style="display: none;"><input type="checkbox" class="toggle-column" value="name-column" checked>
+                    Task Name</label>
+                <label><input type="checkbox" class="toggle-column" value="odometer-column"> Add Mileage</label>
+                <label><input type="checkbox" class="toggle-column" value="location-column"> Location</label>
                 <label><input type="checkbox" class="toggle-column" value="start-time-column" checked> Start
                     Time</label>
                 <label><input type="checkbox" class="toggle-column" value="end-time-column" checked> End Time</label>
@@ -42,7 +46,9 @@
                     <thead>
                         <tr>
                             <th class="name-column">Task Name</th>
-                            <th class="odometer-column">Odometer</th>
+                            <th class="start-odometer-column odometer-column">Start Odometer</th>
+                            <th class="end-odometer-column odometer-column">End Odometer</th>
+                            <th class="distance-column odometer-column">Distance</th>
                             <th class="location-column">Location</th>
                             <th class="start-time-column">Start Time</th>
                             <th class="end-time-column">End Time</th>
@@ -59,307 +65,328 @@
         </section>
         <!-- Add other sections here -->
     </main>
-</body>
-<script type="module">
-    import { database, ref, set, get, push, onValue, remove, update } from '../assets/js/firebase-init.js';
 
-    const taskNameInput = document.getElementById('taskName');
-    const taskNotesTextarea = document.getElementById('taskNotes');
-    const taskOdometerInput = document.getElementById('taskOdometer');
-    const toggleTimerBtn = document.getElementById('toggleTimer');
-    const taskLogTable = document.getElementById('task-log').getElementsByTagName('tbody')[0];
-    const totalHoursSpan = document.getElementById('totalHours');
-    const currentTaskTimeDisplay = document.getElementById('currentTaskTime');
-    const exportBtn = document.getElementById('exportBtn');
+    <script type="module">
+        import { database, ref, set, get, push, onValue, remove, update } from '../assets/js/firebase-init.js';
 
-    let currentTask = null;
-    let timerInterval = null;
+        const taskNameInput = document.getElementById('taskName');
+        const taskNotesTextarea = document.getElementById('taskNotes');
+        const startOdometerInput = document.getElementById('startOdometer');
+        const endOdometerInput = document.getElementById('endOdometer');
+        const toggleTimerBtn = document.getElementById('toggleTimer');
+        const taskLogTable = document.getElementById('task-log').getElementsByTagName('tbody')[0];
+        const totalHoursSpan = document.getElementById('totalHours');
+        const currentTaskTimeDisplay = document.getElementById('currentTaskTime');
+        const exportBtn = document.getElementById('exportBtn');
 
-    toggleTimerBtn.addEventListener('click', toggleTimer);
-    exportBtn.addEventListener('click', exportData);
+        let currentTask = null;
+        let timerInterval = null;
 
-    // Function to toggle visibility of columns
-    document.querySelectorAll('.toggle-column').forEach(checkbox => {
-        checkbox.addEventListener('change', toggleColumnVisibility);
-    });
+        toggleTimerBtn.addEventListener('click', toggleTimer);
+        exportBtn.addEventListener('click', exportData);
 
-    function getGeolocation(callback) {
-        if ('geolocation' in navigator) {
-            navigator.geolocation.getCurrentPosition(position => {
-                const coords = position.coords;
-                callback({
-                    latitude: coords.latitude.toFixed(4),
-                    longitude: coords.longitude.toFixed(4)
+        document.querySelectorAll('.toggle-column').forEach(checkbox => {
+            checkbox.addEventListener('change', toggleColumnVisibility);
+        });
+
+        function getGeolocation(callback) {
+            if ('geolocation' in navigator) {
+                navigator.geolocation.getCurrentPosition(position => {
+                    const coords = position.coords;
+                    callback({
+                        latitude: coords.latitude.toFixed(4),
+                        longitude: coords.longitude.toFixed(4)
+                    });
+                }, error => {
+                    console.error("Geolocation error:", error.message);
+                    callback(null);
                 });
-            }, error => {
-                console.error("Geolocation error:", error.message);
+            } else {
+                console.error("Geolocation is not supported in your browser.");
                 callback(null);
-            });
-        } else {
-            console.error("Geolocation is not supported in your browser.");
-            callback(null);
-        }
-    }
-
-    function toggleTimer() {
-        currentTask ? endTask() : startTask();
-    }
-
-    function startTask() {
-        const taskName = taskNameInput.value.trim();
-        const odometer = taskOdometerInput.value.trim();
-        if (!taskName) {
-            alert('Please enter a task name');
-            return;
-        }
-
-        getGeolocation(location => {
-            currentTask = {
-                id: Date.now().toString(),
-                name: taskName,
-                notes: taskNotesTextarea.value.trim(),
-                odometer,
-                location,
-                startTime: new Date().toISOString(),
-                endTime: null
-            };
-            saveTask(currentTask);
-            timerInterval = setInterval(updateCurrentTaskTime, 1000);
-        });
-    }
-
-    function endTask() {
-        clearInterval(timerInterval);
-        currentTask.endTime = new Date().toISOString();
-        saveTask(currentTask);
-        updateTaskInTable(currentTask);
-        resetTimerState();
-        updateTotalHours();
-        applyColumnVisibility();
-    }
-
-    function saveTask(task) {
-        const taskRef = ref(database, `tasks/${task.id}`);
-        set(taskRef, task);
-    }
-
-    function updateTaskInTable(task) {
-        const existingRow = document.querySelector(`[data-task-id="${task.id}"]`);
-        if (existingRow) {
-            updateRow(existingRow, task);
-        } else {
-            addTaskToTable(task);
-        }
-    }
-
-    function addTaskToTable(task) {
-        const row = taskLogTable.insertRow();
-        row.dataset.taskId = task.id;
-        updateRow(row, task);
-        applyColumnVisibility();
-    }
-
-    function updateRow(row, task) {
-        row.innerHTML = '';
-        const nameCell = row.insertCell(0);
-        const odometerCell = row.insertCell(1);
-        const locationCell = row.insertCell(2);
-        const startTimeCell = row.insertCell(3);
-        const endTimeCell = row.insertCell(4);
-        const lengthCell = row.insertCell(5);
-        const notesCell = row.insertCell(6);
-        const actionsCell = row.insertCell(7);
-
-        nameCell.classList.add('name-column');
-        odometerCell.classList.add('odometer-column');
-        locationCell.classList.add('location-column');
-        startTimeCell.classList.add('start-time-column');
-        endTimeCell.classList.add('end-time-column');
-        lengthCell.classList.add('length-column');
-        notesCell.classList.add('notes-column');
-
-        nameCell.innerText = task.name;
-        odometerCell.innerText = task.odometer;
-        if (task.location) {
-            locationCell.innerText = `Lat: ${task.location.latitude}, Long: ${task.location.longitude}`;
-        } else {
-            locationCell.innerText = "Location not available";
-        }
-        startTimeCell.innerText = new Date(task.startTime).toLocaleString();
-        endTimeCell.innerText = task.endTime ? new Date(task.endTime).toLocaleString() : '';
-        lengthCell.innerText = task.endTime ? calculateTaskLength(task) : '';
-        notesCell.innerText = task.notes;
-
-        nameCell.contentEditable = true;
-        odometerCell.contentEditable = true;
-        startTimeCell.contentEditable = true;
-        endTimeCell.contentEditable = true;
-        notesCell.contentEditable = true;
-
-        nameCell.addEventListener('blur', () => updateTaskField(task.id, 'name', nameCell.innerText));
-        odometerCell.addEventListener('blur', () => updateTaskField(task.id, 'odometer', odometerCell.innerText)); // Update odometer
-        startTimeCell.addEventListener('blur', () => updateTaskField(task.id, 'startTime', new Date(startTimeCell.innerText).toISOString()));
-        endTimeCell.addEventListener('blur', () => updateTaskField(task.id, 'endTime', new Date(endTimeCell.innerText).toISOString()));
-        notesCell.addEventListener('blur', () => updateTaskField(task.id, 'notes', notesCell.innerText));
-
-        const deleteButton = document.createElement('button');
-        deleteButton.innerText = 'Delete';
-        deleteButton.addEventListener('click', () => deleteTask(task.id, row));
-        actionsCell.appendChild(deleteButton);
-    }
-
-    function deleteTask(taskId, row) {
-        const taskRef = ref(database, `tasks/${taskId}`);
-        remove(taskRef).then(() => {
-            if (row && row.parentNode) {
-                row.parentNode.removeChild(row);
             }
-            updateTotalHours();
-        }).catch(error => {
-            console.error('Error removing task:', error);
-        });
-    }
-
-    function calculateTaskLength(task) {
-        const startTime = new Date(task.startTime);
-        const endTime = new Date(task.endTime);
-        const lengthInSeconds = (endTime - startTime) / 1000;
-        const hours = Math.floor(lengthInSeconds / 3600);
-        const minutes = Math.floor((lengthInSeconds % 3600) / 60);
-        const seconds = Math.floor(lengthInSeconds % 60);
-        return `${hours}:${minutes}:${seconds}`;
-    }
-
-    function updateCurrentTaskTime() {
-        if (currentTask) {
-            const length = calculateTaskLength({
-                startTime: currentTask.startTime,
-                endTime: new Date().toISOString()
-            });
-            currentTaskTimeDisplay.innerText = length;
         }
-    }
 
-    function updateTotalHours() {
-        const taskRef = ref(database, 'tasks');
-        onValue(taskRef, snapshot => {
-            let totalSeconds = 0;
-            snapshot.forEach(taskSnapshot => {
-                const task = taskSnapshot.val();
-                if (task.endTime) {
-                    const lengthInSeconds = (new Date(task.endTime) - new Date(task.startTime)) / 1000;
-                    totalSeconds += lengthInSeconds;
-                }
-            });
-            const hours = Math.floor(totalSeconds / 3600);
-            const minutes = Math.floor((totalSeconds % 3600) / 60);
-            totalHoursSpan.innerText = `${hours} hours, ${minutes} minutes`;
-        });
-    }
+        function toggleTimer() {
+            currentTask ? endTask() : startTask();
+        }
 
-    function loadTasks() {
-        const taskRef = ref(database, 'tasks');
-        onValue(taskRef, snapshot => {
-            taskLogTable.innerHTML = '';
-            snapshot.forEach(taskSnapshot => {
-                const task = taskSnapshot.val();
-                addTaskToTable(task);
+        function startTask() {
+            const taskName = taskNameInput.value.trim();
+            const startOdometer = startOdometerInput.value.trim();
+            if (!taskName) {
+                alert('Please enter a task name');
+                return;
+            }
+
+            getGeolocation(location => {
+                currentTask = {
+                    id: Date.now().toString(),
+                    name: taskName,
+                    notes: taskNotesTextarea.value.trim(),
+                    startOdometer,
+                    endOdometer: null,
+                    location,
+                    startTime: new Date().toISOString(),
+                    endTime: null
+                };
+                saveTask(currentTask);
+                timerInterval = setInterval(updateCurrentTaskTime, 1000);
+                endOdometerInput.disabled = false;
             });
+        }
+
+        function endTask() {
+            clearInterval(timerInterval);
+            currentTask.endOdometer = endOdometerInput.value.trim();
+            currentTask.endTime = new Date().toISOString();
+            saveTask(currentTask);
+            updateTaskInTable(currentTask);
+            resetTimerState();
             updateTotalHours();
             applyColumnVisibility();
-        });
-    }
-
-    function resetTimerState() {
-        clearInterval(timerInterval);
-        currentTask = null;
-        taskNameInput.value = '';
-        taskNotesTextarea.value = '';
-        taskOdometerInput.value = '';
-        currentTaskTimeDisplay.innerText = '00:00:00';
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-        loadTasks();
-        checkForOngoingTask();
-    });
-
-    function updateTaskField(taskId, field, value) {
-        const taskRef = ref(database, `tasks/${taskId}`);
-        update(taskRef, { [field]: value });
-    }
-
-    function checkForOngoingTask() {
-        const taskRef = ref(database, 'tasks');
-        onValue(taskRef, snapshot => {
-            snapshot.forEach(taskSnapshot => {
-                const task = taskSnapshot.val();
-                if (!task.endTime) {
-                    currentTask = task;
-                    taskNameInput.value = currentTask.name;
-                    taskNotesTextarea.value = currentTask.notes;
-                    taskOdometerInput.value = currentTask.odometer;
-                    timerInterval = setInterval(updateCurrentTaskTime, 1000);
-                }
-            });
-        });
-    }
-
-    function toggleColumnVisibility(event) {
-        const columnClass = event.target.value;
-        const cells = document.querySelectorAll(`.${columnClass}, td.${columnClass}`);
-        const input = document.querySelector(`.${columnClass}-input`);
-        cells.forEach(cell => {
-            cell.style.display = event.target.checked ? '' : 'none';
-        });
-        if (input) {
-            input.style.display = event.target.checked ? '' : 'none';
         }
-    }
 
-    function applyColumnVisibility() {
-        document.querySelectorAll('.toggle-column').forEach(checkbox => {
-            const columnClass = checkbox.value;
-            const cells = document.querySelectorAll(`.${columnClass}, td.${columnClass}`);
-            const input = document.querySelector(`.${columnClass}-input`);
-            cells.forEach(cell => {
-                cell.style.display = checkbox.checked ? '' : 'none';
-            });
-            if (input) {
-                input.style.display = checkbox.checked ? '' : 'none';
+        function saveTask(task) {
+            const taskRef = ref(database, `tasks/${task.id}`);
+            set(taskRef, task);
+        }
+
+        function updateTaskInTable(task) {
+            const existingRow = document.querySelector(`[data-task-id="${task.id}"]`);
+            if (existingRow) {
+                updateRow(existingRow, task);
+            } else {
+                addTaskToTable(task);
             }
+        }
+
+        function addTaskToTable(task) {
+            const row = taskLogTable.insertRow();
+            row.dataset.taskId = task.id;
+            updateRow(row, task);
+            applyColumnVisibility();
+        }
+
+        function updateRow(row, task) {
+            row.innerHTML = '';
+            const nameCell = row.insertCell(0);
+            const startOdometerCell = row.insertCell(1);
+            const endOdometerCell = row.insertCell(2);
+            const distanceCell = row.insertCell(3);
+            const locationCell = row.insertCell(4);
+            const startTimeCell = row.insertCell(5);
+            const endTimeCell = row.insertCell(6);
+            const lengthCell = row.insertCell(7);
+            const notesCell = row.insertCell(8);
+            const actionsCell = row.insertCell(9);
+
+            nameCell.classList.add('name-column');
+            startOdometerCell.classList.add('start-odometer-column', 'odometer-column');
+            endOdometerCell.classList.add('end-odometer-column', 'odometer-column');
+            distanceCell.classList.add('distance-column', 'odometer-column');
+            locationCell.classList.add('location-column');
+            startTimeCell.classList.add('start-time-column');
+            endTimeCell.classList.add('end-time-column');
+            lengthCell.classList.add('length-column');
+            notesCell.classList.add('notes-column');
+
+            nameCell.innerText = task.name;
+            startOdometerCell.innerText = task.startOdometer;
+            endOdometerCell.innerText = task.endOdometer;
+            distanceCell.innerText = task.endOdometer ? calculateDistance(task.startOdometer, task.endOdometer) : '';
+            if (task.location) {
+                locationCell.innerText = `Lat: ${task.location.latitude}, Long: ${task.location.longitude}`;
+            } else {
+                locationCell.innerText = "Location not available";
+            }
+            startTimeCell.innerText = new Date(task.startTime).toLocaleString();
+            endTimeCell.innerText = task.endTime ? new Date(task.endTime).toLocaleString() : '';
+            lengthCell.innerText = task.endTime ? calculateTaskLength(task) : '';
+            notesCell.innerText = task.notes;
+
+            nameCell.contentEditable = true;
+            startOdometerCell.contentEditable = true;
+            endOdometerCell.contentEditable = true;
+            startTimeCell.contentEditable = true;
+            endTimeCell.contentEditable = true;
+            notesCell.contentEditable = true;
+
+            nameCell.addEventListener('blur', () => updateTaskField(task.id, 'name', nameCell.innerText));
+            startOdometerCell.addEventListener('blur', () => updateTaskField(task.id, 'startOdometer', startOdometerCell.innerText));
+            endOdometerCell.addEventListener('blur', () => updateTaskField(task.id, 'endOdometer', endOdometerCell.innerText));
+            startTimeCell.addEventListener('blur', () => updateTaskField(task.id, 'startTime', new Date(startTimeCell.innerText).toISOString()));
+            endTimeCell.addEventListener('blur', () => updateTaskField(task.id, 'endTime', new Date(endTimeCell.innerText).toISOString()));
+            notesCell.addEventListener('blur', () => updateTaskField(task.id, 'notes', notesCell.innerText));
+
+            const deleteButton = document.createElement('button');
+            deleteButton.innerText = 'Delete';
+            deleteButton.addEventListener('click', () => deleteTask(task.id, row));
+            actionsCell.appendChild(deleteButton);
+        }
+
+        function deleteTask(taskId, row) {
+            const taskRef = ref(database, `tasks/${taskId}`);
+            remove(taskRef).then(() => {
+                if (row && row.parentNode) {
+                    row.parentNode.removeChild(row);
+                }
+                updateTotalHours();
+            }).catch(error => {
+                console.error('Error removing task:', error);
+            });
+        }
+
+        function calculateTaskLength(task) {
+            const startTime = new Date(task.startTime);
+            const endTime = new Date(task.endTime);
+            const lengthInSeconds = (endTime - startTime) / 1000;
+            const hours = Math.floor(lengthInSeconds / 3600);
+            const minutes = Math.floor((lengthInSeconds % 3600) / 60);
+            const seconds = Math.floor(lengthInSeconds % 60);
+            return `${hours}:${minutes}:${seconds}`;
+        }
+
+        function calculateDistance(startOdometer, endOdometer) {
+            const distance = endOdometer - startOdometer;
+            return distance >= 0 ? distance : '';
+        }
+
+        function updateCurrentTaskTime() {
+            if (currentTask) {
+                const length = calculateTaskLength({
+                    startTime: currentTask.startTime,
+                    endTime: new Date().toISOString()
+                });
+                currentTaskTimeDisplay.innerText = length;
+            }
+        }
+
+        function updateTotalHours() {
+            const taskRef = ref(database, 'tasks');
+            onValue(taskRef, snapshot => {
+                let totalSeconds = 0;
+                snapshot.forEach(taskSnapshot => {
+                    const task = taskSnapshot.val();
+                    if (task.endTime) {
+                        const lengthInSeconds = (new Date(task.endTime) - new Date(task.startTime)) / 1000;
+                        totalSeconds += lengthInSeconds;
+                    }
+                });
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                totalHoursSpan.innerText = `${hours} hours, ${minutes} minutes`;
+            });
+        }
+
+        function loadTasks() {
+            const taskRef = ref(database, 'tasks');
+            onValue(taskRef, snapshot => {
+                taskLogTable.innerHTML = '';
+                snapshot.forEach(taskSnapshot => {
+                    const task = taskSnapshot.val();
+                    addTaskToTable(task);
+                });
+                updateTotalHours();
+                applyColumnVisibility();
+            });
+        }
+
+        function resetTimerState() {
+            clearInterval(timerInterval);
+            currentTask = null;
+            taskNameInput.value = '';
+            taskNotesTextarea.value = '';
+            startOdometerInput.value = '';
+            endOdometerInput.value = '';
+            endOdometerInput.disabled = true;
+            currentTaskTimeDisplay.innerText = '00:00:00';
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadTasks();
+            checkForOngoingTask();
         });
-    }
 
-    function exportData() {
-        const headers = Array.from(document.querySelectorAll('#task-log thead th'))
-            .filter(th => th.style.display !== 'none')
-            .map(th => th.innerText);
+        function updateTaskField(taskId, field, value) {
+            const taskRef = ref(database, `tasks/${taskId}`);
+            update(taskRef, { [field]: value });
+        }
 
-        const rows = Array.from(taskLogTable.rows).map(row => {
-            return Array.from(row.cells).filter(cell => cell.style.display !== 'none').map(cell => cell.innerText);
-        });
+        function checkForOngoingTask() {
+            const taskRef = ref(database, 'tasks');
+            onValue(taskRef, snapshot => {
+                snapshot.forEach(taskSnapshot => {
+                    const task = taskSnapshot.val();
+                    if (!task.endTime) {
+                        currentTask = task;
+                        taskNameInput.value = currentTask.name;
+                        taskNotesTextarea.value = currentTask.notes;
+                        startOdometerInput.value = currentTask.startOdometer;
+                        endOdometerInput.disabled = false;
+                        timerInterval = setInterval(updateCurrentTaskTime, 1000);
+                    }
+                });
+            });
+        }
 
-        rows.unshift(headers);
-        exportToSpreadsheet(rows);
-    }
+        function toggleColumnVisibility(event) {
+            const columnClass = event.target.value;
+            const cells = document.querySelectorAll(`.${columnClass}, td.${columnClass}`);
+            const inputs = document.querySelectorAll(`.${columnClass}-input, .start-${columnClass}-input, .end-${columnClass}-input`);
+            cells.forEach(cell => {
+                cell.style.display = event.target.checked ? '' : 'none';
+            });
+            inputs.forEach(input => {
+                input.style.display = event.target.checked ? '' : 'none';
+            });
+        }
 
-    function exportToSpreadsheet(rows) {
-        let csvContent = "data:text/csv;charset=utf-8,";
-        rows.forEach(rowArray => {
-            let row = rowArray.join(",");
-            csvContent += row + "\r\n";
-        });
+        function applyColumnVisibility() {
+            document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                const columnClass = checkbox.value;
+                const cells = document.querySelectorAll(`.${columnClass}, td.${columnClass}`);
+                const inputs = document.querySelectorAll(`.${columnClass}-input, .start-${columnClass}-input, .end-${columnClass}-input`);
+                cells.forEach(cell => {
+                    cell.style.display = checkbox.checked ? '' : 'none';
+                });
+                inputs.forEach(input => {
+                    input.style.display = checkbox.checked ? '' : 'none';
+                });
+            });
+        }
 
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "task_data.csv");
-        document.body.appendChild(link);
+        function exportData() {
+            const headers = Array.from(document.querySelectorAll('#task-log thead th'))
+                .filter(th => th.style.display !== 'none')
+                .map(th => th.innerText);
 
-        link.click();
-        document.body.removeChild(link);
-    }
-</script>
+            const rows = Array.from(taskLogTable.rows).map(row => {
+                return Array.from(row.cells).filter(cell => cell.style.display !== 'none').map(cell => cell.innerText);
+            });
+
+            rows.unshift(headers);
+            exportToSpreadsheet(rows);
+        }
+
+        function exportToSpreadsheet(rows) {
+            let csvContent = "data:text/csv;charset=utf-8,";
+            rows.forEach(rowArray => {
+                let row = rowArray.join(",");
+                csvContent += row + "\r\n";
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "task_data.csv");
+            document.body.appendChild(link);
+
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+
+</body>
 
 </html>
