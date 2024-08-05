@@ -21,7 +21,7 @@
                 <input type="text" id="taskName" placeholder="Task Name">
             </div>
             <div class="odometer-column-input">
-                <input type="text" id="taskOdometer" placeholder="Odometer"> <!-- New odometer input field -->
+                <input type="number" id="taskOdometer" placeholder="Odometer">
             </div>
             <div class="notes-column-input">
                 <textarea id="taskNotes" placeholder="Notes"></textarea>
@@ -31,28 +31,30 @@
             <div class="checkbox">
                 <label><input type="checkbox" class="toggle-column" value="name-column" checked> Task Name</label>
                 <label><input type="checkbox" class="toggle-column" value="odometer-column" checked> Odometer</label>
-                <label><input type="checkbox" class="toggle-column" value="location-column" checked> Location</label>
+                <label><input type="checkbox" class="toggle-column" value="location-column" unchecked> Location</label>
                 <label><input type="checkbox" class="toggle-column" value="start-time-column" checked> Start
                     Time</label>
                 <label><input type="checkbox" class="toggle-column" value="end-time-column" checked> End Time</label>
                 <label><input type="checkbox" class="toggle-column" value="length-column" checked> Length</label>
                 <label><input type="checkbox" class="toggle-column" value="notes-column" checked> Notes</label>
             </div>
-            <table id="task-log">
-                <thead>
-                    <tr>
-                        <th class="name-column">Task Name</th>
-                        <th class="odometer-column">Odometer</th>
-                        <th class="location-column">Location</th>
-                        <th class="start-time-column">Start Time</th>
-                        <th class="end-time-column">End Time</th>
-                        <th class="length-column">Length</th>
-                        <th class="notes-column">Notes</th>
-                        <th class="actions-column">Actions</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
+            <div class="table">
+                <table id="task-log">
+                    <thead>
+                        <tr>
+                            <th class="name-column">Task Name</th>
+                            <th class="odometer-column">Odometer</th>
+                            <th class="location-column">Location</th>
+                            <th class="start-time-column">Start Time</th>
+                            <th class="end-time-column">End Time</th>
+                            <th class="length-column">Length</th>
+                            <th class="notes-column">Notes</th>
+                            <th class="actions-column">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
             <div>Total Hours: <span id="totalHours">0</span></div>
             <button id="exportBtn">Export</button>
         </section>
@@ -60,7 +62,7 @@
     </main>
 </body>
 <script type="module">
-    import { database, ref, set, get, push, onValue, remove } from '../assets/js/firebase-init.js';
+    import { database, ref, set, get, push, onValue, remove, update } from '../assets/js/firebase-init.js';
 
     const taskNameInput = document.getElementById('taskName');
     const taskNotesTextarea = document.getElementById('taskNotes');
@@ -77,7 +79,7 @@
     toggleTimerBtn.addEventListener('click', toggleTimer);
     exportBtn.addEventListener('click', exportData);
 
-    // Adding a function to toggle visibility of columns
+    // Function to toggle visibility of columns
     document.querySelectorAll('.toggle-column').forEach(checkbox => {
         checkbox.addEventListener('change', toggleColumnVisibility);
     });
@@ -185,8 +187,8 @@
             locationCell.innerText = "Location not available";
         }
         startTimeCell.innerText = new Date(task.startTime).toLocaleString();
-        endTimeCell.innerText = new Date(task.endTime).toLocaleString();
-        lengthCell.innerText = calculateTaskLength(task);
+        endTimeCell.innerText = task.endTime ? new Date(task.endTime).toLocaleString() : '';
+        lengthCell.innerText = task.endTime ? calculateTaskLength(task) : '';
         notesCell.innerText = task.notes;
 
         nameCell.contentEditable = true;
@@ -209,9 +211,14 @@
 
     function deleteTask(taskId, row) {
         const taskRef = ref(database, `tasks/${taskId}`);
-        remove(taskRef);
-        taskLogTable.deleteRow(row.rowIndex - 1);
-        updateTotalHours();
+        remove(taskRef).then(() => {
+            if (row && row.parentNode) {
+                row.parentNode.removeChild(row);
+            }
+            updateTotalHours();
+        }).catch(error => {
+            console.error('Error removing task:', error);
+        });
     }
 
     function calculateTaskLength(task) {
@@ -240,8 +247,10 @@
             let totalSeconds = 0;
             snapshot.forEach(taskSnapshot => {
                 const task = taskSnapshot.val();
-                const lengthInSeconds = (new Date(task.endTime) - new Date(task.startTime)) / 1000;
-                totalSeconds += lengthInSeconds;
+                if (task.endTime) {
+                    const lengthInSeconds = (new Date(task.endTime) - new Date(task.startTime)) / 1000;
+                    totalSeconds += lengthInSeconds;
+                }
             });
             const hours = Math.floor(totalSeconds / 3600);
             const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -352,7 +361,6 @@
         link.click();
         document.body.removeChild(link);
     }
-
 </script>
 
 </html>
