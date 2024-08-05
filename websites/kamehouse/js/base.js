@@ -44,6 +44,7 @@ var appNames = [
   "livegas", 
   "livemileage",
   "livetimer", 
+  "livetasker", 
   "liveinventory", 
   "livedatabase", 
   "livechat", 
