@@ -60,7 +60,9 @@
                 </table>
             </div>
             <div>Total Hours: <span id="totalHours">0</span></div>
-            <button id="exportBtn">Export</button>
+            <button id="exportBtn">Export CSV</button>
+            <button id="saveBtn">Save</button>
+            <button id="loadBtn">Load</button>
         </section>
     </main>
 
@@ -76,18 +78,32 @@
         const totalHoursSpan = document.getElementById('totalHours');
         const currentTaskTimeDisplay = document.getElementById('currentTaskTime');
         const exportBtn = document.getElementById('exportBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const loadBtn = document.getElementById('loadBtn');
 
         let currentTask = null;
         let timerInterval = null;
 
         toggleTimerBtn.addEventListener('click', toggleTimer);
         exportBtn.addEventListener('click', exportData);
+        saveBtn.addEventListener('click', saveData);
+        loadBtn.addEventListener('click', loadData);
 
         document.querySelectorAll('.toggle-column').forEach(checkbox => {
             checkbox.addEventListener('change', toggleColumnVisibility);
         });
 
         function getGeolocation(callback) {
+            // Temporarily bypass geolocation prompt
+            console.warn("Geolocation bypassed for testing. Using placeholder coordinates.");
+            const placeholderLocation = {
+                latitude: '0.0000',
+                longitude: '0.0000'
+            };
+            callback(placeholderLocation);
+
+            // Uncomment below code when ready to implement geolocation
+            /*
             if ('geolocation' in navigator) {
                 navigator.geolocation.getCurrentPosition(position => {
                     const coords = position.coords;
@@ -103,6 +119,7 @@
                 console.error("Geolocation is not supported in your browser.");
                 callback(null);
             }
+            */
         }
 
         function toggleTimer() {
@@ -364,6 +381,7 @@
             });
         }
 
+
         function exportData() {
             const headers = Array.from(document.querySelectorAll('#task-log thead th'))
                 .filter(th => th.style.display !== 'none' && !th.classList.contains('actions-column'))
@@ -396,7 +414,60 @@
 
             link.click();
             document.body.removeChild(link);
-        }  
+        }
+
+        function saveData() {
+            const taskRef = ref(database, 'tasks');
+            get(taskRef).then(snapshot => {
+                const tasks = [];
+                snapshot.forEach(taskSnapshot => {
+                    tasks.push(taskSnapshot.val());
+                });
+                const json = JSON.stringify(tasks, null, 2);
+                const blob = new Blob([json], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'tasks.json';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+        }
+
+        function loadData() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'application/json';
+            input.addEventListener('change', event => {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const json = reader.result;
+                        const tasks = JSON.parse(json);
+                        tasks.forEach(task => {
+                            saveTaskIfNotExists(task);
+                        });
+                        applyColumnVisibility();
+                    };
+                    reader.readAsText(file);
+                }
+            });
+            input.click();
+        }
+
+
+        function saveTaskIfNotExists(task) {
+            const taskRef = ref(database, `tasks/${task.id}`);
+            get(taskRef).then(snapshot => {
+                if (!snapshot.exists()) {
+                    saveTask(task);
+                    updateTaskInTable(task);
+                    applyColumnVisibility();
+                }
+            });
+        }
     </script>
 
 </body>
