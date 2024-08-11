@@ -17,7 +17,10 @@
     <main>
         <section id="task-manager" class="app-section">
             <div class="name-column-input">
-                <input type="text" id="taskName" placeholder="Task Name">
+                <input type="text" id="taskName" placeholder="Name">
+            </div>
+            <div class="project-column-input">
+                <input type="text" id="project" placeholder="Project">
             </div>
             <div class="start-odometer-column-input odometer-input">
                 <input type="number" id="startOdometer" placeholder="Start Odometer">
@@ -32,10 +35,14 @@
             <div>Timer: <span id="currentTaskTime">00:00:00</span></div>
             <div class="checkbox">
                 <label style="display: none;"><input type="checkbox" class="toggle-column" value="name-column" checked>
-                    Task Name</label>
+                    Name</label>
+                <label><input type="checkbox" class="toggle-column" value="project-column" checked>
+                    Project</label> |
+
                 <label><input type="checkbox" class="toggle-column" value="odometer-column"> Mileage</label> |
                 <label><input type="checkbox" class="toggle-column" value="location-column"> Location</label> |
-                <label><input type="checkbox" class="toggle-column" value="start-time-column" checked> Start Time</label> |
+                <label><input type="checkbox" class="toggle-column" value="start-time-column" checked> Start
+                    Time</label> |
                 <label><input type="checkbox" class="toggle-column" value="end-time-column" checked> End Time</label> |
                 <label><input type="checkbox" class="toggle-column" value="length-column" checked> Length</label> |
                 <label><input type="checkbox" class="toggle-column" value="notes-column" checked> Notes</label>
@@ -44,7 +51,8 @@
                 <table id="task-log">
                     <thead>
                         <tr>
-                            <th class="name-column">Task Name</th>
+                            <th class="name-column">Name</th>
+                            <th class="project-column">Project</th>
                             <th class="start-odometer-column odometer-column">Start Odometer</th>
                             <th class="end-odometer-column odometer-column">End Odometer</th>
                             <th class="distance-column odometer-column">Distance</th>
@@ -59,6 +67,9 @@
                     <tbody></tbody>
                 </table>
             </div>
+            <div>Hours:
+                <span id="dailyTimeSpent"></span>
+            </div>
             <div>Total Hours: <span id="totalHours">0</span></div>
             <button id="exportBtn">Export CSV</button>
             <button id="saveBtn">Save</button>
@@ -70,6 +81,7 @@
         import { database, ref, set, get, push, onValue, remove, update } from '../assets/js/firebase-init-noauth.js';
 
         const taskNameInput = document.getElementById('taskName');
+        const projectInput = document.getElementById('project');
         const taskNotesTextarea = document.getElementById('taskNotes');
         const startOdometerInput = document.getElementById('startOdometer');
         const endOdometerInput = document.getElementById('endOdometer');
@@ -128,6 +140,7 @@
 
         function startTask() {
             const taskName = taskNameInput.value.trim();
+            const project = projectInput.value.trim();
             const startOdometer = startOdometerInput.value.trim();
             if (!taskName) {
                 alert('Please enter a task name');
@@ -138,6 +151,7 @@
                 currentTask = {
                     id: Date.now().toString(),
                     name: taskName,
+                    project: project,
                     notes: taskNotesTextarea.value.trim(),
                     startOdometer,
                     endOdometer: null,
@@ -186,18 +200,21 @@
 
         function updateRow(row, task) {
             row.innerHTML = '';
+
             const nameCell = row.insertCell(0);
-            const startOdometerCell = row.insertCell(1);
-            const endOdometerCell = row.insertCell(2);
-            const distanceCell = row.insertCell(3);
-            const locationCell = row.insertCell(4);
-            const startTimeCell = row.insertCell(5);
-            const endTimeCell = row.insertCell(6);
-            const lengthCell = row.insertCell(7);
-            const notesCell = row.insertCell(8);
-            const actionsCell = row.insertCell(9);
+            const projectCell = row.insertCell(1);
+            const startOdometerCell = row.insertCell(2);
+            const endOdometerCell = row.insertCell(3);
+            const distanceCell = row.insertCell(4);
+            const locationCell = row.insertCell(5);
+            const startTimeCell = row.insertCell(6);
+            const endTimeCell = row.insertCell(7);
+            const lengthCell = row.insertCell(8);
+            const notesCell = row.insertCell(9);
+            const actionsCell = row.insertCell(10);
 
             nameCell.classList.add('name-column');
+            projectCell.classList.add('project-column');
             startOdometerCell.classList.add('start-odometer-column', 'odometer-column');
             endOdometerCell.classList.add('end-odometer-column', 'odometer-column');
             distanceCell.classList.add('distance-column', 'odometer-column');
@@ -208,6 +225,7 @@
             notesCell.classList.add('notes-column');
 
             nameCell.innerText = task.name;
+            projectCell.innerText = task.project;
             startOdometerCell.innerText = task.startOdometer;
             endOdometerCell.innerText = task.endOdometer;
             distanceCell.innerText = task.endOdometer ? calculateDistance(task.startOdometer, task.endOdometer) : '';
@@ -218,6 +236,7 @@
             notesCell.innerText = task.notes;
 
             nameCell.contentEditable = true;
+            projectCell.contentEditable = true;
             startOdometerCell.contentEditable = true;
             endOdometerCell.contentEditable = true;
             startTimeCell.contentEditable = true;
@@ -225,6 +244,7 @@
             notesCell.contentEditable = true;
 
             nameCell.addEventListener('blur', () => updateTaskField(task.id, 'name', nameCell.innerText));
+            projectCell.addEventListener('blur', () => updateTaskField(task.id, 'project', projectCell.innerText));
             startOdometerCell.addEventListener('blur', () => updateTaskField(task.id, 'startOdometer', startOdometerCell.innerText));
             endOdometerCell.addEventListener('blur', () => updateTaskField(task.id, 'endOdometer', endOdometerCell.innerText));
             startTimeCell.addEventListener('blur', () => updateTaskField(task.id, 'startTime', new Date(startTimeCell.innerText).toISOString()));
@@ -263,7 +283,7 @@
             const hours = Math.floor(lengthInSeconds / 3600);
             const minutes = Math.floor((lengthInSeconds % 3600) / 60);
             const seconds = Math.floor(lengthInSeconds % 60);
-            return `${hours}:${minutes}`;
+            return `${hours}:${minutes}:${seconds}`;
         }
 
         function calculateDistance(startOdometer, endOdometer) {
@@ -321,6 +341,7 @@
             clearInterval(timerInterval);
             currentTask = null;
             taskNameInput.value = '';
+            projectInput.value = '';
             taskNotesTextarea.value = '';
             startOdometerInput.value = '';
             endOdometerInput.value = '';
@@ -331,11 +352,26 @@
         document.addEventListener('DOMContentLoaded', () => {
             loadTasks();
             checkForOngoingTask();
+            loadColumnVisibility();
+            applyColumnVisibility();
+
+            document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                checkbox.addEventListener('change', () => {
+                    saveColumnVisibility();
+                    applyColumnVisibility();
+                });
+            });
         });
 
         function updateTaskField(taskId, field, value) {
             const taskRef = ref(database, `tasks/${taskId}`);
-            update(taskRef, { [field]: value });
+            update(taskRef, { [field]: value })
+                .then(() => {
+                    console.log(`Task ${taskId} updated: ${field} = ${value}`);
+                })
+                .catch(error => {
+                    console.error('Error updating task:', error);
+                });
         }
 
         function checkForOngoingTask() {
@@ -346,6 +382,7 @@
                     if (!task.endTime) {
                         currentTask = task;
                         taskNameInput.value = currentTask.name;
+                        projectInput.value = currentTask.project;
                         taskNotesTextarea.value = currentTask.notes;
                         startOdometerInput.value = currentTask.startOdometer;
                         endOdometerInput.disabled = false;
@@ -367,6 +404,23 @@
             });
         }
 
+        function saveColumnVisibility() {
+            const checkboxStates = {};
+            document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                checkboxStates[checkbox.value] = checkbox.checked;
+            });
+            localStorage.setItem('columnVisibility', JSON.stringify(checkboxStates));
+        }
+
+        function loadColumnVisibility() {
+            const savedStates = JSON.parse(localStorage.getItem('columnVisibility'));
+            if (savedStates) {
+                document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                    checkbox.checked = savedStates[checkbox.value] !== undefined ? savedStates[checkbox.value] : checkbox.checked;
+                });
+            }
+        }
+
         function applyColumnVisibility() {
             document.querySelectorAll('.toggle-column').forEach(checkbox => {
                 const columnClass = checkbox.value;
@@ -381,7 +435,6 @@
             });
         }
 
-
         function exportData() {
             const headers = Array.from(document.querySelectorAll('#task-log thead th'))
                 .filter(th => th.style.display !== 'none' && !th.classList.contains('actions-column'))
@@ -389,10 +442,9 @@
 
             const rows = Array.from(taskLogTable.rows).map(row => {
                 return Array.from(row.cells)
-                    .filter(cell => cell.style.display !== 'none' && !cell.classList.contains('actions-column'))
-                    .map(cell => {
-                        return cell.innerText;
-                    });
+                    .filter(cell => !cell.classList.contains('actions-column'))
+                    .filter(cell => cell.style.display !== 'none')
+                    .map(cell => cell.innerText.trim());
             });
 
             rows.unshift(headers);
@@ -401,8 +453,32 @@
 
         function exportToSpreadsheet(rows) {
             let csvContent = "data:text/csv;charset=utf-8,";
+
             rows.forEach(rowArray => {
-                let row = rowArray.join(",");
+                let row = rowArray
+                    .map(field => {
+                        if (field === null || field === undefined) {
+                            return '';
+                        }
+                        field = field.toString().trim();
+
+                        field = field.replace(/[\u00A0\r?\n|\r]/g, ' ');
+
+
+                        if (field === 'Delete') {
+                            return '';
+                        }
+
+                        if (!isNaN(field) && field.length > 10) {
+                            field = `="${field}"`;
+                        }
+
+                        if (field.includes(',') || field.includes('"') || field.includes('\n')) {
+                            field = `"${field.replace(/"/g, '""')}"`;
+                        }
+
+                        return field;
+                    }).join(",");
                 csvContent += row + "\r\n";
             });
 
@@ -457,7 +533,6 @@
             input.click();
         }
 
-
         function saveTaskIfNotExists(task) {
             const taskRef = ref(database, `tasks/${task.id}`);
             get(taskRef).then(snapshot => {
@@ -468,6 +543,70 @@
                 }
             });
         }
+
+        function calculateDailyTimeSpent(tasks) {
+            const dailyTimeSpent = {};
+
+            tasks.forEach(task => {
+                if (task.startTime && task.endTime) {
+                    let startTime = new Date(task.startTime);
+                    let endTime = new Date(task.endTime);
+
+                    while (startTime < endTime) {
+                        const currentDate = startTime.toISOString().split('T')[0];
+                        const nextDay = new Date(currentDate);
+                        nextDay.setDate(nextDay.getDate() + 1);
+
+                        const endOfDay = nextDay < endTime ? nextDay : endTime;
+
+                        const durationInSeconds = (endOfDay - startTime) / 1000;
+
+                        if (!dailyTimeSpent[currentDate]) {
+                            dailyTimeSpent[currentDate] = 0;
+                        }
+                        dailyTimeSpent[currentDate] += durationInSeconds;
+
+                        startTime = endOfDay;
+                    }
+                }
+            });
+
+            return dailyTimeSpent;
+        }
+
+        function displayDailyTimeSpent(dailyTimeSpent) {
+            const dailyTimeContainer = document.getElementById('dailyTimeSpent');
+            dailyTimeContainer.innerHTML = ''; // Clear previous content
+
+            Object.keys(dailyTimeSpent).forEach(date => {
+                const totalSeconds = dailyTimeSpent[date];
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const decimalHours = (totalSeconds / 3600).toFixed(2);
+
+                const dateElement = document.createElement('div');
+                dateElement.innerText = `Date: ${date} - Time Spent: ${hours} hours, ${minutes} minutes (${decimalHours})`;
+                dailyTimeContainer.appendChild(dateElement);
+            });
+        }
+
+        function processTasksForDailyTimeSpent() {
+            const tasks = [];
+
+            const taskRef = ref(database, 'tasks');
+            onValue(taskRef, snapshot => {
+                snapshot.forEach(taskSnapshot => {
+                    tasks.push(taskSnapshot.val());
+                });
+
+                const dailyTimeSpent = calculateDailyTimeSpent(tasks);
+                displayDailyTimeSpent(dailyTimeSpent);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            processTasksForDailyTimeSpent();
+        });
     </script>
 
 </body>
