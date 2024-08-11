@@ -71,9 +71,7 @@
                 <span id="dailyTimeSpent"></span>
             </div>
             <div>Total Hours: <span id="totalHours">0</span></div>
-            <button id="exportBtn">Export CSV</button>
-            <button id="saveBtn">Save</button>
-            <button id="loadBtn">Load</button>
+            <div id="buttons"></div>
         </section>
     </main>
 
@@ -89,50 +87,15 @@
         const taskLogTable = document.getElementById('task-log').getElementsByTagName('tbody')[0];
         const totalHoursSpan = document.getElementById('totalHours');
         const currentTaskTimeDisplay = document.getElementById('currentTaskTime');
-        const exportBtn = document.getElementById('exportBtn');
-        const saveBtn = document.getElementById('saveBtn');
-        const loadBtn = document.getElementById('loadBtn');
 
         let currentTask = null;
         let timerInterval = null;
 
         toggleTimerBtn.addEventListener('click', toggleTimer);
-        exportBtn.addEventListener('click', exportData);
-        saveBtn.addEventListener('click', saveData);
-        loadBtn.addEventListener('click', loadData);
 
         document.querySelectorAll('.toggle-column').forEach(checkbox => {
             checkbox.addEventListener('change', toggleColumnVisibility);
         });
-
-        function getGeolocation(callback) {
-            // Temporarily bypass geolocation prompt
-            console.warn("Geolocation bypassed for testing. Using placeholder coordinates.");
-            const placeholderLocation = {
-                latitude: '0.0000',
-                longitude: '0.0000'
-            };
-            callback(placeholderLocation);
-
-            // Uncomment below code when ready to implement geolocation
-            /*
-            if ('geolocation' in navigator) {
-                navigator.geolocation.getCurrentPosition(position => {
-                    const coords = position.coords;
-                    callback({
-                        latitude: coords.latitude.toFixed(4),
-                        longitude: coords.longitude.toFixed(4)
-                    });
-                }, error => {
-                    console.error("Geolocation error:", error.message);
-                    callback(null);
-                });
-            } else {
-                console.error("Geolocation is not supported in your browser.");
-                callback(null);
-            }
-            */
-        }
 
         function toggleTimer() {
             currentTask ? endTask() : startTask();
@@ -142,12 +105,13 @@
             const taskName = taskNameInput.value.trim();
             const project = projectInput.value.trim();
             const startOdometer = startOdometerInput.value.trim();
+
             if (!taskName) {
                 alert('Please enter a task name');
                 return;
             }
 
-            getGeolocation(location => {
+            const handleTaskStart = (location) => {
                 currentTask = {
                     id: Date.now().toString(),
                     name: taskName,
@@ -162,7 +126,16 @@
                 saveTask(currentTask);
                 timerInterval = setInterval(updateCurrentTaskTime, 1000);
                 endOdometerInput.disabled = false;
-            });
+            };
+
+            if (typeof getGeolocation === 'function') {
+                getGeolocation(location => {
+                    handleTaskStart(location);
+                });
+            } else {
+                const fallbackLocation = { latitude: "NA", longitude: "NA" };
+                handleTaskStart(fallbackLocation);
+            }
         }
 
         function endTask() {
@@ -229,7 +202,7 @@
             startOdometerCell.innerText = task.startOdometer;
             endOdometerCell.innerText = task.endOdometer;
             distanceCell.innerText = task.endOdometer ? calculateDistance(task.startOdometer, task.endOdometer) : '';
-            locationCell.innerText = task.location ? `Lat: ${task.location.latitude} Long: ${task.location.longitude}` : "Location not available";
+            locationCell.innerText = task.location ? `Lat: ${task.location.latitude} Long: ${task.location.longitude}` : '';
             startTimeCell.innerText = formatDateTime(task.startTime);
             endTimeCell.innerText = task.endTime ? formatDateTime(task.endTime) : '';
             lengthCell.innerText = task.endTime ? calculateTaskLength(task) : '';
@@ -354,6 +327,7 @@
             checkForOngoingTask();
             loadColumnVisibility();
             applyColumnVisibility();
+            processTasksForDailyTimeSpent();
 
             document.querySelectorAll('.toggle-column').forEach(checkbox => {
                 checkbox.addEventListener('change', () => {
@@ -435,62 +409,66 @@
             });
         }
 
-        function exportData() {
-            const headers = Array.from(document.querySelectorAll('#task-log thead th'))
-                .filter(th => th.style.display !== 'none' && !th.classList.contains('actions-column'))
-                .map(th => th.innerText);
+        function calculateDailyTimeSpent(tasks) {
+            const dailyTimeSpent = {};
 
-            const rows = Array.from(taskLogTable.rows).map(row => {
-                return Array.from(row.cells)
-                    .filter(cell => !cell.classList.contains('actions-column'))
-                    .filter(cell => cell.style.display !== 'none')
-                    .map(cell => cell.innerText.trim());
+            tasks.forEach(task => {
+                if (task.startTime && task.endTime) {
+                    let startTime = new Date(task.startTime);
+                    let endTime = new Date(task.endTime);
+
+                    while (startTime < endTime) {
+                        const currentDate = startTime.toISOString().split('T')[0];
+                        const nextDay = new Date(currentDate);
+                        nextDay.setDate(nextDay.getDate() + 1);
+
+                        const endOfDay = nextDay < endTime ? nextDay : endTime;
+
+                        const durationInSeconds = (endOfDay - startTime) / 1000;
+
+                        if (!dailyTimeSpent[currentDate]) {
+                            dailyTimeSpent[currentDate] = 0;
+                        }
+                        dailyTimeSpent[currentDate] += durationInSeconds;
+
+                        startTime = endOfDay;
+                    }
+                }
             });
 
-            rows.unshift(headers);
-            exportToSpreadsheet(rows);
+            return dailyTimeSpent;
         }
 
-        function exportToSpreadsheet(rows) {
-            let csvContent = "data:text/csv;charset=utf-8,";
+        function displayDailyTimeSpent(dailyTimeSpent) {
+            const dailyTimeContainer = document.getElementById('dailyTimeSpent');
+            dailyTimeContainer.innerHTML = '';
 
-            rows.forEach(rowArray => {
-                let row = rowArray
-                    .map(field => {
-                        if (field === null || field === undefined) {
-                            return '';
-                        }
-                        field = field.toString().trim();
+            Object.keys(dailyTimeSpent).forEach(date => {
+                const totalSeconds = dailyTimeSpent[date];
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const decimalHours = (totalSeconds / 3600).toFixed(2);
 
-                        field = field.replace(/[\u00A0\r?\n|\r]/g, ' ');
-
-
-                        if (field === 'Delete') {
-                            return '';
-                        }
-
-                        if (!isNaN(field) && field.length > 10) {
-                            field = `="${field}"`;
-                        }
-
-                        if (field.includes(',') || field.includes('"') || field.includes('\n')) {
-                            field = `"${field.replace(/"/g, '""')}"`;
-                        }
-
-                        return field;
-                    }).join(",");
-                csvContent += row + "\r\n";
+                const dateElement = document.createElement('div');
+                dateElement.innerText = `Date: ${date} - Time Spent: ${hours} hours, ${minutes} minutes (${decimalHours})`;
+                dailyTimeContainer.appendChild(dateElement);
             });
-
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "task_data.csv");
-            document.body.appendChild(link);
-
-            link.click();
-            document.body.removeChild(link);
         }
+
+        function processTasksForDailyTimeSpent() {
+            const tasks = [];
+
+            const taskRef = ref(database, 'tasks');
+            onValue(taskRef, snapshot => {
+                snapshot.forEach(taskSnapshot => {
+                    tasks.push(taskSnapshot.val());
+                });
+
+                const dailyTimeSpent = calculateDailyTimeSpent(tasks);
+                displayDailyTimeSpent(dailyTimeSpent);
+            });
+        }
+
 
         function saveData() {
             const taskRef = ref(database, 'tasks');
@@ -525,7 +503,6 @@
                         tasks.forEach(task => {
                             saveTaskIfNotExists(task);
                         });
-                        applyColumnVisibility();
                     };
                     reader.readAsText(file);
                 }
@@ -537,76 +514,110 @@
             const taskRef = ref(database, `tasks/${task.id}`);
             get(taskRef).then(snapshot => {
                 if (!snapshot.exists()) {
-                    saveTask(task);
-                    updateTaskInTable(task);
-                    applyColumnVisibility();
+                    set(taskRef, task);
                 }
             });
         }
 
-        function calculateDailyTimeSpent(tasks) {
-            const dailyTimeSpent = {};
+        function exportData() {
+            const headers = Array.from(document.querySelectorAll('#task-log thead th'))
+                .filter(th => th.style.display !== 'none' && !th.classList.contains('actions-column'))
+                .map(th => th.innerText);
 
-            tasks.forEach(task => {
-                if (task.startTime && task.endTime) {
-                    let startTime = new Date(task.startTime);
-                    let endTime = new Date(task.endTime);
+            const rows = Array.from(document.querySelectorAll('#task-log tbody tr')).map(row => {
+                return Array.from(row.cells)
+                    .filter(cell => !cell.classList.contains('actions-column'))
+                    .filter(cell => cell.style.display !== 'none')
+                    .map(cell => cell.innerText.trim());
+            });
 
-                    while (startTime < endTime) {
-                        const currentDate = startTime.toISOString().split('T')[0];
-                        const nextDay = new Date(currentDate);
-                        nextDay.setDate(nextDay.getDate() + 1);
+            rows.unshift(headers);
+            exportToSpreadsheet(rows);
+        }
 
-                        const endOfDay = nextDay < endTime ? nextDay : endTime;
+        function exportToSpreadsheet(rows) {
+            let csvContent = "data:text/csv;charset=utf-8,";
 
-                        const durationInSeconds = (endOfDay - startTime) / 1000;
-
-                        if (!dailyTimeSpent[currentDate]) {
-                            dailyTimeSpent[currentDate] = 0;
+            rows.forEach(rowArray => {
+                let row = rowArray
+                    .map(field => {
+                        if (field === null || field === undefined) {
+                            return '';
                         }
-                        dailyTimeSpent[currentDate] += durationInSeconds;
+                        field = field.toString().trim();
 
-                        startTime = endOfDay;
-                    }
-                }
+                        field = field.replace(/[\u00A0\r?\n|\r]/g, ' ');
+
+                        if (field === 'Delete') {
+                            return '';
+                        }
+
+                        if (!isNaN(field) && field.length > 10) {
+                            field = `="${field}"`;
+                        }
+
+                        if (field.includes(',') || field.includes('"') || field.includes('\n')) {
+                            field = `"${field.replace(/"/g, '""')}"`;
+                        }
+
+                        return field;
+                    }).join(",");
+                csvContent += row + "\r\n";
             });
 
-            return dailyTimeSpent;
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "task_data.csv");
+            document.body.appendChild(link);
+
+            link.click();
+            document.body.removeChild(link);
         }
 
-        function displayDailyTimeSpent(dailyTimeSpent) {
-            const dailyTimeContainer = document.getElementById('dailyTimeSpent');
-            dailyTimeContainer.innerHTML = ''; // Clear previous content
+        function createButtons() {
+            const buttonsDiv = document.getElementById('buttons');
 
-            Object.keys(dailyTimeSpent).forEach(date => {
-                const totalSeconds = dailyTimeSpent[date];
-                const hours = Math.floor(totalSeconds / 3600);
-                const minutes = Math.floor((totalSeconds % 3600) / 60);
-                const decimalHours = (totalSeconds / 3600).toFixed(2);
+            const exportBtn = document.createElement('button');
+            exportBtn.id = 'exportBtn';
+            exportBtn.innerText = 'Export CSV';
+            exportBtn.addEventListener('click', exportData);
 
-                const dateElement = document.createElement('div');
-                dateElement.innerText = `Date: ${date} - Time Spent: ${hours} hours, ${minutes} minutes (${decimalHours})`;
-                dailyTimeContainer.appendChild(dateElement);
-            });
+            const saveBtn = document.createElement('button');
+            saveBtn.id = 'saveBtn';
+            saveBtn.innerText = 'Save';
+            saveBtn.addEventListener('click', saveData);
+
+            const loadBtn = document.createElement('button');
+            loadBtn.id = 'loadBtn';
+            loadBtn.innerText = 'Load';
+            loadBtn.addEventListener('click', loadData);
+
+            buttonsDiv.appendChild(exportBtn);
+            buttonsDiv.appendChild(saveBtn);
+            buttonsDiv.appendChild(loadBtn);
         }
 
-        function processTasksForDailyTimeSpent() {
-            const tasks = [];
+        document.addEventListener('DOMContentLoaded', createButtons);
 
-            const taskRef = ref(database, 'tasks');
-            onValue(taskRef, snapshot => {
-                snapshot.forEach(taskSnapshot => {
-                    tasks.push(taskSnapshot.val());
+
+        function getGeolocation(callback) {
+            if ('geolocation' in navigator) {
+                navigator.geolocation.getCurrentPosition(position => {
+                    const coords = position.coords;
+                    callback({
+                        latitude: coords.latitude.toFixed(4),
+                        longitude: coords.longitude.toFixed(4)
+                    });
+                }, error => {
+                    console.error("Geolocation error:", error.message);
+                    callback(null);
                 });
-
-                const dailyTimeSpent = calculateDailyTimeSpent(tasks);
-                displayDailyTimeSpent(dailyTimeSpent);
-            });
+            } else {
+                console.error("Geolocation is not supported in your browser.");
+                callback(null);
+            }
         }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            processTasksForDailyTimeSpent();
-        });
     </script>
 
 </body>
