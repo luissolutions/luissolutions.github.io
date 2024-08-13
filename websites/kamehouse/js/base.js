@@ -56,6 +56,7 @@ var appNames = [
   "viewer", 
   "password", 
   "converting", 
+  "conversion", 
   "cheatsheet",
 ];
 
