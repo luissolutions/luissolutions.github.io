@@ -102,7 +102,7 @@
         <h2>Total Trips: <span id="total-trips">0</span></h2>
     </main>
     <script type="module">
-        import { database, ref, onValue, set, remove, push } from '../assets/js/firebase-init.js';
+        import { database, ref, onValue, set, remove, push, auth } from '../assets/js/firebase-init.js';
         import { initializeAuth } from '../assets/js/auth.js';
 
         class MileageApp {
@@ -118,8 +118,12 @@
             }
 
             initializeFirebase() {
-                this.dbRef = ref(database, 'mileagedata');
-                this.listenForDataChanges();
+                const user = auth.currentUser;
+                if (user) {
+                    const uid = user.uid;
+                    this.dbRef = ref(database, `${uid}/mileagedata`);
+                    this.listenForDataChanges();
+                }
             }
 
             setEventListeners() {
@@ -235,7 +239,6 @@
                     mileageEntry.endOdometer = document.getElementById('end-odometer').value;
                     mileageEntry.endLocation = document.getElementById('end-location').value;
 
-                    // Find the last entry with tripType "start" and no endDate
                     const lastStartEntryIndex = this.mileageData.slice().reverse().findIndex(entry =>
                         entry.client === mileageEntry.client &&
                         entry.vehicle === mileageEntry.vehicle &&
@@ -243,7 +246,6 @@
                         !entry.endDate
                     );
 
-                    // Check if the last entry in the mileage data is incomplete and matches the criteria
                     const actualLastIndex = this.mileageData.length - 1;
                     const lastEntry = this.mileageData[actualLastIndex];
 
@@ -264,7 +266,7 @@
                             tripType: 'completed'
                         };
                         if (this.isAuthenticated) {
-                            set(ref(database, `mileagedata/${keyToUpdate}`), {
+                            set(ref(database, `${auth.currentUser.uid}/mileagedata/${keyToUpdate}`), {
                                 ...lastEntry,
                                 ...updates
                             });
@@ -286,7 +288,7 @@
             deleteMileage(index) {
                 const keyToDelete = this.mileageData[index].key;
                 if (this.isAuthenticated) {
-                    remove(ref(database, `mileagedata/${keyToDelete}`));
+                    remove(ref(database, `${auth.currentUser.uid}/mileagedata/${keyToDelete}`));
                 }
             }
 
