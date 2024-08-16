@@ -20,6 +20,7 @@
     </section>
     <button id="logout" style="display: none;">Logout</button>
   </header>
+
   <main>
     <section id="main-window">
       <form class="notes">
@@ -47,21 +48,35 @@
 
     const nameInput = document.getElementById('input-name');
     const notesTextarea = document.getElementById('notes');
-    const mainWindow = document.getElementById('main-window')
-    const loginWindow = document.getElementById('login-window')
+    const noteList = document.getElementById('note-list');
+    let deletedNotes = [];
+    let autoSaveInterval;
 
-    function copyNote() {
+    const setupEventListeners = () => {
+      document.getElementById('copy-btn').addEventListener('click', copyNote);
+      document.getElementById('paste-btn').addEventListener('click', pasteNote);
+      document.getElementById('save-btn').addEventListener('click', saveNote);
+      document.getElementById('delete-btn').addEventListener('click', deleteNote);
+      document.getElementById('export-btn').addEventListener('click', exportNotes);
+      document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
+      document.getElementById('undo-btn').addEventListener('click', undoDelete);
+      document.getElementById('autosave-checkbox').addEventListener('change', toggleAutoSave);
+      document.addEventListener("keydown", handleKeyboardShortcuts);
+      notesTextarea.addEventListener('input', () => autoResizeTextarea('notes'));
+    };
+
+    const copyNote = () => {
       notesTextarea.select();
       document.execCommand('copy');
       console.log('Copied to clipboard');
-    }
+    };
 
-    async function pasteNote() {
+    const pasteNote = async () => {
       const clipboardData = await navigator.clipboard.readText();
       notesTextarea.value += clipboardData;
-    }
+    };
 
-    async function saveNote() {
+    const saveNote = async () => {
       const nameToSave = nameInput.value.trim();
       const noteToSave = notesTextarea.value.trim();
       const saveBtn = document.getElementById('save-btn');
@@ -69,26 +84,28 @@
 
       if (nameToSave && noteToSave) {
         const notesRef = ref(database, `notes/${nameToSave}`);
-        set(notesRef, { name: nameToSave, note: noteToSave, timestamp })
-          .then(() => {
-            console.log('Note saved successfully');
-            saveBtn.textContent = 'Saved';
-            saveBtn.style.backgroundColor = 'lightblue';
-
-            setTimeout(() => {
-              saveBtn.textContent = '💾';
-              saveBtn.style.backgroundColor = '';
-            }, 2000);
-          })
-          .catch(error => {
-            console.error('Failed to save the note:', error);
-          });
+        try {
+          await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
+          console.log('Note saved successfully');
+          updateSaveButton(saveBtn);
+        } catch (error) {
+          console.error('Failed to save the note:', error);
+        }
       } else {
         console.log('Please enter both the name and note before saving');
       }
-    }
+    };
 
-    async function deleteNote() {
+    const updateSaveButton = (button) => {
+      button.textContent = 'Saved';
+      button.style.backgroundColor = 'lightblue';
+      setTimeout(() => {
+        button.textContent = '💾';
+        button.style.backgroundColor = '';
+      }, 2000);
+    };
+
+    const deleteNote = async () => {
       const nameToDelete = nameInput.value.trim();
 
       if (nameToDelete) {
@@ -101,20 +118,15 @@
         const notesRef = ref(database, 'notes');
         const snapshot = await get(notesRef);
         const notes = snapshot.val();
+
         if (notes) {
           const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
           if (noteId) {
             const deletedNote = notes[noteId];
             storeDeletedNote(deletedNote.name, deletedNote.note);
-            set(ref(database, `notes/${noteId}`), null)
-              .then(() => {
-                nameInput.value = '';
-                notesTextarea.value = '';
-                console.log(`Deleted the note with name: ${nameToDelete}`);
-              })
-              .catch(error => {
-                console.error('Failed to delete the note:', error);
-              });
+            await set(ref(database, `notes/${noteId}`), null);
+            clearNoteInputs();
+            console.log(`Deleted the note with name: ${nameToDelete}`);
           } else {
             console.log('Note not found.');
           }
@@ -124,9 +136,9 @@
       } else {
         console.log('Please enter the name of the note to delete.');
       }
-    }
+    };
 
-    function loadNote() {
+    const loadNote = async () => {
       const nameToLoad = nameInput.value.trim();
 
       if (nameToLoad) {
@@ -149,9 +161,9 @@
       } else {
         console.log('Please enter the name of the note to load');
       }
-    }
+    };
 
-    function exportNotes() {
+    const exportNotes = () => {
       const notesRef = ref(database, 'notes');
       onValue(notesRef, snapshot => {
         const notes = snapshot.val();
@@ -169,123 +181,97 @@
           console.log('No notes found to export');
         }
       });
-    }
+    };
 
-    function clearNoteInputs() {
+    const clearNoteInputs = () => {
       nameInput.value = '';
       notesTextarea.value = '';
-    }
+    };
 
-    function populateNoteList() {
+    const populateNoteList = () => {
       const notesRef = ref(database, 'notes');
-      const noteList = document.getElementById('note-list');
-
       onValue(notesRef, snapshot => {
         const notes = snapshot.val();
         noteList.innerHTML = '';
 
         if (notes) {
           const sortedNotes = Object.values(notes).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-          sortedNotes.forEach(note => {
-            const listItem = document.createElement('li');
-
-            const nameSpan = document.createElement('span');
-            nameSpan.style.fontWeight = 'bold';
-            nameSpan.textContent = note.name;
-
-            const timestampSpan = document.createElement('span');
-            timestampSpan.style.fontWeight = 'normal';
-            timestampSpan.style.marginLeft = '10px';
-            timestampSpan.textContent = ` (${new Date(note.timestamp).toLocaleString()})`;
-
-            listItem.appendChild(nameSpan);
-            listItem.appendChild(timestampSpan);
-
-            listItem.addEventListener('click', () => {
-              nameInput.value = note.name;
-              notesTextarea.value = note.note;
-            });
-
-            noteList.appendChild(listItem);
-          });
+          sortedNotes.forEach(note => createNoteListItem(note));
         } else {
           noteList.innerHTML = '<li>No notes found</li>';
         }
       });
-    }
+    };
 
-    let deletedNotes = [];
+    const createNoteListItem = (note) => {
+      const listItem = document.createElement('li');
 
-    function storeDeletedNote(name, note) {
+      const nameSpan = document.createElement('span');
+      nameSpan.style.fontWeight = 'bold';
+      nameSpan.textContent = note.name;
+
+      const timestampSpan = document.createElement('span');
+      timestampSpan.style.fontWeight = 'normal';
+      timestampSpan.style.marginLeft = '10px';
+      timestampSpan.textContent = ` (${new Date(note.timestamp).toLocaleString()})`;
+
+      listItem.appendChild(nameSpan);
+      listItem.appendChild(timestampSpan);
+
+      listItem.addEventListener('click', () => {
+        nameInput.value = note.name;
+        notesTextarea.value = note.note;
+      });
+
+      noteList.appendChild(listItem);
+    };
+
+    const storeDeletedNote = (name, note) => {
       deletedNotes.push({ name, note });
-    }
+    };
 
-    function undoDelete() {
+    const undoDelete = async () => {
       if (deletedNotes.length > 0) {
         const lastDeletedNote = deletedNotes.pop();
         const { name, note } = lastDeletedNote;
 
         const notesRef = ref(database, `notes/${name}`);
-        set(notesRef, { name, note, timestamp: new Date().toISOString() })
-          .then(() => {
-            console.log(`Undone the deletion of the note with name: ${name}`);
-            populateNoteList();
-          })
-          .catch(error => {
-            console.error('Failed to undo the deletion:', error);
-          });
+        try {
+          await set(notesRef, { name, note, timestamp: new Date().toISOString() });
+          console.log(`Undone the deletion of the note with name: ${name}`);
+          populateNoteList();
+        } catch (error) {
+          console.error('Failed to undo the deletion:', error);
+        }
       } else {
         console.log('No deleted notes to undo');
       }
-    }
+    };
 
-    function autoResizeTextarea(id) {
+    const autoResizeTextarea = (id) => {
       const textarea = document.getElementById(id);
       textarea.style.height = textarea.scrollHeight + 'px';
-    }
+    };
 
-    const setupEventListeners = () => {
-      document.getElementById('copy-btn').addEventListener('click', copyNote);
-      document.getElementById('paste-btn').addEventListener('click', pasteNote);
-      document.getElementById('save-btn').addEventListener('click', saveNote);
-      document.getElementById('delete-btn').addEventListener('click', deleteNote);
-      document.getElementById('export-btn').addEventListener('click', exportNotes);
-      document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
-      document.getElementById('undo-btn').addEventListener('click', undoDelete);
-    }
+    const toggleAutoSave = (event) => {
+      if (event.target.checked) {
+        autoSaveInterval = setInterval(saveNote, 40000);
+      } else {
+        clearInterval(autoSaveInterval);
+      }
+    };
+
+    const handleKeyboardShortcuts = (event) => {
+      if (event.ctrlKey && event.key === "s") {
+        event.preventDefault();
+        document.getElementById("save-btn").click();
+      }
+    };
 
     document.addEventListener("DOMContentLoaded", () => {
       setupEventListeners();
       populateNoteList();
-
-      notesTextarea.addEventListener('input', () => {
-        autoResizeTextarea('notes');
-      });
-
-      let autoSaveInterval = setInterval(() => {
-        if (document.getElementById('autosave-checkbox').checked) {
-          saveNote();
-        }
-      }, 40000);
-
-      document.getElementById('autosave-checkbox').addEventListener('change', (event) => {
-        if (event.target.checked) {
-          autoSaveInterval = setInterval(saveNote, 40000);
-        } else {
-          clearInterval(autoSaveInterval);
-        }
-      });
-
-      document.addEventListener("keydown", event => {
-        if (event.ctrlKey && event.key === "s") {
-          event.preventDefault();
-          const saveBtn = document.getElementById("save-btn");
-          if (saveBtn) {
-            saveBtn.click();
-          }
-        }
-      });
+      autoSaveInterval = setInterval(saveNote, 40000);
     });
-
   </script>
 </body>
