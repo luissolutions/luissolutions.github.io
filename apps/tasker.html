@@ -86,7 +86,7 @@
     </main>
 
     <script type="module">
-        import { database, ref, set, push, onValue, remove, auth } from '../assets/js/firebase-init.js';
+        import { database, ref, set, push, onValue, remove, update, auth } from '../assets/js/firebase-init.js';
         import { initializeAuth } from '../assets/js/auth.js';
 
         class TaskManagerApp {
@@ -116,9 +116,10 @@
             initializeFirebase() {
                 const user = auth.currentUser;
                 if (user) {
-                    const uid = user.uid;
-                    this.dbRef = ref(database, `${uid}/taskData`);
+                    this.uid = user.uid;
+                    this.dbRef = ref(database, `${this.uid}/taskData`);
                     this.listenForDataChanges();
+                    this.checkForOngoingTask();
                 } else {
                     console.error("User is not authenticated.");
                 }
@@ -134,6 +135,7 @@
                         this.taskData = [];
                     }
                     this.updateTaskTable();
+                    this.processTasksForDailyTimeSpent();
                 });
             }
 
@@ -145,25 +147,155 @@
 
                 this.taskData.forEach((entry, index) => {
                     const row = table.insertRow();
-                    row.insertCell().textContent = entry.name;
-                    row.insertCell().textContent = entry.project;
-                    row.insertCell().textContent = entry.startOdometer || "";
-                    row.insertCell().textContent = entry.endOdometer || "";
-                    row.insertCell().textContent = this.calculateDistance(entry) || "";
-                    row.insertCell().textContent = entry.location ? `Lat: ${entry.location.latitude} Long: ${entry.location.longitude}` : '';
-                    row.insertCell().textContent = this.formatDateTime(entry.startTime);
-                    row.insertCell().textContent = entry.endTime ? this.formatDateTime(entry.endTime) : '';
-                    row.insertCell().textContent = entry.endTime ? this.calculateTaskLength(entry) : '';
-                    row.insertCell().textContent = entry.notes || '';
-
-                    const deleteButton = document.createElement('button');
-                    deleteButton.classList.add('clear-button');
-                    deleteButton.textContent = 'Delete';
-                    deleteButton.addEventListener('click', () => this.deleteTask(index));
-                    row.insertCell().appendChild(deleteButton);
+                    row.dataset.taskId = entry.key;
+                    this.updateRow(row, entry);
                 });
 
                 this.updateTotalHours();
+            }
+            processTasksForDailyTimeSpent() {
+                const dailyTimeSpent = this.calculateDailyTimeSpent(this.taskData);
+                this.displayDailyTimeSpent(dailyTimeSpent);
+            }
+
+            calculateDailyTimeSpent(tasks) {
+                const dailyTimeSpent = {};
+
+                tasks.forEach(task => {
+                    if (task.startTime && task.endTime) {
+                        let startTime = new Date(task.startTime);
+                        let endTime = new Date(task.endTime);
+
+                        startTime = new Date(startTime.getTime() - (startTime.getTimezoneOffset() * 60000));
+                        endTime = new Date(endTime.getTime() - (endTime.getTimezoneOffset() * 60000));
+
+                        while (startTime < endTime) {
+                            const currentDate = startTime.toISOString().split('T')[0];
+                            const nextDay = new Date(currentDate);
+                            nextDay.setDate(nextDay.getDate() + 1);
+
+                            const endOfDay = nextDay < endTime ? nextDay : endTime;
+
+                            const durationInSeconds = (endOfDay - startTime) / 1000;
+
+                            if (!dailyTimeSpent[currentDate]) {
+                                dailyTimeSpent[currentDate] = 0;
+                            }
+                            dailyTimeSpent[currentDate] += durationInSeconds;
+
+                            startTime = endOfDay;
+                        }
+                    }
+                });
+
+                return dailyTimeSpent;
+            }
+
+            displayDailyTimeSpent(dailyTimeSpent) {
+                const dailyTimeContainer = document.getElementById('dailyTimeSpent');
+                dailyTimeContainer.innerHTML = '';
+
+                const sortedDates = Object.keys(dailyTimeSpent).sort((a, b) => new Date(a) - new Date(b));
+
+                sortedDates.forEach(date => {
+                    const totalSeconds = dailyTimeSpent[date];
+                    const hours = Math.floor(totalSeconds / 3600);
+                    const minutes = Math.floor((totalSeconds % 3600) / 60);
+                    const decimalHours = (totalSeconds / 3600).toFixed(2);
+
+                    const dateElement = document.createElement('div');
+                    dateElement.innerText = `Date: ${date} - Time: ${hours} hours, ${minutes} min (${decimalHours})`;
+                    dailyTimeContainer.appendChild(dateElement);
+                });
+            }
+
+            updateRow(row, task) {
+                row.innerHTML = '';
+
+                const nameCell = row.insertCell(0);
+                const projectCell = row.insertCell(1);
+                const startOdometerCell = row.insertCell(2);
+                const endOdometerCell = row.insertCell(3);
+                const distanceCell = row.insertCell(4);
+                const locationCell = row.insertCell(5);
+                const startTimeCell = row.insertCell(6);
+                const endTimeCell = row.insertCell(7);
+                const lengthCell = row.insertCell(8);
+                const notesCell = row.insertCell(9);
+                const actionsCell = row.insertCell(10);
+
+                nameCell.classList.add('name-column');
+                projectCell.classList.add('project-column');
+                startOdometerCell.classList.add('start-odometer-column', 'odometer-column');
+                endOdometerCell.classList.add('end-odometer-column', 'odometer-column');
+                distanceCell.classList.add('distance-column', 'odometer-column');
+                locationCell.classList.add('location-column');
+                startTimeCell.classList.add('start-time-column');
+                endTimeCell.classList.add('end-time-column');
+                lengthCell.classList.add('length-column');
+                notesCell.classList.add('notes-column');
+
+                nameCell.innerText = task.name;
+                projectCell.innerText = task.project;
+                startOdometerCell.innerText = task.startOdometer;
+                endOdometerCell.innerText = task.endOdometer;
+                distanceCell.innerText = task.endOdometer ? this.calculateDistance(task.startOdometer, task.endOdometer) : '';
+                locationCell.innerText = task.location ? `Lat: ${task.location.latitude} Long: ${task.location.longitude}` : '';
+                startTimeCell.innerText = this.formatDateTime(task.startTime);
+                endTimeCell.innerText = task.endTime ? this.formatDateTime(task.endTime) : '';
+                lengthCell.innerText = task.endTime ? this.calculateTaskLength(task) : '';
+                notesCell.innerText = task.notes;
+
+                nameCell.contentEditable = true;
+                projectCell.contentEditable = true;
+                startOdometerCell.contentEditable = true;
+                endOdometerCell.contentEditable = true;
+                startTimeCell.contentEditable = true;
+                endTimeCell.contentEditable = true;
+                notesCell.contentEditable = true;
+
+                nameCell.addEventListener('blur', () => this.updateTaskField(task.key, 'name', nameCell.innerText));
+                projectCell.addEventListener('blur', () => this.updateTaskField(task.key, 'project', projectCell.innerText));
+                startOdometerCell.addEventListener('blur', () => this.updateTaskField(task.key, 'startOdometer', startOdometerCell.innerText));
+                endOdometerCell.addEventListener('blur', () => this.updateTaskField(task.key, 'endOdometer', endOdometerCell.innerText));
+                startTimeCell.addEventListener('blur', () => this.updateTaskField(task.key, 'startTime', new Date(startTimeCell.innerText).toISOString()));
+                endTimeCell.addEventListener('blur', () => this.updateTaskField(task.key, 'endTime', new Date(endTimeCell.innerText).toISOString()));
+                notesCell.addEventListener('blur', () => this.updateTaskField(task.key, 'notes', notesCell.innerText));
+
+                const deleteButton = document.createElement('button');
+                deleteButton.classList.add('clear-button');
+                deleteButton.innerText = 'Delete';
+                deleteButton.addEventListener('click', () => this.confirmDeleteTask(task.key, row));
+                actionsCell.appendChild(deleteButton);
+            }
+
+            updateTaskField(taskId, field, value) {
+                const taskRef = ref(database, `${this.uid}/taskData/${taskId}`);
+                update(taskRef, { [field]: value })
+                    .then(() => {
+                        console.log(`Task ${taskId} updated: ${field} = ${value}`);
+                    })
+                    .catch(error => {
+                        console.error('Error updating task:', error);
+                    });
+            }
+
+            confirmDeleteTask(taskId, row) {
+                if (confirm('Are you sure you want to delete this task?')) {
+                    this.deleteTask(taskId, row);
+                }
+            }
+
+            deleteTask(taskId, row) {
+                const taskRef = ref(database, `${this.uid}/taskData/${taskId}`);
+                remove(taskRef).then(() => {
+                    if (row && row.parentNode) {
+                        row.parentNode.removeChild(row);
+                    }
+                    this.updateTotalHours();
+                }).catch(error => {
+                    console.error('Error removing task:', error);
+                });
             }
 
             toggleTimer() {
@@ -217,6 +349,24 @@
                 this.resetTimerState();
             }
 
+            checkForOngoingTask() {
+    const taskRef = ref(database, `${this.uid}/taskData`);
+    onValue(taskRef, snapshot => {
+        snapshot.forEach(taskSnapshot => {
+            const task = taskSnapshot.val();
+            if (!task.endTime) {
+                this.currentTask = task;
+                document.getElementById('taskName').value = this.currentTask.name;
+                document.getElementById('project').value = this.currentTask.project;
+                document.getElementById('taskNotes').value = this.currentTask.notes;
+                document.getElementById('startOdometer').value = this.currentTask.startOdometer;
+                document.getElementById('endOdometer').disabled = false;
+                this.timerInterval = setInterval(this.updateCurrentTaskTime.bind(this), 1000);
+            }
+        });
+    });
+}
+
             saveTask(task) {
                 if (this.isAuthenticated && this.dbRef) {
                     const taskRef = ref(database, `${auth.currentUser.uid}/taskData/${task.id}`);
@@ -233,15 +383,6 @@
                 offlineData[key] = data;
                 localStorage.setItem('offlineTaskData', JSON.stringify(offlineData));
                 this.loadLocalData();
-            }
-
-            deleteTask(index) {
-                const keyToDelete = this.taskData[index].key;
-                if (this.isAuthenticated) {
-                    remove(ref(this.dbRef, keyToDelete));
-                } else {
-                    this.deleteFromLocal(keyToDelete);
-                }
             }
 
             deleteFromLocal(key) {
@@ -329,6 +470,37 @@
                 });
             }
 
+            saveColumnVisibility() {
+                const checkboxStates = {};
+                document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                    checkboxStates[checkbox.value] = checkbox.checked;
+                });
+                localStorage.setItem('columnVisibility', JSON.stringify(checkboxStates));
+            }
+
+            loadColumnVisibility() {
+                const savedStates = JSON.parse(localStorage.getItem('columnVisibility'));
+                if (savedStates) {
+                    document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                        checkbox.checked = savedStates[checkbox.value] !== undefined ? savedStates[checkbox.value] : checkbox.checked;
+                    });
+                }
+            }
+
+            applyColumnVisibility() {
+                document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                    const columnClass = checkbox.value;
+                    const cells = document.querySelectorAll(`.${columnClass}, td.${columnClass}`);
+                    const inputs = document.querySelectorAll(`.${columnClass}-input, .start-${columnClass}-input, .end-${columnClass}-input`);
+                    cells.forEach(cell => {
+                        cell.style.display = checkbox.checked ? '' : 'none';
+                    });
+                    inputs.forEach(input => {
+                        input.style.display = checkbox.checked ? '' : 'none';
+                    });
+                });
+            }
+
             syncData() {
                 if (this.isAuthenticated) {
                     const offlineData = JSON.parse(localStorage.getItem('offlineTaskData')) || {};
@@ -336,7 +508,7 @@
                         if (key.startsWith('offline-')) {
                             push(this.dbRef, data);
                         } else {
-                            set(ref(database, `taskData/${key}`), data);
+                            set(ref(database, `${this.uid}/taskData/${key}`), data);
                         }
                     }
                     localStorage.removeItem('offlineTaskData');
