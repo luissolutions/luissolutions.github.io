@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Task Manager</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
+</head>
+
+<body>
+    <header>
+        <h1>Task Manager</h1>
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+        </section>
+        <button id="logout" style="display: none;">Logout</button>
+    </header>
+
+    <main>
+        <section id="task-manager" class="app-section">
+            <div class="name-column-input">
+                <input type="text" id="taskName" placeholder="Name">
+            </div>
+            <div class="project-column-input">
+                <input type="text" id="project" placeholder="Project">
+            </div>
+            <div class="start-odometer-column-input odometer-input">
+                <input type="number" id="startOdometer" placeholder="Start Odometer">
+            </div>
+            <div class="end-odometer-column-input odometer-input">
+                <input type="number" id="endOdometer" placeholder="End Odometer" disabled>
+            </div>
+            <div class="notes-column-input">
+                <textarea id="taskNotes" placeholder="Notes"></textarea>
+            </div>
+            <button id="toggleTimer">Start/Stop Timer</button>
+            <div>Timer: <span id="currentTaskTime">00:00:00</span></div>
+            <div class="checkbox">
+                <label style="display: none;"><input type="checkbox" class="toggle-column" value="name-column" checked>
+                    Name</label>
+                <label><input type="checkbox" class="toggle-column" value="project-column" checked>
+                    Project</label> |
+                <label><input type="checkbox" class="toggle-column" value="odometer-column"> Mileage</label> |
+                <label><input type="checkbox" class="toggle-column" value="location-column"> Location</label> |
+                <label><input type="checkbox" class="toggle-column" value="start-time-column" checked> Start
+                    Time</label> |
+                <label><input type="checkbox" class="toggle-column" value="end-time-column" checked> End Time</label> |
+                <label><input type="checkbox" class="toggle-column" value="length-column" checked> Length</label> |
+                <label><input type="checkbox" class="toggle-column" value="notes-column" checked> Notes</label>
+            </div>
+            <div class="table">
+                <table id="task-log">
+                    <thead>
+                        <tr>
+                            <th class="name-column">Name</th>
+                            <th class="project-column">Project</th>
+                            <th class="start-odometer-column odometer-column">Start Odometer</th>
+                            <th class="end-odometer-column odometer-column">End Odometer</th>
+                            <th class="distance-column odometer-column">Distance</th>
+                            <th class="location-column">Location</th>
+                            <th class="start-time-column">Start Time</th>
+                            <th class="end-time-column">End Time</th>
+                            <th class="length-column">Length</th>
+                            <th class="notes-column">Notes</th>
+                            <th class="actions-column">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div>Hours:
+                <span id="dailyTimeSpent"></span>
+            </div>
+            <div>Total Hours: <span id="totalHours">0</span></div>
+            <div id="buttons"></div>
+        </section>
+    </main>
+
+    <script type="module">
+        import { database, ref, set, push, onValue, remove, auth } from '../assets/js/firebase-init.js';
+        import { initializeAuth } from '../assets/js/auth.js';
+
+        class TaskManagerApp {
+            constructor() {
+                this.taskData = [];
+                this.currentTask = null;
+                this.timerInterval = null;
+                this.isAuthenticated = false;
+                this.dbRef = null;
+
+                this.initialize();
+                this.loadLocalData();
+
+                window.addEventListener('online', this.syncData.bind(this));
+                window.addEventListener('offline', this.updateOnlineStatus.bind(this));
+            }
+
+            initialize() {
+                document.getElementById('toggleTimer').addEventListener('click', this.toggleTimer.bind(this));
+                document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                    checkbox.addEventListener('change', this.toggleColumnVisibility.bind(this));
+                });
+
+                initializeAuth(this);
+            }
+
+            initializeFirebase() {
+                const user = auth.currentUser;
+                if (user) {
+                    const uid = user.uid;
+                    this.dbRef = ref(database, `${uid}/taskData`);
+                    this.listenForDataChanges();
+                } else {
+                    console.error("User is not authenticated.");
+                }
+            }
+
+            listenForDataChanges() {
+                if (!this.dbRef) return;
+                onValue(this.dbRef, (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        this.taskData = Object.entries(data).map(([key, value]) => ({ key, ...value }));
+                    } else {
+                        this.taskData = [];
+                    }
+                    this.updateTaskTable();
+                });
+            }
+
+            updateTaskTable() {
+                const table = document.getElementById('task-log').querySelector('tbody');
+                while (table.rows.length > 0) {
+                    table.deleteRow(0);
+                }
+
+                this.taskData.forEach((entry, index) => {
+                    const row = table.insertRow();
+                    row.insertCell().textContent = entry.name;
+                    row.insertCell().textContent = entry.project;
+                    row.insertCell().textContent = entry.startOdometer || "";
+                    row.insertCell().textContent = entry.endOdometer || "";
+                    row.insertCell().textContent = this.calculateDistance(entry) || "";
+                    row.insertCell().textContent = entry.location ? `Lat: ${entry.location.latitude} Long: ${entry.location.longitude}` : '';
+                    row.insertCell().textContent = this.formatDateTime(entry.startTime);
+                    row.insertCell().textContent = entry.endTime ? this.formatDateTime(entry.endTime) : '';
+                    row.insertCell().textContent = entry.endTime ? this.calculateTaskLength(entry) : '';
+                    row.insertCell().textContent = entry.notes || '';
+
+                    const deleteButton = document.createElement('button');
+                    deleteButton.classList.add('clear-button');
+                    deleteButton.textContent = 'Delete';
+                    deleteButton.addEventListener('click', () => this.deleteTask(index));
+                    row.insertCell().appendChild(deleteButton);
+                });
+
+                this.updateTotalHours();
+            }
+
+            toggleTimer() {
+                this.currentTask ? this.endTask() : this.startTask();
+            }
+
+            startTask() {
+                const taskName = document.getElementById('taskName').value.trim();
+                const project = document.getElementById('project').value.trim();
+                const startOdometer = document.getElementById('startOdometer').value.trim();
+
+                if (!taskName) {
+                    alert('Please enter a task name');
+                    return;
+                }
+
+                const handleTaskStart = (location) => {
+                    this.currentTask = {
+                        id: Date.now().toString(),
+                        name: taskName,
+                        project: project,
+                        notes: document.getElementById('taskNotes').value.trim(),
+                        startOdometer,
+                        endOdometer: null,
+                        location,
+                        startTime: new Date().toISOString(),
+                        endTime: null
+                    };
+                    this.saveTask(this.currentTask);
+                    this.timerInterval = setInterval(this.updateCurrentTaskTime.bind(this), 1000);
+                    document.getElementById('endOdometer').disabled = false;
+                };
+
+                if (typeof TaskManagerApp.getGeolocation === 'function') {
+                    TaskManagerApp.getGeolocation(location => {
+                        handleTaskStart(location);
+                    });
+                } else {
+                    const fallbackLocation = { latitude: "NA", longitude: "NA" };
+                    handleTaskStart(fallbackLocation);
+                }
+            }
+
+            endTask() {
+                clearInterval(this.timerInterval);
+                this.currentTask.endOdometer = document.getElementById('endOdometer').value.trim();
+                this.currentTask.endTime = new Date().toISOString();
+                this.currentTask.notes = document.getElementById('taskNotes').value.trim();
+                this.saveTask(this.currentTask);
+                this.updateTaskTable();
+                this.resetTimerState();
+            }
+
+            saveTask(task) {
+                if (this.isAuthenticated && this.dbRef) {
+                    const taskRef = ref(this.dbRef, task.id);
+                    set(taskRef, task).catch(error => {
+                        console.error('Error saving task:', error);
+                    });
+                } else {
+                    this.saveToLocal(task.id, task);
+                }
+            }
+
+            saveToLocal(key, data) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineTaskData')) || {};
+                offlineData[key] = data;
+                localStorage.setItem('offlineTaskData', JSON.stringify(offlineData));
+                this.loadLocalData();
+            }
+
+            deleteTask(index) {
+                const keyToDelete = this.taskData[index].key;
+                if (this.isAuthenticated) {
+                    remove(ref(this.dbRef, keyToDelete));
+                } else {
+                    this.deleteFromLocal(keyToDelete);
+                }
+            }
+
+            deleteFromLocal(key) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineTaskData')) || {};
+                delete offlineData[key];
+                localStorage.setItem('offlineTaskData', JSON.stringify(offlineData));
+                this.loadLocalData();
+            }
+
+            loadLocalData() {
+                const offlineData = JSON.parse(localStorage.getItem('offlineTaskData')) || {};
+                this.taskData = Object.entries(offlineData).map(([key, value]) => ({ key, ...value }));
+                this.updateTaskTable();
+            }
+
+            updateCurrentTaskTime() {
+                if (this.currentTask) {
+                    const length = this.calculateTaskLength({
+                        startTime: this.currentTask.startTime,
+                        endTime: new Date().toISOString()
+                    });
+                    document.getElementById('currentTaskTime').innerText = length;
+                }
+            }
+
+            calculateTaskLength(task) {
+                const startTime = new Date(task.startTime);
+                const endTime = new Date(task.endTime);
+                const lengthInSeconds = (endTime - startTime) / 1000;
+                const hours = Math.floor(lengthInSeconds / 3600);
+                const minutes = Math.floor((lengthInSeconds % 3600) / 60);
+                const seconds = Math.floor(lengthInSeconds % 60);
+                return `${hours}:${minutes}:${seconds}`;
+            }
+
+            calculateDistance(task) {
+                if (task.startOdometer && task.endOdometer) {
+                    return Math.abs(task.endOdometer - task.startOdometer);
+                }
+                return '';
+            }
+
+            formatDateTime(dateTime) {
+                const date = new Date(dateTime);
+                return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+            }
+
+            updateTotalHours() {
+                let totalSeconds = 0;
+
+                this.taskData.forEach(task => {
+                    if (task.endTime) {
+                        const lengthInSeconds = (new Date(task.endTime) - new Date(task.startTime)) / 1000;
+                        totalSeconds += lengthInSeconds;
+                    }
+                });
+
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const decimalHours = (totalSeconds / 3600).toFixed(2);
+                document.getElementById('totalHours').innerText = `${hours} hours, ${minutes} minutes (${decimalHours})`;
+            }
+
+            resetTimerState() {
+                clearInterval(this.timerInterval);
+                this.currentTask = null;
+                document.getElementById('taskName').value = '';
+                document.getElementById('project').value = '';
+                document.getElementById('taskNotes').value = '';
+                document.getElementById('startOdometer').value = '';
+                document.getElementById('endOdometer').value = '';
+                document.getElementById('endOdometer').disabled = true;
+                document.getElementById('currentTaskTime').innerText = '00:00:00';
+            }
+
+            toggleColumnVisibility(event) {
+                const columnClass = event.target.value;
+                const cells = document.querySelectorAll(`.${columnClass}, td.${columnClass}`);
+                const inputs = document.querySelectorAll(`.${columnClass}-input, .start-${columnClass}-input, .end-${columnClass}-input`);
+                cells.forEach(cell => {
+                    cell.style.display = event.target.checked ? '' : 'none';
+                });
+                inputs.forEach(input => {
+                    input.style.display = event.target.checked ? '' : 'none';
+                });
+            }
+
+            syncData() {
+                if (this.isAuthenticated) {
+                    const offlineData = JSON.parse(localStorage.getItem('offlineTaskData')) || {};
+                    for (const [key, data] of Object.entries(offlineData)) {
+                        if (key.startsWith('offline-')) {
+                            push(this.dbRef, data);
+                        } else {
+                            set(ref(database, `taskData/${key}`), data);
+                        }
+                    }
+                    localStorage.removeItem('offlineTaskData');
+                    this.loadLocalData();
+                }
+            }
+
+            updateOnlineStatus() {
+                if (navigator.onLine) {
+                    this.syncData();
+                }
+            }
+
+            static getGeolocation(callback) {
+                if ('geolocation' in navigator) {
+                    navigator.geolocation.getCurrentPosition(position => {
+                        const coords = position.coords;
+                        callback({
+                            latitude: coords.latitude.toFixed(4),
+                            longitude: coords.longitude.toFixed(4)
+                        });
+                    }, error => {
+                        console.error("Geolocation error:", error.message);
+                        callback(null);
+                    });
+                } else {
+                    console.error("Geolocation is not supported in your browser.");
+                    callback(null);
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            new TaskManagerApp();
+        });
+    </script>
+</body>
+
+</html>
