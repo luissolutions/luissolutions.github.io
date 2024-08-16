@@ -1,273 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+
 <head>
-    <style>
-        body {
-            padding: 0;
-        }
-        .notes-app {
-            max-width: 800px;
-            margin: auto;
-        }
-        form {
-        display: flex;
-        flex-direction: column ;
-        }    
-        input {
-            text-align: center;
-        }
-        body{
-        text-align: center;
-        box-shadow:0 2px 10px rgba(0,0,0,0.2);
-        }
-        .buttons {
-        flex-direction: row;
-        }
-        li button{
-            margin: 5px;
-        }
-        ul {
-            list-style-type: none;
-            padding: 0;
-        }
-        section {
-            padding: 15px;
-        }
-        textarea {
-            text-align: left;
-        }
-        label {
-            display: none;
-        }
-        
-        #info:checked + label {
-            display: block;
-        }
-        .info {
-            background: white;
-        }
-    </style>
+    <title>Live Notes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
 </head>
+
 <body>
+    <header>
+        <h1>Notes</h1>
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+        </section>
+        <button id="logout" style="display: none;">Logout</button>
+    </header>
+
     <main>
-        <div class="notes-app" id="notes-app">
-            <section>
-                <h1>Notes</h1>
-                <form>
-                    <label for="input-name">Name:</label>
-                    <input required type="text" id="input-name" name="input-name" placeholder="Name">
-                    <label for="notes">Notes:</label>
-                    <textarea name="notes" id="notes" cols="30" rows="10"></textarea>
-                </form>
-                <div class="buttons">
-                    <button id="copy-btn">Copy</button>
-                    <button id="paste-btn">Paste</button>
-                    <button id="clear-btn">Clear</button>
-                    <button id="load-btn">Load</button>
-                    <button id="save-btn">Save</button>
-                    <button id="delete-btn">Delete</button>
-                    <button id="export-btn">Export</button>
-                </div>        
-            </section>
-            <section>
-                <h1>Tasks Manager</h1>
-                <form>
-                    <div>
-                        <input id="task-input" type="text" placeholder="New task">
-                        <br>
-                        <button onclick="addTask()">Add Task</button>
-                    </div>
-                    <h2>Tasks:</h2>
-                    <ul id="tasks-container"></ul>
-                </form>
-                <div>
-                    <button onclick="exportTasksToCSV()">Export Tasks</button>
-                </div>
-            </section>
-            <section>
-                <p>Click for Instructions:</p>
-                <input type="checkbox" id="info"/>
-                <label class="info" for="info" >
-                    <br>
-                    <h1>Notes App Instructions</h1>
-                    <h2>Notes Section:</h2>
-                    <p>1. Enter your name in the "Name" input field.</p>
-                    <p>2. Type your notes in the "Notes" textarea.</p>
-                    <p>3. Use the provided buttons for different actions:</p>
-                    <ul>
-                    <li>Copy Button: Copy notes to clipboard.</li>
-                    <li>Paste Button: Paste notes from clipboard.</li>
-                    <li>Save Button: Save or update notes.</li>
-                    <li>Delete Button: Delete notes by name.</li>
-                    <li>Load Button: Load saved notes.</li>
-                    <li>Export Button: Export all saved notes as "notes.txt".</li>
-                    <li>Clear Button: Clear input fields.</li>
-                    </ul>
-                    <h2>Tasks Manager Section:</h2>
-                    <p>1. Enter a new task in the "New task" input field.</p>
-                    <p>2. Click "Add Task" to add the task to the list.</p>
-                    <p>3. The tasks list will be displayed with a "Delete" button for each task.</p>
-                    <p>4. Click "Export Tasks" to export tasks as "tasks.csv".</p>
-                    <p>Note: The app uses local storage for data persistence.</p>
-                    <br>
-                </lable>
-            </section>
-        </div>
+        <section id="main-window">
+            <form class="notes">
+                <label for="input-name">Name</label>
+                <input required type="text" id="input-name" name="input-name" placeholder="Name">
+                <label for="notes">Notes</label>
+                <textarea name="notes" id="notes" cols="30" rows="10"></textarea>
+            </form>
+            <button id="copy-btn">📰</button>
+            <button id="paste-btn">📋</button>
+            <button id="save-btn">💾</button>
+            <button class="clear-button" id="delete-btn">❌</button>
+            <button id="undo-btn">↩️</button>
+            <label for="autosave-checkbox">Auto-💾:</label>
+            <input type="checkbox" id="autosave-checkbox" checked>
+            <section id="note-list"></section>
+            <button class="clear-button" id="clear-btn">Clear</button>
+        </section>
     </main>
-    <script>
-        // Notes JS
-        const nameInput = document.getElementById('input-name');
-        const notesTextarea = document.getElementById('notes');
-        const copyBtn = document.getElementById('copy-btn');
-        const pasteBtn = document.getElementById('paste-btn');
-        const saveBtn = document.getElementById('save-btn');
-        const deleteBtn = document.getElementById('delete-btn');
-        const loadBtn = document.getElementById('load-btn');
-        const exportBtn = document.getElementById('export-btn');
-        const clearBtn = document.getElementById('clear-btn');
 
-        copyBtn.addEventListener('click', copyNote);
-        pasteBtn.addEventListener('click', pasteNote);
-        saveBtn.addEventListener('click', saveNote);
-        deleteBtn.addEventListener('click', deleteNote);
-        loadBtn.addEventListener('click', loadNote);
-        exportBtn.addEventListener('click', exportNotes);
-        clearBtn.addEventListener('click', clearNoteInputs);
+    <script type="module">
+        import { database, ref, onValue, set, get, push, remove, auth } from '../assets/js/firebase-init.js';
+        import { initializeAuth } from '../assets/js/auth.js';
 
-        // Your note functions go here
+        class LiveNotesApp {
+            constructor() {
+                this.nameInput = document.getElementById('input-name');
+                this.notesTextarea = document.getElementById('notes');
+                this.noteList = document.getElementById('note-list');
+                this.deletedNotes = [];
+                this.autoSaveInterval = null;
+                this.dbRef = null;
+                this.notesData = [];
+                this.isAuthenticated = false;
 
-        function copyNote() {
-            notesTextarea.select();
-            document.execCommand('copy');
-            alert('Copied to clipboard');
-        }
-
-        async function pasteNote() {
-            const clipboardData = await navigator.clipboard.readText();
-            notesTextarea.value += clipboardData;
-        }
-
-        function saveNote() {
-            const nameToSave = nameInput.value.trim();
-            let savedNotes = JSON.parse(localStorage.getItem('notes')) || [];
-            const existingNoteIndex = savedNotes.findIndex(note => note.name.trim() === nameToSave);
-            
-            if (existingNoteIndex !== -1) {
-                savedNotes[existingNoteIndex].note = notesTextarea.value;
-            } else {
-                savedNotes.push({ name: nameToSave, note: notesTextarea.value });
+                this.setupEventListeners();
+                initializeAuth(this);
+                this.loadLocalData();
+                this.startAutoSave();
             }
 
-            localStorage.setItem('notes', JSON.stringify(savedNotes));
-            nameInput.value = '';
-            notesTextarea.value = '';
-        }
-
-        function deleteNote() {
-            const nameToDelete = nameInput.value.trim();
-            let savedNotes = JSON.parse(localStorage.getItem('notes')) || [];
-            const filteredNotes = savedNotes.filter(note => note.name.trim() !== nameToDelete);
-
-            if (filteredNotes.length < savedNotes.length) {
-                localStorage.setItem('notes', JSON.stringify(filteredNotes));
-                alert(`Deleted the note with name: ${nameToDelete}`);
-            } else {
-                alert(`No note found with name: ${nameToDelete}`);
+            initializeFirebase() {
+                const user = auth.currentUser;
+                if (user) {
+                    const uid = user.uid;
+                    this.dbRef = ref(database, `${uid}/notesData`);
+                    this.listenForDataChanges();
+                }
             }
-        }
 
-        let currentNoteIndex = 0;
-
-        function loadNote() {
-            let savedNotes = JSON.parse(localStorage.getItem('notes')) || [];
-            if (savedNotes.length > 0) {
-                const selectedNote = savedNotes[currentNoteIndex];
-                nameInput.value = selectedNote.name;
-                notesTextarea.value = selectedNote.note;
-                currentNoteIndex = (currentNoteIndex + 1) % savedNotes.length;
-            } else {
-                alert('No saved notes to load');
+            listenForDataChanges() {
+                if (!this.dbRef) return;
+                onValue(this.dbRef, (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        this.notesData = Object.entries(data).map(([key, value]) => ({ key, ...value }));
+                    } else {
+                        this.notesData = [];
+                    }
+                    this.populateNoteList();
+                });
             }
-        }
 
-        function exportNotes() {
-            let savedNotes = JSON.parse(localStorage.getItem('notes')) || [];
-            let notesText = savedNotes.map(note => `Name: ${note.name}\nNote: ${note.note}`).join('\n\n');
-            let notesBlob = new Blob([notesText], {type: "text/plain;charset=utf-8"});
-            let downloadLink = document.createElement('a');
-            downloadLink.href = URL.createObjectURL(notesBlob);
-            downloadLink.download = 'notes.txt';
-            downloadLink.click();
-        }
+            setupEventListeners() {
+                document.getElementById('copy-btn').addEventListener('click', this.copyNote.bind(this));
+                document.getElementById('paste-btn').addEventListener('click', this.pasteNote.bind(this));
+                document.getElementById('save-btn').addEventListener('click', this.saveNote.bind(this));
+                document.getElementById('delete-btn').addEventListener('click', this.deleteNote.bind(this));
+                document.getElementById('clear-btn').addEventListener('click', this.clearNoteInputs.bind(this));
+                document.getElementById('undo-btn').addEventListener('click', this.undoDelete.bind(this));
+                document.getElementById('autosave-checkbox').addEventListener('change', this.toggleAutoSave.bind(this));
+                document.addEventListener("keydown", this.handleKeyboardShortcuts.bind(this));
+                this.notesTextarea.addEventListener('input', () => this.autoResizeTextarea('notes'));
+            }
 
-        function clearNoteInputs() {
-            nameInput.value = '';
-            notesTextarea.value = '';
-        }
+            copyNote() {
+                this.notesTextarea.select();
+                document.execCommand('copy');
+                console.log('Copied to clipboard');
+            }
 
-        // Tasks JS
-        let tasks = [];
+            async pasteNote() {
+                const clipboardData = await navigator.clipboard.readText();
+                this.notesTextarea.value += clipboardData;
+            }
 
-        if (localStorage.getItem('tasks')) {
-            tasks = JSON.parse(localStorage.getItem('tasks'));
-            displayTasks();
-        }
+            async saveNote() {
+                const nameToSave = this.nameInput.value.trim();
+                const noteToSave = this.notesTextarea.value.trim();
+                const saveBtn = document.getElementById('save-btn');
+                const timestamp = new Date().toISOString();
 
-        function displayTasks() {
-            const tasksContainer = document.getElementById('tasks-container');
-            tasksContainer.innerHTML = '';
+                if (nameToSave && noteToSave) {
+                    const newEntry = {
+                        name: nameToSave,
+                        note: noteToSave,
+                        timestamp
+                    };
 
-            for (let i = 0; i < tasks.length; i++) {
-                const task = tasks[i];
-                const li = document.createElement('li');
-                li.textContent = task;
+                    if (this.isAuthenticated) {
+                        const newNoteRef = push(this.dbRef);
+                        await set(newNoteRef, newEntry);
+                    } else {
+                        this.saveToLocal(nameToSave, newEntry);
+                    }
 
-                const deleteBtn = document.createElement('button');
-                deleteBtn.textContent = 'Delete';
-                deleteBtn.addEventListener('click', function() {
-                    deleteTask(i);
+                    this.updateSaveButton(saveBtn);
+                    this.populateNoteList();
+                    this.clearNoteInputs();
+                } else {
+                    console.log('Please enter both the name and note before saving');
+                }
+            }
+
+            saveToLocal(key, data) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
+                offlineData[key] = data;
+                localStorage.setItem('offlineNotesData', JSON.stringify(offlineData));
+                this.loadLocalData();
+            }
+
+            loadLocalData() {
+                const offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
+                this.notesData = Object.entries(offlineData).map(([key, value]) => ({ key, ...value }));
+                this.populateNoteList();
+            }
+
+            updateSaveButton(button) {
+                button.textContent = 'Saved';
+                button.style.backgroundColor = 'lightblue';
+                setTimeout(() => {
+                    button.textContent = '💾';
+                    button.style.backgroundColor = '';
+                }, 2000);
+            }
+
+            async saveNote() {
+                const nameToSave = this.nameInput.value.trim();
+                const noteToSave = this.notesTextarea.value.trim();
+                const saveBtn = document.getElementById('save-btn');
+                const timestamp = new Date().toISOString();
+
+                if (nameToSave && noteToSave) {
+                    const newEntry = {
+                        name: nameToSave,
+                        note: noteToSave,
+                        timestamp
+                    };
+
+                    if (this.isAuthenticated) {
+                        const newNoteRef = push(this.dbRef);
+                        await set(newNoteRef, newEntry);
+                    } else {
+                        this.saveToLocal(nameToSave, newEntry);
+                    }
+
+                    this.updateSaveButton(saveBtn);
+                    this.populateNoteList();
+                    this.clearNoteInputs();
+                } else {
+                    console.log('Please enter both the name and note before saving');
+                }
+            }
+
+            async deleteNote() {
+                const nameToDelete = this.nameInput.value.trim();
+
+                if (nameToDelete) {
+                    const userConfirmed = confirm(`Are you sure you want to delete the note with name: ${nameToDelete}?`);
+                    if (!userConfirmed) {
+                        console.log('Note deletion cancelled.');
+                        return;
+                    }
+
+                    const note = this.notesData.find(note => note.name === nameToDelete);
+                    if (note) {
+                        this.storeDeletedNote(note.name, note.note);
+
+                        if (this.isAuthenticated) {
+                            await remove(ref(this.dbRef, note.key));
+                        } else {
+                            this.deleteFromLocal(note.key);
+                        }
+
+                        this.clearNoteInputs();
+                        this.populateNoteList();
+                        console.log(`Deleted the note with name: ${nameToDelete}`);
+                    } else {
+                        console.log('Note not found.');
+                    }
+                } else {
+                    console.log('Please enter the name of the note to delete.');
+                }
+            }
+
+            deleteFromLocal(key) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
+                delete offlineData[key];
+                localStorage.setItem('offlineNotesData', JSON.stringify(offlineData));
+                this.loadLocalData();
+            }
+
+            storeDeletedNote(name, note) {
+                this.deletedNotes.push({ name, note });
+            }
+
+            async undoDelete() {
+                if (this.deletedNotes.length > 0) {
+                    const lastDeletedNote = this.deletedNotes.pop();
+                    const { name, note } = lastDeletedNote;
+                    const newEntry = { name, note, timestamp: new Date().toISOString() };
+
+                    if (this.isAuthenticated) {
+                        const newNoteRef = push(this.dbRef);
+                        await set(newNoteRef, newEntry);
+                    } else {
+                        this.saveToLocal(name, newEntry);
+                    }
+
+                    this.populateNoteList();
+                    console.log(`Undone the deletion of the note with name: ${name}`);
+                } else {
+                    console.log('No deleted notes to undo');
+                }
+            }
+
+            autoResizeTextarea(id) {
+                const textarea = document.getElementById(id);
+                textarea.style.height = textarea.scrollHeight + 'px';
+            }
+
+            toggleAutoSave(event) {
+                if (event.target.checked) {
+                    this.startAutoSave();
+                } else {
+                    clearInterval(this.autoSaveInterval);
+                }
+            }
+
+            startAutoSave() {
+                this.autoSaveInterval = setInterval(() => this.saveNote(), 40000);
+            }
+
+            handleKeyboardShortcuts(event) {
+                if (event.ctrlKey && event.key === "s") {
+                    event.preventDefault();
+                    document.getElementById("save-btn").click();
+                }
+            }
+
+            populateNoteList() {
+                this.noteList.innerHTML = '';
+
+                if (this.notesData.length > 0) {
+                    const sortedNotes = this.notesData.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    sortedNotes.forEach(note => this.createNoteListItem(note));
+                } else {
+                    this.noteList.innerHTML = '<li>No notes found</li>';
+                }
+            }
+
+
+            clearNoteInputs() {
+                this.nameInput.value = '';
+                this.notesTextarea.value = '';
+            }
+
+            createNoteListItem(note) {
+                const listItem = document.createElement('li');
+
+                const nameSpan = document.createElement('span');
+                nameSpan.style.fontWeight = 'bold';
+                nameSpan.textContent = note.name;
+
+                const timestampSpan = document.createElement('span');
+                timestampSpan.style.fontWeight = 'normal';
+                timestampSpan.style.marginLeft = '10px';
+                timestampSpan.textContent = ` (${new Date(note.timestamp).toLocaleString()})`;
+
+                listItem.appendChild(nameSpan);
+                listItem.appendChild(timestampSpan);
+
+                listItem.addEventListener('click', () => {
+                    this.nameInput.value = note.name;
+                    this.notesTextarea.value = note.note;
                 });
 
-                li.appendChild(deleteBtn);
-                tasksContainer.appendChild(li);
+                this.noteList.appendChild(listItem);
             }
         }
 
-        function addTask() {
-            const taskInput = document.getElementById('task-input');
-            const task = taskInput.value.trim();
-
-            if (task) {
-                tasks.push(task);
-                localStorage.setItem('tasks', JSON.stringify(tasks));
-                taskInput.value = '';
-                displayTasks();
-            }
-        }
-
-        function deleteTask(index) {
-            tasks.splice(index, 1);
-            localStorage.setItem('tasks', JSON.stringify(tasks));
-            displayTasks();
-        }
-
-        function exportTasksToCSV() {
-            let csvContent = "data:text/csv;charset=utf-8,";
-            csvContent += "Task\n";
-
-            for (const task of tasks) {
-                csvContent += task + "\n";
-            }
-
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "tasks.csv");
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-
-        window.onload = function() {
-            displayTasks();
-        };
+        document.addEventListener("DOMContentLoaded", () => {
+            new LiveNotesApp();
+        });
     </script>
 </body>
+
+</html>

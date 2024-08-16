@@ -102,7 +102,7 @@
         <h2>Total Trips: <span id="total-trips">0</span></h2>
     </main>
     <script type="module">
-        import { database, ref, onValue, set, remove, push } from '../assets/js/firebase-init.js';
+        import { database, ref, onValue, set, remove, push, auth } from '../assets/js/firebase-init.js';
         import { initializeAuth } from '../assets/js/auth.js';
 
         class MileageApp {
@@ -122,8 +122,12 @@
             }
 
             initializeFirebase() {
-                this.dbRef = ref(database, 'mileagedata');
-                this.listenForDataChanges();
+                const user = auth.currentUser;
+                if (user) {
+                    const uid = user.uid;
+                    this.dbRef = ref(database, `${uid}/mileageData`);
+                    this.listenForDataChanges();
+                }
             }
 
             setEventListeners() {
@@ -213,90 +217,88 @@
             }
 
             addMileage(event) {
-    event.preventDefault();
+                event.preventDefault();
 
-    const tripType = document.querySelector('input[name="trip-type"]:checked').value;
+                const tripType = document.querySelector('input[name="trip-type"]:checked').value;
 
-    const mileageEntry = {
-        vehicle: document.getElementById('vehicle').value,
-        client: document.getElementById('client').value,
-        tripType: tripType,
-        distanceUnit: document.getElementById('distance-unit').value,
-    };
+                const mileageEntry = {
+                    vehicle: document.getElementById('vehicle').value,
+                    client: document.getElementById('client').value,
+                    tripType: tripType,
+                    distanceUnit: document.getElementById('distance-unit').value,
+                };
 
-    if (tripType === 'start') {
-        mileageEntry.startDate = document.getElementById('start-date').value;
-        mileageEntry.startTime = document.getElementById('start-time').value;
-        mileageEntry.startOdometer = document.getElementById('start-odometer').value;
-        mileageEntry.startLocation = document.getElementById('start-location').value;
+                if (tripType === 'start') {
+                    mileageEntry.startDate = document.getElementById('start-date').value;
+                    mileageEntry.startTime = document.getElementById('start-time').value;
+                    mileageEntry.startOdometer = document.getElementById('start-odometer').value;
+                    mileageEntry.startLocation = document.getElementById('start-location').value;
 
-        if (this.isAuthenticated) {
-            push(this.dbRef, mileageEntry);
-        } else {
-            this.saveToLocal(null, mileageEntry);
-        }
-    } else if (tripType === 'end') {
-        mileageEntry.endDate = document.getElementById('end-date').value;
-        mileageEntry.endTime = document.getElementById('end-time').value;
-        mileageEntry.endOdometer = document.getElementById('end-odometer').value;
-        mileageEntry.endLocation = document.getElementById('end-location').value;
+                    if (this.isAuthenticated) {
+                        push(this.dbRef, mileageEntry);
+                    } else {
+                        this.saveToLocal(null, mileageEntry);
+                    }
+                } else if (tripType === 'end') {
+                    mileageEntry.endDate = document.getElementById('end-date').value;
+                    mileageEntry.endTime = document.getElementById('end-time').value;
+                    mileageEntry.endOdometer = document.getElementById('end-odometer').value;
+                    mileageEntry.endLocation = document.getElementById('end-location').value;
 
-        // Find the last entry with tripType "start" and no endDate
-        const lastStartEntryIndex = this.mileageData.slice().reverse().findIndex(entry =>
-            entry.client === mileageEntry.client &&
-            entry.vehicle === mileageEntry.vehicle &&
-            entry.tripType === 'start' &&
-            !entry.endDate
-        );
+                    const lastStartEntryIndex = this.mileageData.slice().reverse().findIndex(entry =>
+                        entry.client === mileageEntry.client &&
+                        entry.vehicle === mileageEntry.vehicle &&
+                        entry.tripType === 'start' &&
+                        !entry.endDate
+                    );
 
-        // Check if the last entry in the mileage data is incomplete and matches the criteria
-        const actualLastIndex = this.mileageData.length - 1;
-        const lastEntry = this.mileageData[actualLastIndex];
+                    const actualLastIndex = this.mileageData.length - 1;
+                    const lastEntry = this.mileageData[actualLastIndex];
 
-        if (
-            lastStartEntryIndex !== -1 &&
-            this.mileageData.length - 1 - lastStartEntryIndex === actualLastIndex &&
-            lastEntry.client === mileageEntry.client &&
-            lastEntry.vehicle === mileageEntry.vehicle &&
-            lastEntry.tripType === 'start' &&
-            !lastEntry.endDate
-        ) {
-            const keyToUpdate = lastEntry.key;
-            const updates = {
-                endDate: mileageEntry.endDate,
-                endTime: mileageEntry.endTime,
-                endOdometer: mileageEntry.endOdometer,
-                endLocation: mileageEntry.endLocation,
-                tripType: 'completed'
-            };
-            if (this.isAuthenticated) {
-                set(ref(database, `mileagedata/${keyToUpdate}`), {
-                    ...lastEntry,
-                    ...updates
-                });
-            } else {
-                this.saveToLocal(keyToUpdate, updates);
+                    if (
+                        lastStartEntryIndex !== -1 &&
+                        this.mileageData.length - 1 - lastStartEntryIndex === actualLastIndex &&
+                        lastEntry.client === mileageEntry.client &&
+                        lastEntry.vehicle === mileageEntry.vehicle &&
+                        lastEntry.tripType === 'start' &&
+                        !lastEntry.endDate
+                    ) {
+                        const keyToUpdate = lastEntry.key;
+                        const updates = {
+                            endDate: mileageEntry.endDate,
+                            endTime: mileageEntry.endTime,
+                            endOdometer: mileageEntry.endOdometer,
+                            endLocation: mileageEntry.endLocation,
+                            tripType: 'completed'
+                        };
+                        if (this.isAuthenticated) {
+                            set(ref(database, `${auth.currentUser.uid}/mileageData/${keyToUpdate}`), {
+                                ...lastEntry,
+                                ...updates
+                            });
+                        } else {
+                            this.saveToLocal(keyToUpdate, updates);
+                        }
+                    } else {
+                        mileageEntry.startDate = "";
+                        mileageEntry.startTime = "";
+                        mileageEntry.startOdometer = "";
+                        mileageEntry.startLocation = "";
+                        if (this.isAuthenticated) {
+                            push(this.dbRef, mileageEntry);
+                        } else {
+                            this.saveToLocal(null, mileageEntry);
+                        }
+                    }
+                }
+
+                this.clearFormFields();
             }
-        } else {
-            mileageEntry.startDate = "";
-            mileageEntry.startTime = "";
-            mileageEntry.startOdometer = "";
-            mileageEntry.startLocation = "";
-            if (this.isAuthenticated) {
-                push(this.dbRef, mileageEntry);
-            } else {
-                this.saveToLocal(null, mileageEntry);
-            }
-        }
-    }
-
-    this.clearFormFields();
-}
 
             deleteMileage(index) {
                 const keyToDelete = this.mileageData[index].key;
                 if (this.isAuthenticated) {
-                    remove(ref(database, `mileagedata/${keyToDelete}`));
+                    remove(ref(database, `${auth.currentUser.uid}/mileageData/${keyToDelete}`));
                 } else {
                     this.deleteFromLocal(keyToDelete);
                 }
@@ -397,7 +399,7 @@
                         if (key.startsWith('offline-')) {
                             push(this.dbRef, data);
                         } else {
-                            set(ref(database, `mileagedata/${key}`), data);
+                            set(ref(database, `mileageData/${key}`), data);
                         }
                     }
                     localStorage.removeItem('offlineMileageData');
