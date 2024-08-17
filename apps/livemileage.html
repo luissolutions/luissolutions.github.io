@@ -10,19 +10,7 @@
 
 <body>
     <header>
-        <h1> Online Mileage Tracker</h1>
-        <section id="login-section">
-            <form id="login-form">
-                <label for="username">Email:</label>
-                <input type="email" id="username" required>
-                <br>
-                <label for="password">Password:</label>
-                <input type="password" id="password" required>
-                <br>
-                <button type="submit">Login</button>
-            </form>
-        </section>
-        <button id="logout" style="display: none;">Logout</button>
+        <h1>Online Mileage Tracker</h1>
     </header>
     <main>
         <section>
@@ -102,28 +90,19 @@
         <h2>Total Trips: <span id="total-trips">0</span></h2>
     </main>
     <script type="module">
-        import { database, ref, onValue, set, remove, push, auth } from '../assets/js/firebase-init.js';
-        import { initializeAuth } from '../assets/js/auth.js';
+        import { database, ref, onValue, set, remove, push } from '../assets/js/firebase-init-noauth.js';
 
         class MileageApp {
             constructor() {
                 this.mileageData = [];
                 this.totalTrips = 0;
-                this.dbRef = null;
+                this.dbRef = ref(database, 'mileageData'); // Reference to the database
 
                 this.setEventListeners();
                 this.updateTripFieldsVisibility();
+                this.listenForDataChanges();
 
                 window.addEventListener('online', this.syncData.bind(this));
-            }
-
-            initializeFirebase() {
-                const user = auth.currentUser;
-                if (user) {
-                    const uid = user.uid;
-                    this.dbRef = ref(database, `${uid}/mileageData`);
-                    this.listenForDataChanges();
-                }
             }
 
             setEventListeners() {
@@ -132,8 +111,6 @@
                 document.querySelectorAll('input[name="trip-type"]').forEach(element => {
                     element.addEventListener('change', this.updateTripFieldsVisibility.bind(this));
                 });
-
-                initializeAuth(this);
             }
 
             updateTripFieldsVisibility() {
@@ -230,9 +207,7 @@
                     mileageEntry.startOdometer = document.getElementById('start-odometer').value;
                     mileageEntry.startLocation = document.getElementById('start-location').value;
 
-                    if (this.isAuthenticated) {
-                        push(this.dbRef, mileageEntry);
-                    }
+                    push(this.dbRef, mileageEntry);
                 } else if (tripType === 'end') {
                     mileageEntry.endDate = document.getElementById('end-date').value;
                     mileageEntry.endTime = document.getElementById('end-time').value;
@@ -265,20 +240,16 @@
                             endLocation: mileageEntry.endLocation,
                             tripType: 'completed'
                         };
-                        if (this.isAuthenticated) {
-                            set(ref(database, `${auth.currentUser.uid}/mileageData/${keyToUpdate}`), {
-                                ...lastEntry,
-                                ...updates
-                            });
-                        }
+                        set(ref(database, `mileageData/${keyToUpdate}`), {
+                            ...lastEntry,
+                            ...updates
+                        });
                     } else {
                         mileageEntry.startDate = "";
                         mileageEntry.startTime = "";
                         mileageEntry.startOdometer = "";
                         mileageEntry.startLocation = "";
-                        if (this.isAuthenticated) {
-                            push(this.dbRef, mileageEntry);
-                        }
+                        push(this.dbRef, mileageEntry);
                     }
                 }
 
@@ -287,9 +258,7 @@
 
             deleteMileage(index) {
                 const keyToDelete = this.mileageData[index].key;
-                if (this.isAuthenticated) {
-                    remove(ref(database, `${auth.currentUser.uid}/mileageData/${keyToDelete}`));
-                }
+                remove(ref(database, `mileageData/${keyToDelete}`));
             }
 
             exportData() {
@@ -351,10 +320,6 @@
                 document.getElementById('end-odometer').value = '';
                 document.getElementById('end-location').value = '';
                 document.getElementById('distance-unit').value = 'miles';
-            }
-
-            syncData() {
-                // Placeholder for future synchronization logic if needed
             }
 
             updateOnlineStatus() {

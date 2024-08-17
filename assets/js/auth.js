@@ -58,5 +58,3 @@ export const app = {
         console.log("Loading local data.");
     }
 };
-
-initializeAuth(app);

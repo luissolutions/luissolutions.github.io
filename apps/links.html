@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Saved Links</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
+    <link rel="icon" type="image/png" href="../assets/img/t_logo.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="../assets/img/t_logo.png" sizes="16x16" />
+</head>
+
+<body>
+    <header>
+        <h1>Saved Links</h1>
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+        </section>
+        <button id="logout" style="display: none;">Logout</button>
+    </header>
+
+    <main>
+        <div>
+            <input type="text" placeholder="Insert link" id="linkInput">
+            <input type="text" placeholder="categories" id="categoryInput">
+            <br>
+            <button id="saveLinkButton">Save</button>
+            <button id="updateLinkButton" style="display: none;">Update</button>
+        </div>
+        <div>
+            <br>
+            <select id="categoryFilter">
+                <option value="">All Categories</option>
+            </select>
+        </div>
+        <ul id="linksList"></ul>
+    </main>
+
+    <footer>
+        <h3>Learning App © 2024</h3>
+    </footer>
+
+    <script type="module">
+        import { database, ref, push, set, onValue, remove, update, initializeAuth, auth } from '../assets/js/firebase-init.js';
+
+        class SavedLinksApp {
+            constructor() {
+                this.linkInput = document.getElementById('linkInput');
+                this.categoryInput = document.getElementById('categoryInput');
+                this.saveLinkButton = document.getElementById('saveLinkButton');
+                this.updateLinkButton = document.getElementById('updateLinkButton');
+                this.linksList = document.getElementById('linksList');
+                this.categoryFilter = document.getElementById('categoryFilter');
+                this.editingLinkKey = null;
+                this.isAuthenticated = false;
+                this.dbRef = null;
+                this.uid = null;
+
+                this.setupEventListeners();
+                initializeAuth(this);
+            }
+
+            initializeFirebase() {
+                const user = auth.currentUser;
+                if (user) {
+                    this.uid = user.uid;
+                    this.dbRef = ref(database, `${this.uid}/linksData`);
+                    this.loadLinksFromFirebase();
+                }
+            }
+
+            setupEventListeners() {
+                this.saveLinkButton.addEventListener('click', this.saveLink.bind(this));
+                this.updateLinkButton.addEventListener('click', this.updateLink.bind(this));
+                this.categoryFilter.addEventListener('change', this.loadLinksFromFirebase.bind(this));
+            }
+
+            async saveLink() {
+                const linkUrl = this.linkInput.value.trim();
+                const categories = this.categoryInput.value.split(',').map(cat => cat.trim()).filter(cat => cat);
+
+                if (!linkUrl) {
+                    alert('Please enter a link.');
+                    return;
+                }
+
+                const linkData = {
+                    url: linkUrl,
+                    categories: categories.length > 0 ? categories : null
+                };
+
+                if (this.isAuthenticated) {
+                    const newLinkRef = push(this.dbRef);
+                    await set(newLinkRef, linkData);
+                } else {
+                    this.saveToLocal(linkUrl, linkData);
+                }
+
+                this.clearForm();
+                this.loadLinksFromFirebase();
+            }
+
+            async updateLink() {
+                const linkUrl = this.linkInput.value.trim();
+                const categories = this.categoryInput.value.split(',').map(cat => cat.trim()).filter(cat => cat);
+
+                if (!linkUrl) {
+                    alert('Please enter a link.');
+                    return;
+                }
+
+                const linkData = {
+                    url: linkUrl,
+                    categories: categories.length > 0 ? categories : null
+                };
+
+                if (this.isAuthenticated && this.editingLinkKey) {
+                    const linkRef = ref(database, `${this.uid}/linksData/${this.editingLinkKey}`);
+                    await update(linkRef, linkData);
+                } else {
+                    this.updateLocalLink(this.editingLinkKey, linkData);
+                }
+
+                this.clearForm();
+                this.loadLinksFromFirebase();
+            }
+
+            async loadLinksFromFirebase() {
+                if (!this.dbRef) return;
+
+                onValue(this.dbRef, (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        this.populateCategoryFilter(data);
+                        this.displayLinks(data);
+                    } else {
+                        this.linksList.innerHTML = '<li>No links found</li>';
+                    }
+                });
+            }
+
+            saveToLocal(key, data) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineLinksData')) || {};
+                offlineData[key] = data;
+                localStorage.setItem('offlineLinksData', JSON.stringify(offlineData));
+                this.loadLocalData();
+            }
+
+            loadLocalData() {
+                const offlineData = JSON.parse(localStorage.getItem('offlineLinksData')) || {};
+                this.displayLinks(offlineData);
+            }
+
+            updateLocalLink(key, data) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineLinksData')) || {};
+                offlineData[key] = data;
+                localStorage.setItem('offlineLinksData', JSON.stringify(offlineData));
+                this.loadLocalData();
+            }
+
+            displayLinks(links) {
+                this.linksList.innerHTML = '';
+                const selectedCategory = this.categoryFilter.value;
+
+                Object.keys(links).forEach(key => {
+                    const link = links[key];
+                    const linkCategories = link.categories || [];
+
+                    if (selectedCategory && selectedCategory !== '' && !linkCategories.includes(selectedCategory)) return;
+
+                    const listItem = document.createElement('li');
+                    const aTag = document.createElement('a');
+                    aTag.href = link.url;
+                    aTag.target = "_blank";
+                    aTag.rel = "noopener noreferrer";
+                    aTag.textContent = link.url;
+
+                    const deleteButton = document.createElement('button');
+                    deleteButton.classList.add('clear-button');
+                    deleteButton.textContent = 'X';
+                    deleteButton.onclick = () => this.deleteLink(key);
+
+                    const editButton = document.createElement('button');
+                    editButton.classList.add('edit-button');
+                    editButton.textContent = '✏';
+                    editButton.onclick = () => this.editLink(key, link);
+
+                    listItem.appendChild(aTag);
+                    listItem.appendChild(editButton);
+                    listItem.appendChild(deleteButton);
+                    this.linksList.appendChild(listItem);
+                });
+            }
+
+            populateCategoryFilter(links) {
+                const categories = new Set(['All Categories']);
+                Object.keys(links).forEach(key => {
+                    const linkCategories = links[key].categories || [];
+                    linkCategories.forEach(category => categories.add(category));
+                });
+
+                const currentSelection = this.categoryFilter.value;
+                this.categoryFilter.innerHTML = '';
+                categories.forEach(category => {
+                    const option = document.createElement('option');
+                    option.value = category === 'All Categories' ? '' : category;
+                    option.textContent = category;
+                    this.categoryFilter.appendChild(option);
+                });
+
+                this.categoryFilter.value = currentSelection;
+            }
+
+            async deleteLink(key) {
+                if (this.isAuthenticated) {
+                    const linkRef = ref(database, `${this.uid}/linksData/${key}`);
+                    await remove(linkRef);
+                } else {
+                    this.deleteFromLocal(key);
+                }
+
+                this.loadLinksFromFirebase();
+            }
+
+            deleteFromLocal(key) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineLinksData')) || {};
+                delete offlineData[key];
+                localStorage.setItem('offlineLinksData', JSON.stringify(offlineData));
+                this.loadLocalData();
+            }
+
+            editLink(key, link) {
+                this.editingLinkKey = key;
+                this.linkInput.value = link.url;
+                this.categoryInput.value = (link.categories || []).join(', ');
+                this.saveLinkButton.style.display = 'none';
+                this.updateLinkButton.style.display = 'block';
+            }
+
+            clearForm() {
+                this.linkInput.value = '';
+                this.categoryInput.value = '';
+                this.saveLinkButton.style.display = 'block';
+                this.updateLinkButton.style.display = 'none';
+                this.editingLinkKey = null;
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            new SavedLinksApp();
+        });
+    </script>
+</body>
+
+</html>
