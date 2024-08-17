@@ -77,8 +77,11 @@
                     <tbody></tbody>
                 </table>
             </div>
-            <div>Hours:
+            <div>Daily:
                 <span id="dailyTimeSpent"></span>
+            </div>
+            <div>Weekly:
+                <spanid="weeklyHours"></span>
             </div>
             <div>Total Hours: <span id="totalHours">0</span></div>
             <div id="buttons"></div>
@@ -99,6 +102,7 @@
 
                 this.initialize();
                 this.loadLocalData();
+                this.loadColumnVisibility();
 
                 window.addEventListener('online', this.syncData.bind(this));
                 window.addEventListener('offline', this.updateOnlineStatus.bind(this));
@@ -107,7 +111,10 @@
             initialize() {
                 document.getElementById('toggleTimer').addEventListener('click', this.toggleTimer.bind(this));
                 document.querySelectorAll('.toggle-column').forEach(checkbox => {
-                    checkbox.addEventListener('change', this.toggleColumnVisibility.bind(this));
+                    checkbox.addEventListener('change', (event) => {
+                        this.toggleColumnVisibility(event);
+                        this.saveColumnVisibility();
+                    });
                 });
 
                 initializeAuth(this);
@@ -136,6 +143,7 @@
                     }
                     this.updateTaskTable();
                     this.processTasksForDailyTimeSpent();
+                    this.applyColumnVisibility();
                 });
             }
 
@@ -152,6 +160,7 @@
                 });
 
                 this.updateTotalHours();
+                this.sortTableByColumn(6);
             }
             processTasksForDailyTimeSpent() {
                 const dailyTimeSpent = this.calculateDailyTimeSpent(this.taskData);
@@ -350,22 +359,22 @@
             }
 
             checkForOngoingTask() {
-    const taskRef = ref(database, `${this.uid}/taskData`);
-    onValue(taskRef, snapshot => {
-        snapshot.forEach(taskSnapshot => {
-            const task = taskSnapshot.val();
-            if (!task.endTime) {
-                this.currentTask = task;
-                document.getElementById('taskName').value = this.currentTask.name;
-                document.getElementById('project').value = this.currentTask.project;
-                document.getElementById('taskNotes').value = this.currentTask.notes;
-                document.getElementById('startOdometer').value = this.currentTask.startOdometer;
-                document.getElementById('endOdometer').disabled = false;
-                this.timerInterval = setInterval(this.updateCurrentTaskTime.bind(this), 1000);
+                const taskRef = ref(database, `${this.uid}/taskData`);
+                onValue(taskRef, snapshot => {
+                    snapshot.forEach(taskSnapshot => {
+                        const task = taskSnapshot.val();
+                        if (!task.endTime) {
+                            this.currentTask = task;
+                            document.getElementById('taskName').value = this.currentTask.name;
+                            document.getElementById('project').value = this.currentTask.project;
+                            document.getElementById('taskNotes').value = this.currentTask.notes;
+                            document.getElementById('startOdometer').value = this.currentTask.startOdometer;
+                            document.getElementById('endOdometer').disabled = false;
+                            this.timerInterval = setInterval(this.updateCurrentTaskTime.bind(this), 1000);
+                        }
+                    });
+                });
             }
-        });
-    });
-}
 
             saveTask(task) {
                 if (this.isAuthenticated && this.dbRef) {
@@ -396,6 +405,7 @@
                 const offlineData = JSON.parse(localStorage.getItem('offlineTaskData')) || {};
                 this.taskData = Object.entries(offlineData).map(([key, value]) => ({ key, ...value }));
                 this.updateTaskTable();
+                this.applyColumnVisibility();
             }
 
             updateCurrentTaskTime() {
@@ -485,6 +495,7 @@
                         checkbox.checked = savedStates[checkbox.value] !== undefined ? savedStates[checkbox.value] : checkbox.checked;
                     });
                 }
+                this.applyColumnVisibility();
             }
 
             applyColumnVisibility() {
@@ -499,6 +510,17 @@
                         input.style.display = checkbox.checked ? '' : 'none';
                     });
                 });
+            }
+
+            sortTableByColumn(columnIndex) {
+                const tableBody = document.querySelector('#task-log tbody');
+                const rows = Array.from(tableBody.rows);
+                rows.sort((a, b) => {
+                    const dateA = new Date(a.cells[columnIndex].innerText);
+                    const dateB = new Date(b.cells[columnIndex].innerText);
+                    return dateA - dateB;
+                });
+                rows.forEach(row => tableBody.appendChild(row));
             }
 
             syncData() {
