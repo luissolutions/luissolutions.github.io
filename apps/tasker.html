@@ -162,7 +162,7 @@
                 this.updateTotalHours();
                 this.sortTableByColumn(6);
             }
-            
+
             processTasksForDailyTimeSpent() {
                 const dailyTimeSpent = this.calculateDailyTimeSpent(this.taskData);
                 this.displayDailyTimeSpent(dailyTimeSpent);
@@ -280,14 +280,29 @@
             }
 
             updateTaskField(taskId, field, value) {
-                const taskRef = ref(database, `${this.uid}/taskData/${taskId}`);
-                update(taskRef, { [field]: value })
-                    .then(() => {
-                        console.log(`Task ${taskId} updated: ${field} = ${value}`);
-                    })
-                    .catch(error => {
-                        console.error('Error updating task:', error);
-                    });
+                if (this.isAuthenticated && this.dbRef) {
+                    const taskRef = ref(database, `${this.uid}/taskData/${taskId}`);
+                    update(taskRef, { [field]: value })
+                        .then(() => {
+                            console.log(`Task ${taskId} updated: ${field} = ${value}`);
+                        })
+                        .catch(error => {
+                            console.error('Error updating task:', error);
+                        });
+                } else {
+                    this.updateLocalTaskField(taskId, field, value);
+                }
+            }
+
+            updateLocalTaskField(taskId, field, value) {
+                let offlineData = JSON.parse(localStorage.getItem('offlineTaskData')) || {};
+                if (offlineData[taskId]) {
+                    offlineData[taskId][field] = value;
+                    localStorage.setItem('offlineTaskData', JSON.stringify(offlineData));
+                    this.loadLocalData();
+                } else {
+                    console.error('Local task not found.');
+                }
             }
 
             confirmDeleteTask(taskId, row) {
@@ -429,11 +444,9 @@
                 return `${hours}:${minutes}:${seconds}`;
             }
 
-            calculateDistance(task) {
-                if (task.startOdometer && task.endOdometer) {
-                    return Math.abs(task.endOdometer - task.startOdometer);
-                }
-                return '';
+            calculateDistance(startOdometer, endOdometer) {
+                const distance = endOdometer - startOdometer;
+                return distance;
             }
 
             formatDateTime(dateTime) {
