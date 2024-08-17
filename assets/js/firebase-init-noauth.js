@@ -16,7 +16,11 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const database = getDatabase(app);
 
+function initializeAuth(app) {
+  app.initializeFirebase();
+}
+
 export {
   app, database, auth, getAuth, onAuthStateChanged, getDatabase, ref, onValue, set, push, get, off, remove, runTransaction,
-  update, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, limitToLast, query
+  update, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, limitToLast, query, initializeAuth
 };

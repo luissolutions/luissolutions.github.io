@@ -57,8 +57,7 @@
     </footer>
 
     <script type="module">
-        import { database, ref, set, get, push, onValue, remove } from '../assets/js/firebase-init.js';
-        import { initializeAuth } from '../assets/js/auth.js';
+        import { database, ref, set, get, push, onValue, remove, initializeAuth } from '../assets/js/firebase-init.js';
 
         const elements = {
             toggleTimerButton: document.getElementById("toggleTimer"),
@@ -79,14 +78,18 @@
             isRunning: false,
             taskName: '',
             logs: [],
-            logsRef: ref(database, 'times')
+            logsRef: null // will be initialized after authentication
         };
 
         let app = {
             isAuthenticated: false,
+            uid: null,
             initializeFirebase: function () {
-                loadEntriesFromFirebase();
-                updateTable();
+                if (this.uid) {
+                    timer.logsRef = ref(database, `${this.uid}/times`);
+                    loadEntriesFromFirebase();
+                    updateTable();
+                }
             },
             loadLocalData: function () {
                 loadEntriesFromLocalStorage();
@@ -125,7 +128,7 @@
             elements.currentTaskTimeDisplay.style.display = 'inline';
 
             const logEntry = { taskName: timer.taskName, startTime: new Date(timer.startTime).toLocaleString(), endTime: "" };
-            if (app.isAuthenticated) {
+            if (app.isAuthenticated && timer.logsRef) {
                 push(timer.logsRef, logEntry).catch(console.error);
             } else {
                 timer.logs.push(logEntry);
@@ -141,13 +144,13 @@
 
             elements.currentTaskTimeDisplay.textContent = calculateElapsedTime(timer.startTime, endTime);
 
-            if (app.isAuthenticated) {
+            if (app.isAuthenticated && timer.logsRef) {
                 get(timer.logsRef).then(snapshot => {
                     if (snapshot.exists()) {
                         const data = snapshot.val();
                         const lastEntryKey = Object.keys(data).find(key => !data[key].endTime);
                         if (lastEntryKey) {
-                            set(ref(database, `times/${lastEntryKey}`), { ...data[lastEntryKey], endTime })
+                            set(ref(database, `${app.uid}/times/${lastEntryKey}`), { ...data[lastEntryKey], endTime })
                                 .then(() => {
                                     updateWeeklyTimeSheet(data[lastEntryKey].taskName, data[lastEntryKey].startTime, endTime);
                                     resetTimerState();
@@ -197,8 +200,8 @@
         };
 
         const deleteLog = (index, logKey) => {
-            if (app.isAuthenticated) {
-                remove(ref(database, `times/${logKey}`)).then(() => {
+            if (app.isAuthenticated && logKey) {
+                remove(ref(database, `${app.uid}/times/${logKey}`)).then(() => {
                     updateTable();
                 }).catch(console.error);
             } else {
@@ -210,7 +213,7 @@
 
         const updateTable = () => {
             elements.timerLogTableBody.innerHTML = "";
-            if (app.isAuthenticated) {
+            if (app.isAuthenticated && timer.logsRef) {
                 onValue(timer.logsRef, snapshot => {
                     const data = snapshot.val();
                     elements.timerLogTableBody.innerHTML = "";
@@ -265,7 +268,7 @@
 
         const exportLogs = () => {
             let csvData = "Task Name,Start Time,End Time,Elapsed Time\n";
-            if (app.isAuthenticated) {
+            if (app.isAuthenticated && timer.logsRef) {
                 get(timer.logsRef).then(snapshot => {
                     if (snapshot.exists()) {
                         Object.values(snapshot.val()).forEach(log => {
@@ -301,8 +304,8 @@
         const saveTimerState = () => {
             const state = { isRunning: timer.isRunning, startTime: timer.startTime, taskName: timer.taskName };
             localStorage.setItem('currentTimer', JSON.stringify(state));
-            if (app.isAuthenticated) {
-                set(ref(database, 'currentTimer'), state).catch(console.error);
+            if (app.isAuthenticated && timer.logsRef) {
+                set(ref(database, `${app.uid}/currentTimer`), state).catch(console.error);
             }
         };
 
@@ -442,13 +445,13 @@
                 });
             });
 
-            set(ref(database, 'weeklyTimes'), entries).catch(console.error);
+            set(ref(database, `${app.uid}/weeklyTimes`), entries).catch(console.error);
         };
 
         const loadEntriesFromFirebase = () => {
             const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
-            get(ref(database, 'weeklyTimes')).then(snapshot => {
+            get(ref(database, `${app.uid}/weeklyTimes`)).then(snapshot => {
                 if (snapshot.exists()) {
                     const entries = snapshot.val();
 
@@ -478,8 +481,8 @@
         };
 
         const clearEntries = () => {
-            if (app.isAuthenticated) {
-                remove(ref(database, 'weeklyTimes')).then(() => {
+            if (app.isAuthenticated && timer.logsRef) {
+                remove(ref(database, `${app.uid}/weeklyTimes`)).then(() => {
                     document.querySelectorAll('.time-entry').forEach(entry => entry.remove());
                     document.querySelectorAll('.day-container p span').forEach(span => span.textContent = "0");
                     document.getElementById('totalHours').textContent = "0";
