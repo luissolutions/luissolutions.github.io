@@ -23,12 +23,13 @@ var appNamesMap = {
   "Favorites/Bookmarks": "livelinks",
   "View/Edit Inventory": "liveinventory",
   "View/Edit Database": "livedatabase",
+  "Timer": "livetimer",
+  "Quiz/Testing": "livelearn",
   "Password Generator": "password",
   "Conversion Calculator": "conversion",
   "Percentage Calculator": "percent",
   "Calculator": "calc",
   "Wire Counter": "count",
-  "Timer": "timer",
   "Analytics": "liveanalytics",
 };
 
