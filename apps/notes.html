@@ -56,6 +56,7 @@
                 this.autoSaveInterval = null;
                 this.dbRef = null;
                 this.uid = null;
+                this.isAuthenticated = false;
 
                 this.setupEventListeners();
                 initializeAuth(this);
@@ -64,12 +65,14 @@
             initializeFirebase() {
                 const user = auth.currentUser;
                 if (user) {
+                    this.isAuthenticated = true;
                     this.uid = user.uid;
                     this.dbRef = ref(database, `${this.uid}/notesData`);
                     this.populateNoteList();
                     this.startAutoSave();
                 } else {
                     this.uid = null;
+                    this.isAuthenticated = false;
                     this.loadLocalData();
                 }
             }
@@ -106,8 +109,7 @@
                 if (nameToSave && noteToSave) {
                     const noteData = { name: nameToSave, note: noteToSave, timestamp };
 
-                    if (this.uid) {
-                        // Save to Firebase if the user is authenticated
+                    if (this.isAuthenticated && this.uid) {
                         const notesRef = ref(database, `${this.uid}/notesData/${nameToSave}`);
                         try {
                             await set(notesRef, noteData);
@@ -116,7 +118,6 @@
                             console.error('Failed to save the note to Firebase:', error);
                         }
                     } else {
-                        // Save to localStorage if the user is not authenticated
                         this.saveToLocal(nameToSave, noteData);
                         console.log('Note saved to localStorage successfully');
                     }
@@ -140,56 +141,6 @@
                 }
             }
 
-            async copyNote() {
-                this.notesTextarea.select();
-                document.execCommand('copy');
-                console.log('Copied to clipboard');
-            }
-
-            async pasteNote() {
-                const clipboardData = await navigator.clipboard.readText();
-                this.notesTextarea.value += clipboardData;
-            }
-
-            async saveNote() {
-                const nameToSave = this.nameInput.value.trim();
-                const noteToSave = this.notesTextarea.value.trim();
-                const saveBtn = document.getElementById('save-btn');
-                const timestamp = new Date().toISOString();
-
-                if (nameToSave && noteToSave) {
-                    const noteData = { name: nameToSave, note: noteToSave, timestamp };
-
-                    if (this.uid) {
-                        const notesRef = ref(database, `${this.uid}/notesData/${nameToSave}`);
-                        try {
-                            await set(notesRef, noteData);
-                            console.log('Note saved to Firebase successfully');
-                        } catch (error) {
-                            console.error('Failed to save the note to Firebase:', error);
-                        }
-                    } else {
-                        this.saveToLocal(nameToSave, noteData);
-                        console.log('Note saved to localStorage successfully');
-                    }
-
-                    this.updateSaveButton(saveBtn);
-                    this.populateNoteList();
-                    this.clearNoteInputs();
-                } else {
-                    console.log('Please enter both the name and note before saving');
-                }
-            }
-
-            updateSaveButton(button) {
-                button.textContent = 'Saved';
-                button.style.backgroundColor = 'lightblue';
-                setTimeout(() => {
-                    button.textContent = '💾';
-                    button.style.backgroundColor = '';
-                }, 2000);
-            }
-
             async deleteNote() {
                 const nameToDelete = this.nameInput.value.trim();
 
@@ -200,29 +151,17 @@
                         return;
                     }
 
-                    if (this.uid) {
-                        // Delete from Firebase if the user is authenticated
-                        const notesRef = ref(database, `${this.uid}/notesData`);
-                        const snapshot = await get(notesRef);
-                        const notes = snapshot.val();
-
-                        if (notes) {
-                            const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
-                            if (noteId) {
-                                const deletedNote = notes[noteId];
-                                this.storeDeletedNote(deletedNote.name, deletedNote.note);
-                                await remove(ref(database, `${this.uid}/notesData/${noteId}`));
-                                this.clearNoteInputs();
-                                console.log(`Deleted the note with name: ${nameToDelete}`);
-                                this.populateNoteList();
-                            } else {
-                                console.log('Note not found.');
-                            }
-                        } else {
-                            console.log('No notes available.');
+                    if (this.isAuthenticated && this.uid) {
+                        const notesRef = ref(database, `${this.uid}/notesData/${nameToDelete}`);
+                        try {
+                            await remove(notesRef);
+                            this.clearNoteInputs();
+                            console.log(`Deleted the note with name: ${nameToDelete}`);
+                            this.populateNoteList();
+                        } catch (error) {
+                            console.error('Failed to delete the note from Firebase:', error);
                         }
                     } else {
-                        // Delete from localStorage if the user is not authenticated
                         let offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
                         if (offlineData[nameToDelete]) {
                             delete offlineData[nameToDelete];
@@ -239,6 +178,50 @@
                 }
             }
 
+            async undoDelete() {
+                if (this.deletedNotes.length > 0) {
+                    const lastDeletedNote = this.deletedNotes.pop();
+                    const { name, note } = lastDeletedNote;
+
+                    if (this.isAuthenticated && this.uid) {
+                        const notesRef = ref(database, `${this.uid}/notesData/${name}`);
+                        try {
+                            await set(notesRef, { name, note, timestamp: new Date().toISOString() });
+                            console.log(`Undone the deletion of the note with name: ${name}`);
+                            this.populateNoteList();
+                        } catch (error) {
+                            console.error('Failed to undo the deletion:', error);
+                        }
+                    } else {
+                        this.saveToLocal(name, { name, note, timestamp: new Date().toISOString() });
+                        this.populateNoteList();
+                        console.log(`Undone the deletion of the note with name: ${name} in localStorage`);
+                    }
+                } else {
+                    console.log('No deleted notes to undo');
+                }
+            }
+
+            async copyNote() {
+                this.notesTextarea.select();
+                document.execCommand('copy');
+                console.log('Copied to clipboard');
+            }
+
+            async pasteNote() {
+                const clipboardData = await navigator.clipboard.readText();
+                this.notesTextarea.value += clipboardData;
+            }
+
+            updateSaveButton(button) {
+                button.textContent = 'Saved';
+                button.style.backgroundColor = 'lightblue';
+                setTimeout(() => {
+                    button.textContent = '💾';
+                    button.style.backgroundColor = '';
+                }, 2000);
+            }
+
             clearNoteInputs() {
                 this.nameInput.value = '';
                 this.notesTextarea.value = '';
@@ -246,14 +229,12 @@
 
             async populateNoteList() {
                 if (this.uid) {
-                    // Load notes from Firebase if authenticated
                     const notesRef = ref(database, `${this.uid}/notesData`);
                     onValue(notesRef, snapshot => {
                         const notes = snapshot.val();
                         this.displayNotes(notes);
                     });
                 } else {
-                    // Load notes from localStorage if not authenticated
                     this.loadLocalData();
                 }
             }
@@ -285,32 +266,6 @@
                 this.deletedNotes.push({ name, note });
             };
 
-            async undoDelete() {
-                if (this.deletedNotes.length > 0) {
-                    const lastDeletedNote = this.deletedNotes.pop();
-                    const { name, note } = lastDeletedNote;
-
-                    if (this.uid) {
-                        // Restore from Firebase if authenticated
-                        const notesRef = ref(database, `${this.uid}/notesData/${name}`);
-                        try {
-                            await set(notesRef, { name, note, timestamp: new Date().toISOString() });
-                            console.log(`Undone the deletion of the note with name: ${name}`);
-                            this.populateNoteList();
-                        } catch (error) {
-                            console.error('Failed to undo the deletion:', error);
-                        }
-                    } else {
-                        // Restore from localStorage if not authenticated
-                        this.saveToLocal(name, { name, note, timestamp: new Date().toISOString() });
-                        this.populateNoteList();
-                        console.log(`Undone the deletion of the note with name: ${name} in localStorage`);
-                    }
-                } else {
-                    console.log('No deleted notes to undo');
-                }
-            }
-
             autoResizeTextarea(id) {
                 const textarea = document.getElementById(id);
                 textarea.style.height = textarea.scrollHeight + 'px';
@@ -325,7 +280,7 @@
             }
 
             startAutoSave() {
-                this.autoSaveInterval = setInterval(() => this.saveNote(), 40000);
+                this.autoSaveInterval = setInterval(() => this.saveNote(), 30000);
             }
 
             handleKeyboardShortcuts(event) {
