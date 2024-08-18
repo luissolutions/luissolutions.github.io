@@ -37,8 +37,6 @@
             <button id="save-btn">💾</button>
             <button class="clear-button" id="delete-btn">❌</button>
             <button id="undo-btn">↩️</button>
-            <label for="autosave-checkbox">Auto-💾:</label>
-            <input type="checkbox" id="autosave-checkbox" checked>
             <section id="note-list"></section>
             <button class="clear-button" id="clear-btn">Clear</button>
         </section>
@@ -53,7 +51,6 @@
                 this.notesTextarea = document.getElementById('notes');
                 this.noteList = document.getElementById('note-list');
                 this.deletedNotes = [];
-                this.autoSaveInterval = null;
                 this.dbRef = null;
                 this.uid = null;
                 this.isAuthenticated = false;
@@ -69,7 +66,6 @@
                     this.uid = user.uid;
                     this.dbRef = ref(database, `${this.uid}/notesData`);
                     this.populateNoteList();
-                    this.startAutoSave();
                 } else {
                     this.uid = null;
                     this.isAuthenticated = false;
@@ -84,7 +80,6 @@
                 document.getElementById('delete-btn').addEventListener('click', this.deleteNote.bind(this));
                 document.getElementById('clear-btn').addEventListener('click', this.clearNoteInputs.bind(this));
                 document.getElementById('undo-btn').addEventListener('click', this.undoDelete.bind(this));
-                document.getElementById('autosave-checkbox').addEventListener('change', this.toggleAutoSave.bind(this));
                 document.addEventListener("keydown", this.handleKeyboardShortcuts.bind(this));
                 this.notesTextarea.addEventListener('input', () => this.autoResizeTextarea('notes'));
             }
@@ -124,6 +119,7 @@
 
                     this.updateSaveButton(saveBtn);
                     this.populateNoteList();
+                    this.loadLocalData();
                     this.clearNoteInputs();
                 } else {
                     console.log('Please enter both the name and note before saving');
@@ -151,39 +147,55 @@
                         return;
                     }
 
-                    if (this.isAuthenticated && this.uid) {
-                        const notesRef = ref(database, `${this.uid}/notesData/${nameToDelete}`);
-                        try {
-                            await remove(notesRef);
-                            this.clearNoteInputs();
-                            console.log(`Deleted the note with name: ${nameToDelete}`);
-                            this.populateNoteList();
-                        } catch (error) {
-                            console.error('Failed to delete the note from Firebase:', error);
+                    if (this.uid) {
+                        const notesRef = ref(database, `${this.uid}/notesData`);
+                        const snapshot = await get(notesRef);
+                        const notes = snapshot.val();
+
+                        if (notes) {
+                            const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
+                            if (noteId) {
+                                const deletedNote = notes[noteId];
+                                this.storeDeletedNote(deletedNote.name, deletedNote.note);
+                                await remove(ref(database, `${this.uid}/notesData/${noteId}`));
+                                this.clearNoteInputs();
+                                console.log(`Deleted the note with name: ${nameToDelete}`);
+                                this.populateNoteList();
+                            } else {
+                                console.log('Note not found.');
+                            }
+                        } else {
+                            console.log('No notes available.');
                         }
                     } else {
                         let offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
                         if (offlineData[nameToDelete]) {
+                            const deletedNote = offlineData[nameToDelete];
+                            this.storeDeletedNote(deletedNote);
                             delete offlineData[nameToDelete];
                             localStorage.setItem('offlineNotesData', JSON.stringify(offlineData));
-                            this.clearNoteInputs();
-                            this.populateNoteList();
                             console.log(`Deleted the note with name: ${nameToDelete} from localStorage`);
                         } else {
                             console.log('Note not found in localStorage.');
                         }
                     }
+                    this.clearNoteInputs();
+                    this.populateNoteList();
                 } else {
                     console.log('Please enter the name of the note to delete.');
                 }
             }
+
+            storeDeletedNote = (name, note) => {
+                this.deletedNotes.push({ name, note });
+            };
 
             async undoDelete() {
                 if (this.deletedNotes.length > 0) {
                     const lastDeletedNote = this.deletedNotes.pop();
                     const { name, note } = lastDeletedNote;
 
-                    if (this.isAuthenticated && this.uid) {
+                    if (this.uid) {
                         const notesRef = ref(database, `${this.uid}/notesData/${name}`);
                         try {
                             await set(notesRef, { name, note, timestamp: new Date().toISOString() });
@@ -262,25 +274,13 @@
                 this.noteList.appendChild(listItem);
             }
 
-            storeDeletedNote = (name, note) => {
+            storeDeletedNote(name, note) {
                 this.deletedNotes.push({ name, note });
-            };
+            }
 
             autoResizeTextarea(id) {
                 const textarea = document.getElementById(id);
                 textarea.style.height = textarea.scrollHeight + 'px';
-            }
-
-            toggleAutoSave(event) {
-                if (event.target.checked) {
-                    this.startAutoSave();
-                } else {
-                    clearInterval(this.autoSaveInterval);
-                }
-            }
-
-            startAutoSave() {
-                this.autoSaveInterval = setInterval(() => this.saveNote(), 30000);
             }
 
             handleKeyboardShortcuts(event) {
