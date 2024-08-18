@@ -147,25 +147,20 @@
                         return;
                     }
 
-                    if (this.uid) {
-                        const notesRef = ref(database, `${this.uid}/notesData`);
-                        const snapshot = await get(notesRef);
-                        const notes = snapshot.val();
-
-                        if (notes) {
-                            const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
-                            if (noteId) {
-                                const deletedNote = notes[noteId];
-                                this.storeDeletedNote(deletedNote.name, deletedNote.note);
-                                await remove(ref(database, `${this.uid}/notesData/${noteId}`));
-                                this.clearNoteInputs();
+                    if (this.isAuthenticated && this.uid) {
+                        const notesRef = ref(database, `${this.uid}/notesData/${nameToDelete}`);
+                        try {
+                            const snapshot = await get(notesRef);
+                            const note = snapshot.val();
+                            if (note) {
+                                this.storeDeletedNote(note);
+                                await remove(notesRef);
                                 console.log(`Deleted the note with name: ${nameToDelete}`);
-                                this.populateNoteList();
                             } else {
                                 console.log('Note not found.');
                             }
-                        } else {
-                            console.log('No notes available.');
+                        } catch (error) {
+                            console.error('Failed to delete the note from Firebase:', error);
                         }
                     } else {
                         let offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
@@ -180,32 +175,33 @@
                         }
                     }
                     this.clearNoteInputs();
+                    this.loadLocalData();
                     this.populateNoteList();
                 } else {
                     console.log('Please enter the name of the note to delete.');
                 }
             }
 
-            storeDeletedNote = (name, note) => {
-                this.deletedNotes.push({ name, note });
-            };
+            storeDeletedNote(note) {
+                this.deletedNotes.push(note);
+            }
 
             async undoDelete() {
                 if (this.deletedNotes.length > 0) {
                     const lastDeletedNote = this.deletedNotes.pop();
-                    const { name, note } = lastDeletedNote;
+                    const { name, note, timestamp } = lastDeletedNote;
 
-                    if (this.uid) {
+                    if (this.isAuthenticated && this.uid) {
                         const notesRef = ref(database, `${this.uid}/notesData/${name}`);
                         try {
-                            await set(notesRef, { name, note, timestamp: new Date().toISOString() });
+                            await set(notesRef, { name, note, timestamp });
                             console.log(`Undone the deletion of the note with name: ${name}`);
                             this.populateNoteList();
                         } catch (error) {
                             console.error('Failed to undo the deletion:', error);
                         }
                     } else {
-                        this.saveToLocal(name, { name, note, timestamp: new Date().toISOString() });
+                        this.saveToLocal(name, { name, note, timestamp });
                         this.populateNoteList();
                         console.log(`Undone the deletion of the note with name: ${name} in localStorage`);
                     }
@@ -272,10 +268,6 @@
                 });
 
                 this.noteList.appendChild(listItem);
-            }
-
-            storeDeletedNote(name, note) {
-                this.deletedNotes.push({ name, note });
             }
 
             autoResizeTextarea(id) {
