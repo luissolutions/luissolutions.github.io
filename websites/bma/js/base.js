@@ -14,11 +14,13 @@ window.onclick = function (event) {
 }
 
 var appNamesMap = {
+  "Task Logging": "livetasker",
   "Quote/Invoice Maker": "liveinvoice",
   "Fuel Logging": "livegas",
   "Mileage Logging": "livemileage",
   "Financial Logging": "livebudget",
   "Notes App": "livenotes",
+  "Favorites/Bookmarks": "livelinks",
   "View/Edit Inventory": "liveinventory",
   "View/Edit Database": "livedatabase",
   "Password Generator": "password",
