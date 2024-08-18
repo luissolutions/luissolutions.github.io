@@ -45,7 +45,7 @@
     </main>
 
     <script type="module">
-        import { database, ref, onValue, set, get, push, remove, auth, initializeAuth  } from '../assets/js/firebase-init.js';
+        import { database, ref, onValue, set, get, remove, initializeAuth } from '../assets/js/firebase-init.js';
 
         class LiveNotesApp {
             constructor() {
@@ -54,37 +54,10 @@
                 this.noteList = document.getElementById('note-list');
                 this.deletedNotes = [];
                 this.autoSaveInterval = null;
-                this.dbRef = null;
-                this.notesData = [];
-                this.isAuthenticated = false;
 
                 this.setupEventListeners();
-                initializeAuth(this);
-                this.loadLocalData();
+                this.populateNoteList();
                 this.startAutoSave();
-            }
-
-            initializeFirebase() {
-                const user = auth.currentUser;
-                if (user) {
-                    const uid = user.uid;
-                    this.dbRef = ref(database, `${uid}/notesData`);
-                    this.clearNoteInputs();
-                    this.listenForDataChanges();
-                }
-            }
-
-            listenForDataChanges() {
-                if (!this.dbRef) return;
-                onValue(this.dbRef, (snapshot) => {
-                    const data = snapshot.val();
-                    if (data) {
-                        this.notesData = Object.entries(data).map(([key, value]) => ({ key, ...value }));
-                    } else {
-                        this.notesData = [];
-                    }
-                    this.populateNoteList();
-                });
             }
 
             setupEventListeners() {
@@ -99,7 +72,7 @@
                 this.notesTextarea.addEventListener('input', () => this.autoResizeTextarea('notes'));
             }
 
-            copyNote() {
+            async copyNote() {
                 this.notesTextarea.select();
                 document.execCommand('copy');
                 console.log('Copied to clipboard');
@@ -117,38 +90,19 @@
                 const timestamp = new Date().toISOString();
 
                 if (nameToSave && noteToSave) {
-                    const newEntry = {
-                        name: nameToSave,
-                        note: noteToSave,
-                        timestamp
-                    };
-
-                    if (this.isAuthenticated) {
-                        const newNoteRef = push(this.dbRef);
-                        await set(newNoteRef, newEntry);
-                    } else {
-                        this.saveToLocal(nameToSave, newEntry);
+                    const notesRef = ref(database, `notes/${nameToSave}`);
+                    try {
+                        await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
+                        console.log('Note saved successfully');
+                        this.updateSaveButton(saveBtn);
+                        this.populateNoteList();
+                        this.clearNoteInputs();
+                    } catch (error) {
+                        console.error('Failed to save the note:', error);
                     }
-
-                    this.updateSaveButton(saveBtn);
-                    this.populateNoteList();
-                    this.clearNoteInputs();
                 } else {
                     console.log('Please enter both the name and note before saving');
                 }
-            }
-
-            saveToLocal(key, data) {
-                let offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
-                offlineData[key] = data;
-                localStorage.setItem('offlineNotesData', JSON.stringify(offlineData));
-                this.loadLocalData();
-            }
-
-            loadLocalData() {
-                const offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
-                this.notesData = Object.entries(offlineData).map(([key, value]) => ({ key, ...value }));
-                this.populateNoteList();
             }
 
             updateSaveButton(button) {
@@ -158,34 +112,6 @@
                     button.textContent = '💾';
                     button.style.backgroundColor = '';
                 }, 2000);
-            }
-
-            async saveNote() {
-                const nameToSave = this.nameInput.value.trim();
-                const noteToSave = this.notesTextarea.value.trim();
-                const saveBtn = document.getElementById('save-btn');
-                const timestamp = new Date().toISOString();
-
-                if (nameToSave && noteToSave) {
-                    const newEntry = {
-                        name: nameToSave,
-                        note: noteToSave,
-                        timestamp
-                    };
-
-                    if (this.isAuthenticated) {
-                        const newNoteRef = push(this.dbRef);
-                        await set(newNoteRef, newEntry);
-                    } else {
-                        this.saveToLocal(nameToSave, newEntry);
-                    }
-
-                    this.updateSaveButton(saveBtn);
-                    this.populateNoteList();
-                    this.clearNoteInputs();
-                } else {
-                    console.log('Please enter both the name and note before saving');
-                }
             }
 
             async deleteNote() {
@@ -198,53 +124,90 @@
                         return;
                     }
 
-                    const note = this.notesData.find(note => note.name === nameToDelete);
-                    if (note) {
-                        this.storeDeletedNote(note.name, note.note);
+                    const notesRef = ref(database, 'notes');
+                    const snapshot = await get(notesRef);
+                    const notes = snapshot.val();
 
-                        if (this.isAuthenticated) {
-                            await remove(ref(this.dbRef, note.key));
+                    if (notes) {
+                        const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
+                        if (noteId) {
+                            const deletedNote = notes[noteId];
+                            this.storeDeletedNote(deletedNote.name, deletedNote.note);
+                            await remove(ref(database, `notes/${noteId}`));
+                            this.clearNoteInputs();
+                            console.log(`Deleted the note with name: ${nameToDelete}`);
+                            this.populateNoteList();
                         } else {
-                            this.deleteFromLocal(note.key);
+                            console.log('Note not found.');
                         }
-
-                        this.clearNoteInputs();
-                        this.populateNoteList();
-                        console.log(`Deleted the note with name: ${nameToDelete}`);
                     } else {
-                        console.log('Note not found.');
+                        console.log('No notes available.');
                     }
                 } else {
                     console.log('Please enter the name of the note to delete.');
                 }
             }
 
-            deleteFromLocal(key) {
-                let offlineData = JSON.parse(localStorage.getItem('offlineNotesData')) || {};
-                delete offlineData[key];
-                localStorage.setItem('offlineNotesData', JSON.stringify(offlineData));
-                this.loadLocalData();
+            clearNoteInputs() {
+                this.nameInput.value = '';
+                this.notesTextarea.value = '';
             }
 
-            storeDeletedNote(name, note) {
-                this.deletedNotes.push({ name, note });
+            async populateNoteList() {
+                const notesRef = ref(database, 'notes');
+                onValue(notesRef, snapshot => {
+                    const notes = snapshot.val();
+                    this.noteList.innerHTML = '';
+
+                    if (notes) {
+                        const sortedNotes = Object.values(notes).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                        sortedNotes.forEach(note => this.createNoteListItem(note));
+                    } else {
+                        this.noteList.innerHTML = '<li>No notes found</li>';
+                    }
+                });
             }
+
+            createNoteListItem(note) {
+                const listItem = document.createElement('li');
+
+                const nameSpan = document.createElement('span');
+                nameSpan.style.fontWeight = 'bold';
+                nameSpan.textContent = note.name;
+
+                const timestampSpan = document.createElement('span');
+                timestampSpan.style.fontWeight = 'normal';
+                timestampSpan.style.marginLeft = '10px';
+                timestampSpan.textContent = ` (${new Date(note.timestamp).toLocaleString()})`;
+
+                listItem.appendChild(nameSpan);
+                listItem.appendChild(timestampSpan);
+
+                listItem.addEventListener('click', () => {
+                    this.nameInput.value = note.name;
+                    this.notesTextarea.value = note.note;
+                });
+
+                this.noteList.appendChild(listItem);
+            }
+
+            storeDeletedNote = (name, note) => {
+                this.deletedNotes.push({ name, note });
+            };
 
             async undoDelete() {
                 if (this.deletedNotes.length > 0) {
                     const lastDeletedNote = this.deletedNotes.pop();
                     const { name, note } = lastDeletedNote;
-                    const newEntry = { name, note, timestamp: new Date().toISOString() };
 
-                    if (this.isAuthenticated) {
-                        const newNoteRef = push(this.dbRef);
-                        await set(newNoteRef, newEntry);
-                    } else {
-                        this.saveToLocal(name, newEntry);
+                    const notesRef = ref(database, `notes/${name}`);
+                    try {
+                        await set(notesRef, { name, note, timestamp: new Date().toISOString() });
+                        console.log(`Undone the deletion of the note with name: ${name}`);
+                        this.populateNoteList();
+                    } catch (error) {
+                        console.error('Failed to undo the deletion:', error);
                     }
-
-                    this.populateNoteList();
-                    console.log(`Undone the deletion of the note with name: ${name}`);
                 } else {
                     console.log('No deleted notes to undo');
                 }
@@ -272,46 +235,6 @@
                     event.preventDefault();
                     document.getElementById("save-btn").click();
                 }
-            }
-
-            populateNoteList() {
-                this.noteList.innerHTML = '';
-
-                if (this.notesData.length > 0) {
-                    const sortedNotes = this.notesData.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-                    sortedNotes.forEach(note => this.createNoteListItem(note));
-                } else {
-                    this.noteList.innerHTML = '<li>No notes found</li>';
-                }
-            }
-
-
-            clearNoteInputs() {
-                this.nameInput.value = '';
-                this.notesTextarea.value = '';
-            }
-
-            createNoteListItem(note) {
-                const listItem = document.createElement('li');
-
-                const nameSpan = document.createElement('span');
-                nameSpan.style.fontWeight = 'bold';
-                nameSpan.textContent = note.name;
-
-                const timestampSpan = document.createElement('span');
-                timestampSpan.style.fontWeight = 'normal';
-                timestampSpan.style.marginLeft = '10px';
-                timestampSpan.textContent = ` (${new Date(note.timestamp).toLocaleString()})`;
-
-                listItem.appendChild(nameSpan);
-                listItem.appendChild(timestampSpan);
-
-                listItem.addEventListener('click', () => {
-                    this.nameInput.value = note.name;
-                    this.notesTextarea.value = note.note;
-                });
-
-                this.noteList.appendChild(listItem);
             }
         }
 
