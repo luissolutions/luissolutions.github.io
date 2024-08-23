@@ -335,7 +335,7 @@
                             <option value="quote">Quote:</option>
                             <option value="invoice">Invoice #</option>
                         </select>
-                        <input type="text" id="invoice-number" name="invoice-number" required>
+                        <input type="text" id="invoice-number" name="invoice-number" data-id="">
                     </div>
                     <label class="no-print" for="customer-name">Customer Name:</label>
                     <input type="text" id="customer-name" name="customer-name">
@@ -359,7 +359,7 @@
                         <textarea id="customer-address" name="customer-address"></textarea>
                     </div>
                     <label class="no-print" for="invoice-date">Date:</label>
-                    <input type="date" id="invoice-date" name="invoice-date">
+                    <input type="datetime-local" id="invoice-date" name="invoice-date">
 
                 </div>
 
@@ -498,7 +498,7 @@
         }
 
         function updateInvoiceDropdown(searchQuery) {
-            const invoicesRef = ref(database, 'invoices');
+            const invoicesRef = ref(database, 'tasks');
             get(invoicesRef).then((snapshot) => {
                 if (snapshot.exists()) {
                     const invoices = snapshot.val();
@@ -511,12 +511,12 @@
 
         function updateDropdownOptions(invoices, filterText) {
 
-            for (const invoiceNumber in invoices) {
-                if (invoices.hasOwnProperty(invoiceNumber)) {
-                    if (filterText === '' || invoiceNumber.toLowerCase().includes(filterText)) {
+            for (const project in invoices) {
+                if (invoices.hasOwnProperty(project)) {
+                    if (filterText === '' || project.toLowerCase().includes(filterText)) {
                         const option = document.createElement('option');
-                        option.value = invoiceNumber;
-                        option.textContent = invoiceNumber;
+                        option.value = project;
+                        option.textContent = project;
                         invoiceDropdown.appendChild(option);
                     }
                 }
@@ -524,15 +524,15 @@
         }
 
         async function saveInvoice() {
-            const invoiceNumberInput = document.getElementById('invoice-number');
-            const invoiceNumber = invoiceNumberInput.value.trim();
-            const invoiceType = document.getElementById('invoice-type').value;
+            const projectInput = document.getElementById('invoice-number');
+            let invoiceId = projectInput.dataset.id;
 
-            if (invoiceNumber.length === 0) {
-                console.error('Invoice number is required.');
-                return;
+            if (!invoiceId || invoiceId === "undefined") {
+                invoiceId = Date.now().toString();
+                projectInput.dataset.id = invoiceId;
             }
 
+            const invoiceType = document.getElementById('invoice-type').value;
             const amountPaid = document.getElementById('amount-paid').value;
             const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => {
                 return {
@@ -545,16 +545,19 @@
                     total: row.querySelector('input[name="part-total"]').value,
                 };
             });
-            const invoiceData = {
+            const startTime = document.getElementById('invoice-date').value;
+
+            const newInvoiceData = {
+                id: invoiceId,
                 invoiceType,
                 invoiceTitle: document.getElementById('title-input').value,
                 customerName: document.getElementById('customer-name').value,
                 customerPhone: document.getElementById('customer-phone').value,
                 customerEmail: document.getElementById('customer-email').value,
                 customerAddress: document.getElementById('customer-address').value,
-                invoiceNumber: document.getElementById('invoice-number').value,
+                project: document.getElementById('invoice-number').value,
                 notes: document.getElementById('notes').value,
-                invoiceDate: document.getElementById('invoice-date').value,
+                startTime: startTime,  // Save the full timestamp
                 parts: partsData,
                 labor: [...laborTableBody.querySelectorAll('tr')].map(row => ({
                     description: row.querySelector('input[name="labor-description"]').value.trim(),
@@ -569,7 +572,7 @@
                 amountPaid: amountPaid,
             };
 
-            for (const part of invoiceData.parts) {
+            for (const part of newInvoiceData.parts) {
                 try {
                     await updatePartQuantityInDatabase(part.category, part.component, part.part, part.quantity);
                 } catch (error) {
@@ -577,12 +580,16 @@
                 }
             }
 
-            const invoiceRef = ref(database, 'invoices/' + invoiceNumber);
+            const invoiceRef = ref(database, 'tasks/' + invoiceId);
 
             try {
-                await set(invoiceRef, invoiceData);
+                const snapshot = await get(invoiceRef);
+                const existingInvoiceData = snapshot.exists() ? snapshot.val() : {};
 
-                console.log('Invoice saved successfully');
+                const mergedInvoiceData = { ...existingInvoiceData, ...newInvoiceData };
+
+                await set(invoiceRef, mergedInvoiceData);
+                console.log('Invoice saved successfully with ID:', invoiceId);
                 clearInvoice();
                 populateInvoiceDropdown();
                 return;
@@ -802,23 +809,23 @@
             const dropdown = document.getElementById('invoice-dropdown');
             dropdown.innerHTML = '';
 
-            const invoicesRef = ref(database, 'invoices');
+            const invoicesRef = ref(database, 'tasks');
             get(invoicesRef).then((snapshot) => {
                 if (snapshot.exists()) {
                     const invoices = snapshot.val();
-                    for (const invoiceNumber in invoices) {
-                        if (invoices.hasOwnProperty(invoiceNumber)) {
-                            const invoice = invoices[invoiceNumber];
+                    for (const project in invoices) {
+                        if (invoices.hasOwnProperty(project)) {
+                            const invoice = invoices[project];
                             if (searchQuery === '' ||
-                                invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                project.toLowerCase().includes(searchQuery.toLowerCase()) ||
                                 invoice.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                                 invoice.customerAddress.toLowerCase().includes(searchQuery.toLowerCase()) ||
                                 invoice.customerEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
                                 invoice.customerPhone.toLowerCase().includes(searchQuery.toLowerCase())) {
                                 const option = document.createElement('option');
-                                option.value = invoiceNumber;
-                                option.textContent = invoiceNumber;
-                                if (invoiceNumber === selectedInvoiceNumber) {
+                                option.value = project;
+                                option.textContent = project;
+                                if (project === selectedInvoiceNumber) {
                                     option.selected = true;
                                 }
                                 dropdown.appendChild(option);
@@ -843,7 +850,7 @@
             const selectedInvoiceNumber = invoiceDropdown.value;
 
             if (selectedInvoiceNumber) {
-                const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
+                const invoiceRef = ref(database, 'tasks/' + selectedInvoiceNumber);
 
                 try {
                     await remove(invoiceRef);
@@ -897,10 +904,12 @@
             const selectedInvoiceNumber = invoiceDropdown.value;
             if (selectedInvoiceNumber) {
                 clearInvoice();
-                const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
+                const invoiceRef = ref(database, 'tasks/' + selectedInvoiceNumber);
                 get(invoiceRef).then((snapshot) => {
                     if (snapshot.exists()) {
                         const invoiceData = snapshot.val();
+
+                        document.getElementById('invoice-number').dataset.id = invoiceData.id;
 
                         document.getElementById('invoice-type').value = invoiceData.invoiceType;
                         document.getElementById('title-input').value = invoiceData.invoiceTitle;
@@ -909,9 +918,12 @@
                         document.getElementById('customer-phone').value = invoiceData.customerPhone;
                         document.getElementById('customer-email').value = invoiceData.customerEmail;
                         document.getElementById('customer-address').value = invoiceData.customerAddress;
-                        document.getElementById('invoice-number').value = invoiceData.invoiceNumber;
+                        document.getElementById('invoice-number').value = invoiceData.project;
                         document.getElementById('notes').value = invoiceData.notes;
-                        document.getElementById('invoice-date').value = invoiceData.invoiceDate;
+
+                        const formattedTimestamp = invoiceData.startTime.slice(0, 16);
+                        document.getElementById('invoice-date').value = formattedTimestamp;
+
                         document.getElementById('amount-paid').value = invoiceData.amountPaid;
                         document.getElementById('tax-percent').value = invoiceData.taxPercent;
 
@@ -958,13 +970,12 @@
             const selectedInvoiceNumber = document.getElementById('invoice-dropdown').value;
 
             if (selectedInvoiceNumber) {
-                const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
+                const invoiceRef = ref(database, 'tasks/' + selectedInvoiceNumber);
 
                 get(invoiceRef).then((snapshot) => {
                     if (snapshot.exists()) {
                         const invoiceData = snapshot.val();
 
-                        // Convert invoice data to JSON string
                         const jsonString = JSON.stringify(invoiceData, null, 2);
 
                         const blob = new Blob([jsonString], { type: 'application/json' });
@@ -1020,8 +1031,8 @@
                 customerPhone: document.getElementById('customer-phone').value,
                 customerEmail: document.getElementById('customer-email').value,
                 customerAddress: document.getElementById('customer-address').value,
-                invoiceDate: document.getElementById('invoice-date').value,
-                invoiceNumber: document.getElementById('invoice-number').value,
+                startTime: document.getElementById('invoice-date').value,
+                project: document.getElementById('invoice-number').value,
                 notes: document.getElementById('notes').value,
             };
 
@@ -1038,8 +1049,8 @@
                 document.getElementById('customer-phone').value = inputData.customerPhone || '';
                 document.getElementById('customer-email').value = inputData.customerEmail || '';
                 document.getElementById('customer-address').value = inputData.customerAddress || '';
-                document.getElementById('invoice-date').value = inputData.invoiceDate || '';
-                document.getElementById('invoice-number').value = inputData.invoiceNumber || '';
+                document.getElementById('invoice-date').value = inputData.startTime || '';
+                document.getElementById('invoice-number').value = inputData.project || '';
                 document.getElementById('notes').value = inputData.notes || '';
             }
         }
