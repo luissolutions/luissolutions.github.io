@@ -38,6 +38,18 @@
         .collapsed {
             display: block;
         }
+
+        .edit-button {
+            margin-left: 10px;
+            cursor: pointer;
+            color: blue;
+        }
+
+        .save-button {
+            margin-left: 10px;
+            cursor: pointer;
+            color: green;
+        }
     </style>
 </head>
 
@@ -46,15 +58,32 @@
         <table id="output"></table>
     </section>
     <script type="module">
-        import { getDatabase, ref, onValue } from '../assets/js/firebase-init.js';
+        import { getDatabase, ref, onValue, update } from '../assets/js/firebase-init.js';
 
         const outputTable = document.getElementById('output');
 
-        function displayData(data, table, isRoot = true) {
+        function displayData(data, table, path = '/') {
             if (typeof data !== 'object' || data === null) {
                 const row = table.insertRow();
                 const cell = row.insertCell();
-                cell.textContent = data;
+                cell.colSpan = 2;
+
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = data;
+
+                const saveButton = document.createElement('span');
+                saveButton.textContent = 'Save';
+                saveButton.className = 'save-button';
+                saveButton.addEventListener('click', () => {
+                    const newData = input.value;
+                    const updates = {};
+                    updates[path] = newData;
+                    update(ref(getDatabase()), updates);
+                });
+
+                cell.appendChild(input);
+                cell.appendChild(saveButton);
                 return;
             }
 
@@ -62,6 +91,8 @@
                 const row = table.insertRow();
                 const cell = row.insertCell();
                 cell.colSpan = 2;
+                const currentPath = path === '/' ? `/${key}` : `${path}/${key}`;
+
                 if (typeof value === 'object' && Object.keys(value).length) {
                     const header = document.createElement('div');
                     header.textContent = key;
@@ -71,11 +102,27 @@
                     if (!cell.querySelector('.nested')) {
                         const nestedTable = document.createElement('table');
                         nestedTable.className = 'nested';
-                        displayData(value, nestedTable, false);
+                        displayData(value, nestedTable, currentPath);
                         cell.appendChild(nestedTable);
                     }
                 } else {
-                    cell.textContent = `${key}: ${value}`;
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.value = value;
+
+                    const saveButton = document.createElement('span');
+                    saveButton.textContent = 'Save';
+                    saveButton.className = 'save-button';
+                    saveButton.addEventListener('click', () => {
+                        const newData = input.value;
+                        const updates = {};
+                        updates[currentPath] = newData;
+                        update(ref(getDatabase()), updates);
+                    });
+
+                    cell.textContent = `${key}: `;
+                    cell.appendChild(input);
+                    cell.appendChild(saveButton);
                 }
             });
         }
