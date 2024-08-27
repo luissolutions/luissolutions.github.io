@@ -2,26 +2,23 @@
 
 import { firebaseConfig } from "./firebase-config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
-import {  getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 import { getDatabase, ref, onValue, set, get, off, remove, runTransaction, push, update, limitToLast, query } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const database = getDatabase(app);
 
-function initializeAuth(app) {
+function initializeAuth(appInstance) {
   document.getElementById('login-form').addEventListener('submit', function (event) {
     event.preventDefault();
     const email = document.getElementById('username').value;
     const password = document.getElementById('password').value;
 
     signInWithEmailAndPassword(auth, email, password)
-      .then((credentials) => {
-        console.log('Logged in successfully:', credentials.user.email);
-        document.getElementById('login-section').style.display = 'none';
-        document.getElementById('logout').style.display = 'block';
-        app.isAuthenticated = true;
-        app.initializeFirebase();
+      .then(() => {
+        appInstance.isAuthenticated = true;
+        appInstance.initializeFirebase();
       })
       .catch((error) => {
         console.error('Login error:', error.message);
@@ -31,11 +28,8 @@ function initializeAuth(app) {
 
   document.getElementById('logout').addEventListener('click', () => {
     signOut(auth).then(() => {
-      console.log('Logged out successfully');
-      document.getElementById('login-section').style.display = 'block';
-      document.getElementById('logout').style.display = 'none';
-      app.isAuthenticated = false;
-      app.loadLocalData();
+      appInstance.isAuthenticated = false;
+      appInstance.loadLocalData();
     }).catch((error) => {
       console.error('Logout error:', error.message);
       alert('Logout failed. Please try again.');
@@ -47,13 +41,14 @@ function initializeAuth(app) {
       console.log(`Logged in as: ${user.email}`);
       document.getElementById('login-section').style.display = 'none';
       document.getElementById('logout').style.display = 'block';
-      app.isAuthenticated = true;
-      app.initializeFirebase();
+      appInstance.isAuthenticated = true;
+      appInstance.initializeFirebase();
     } else {
+      console.log('User is not logged in');
       document.getElementById('login-section').style.display = 'block';
       document.getElementById('logout').style.display = 'none';
-      app.isAuthenticated = false;
-      app.loadLocalData();
+      appInstance.isAuthenticated = false;
+      appInstance.loadLocalData();
     }
   });
 }

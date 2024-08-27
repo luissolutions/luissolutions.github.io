@@ -89,9 +89,9 @@
             }
 
             startAutosave() {
-                this.autosaveInterval = setInterval(() => {
+                this.autosaveInterval = setInterval(async () => {
                     if (document.getElementById('autosave-checkbox').checked && this.nameInput.value.trim()) {
-                        this.saveNote();
+                        await this.saveNote();
                     }
                 }, 15000);
             }
@@ -126,14 +126,31 @@
                 const nameToSave = this.nameInput.value.trim();
                 const noteToSave = this.notesTextarea.value.trim();
                 const saveBtn = document.getElementById('save-btn');
-                const timestamp = new Date().toISOString();
+                const currentTimestamp = new Date().toISOString();
 
                 if (nameToSave && noteToSave) {
-                    const noteData = { name: nameToSave, note: noteToSave, timestamp };
+                    const noteData = { name: nameToSave, note: noteToSave, timestamp: currentTimestamp };
 
                     if (this.isAuthenticated && this.uid) {
                         const notesRef = ref(database, `${this.uid}/notesData/${nameToSave}`);
+
                         try {
+                            const snapshot = await get(notesRef);
+                            const remoteNote = snapshot.val();
+
+                            if (remoteNote) {
+                                const remoteTimestamp = new Date(remoteNote.timestamp);
+                                const localTimestamp = new Date(this.lastSavedNoteData.timestamp || currentTimestamp);
+
+                                if (remoteTimestamp > localTimestamp) {
+                                    const userConfirmed = confirm(`A newer version of this note exists. Do you want to overwrite it with your current changes?`);
+                                    if (!userConfirmed) {
+                                        console.log('Autosave canceled due to newer remote version.');
+                                        return;
+                                    }
+                                }
+                            }
+
                             await set(notesRef, noteData);
                             console.log('Note saved to Firebase successfully');
                         } catch (error) {
@@ -144,6 +161,7 @@
                         console.log('Note saved to localStorage successfully');
                     }
 
+                    this.lastSavedNoteData = noteData;
                     this.updateSaveButton(saveBtn);
                     this.loadLocalData();
                     this.populateNoteList();
