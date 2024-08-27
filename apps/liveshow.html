@@ -58,9 +58,10 @@
         <table id="output"></table>
     </section>
     <script type="module">
-        import { getDatabase, ref, onValue, update } from '../assets/js/firebase-init.js';
+        import { getDatabase, ref, onValue, update, getAuth, onAuthStateChanged } from '../assets/js/firebase-init.js';
 
         const outputTable = document.getElementById('output');
+        const auth = getAuth();
 
         function displayData(data, table, path = '/') {
             if (typeof data !== 'object' || data === null) {
@@ -137,16 +138,55 @@
                 }
             });
 
-            const databaseRef = ref(getDatabase(), '/');
-            onValue(databaseRef, (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    outputTable.innerHTML = '';
-                    displayData(data, outputTable);
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    console.log(`Signed in: ${user.email}`);
+
+                    let dataLoaded = false;
+
+                    // Attempt to load the root
+                    tryLoadPath('/', () => {
+                        dataLoaded = true;
+                    });
+
+                    // Attempt to load /share
+                    tryLoadPath('/share', () => {
+                        dataLoaded = true;
+                    });
+
+                    // Attempt to load user's own data
+                    tryLoadPath(`/${user.uid}`, () => {
+                        dataLoaded = true;
+                    });
+
+                    // If nothing is loaded, display a message
+                    setTimeout(() => {
+                        if (!dataLoaded) {
+                            outputTable.innerHTML = '<p>No accessible data available.</p>';
+                        }
+                    }, 1000); // Adjust delay as needed
                 } else {
-                    outputTable.innerHTML = '<p>No data available.</p>';
+                    console.log('No user is signed in.');
                 }
             });
+
+            function tryLoadPath(path, onDataLoaded) {
+                const databaseRef = ref(getDatabase(), path);
+                onValue(databaseRef, (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        displayData(data, outputTable, path);
+                        onDataLoaded();
+                    } else {
+                        console.log(`No data available at path: ${path}`);
+                    }
+                }, {
+                    onlyOnce: true,
+                    onError: (error) => {
+                        console.log(`Error reading path ${path}: ${error.message}`);
+                    }
+                });
+            }
         });
     </script>
 

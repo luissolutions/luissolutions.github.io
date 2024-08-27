@@ -37,6 +37,8 @@
             <button id="save-btn">💾</button>
             <button class="clear-button" id="delete-btn">❌</button>
             <button id="undo-btn">↩️</button>
+            <label for="autosave-checkbox">Auto-💾:</label>
+            <input type="checkbox" id="autosave-checkbox" checked>
             <section id="note-list"></section>
             <button class="clear-button" id="clear-btn">Clear</button>
         </section>
@@ -54,6 +56,7 @@
                 this.dbRef = null;
                 this.uid = null;
                 this.isAuthenticated = false;
+                this.autosaveInterval = null;
 
                 this.setupEventListeners();
                 initializeAuth(this);
@@ -66,6 +69,7 @@
                     this.uid = user.uid;
                     this.dbRef = ref(database, `${this.uid}/notesData`);
                     this.populateNoteList();
+                    this.startAutosave();
                 } else {
                     this.uid = null;
                     this.isAuthenticated = false;
@@ -82,6 +86,29 @@
                 document.getElementById('undo-btn').addEventListener('click', this.undoDelete.bind(this));
                 document.addEventListener("keydown", this.handleKeyboardShortcuts.bind(this));
                 this.notesTextarea.addEventListener('input', () => this.autoResizeTextarea('notes'));
+            }
+
+            startAutosave() {
+                this.autosaveInterval = setInterval(() => {
+                    if (document.getElementById('autosave-checkbox').checked && this.nameInput.value.trim()) {
+                        this.saveNote();
+                    }
+                }, 15000);
+            }
+
+            stopAutosave() {
+                if (this.autosaveInterval) {
+                    clearInterval(this.autosaveInterval);
+                    this.autosaveInterval = null;
+                }
+            }
+
+            toggleAutosave(event) {
+                if (event.target.checked) {
+                    this.startAutosave();
+                } else {
+                    this.stopAutosave();
+                }
             }
 
             loadLocalData() {
@@ -120,7 +147,6 @@
                     this.updateSaveButton(saveBtn);
                     this.loadLocalData();
                     this.populateNoteList();
-                    this.clearNoteInputs();
                 } else {
                     console.log('Please enter both the name and note before saving');
                 }
@@ -272,8 +298,7 @@
 
             autoResizeTextarea(id) {
                 const textarea = document.getElementById(id);
-                textarea.style.height = 'auto';
-                textarea.style.height = Math.max(textarea.scrollHeight, textarea.clientHeight) + 'px'; // Adjust height
+                textarea.style.height = textarea.scrollHeight + 'px';
             }
 
             handleKeyboardShortcuts(event) {
