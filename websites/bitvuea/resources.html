@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitveau</title>
+    <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+
+<body>
+
+    <header>
+        <img src="assets/img/logo.png" alt="Bitveau Logo" class="logo">
+        <p>Your Trusted Source for Cryptocurrency Mining Hardware and Solutions</p>
+    </header>
+
+    <nav>
+        <a href="index.html">Home</a> |
+        <a href="catalog.html">Shop</a> |
+        <a href="resources.html">Resources</a> |
+        <a href="sop.html">SOP</a> |
+    </nav>
+
+    <main>
+        <div>
+            <input type="text" placeholder="Insert link" id="linkInput">
+            <input type="text" placeholder="Categories (comma separated)" id="categoryInput">
+            <br>
+            <button id="saveLinkButton">Save</button>
+            <button id="updateLinkButton" style="display: none;">Update</button>
+        </div>
+        <div>
+            <br>
+            <select id="categoryFilter">
+                <option value="">All Categories</option>
+            </select>
+        </div>
+        <div id="linksContainer"></div>
+    </main>
+
+    <footer>
+        <p>&copy; 2024 Bitveau. All Rights Reserved.</p>
+        <ul class="footer-links">
+            <li><a href="privacy.html">Privacy Policy</a></li>
+            <li><a href="terms.html">Terms of Service</a></li>
+        </ul>
+    </footer>
+    
+    <script type="module">
+        import { getDatabase, database, ref, push, set, onValue, remove, update } from './assets/js/firebase-init-noauth.js';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const linkInput = document.getElementById('linkInput');
+            const categoryInput = document.getElementById('categoryInput');
+            const saveLinkButton = document.getElementById('saveLinkButton');
+            const updateLinkButton = document.getElementById('updateLinkButton');
+            const categoryFilter = document.getElementById('categoryFilter');
+            const linksContainer = document.getElementById('linksContainer');
+            let editingLinkKey = null;
+
+            saveLinkButton.addEventListener('click', () => {
+                const linkUrl = linkInput.value;
+                const categoryInputValue = categoryInput.value;
+                if (!linkUrl) {
+                    alert('Please enter a link.');
+                    return;
+                }
+
+                const categories = categoryInputValue.split(',').map(cat => cat.trim()).filter(cat => cat);
+                const newLinkRef = push(ref(database, 'bitveaulinks'));
+                const linkData = { url: linkUrl, categories: categories.length > 0 ? categories : null };
+
+                set(newLinkRef, linkData)
+                    .then(() => {
+                        console.log('Link saved successfully!');
+                        clearForm();
+                        fetchLinksFromFirebase();
+                    })
+                    .catch((error) => {
+                        console.error('Error saving link:', error);
+                    });
+            });
+
+            updateLinkButton.addEventListener('click', () => {
+                const linkUrl = linkInput.value;
+                const categoryInputValue = categoryInput.value;
+                if (!linkUrl) {
+                    alert('Please enter a link.');
+                    return;
+                }
+
+                const categories = categoryInputValue.split(',').map(cat => cat.trim()).filter(cat => cat);
+                const linkData = { url: linkUrl, categories: categories.length > 0 ? categories : null };
+
+                const linkRef = ref(database, 'bitveaulinks/' + editingLinkKey);
+                update(linkRef, linkData)
+                    .then(() => {
+                        console.log('Link updated successfully!');
+                        clearForm();
+                        fetchLinksFromFirebase();
+                    })
+                    .catch((error) => {
+                        console.error('Error updating link:', error);
+                    });
+            });
+
+            categoryFilter.addEventListener('change', () => {
+                fetchLinksFromFirebase();
+            });
+
+            function fetchLinksFromFirebase() {
+                const linksRef = ref(database, 'bitveaulinks');
+                onValue(linksRef, (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        populateCategoryFilter(data);
+                        displayLinksByCategory(data);
+                    }
+                }, (error) => {
+                    console.error('Error fetching links:', error);
+                });
+            }
+
+            function displayLinksByCategory(links) {
+                linksContainer.innerHTML = '';
+                const selectedCategory = categoryFilter.value;
+
+                const categorizedLinks = {};
+
+                Object.keys(links).forEach(key => {
+                    const link = links[key];
+                    const linkCategories = link.categories || [];
+
+                    if (selectedCategory && selectedCategory !== '' && !linkCategories.includes(selectedCategory)) return;
+
+                    linkCategories.forEach(category => {
+                        if (!categorizedLinks[category]) {
+                            categorizedLinks[category] = [];
+                        }
+                        categorizedLinks[category].push({ key, url: link.url });
+                    });
+                });
+
+                Object.keys(categorizedLinks).forEach(category => {
+                    const categoryHeader = document.createElement('h3');
+                    categoryHeader.textContent = category;
+                    linksContainer.appendChild(categoryHeader);
+
+                    const categoryList = document.createElement('ul');
+
+                    categorizedLinks[category].forEach(link => {
+                        const listItem = document.createElement('li');
+                        const aTag = document.createElement('a');
+                        aTag.href = link.url;
+                        aTag.target = "_blank";
+                        aTag.rel = "noopener noreferrer";
+                        aTag.textContent = link.url;
+
+                        const deleteButton = document.createElement('button');
+                        deleteButton.classList.add('clear-button');
+                        deleteButton.textContent = 'X';
+                        deleteButton.onclick = () => deleteLink(link.key);
+
+                        const editButton = document.createElement('button');
+                        editButton.classList.add('edit-button');
+                        editButton.textContent = '✏';
+                        editButton.onclick = () => editLink(link.key, link);
+
+                        listItem.appendChild(aTag);
+                        listItem.appendChild(editButton);
+                        listItem.appendChild(deleteButton);
+                        categoryList.appendChild(listItem);
+                    });
+
+                    linksContainer.appendChild(categoryList);
+                });
+            }
+
+            function populateCategoryFilter(links) {
+                const categories = new Set(['All Categories']);
+                Object.keys(links).forEach(key => {
+                    const linkCategories = links[key].categories || [];
+                    linkCategories.forEach(category => categories.add(category));
+                });
+
+                const currentSelection = categoryFilter.value;
+                categoryFilter.innerHTML = '';
+                categories.forEach(category => {
+                    const option = document.createElement('option');
+                    option.value = category === 'All Categories' ? '' : category;
+                    option.textContent = category;
+                    categoryFilter.appendChild(option);
+                });
+
+                categoryFilter.value = currentSelection;
+            }
+
+            function deleteLink(key) {
+                const linkRef = ref(database, 'bitveaulinks/' + key);
+                remove(linkRef).then(() => {
+                    console.log('Link removed successfully');
+                    fetchLinksFromFirebase();
+                }).catch(error => {
+                    console.error('Error removing link:', error);
+                });
+            }
+
+            function editLink(key, link) {
+                editingLinkKey = key;
+                linkInput.value = link.url;
+                categoryInput.value = (link.categories || []).join(', ');
+                saveLinkButton.style.display = 'none';
+                updateLinkButton.style.display = 'block';
+            }
+
+            function clearForm() {
+                linkInput.value = '';
+                categoryInput.value = '';
+                saveLinkButton.style.display = 'block';
+                updateLinkButton.style.display = 'none';
+                editingLinkKey = null;
+            }
+
+            fetchLinksFromFirebase();
+        });
+    </script>
+
+</body>
+
+</html>
