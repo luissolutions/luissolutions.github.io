@@ -4,7 +4,6 @@
 <head>
     <title>Invoice Maker</title>
     <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
         html,
@@ -267,11 +266,6 @@
             body {
                 filter: none;
             }
-
-            /*  #invoice-type {
-        -moz-appearance: none;
-        -webkit-appearance: none;
-    } */
         }
 
         #customer-address,
@@ -288,7 +282,7 @@
             justify-content: center;
         }
 
-        #project,
+        #invoice-number,
         #invoice-date {
             margin-bottom: 20px;
         }
@@ -346,7 +340,7 @@
                             <option value="quote">Quote:</option>
                             <option value="invoice">Invoice #</option>
                         </select>
-                        <input type="text" id="project" name="project" required>
+                        <input type="text" id="invoice-number" name="invoice-number" data-id="">
                     </div>
                     <label class="no-print" for="customer-name">Customer Name:</label>
                     <input type="text" id="customer-name" name="customer-name">
@@ -371,7 +365,6 @@
                     </div>
                     <label class="no-print" for="invoice-date">Date:</label>
                     <input type="datetime-local" id="invoice-date" name="invoice-date">
-
                 </div>
 
                 <div>
@@ -460,7 +453,7 @@
     </footer>
 
     <script type="module">
-        import { auth, initializeAuth, database, ref, set, get, remove, runTransaction, onValue } from '../assets/js/firebase-init.js';
+        import { initializeAuth, database, ref, set, get, remove, onValue, auth } from '../assets/js/firebase-init.js';
 
         class InvoiceMakerApp {
             constructor() {
@@ -473,233 +466,186 @@
             }
 
             initializeFirebase() {
-                const user = auth.currentUser;
-                if (user) {
-                    this.uid = user.uid;
-                    this.dbRef = ref(database, `${this.uid}/taskData`);
+                this.uid = auth.currentUser ? auth.currentUser.uid : null;
+                if (this.uid) {
+                    this.dbRef = ref(database, `${this.uid}/taskData/`);
                     this.populateInvoiceDropdown();
+                } else {
+                    console.error("UID is null. Firebase initialization failed.");
                 }
             }
 
             setupEventListeners() {
-                document.getElementById('login-form').addEventListener('submit', this.handleLogin.bind(this));
-                document.getElementById('logout').addEventListener('click', this.handleLogout.bind(this));
                 document.getElementById('save-button').addEventListener('click', this.saveInvoice.bind(this));
                 document.getElementById('deleteButton').addEventListener('click', this.deleteInvoice.bind(this));
                 document.getElementById('load-invoice-button').addEventListener('click', this.loadInvoice.bind(this));
                 document.getElementById('exportButton').addEventListener('click', this.exportInvoice.bind(this));
                 document.getElementById('clear-button').addEventListener('click', this.clearInvoice.bind(this));
-            }
 
-            async handleLogin(event) {
-                event.preventDefault();
-                const email = document.getElementById('username').value;
-                const password = document.getElementById('password').value;
+                document.getElementById('title-input').addEventListener('input', this.saveDataToLocalStorage.bind(this));
+                document.getElementById('customer-name').addEventListener('input', this.saveDataToLocalStorage.bind(this));
+                document.getElementById('customer-phone').addEventListener('input', this.saveDataToLocalStorage.bind(this));
+                document.getElementById('customer-email').addEventListener('input', this.saveDataToLocalStorage.bind(this));
+                document.getElementById('customer-address').addEventListener('input', this.saveDataToLocalStorage.bind(this));
+                document.getElementById('invoice-date').addEventListener('input', this.saveDataToLocalStorage.bind(this));
+                document.getElementById('invoice-number').addEventListener('input', this.saveDataToLocalStorage.bind(this));
+                document.getElementById('notes').addEventListener('input', this.saveDataToLocalStorage.bind(this));
 
-                try {
-                    const credentials = await auth.signInWithEmailAndPassword(auth, email, password);
-                    console.log('Logged in successfully:', credentials.user.email);
-                    this.isAuthenticated = true;
-                    this.initializeFirebase();
-                    document.getElementById('login-section').style.display = 'none';
-                    document.getElementById('logout').style.display = 'block';
-                } catch (error) {
-                    console.error('Login error:', error.message);
-                    alert('Login failed. Please check your credentials and try again.');
-                }
-            }
-
-            async handleLogout() {
-                try {
-                    await auth.signOut(auth);
-                    console.log('Logged out successfully');
-                    this.isAuthenticated = false;
-                    this.uid = null;
-                    document.getElementById('login-section').style.display = 'block';
-                    document.getElementById('logout').style.display = 'none';
-                } catch (error) {
-                    console.error('Logout error:', error.message);
-                    alert('Logout failed. Please try again.');
-                }
+                document.addEventListener('DOMContentLoaded', this.loadDataFromLocalStorage.bind(this));
             }
 
             async saveInvoice() {
-            const projectInput = document.getElementById('invoice-number');
-            let invoiceId = projectInput.dataset.id;
+                if (!this.uid) {
+                    console.error("UID is null. Cannot save invoice.");
+                    return;
+                }
 
-            if (!invoiceId || invoiceId === "undefined") {
-                invoiceId = Date.now().toString();
-                projectInput.dataset.id = invoiceId;
-            }
+                const invoiceId = document.getElementById('invoice-number').dataset.id || Date.now().toString();
+                document.getElementById('invoice-number').dataset.id = invoiceId;  // Ensure the invoiceId is set in the data-id attribute
+                const invoiceData = this.collectFormData(invoiceId);
 
-            const invoiceType = document.getElementById('invoice-type').value;
-            const amountPaid = document.getElementById('amount-paid').value;
-            const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => {
-                return {
-                    category: row.dataset.category,
-                    component: row.dataset.component,
-                    part: row.querySelector('td#populated-part').textContent,
-                    quantity: row.querySelector('input[name="part-quantity"]').value,
-                    price: row.querySelector('input[name="part-price"]').value,
-                    actualPrice: row.querySelector('input[name="part-actual-price"]').value,
-                    total: row.querySelector('input[name="part-total"]').value,
-                };
-            });
-            const startTime = document.getElementById('invoice-date').value;
-
-            const newInvoiceData = {
-                id: invoiceId,
-                invoiceType,
-                invoiceTitle: document.getElementById('title-input').value,
-                customerName: document.getElementById('customer-name').value,
-                customerPhone: document.getElementById('customer-phone').value,
-                customerEmail: document.getElementById('customer-email').value,
-                customerAddress: document.getElementById('customer-address').value,
-                project: document.getElementById('invoice-number').value,
-                notes: document.getElementById('notes').value,
-                startTime: startTime,
-                parts: partsData,
-                labor: [...laborTableBody.querySelectorAll('tr')].map(row => ({
-                    description: row.querySelector('input[name="labor-description"]').value.trim(),
-                    hours: row.querySelector('input[name="labor-hours"]').value,
-                    rate: row.querySelector('input[name="labor-rate"]').value,
-                    cost: row.querySelector('input[name="labor-total"]').value,
-                })),
-                subtotal: subtotalInput.value,
-                taxPercent: taxPercentInput.value,
-                tax: taxInput.value,
-                total: totalInput.value,
-                amountPaid: amountPaid,
-            };
-
-            for (const part of newInvoiceData.parts) {
                 try {
-                    await updatePartQuantityInDatabase(part.category, part.component, part.part, part.quantity);
+                    await set(ref(database, `${this.uid}/taskData/${invoiceId}`), invoiceData);
+                    console.log('Invoice saved successfully.');
+                    this.clearInvoice();
+                    this.populateInvoiceDropdown();
                 } catch (error) {
-                    console.error(`Error updating part ${part.part}:`, error);
+                    console.error('Error saving invoice:', error);
                 }
             }
 
-            const invoiceRef = ref(database, 'tasks/' + invoiceId);
-
-            try {
-                const snapshot = await get(invoiceRef);
-                const existingInvoiceData = snapshot.exists() ? snapshot.val() : {};
-
-                const mergedInvoiceData = { ...existingInvoiceData, ...newInvoiceData };
-
-                await set(invoiceRef, mergedInvoiceData);
-                console.log('Invoice saved successfully with ID:', invoiceId);
-                clearInvoice();
-                populateInvoiceDropdown();
-                return;
-            } catch (error) {
-                console.error('Error saving invoice to Realtime Database:', error);
-            }
-        }
-
             async deleteInvoice() {
-                const selectedProject = document.getElementById('invoice-dropdown').value;
-                if (selectedInvoiceNumber) {
-                    const invoiceRef = ref(database, `${this.uid}/taskData/${selectedProject}`);
-                    try {
-                        await remove(invoiceRef);
-                        console.log(`Invoice ${selectedInvoiceNumber} deleted successfully`);
-                        this.populateInvoiceDropdown();
-                    } catch (error) {
-                        console.error(`Error deleting invoice ${selectedInvoiceNumber}:`, error);
-                    }
-                } else {
+                if (!this.uid) {
+                    console.error("UID is null. Cannot delete invoice.");
+                    return;
+                }
+
+                const selectedInvoice = document.getElementById('invoice-dropdown').value;
+                if (!selectedInvoice) {
                     alert('No invoice selected for deletion.');
+                    return;
+                }
+
+                try {
+                    await remove(ref(database, `${this.uid}/taskData/${selectedInvoice}`));
+                    console.log('Invoice deleted successfully.');
+                    this.populateInvoiceDropdown();
+                } catch (error) {
+                    console.error('Error deleting invoice:', error);
                 }
             }
 
             async loadInvoice() {
-                const selectedInvoiceNumber = document.getElementById('invoice-dropdown').value;
-                if (selectedInvoiceNumber) {
-                    const invoiceRef = ref(database, `${this.uid}/taskData/${selectedInvoiceNumber}`);
-                    try {
-                        const snapshot = await get(invoiceRef);
-                        if (snapshot.exists()) {
-                            this.populateInvoiceForm(snapshot.val());
-                        } else {
-                            alert('Invoice not found.');
-                        }
-                    } catch (error) {
-                        console.error('Error fetching selected invoice:', error);
-                    }
-                } else {
+                if (!this.uid) {
+                    console.error("UID is null. Cannot load invoice.");
+                    return;
+                }
+
+                const selectedInvoice = document.getElementById('invoice-dropdown').value;
+                if (!selectedInvoice) {
                     alert('Please select an invoice to load.');
+                    return;
+                }
+
+                try {
+                    const snapshot = await get(ref(database, `${this.uid}/taskData/${selectedInvoice}`));
+                    if (snapshot.exists()) {
+                        this.populateForm(snapshot.val());
+                    } else {
+                        alert('Invoice not found.');
+                    }
+                } catch (error) {
+                    console.error('Error loading invoice:', error);
                 }
             }
 
             async exportInvoice() {
-                const selectedInvoiceNumber = document.getElementById('invoice-dropdown').value;
-                if (selectedInvoiceNumber) {
-                    const invoiceRef = ref(database, `${this.uid}/taskData/${selectedInvoiceNumber}`);
-                    try {
-                        const snapshot = await get(invoiceRef);
-                        if (snapshot.exists()) {
-                            const taskData = snapshot.val();
-                            const jsonString = JSON.stringify(taskData, null, 2);
-                            const blob = new Blob([jsonString], { type: 'application/json' });
-                            const link = document.createElement('a');
-                            link.href = URL.createObjectURL(blob);
-                            link.download = `invoice-${selectedProject}.json`;
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                        } else {
-                            alert('Invoice not found.');
-                        }
-                    } catch (error) {
-                        console.error('Error exporting invoice:', error);
-                    }
-                } else {
+                if (!this.uid) {
+                    console.error("UID is null. Cannot export invoice.");
+                    return;
+                }
+
+                const selectedInvoice = document.getElementById('invoice-dropdown').value;
+                if (!selectedInvoice) {
                     alert('Please select a file to export.');
+                    return;
+                }
+
+                try {
+                    const snapshot = await get(ref(database, `${this.uid}/taskData/${selectedInvoice}`));
+                    if (snapshot.exists()) {
+                        const invoiceData = snapshot.val();
+                        const jsonString = JSON.stringify(invoiceData, null, 2);
+                        const blob = new Blob([jsonString], { type: 'application/json' });
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `invoice-${selectedInvoice}.json`;
+                        link.click();
+                    } else {
+                        alert('Invoice not found.');
+                    }
+                } catch (error) {
+                    console.error('Error exporting invoice:', error);
                 }
             }
 
-            collectPartsData() {
-                const partsTableBody = document.querySelector('.parts-table tbody');
-                return Array.from(partsTableBody.querySelectorAll('tr')).map(row => ({
-                    part: row.querySelector('td#populated-part').textContent,
-                    quantity: row.querySelector('input[name="part-quantity"]').value,
-                    price: row.querySelector('input[name="part-price"]').value,
-                    actualPrice: row.querySelector('input[name="part-actual-price"]').value,
-                    total: row.querySelector('input[name="part-total"]').value,
-                }));
+            populateInvoiceDropdown() {
+                if (!this.dbRef) return;
+
+                onValue(this.dbRef, (snapshot) => {
+                    const invoices = snapshot.val() || {};
+                    const dropdown = document.getElementById('invoice-dropdown');
+                    dropdown.innerHTML = '';
+
+                    if (Object.keys(invoices).length === 0) {
+                        const option = document.createElement('option');
+                        option.value = '';
+                        option.textContent = 'No invoices available';
+                        dropdown.appendChild(option);
+                    } else {
+                        for (const invoiceId in invoices) {
+                            if (invoices.hasOwnProperty(invoiceId)) {
+                                const option = document.createElement('option');
+                                option.value = invoiceId;
+                                option.textContent = invoiceId;
+                                dropdown.appendChild(option);
+                            }
+                        }
+                    }
+                }, (error) => {
+                    console.error('Error loading invoice list:', error);
+                });
             }
 
-            collectLaborData() {
-                const laborTableBody = document.querySelector('.labor-table tbody');
-                return Array.from(laborTableBody.querySelectorAll('tr')).map(row => ({
-                    description: row.querySelector('input[name="labor-description"]').value.trim(),
-                    hours: row.querySelector('input[name="labor-hours"]').value,
-                    rate: row.querySelector('input[name="labor-rate"]').value,
-                    cost: row.querySelector('input[name="labor-total"]').value,
-                }));
-            }
+            populateForm(invoiceData) {
+                document.getElementById('invoice-number').dataset.id = invoiceData.id;
+                document.getElementById('invoice-type').value = invoiceData.invoiceType;
+                document.getElementById('title-input').value = invoiceData.invoiceTitle;
+                document.getElementById('customer-name').value = invoiceData.customerName;
+                document.getElementById('customer-phone').value = invoiceData.customerPhone;
+                document.getElementById('customer-email').value = invoiceData.customerEmail;
+                document.getElementById('customer-address').value = invoiceData.customerAddress;
+                document.getElementById('invoice-number').value = invoiceData.project;
+                document.getElementById('notes').value = invoiceData.notes;
 
-            populateInvoiceForm(taskData) {
-                document.getElementById('invoice-type').value = taskData.invoiceType;
-                document.getElementById('title-input').value = taskData.invoiceTitle;
-                document.getElementById('customer-name').value = taskData.customerName;
-                document.getElementById('customer-phone').value = taskData.customerPhone;
-                document.getElementById('customer-email').value = taskData.customerEmail;
-                document.getElementById('customer-address').value = taskData.customerAddress;
-                document.getElementById('project').value = taskData.project;
-                document.getElementById('notes').value = taskData.notes;
-
-                const storedDateTime = new Date(taskData.invoiceDate);
-                const localDateTime = new Date(storedDateTime.getTime() - storedDateTime.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-
+                const localDateTime = new Date(new Date(invoiceData.startTime).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
                 document.getElementById('invoice-date').value = localDateTime;
-                document.getElementById('amount-paid').value = taskData.amountPaid;
-                document.getElementById('tax-percent').value = taskData.taxPercent;
 
-                this.populatePartsTable(taskData.parts);
-                this.populateLaborTable(taskData.labor);
+                document.getElementById('amount-paid').value = invoiceData.amountPaid;
+                document.getElementById('tax-percent').value = invoiceData.taxPercent;
+
+                if (invoiceData.parts) {
+                    this.populatePartsTable(invoiceData.parts);
+                } else {
+                    console.warn('No parts data found.');
+                }
+
+                if (invoiceData.labor) {
+                    this.populateLaborTable(invoiceData.labor);
+                } else {
+                    console.warn('No labor data found.');
+                }
+
                 this.updateTotals();
                 this.updateRemainingBalance();
             }
@@ -707,64 +653,39 @@
             populatePartsTable(parts) {
                 const partsTableBody = document.querySelector('.parts-table tbody');
                 partsTableBody.innerHTML = '';
-                parts.forEach(part => {
-                    this.addPartRow(part.part, part.quantity, part.price, part.actualPrice);
-                });
+
+                if (Array.isArray(parts)) {
+                    parts.forEach(part => {
+                        this.addPartRow(part.part, part.quantity, part.price, part.actualPrice);
+                    });
+                } else {
+                    console.warn('Parts data is not an array:', parts);
+                }
             }
 
             populateLaborTable(labor) {
                 const laborTableBody = document.querySelector('.labor-table tbody');
                 laborTableBody.innerHTML = '';
-                labor.forEach(item => {
-                    this.addLaborRow(item.description, item.hours, item.rate);
-                });
-            }
 
-            populateInvoiceDropdown(searchQuery = '') {
-                if (!this.dbRef) return;
-                document.getElementById('invoice-dropdown').innerHTML = '';
-
-                get(this.dbRef).then((snapshot) => {
-                    if (snapshot.exists()) {
-                        const invoices = snapshot.val();
-                        for (const project in invoices) {
-                            if (invoices.hasOwnProperty(project)) {
-                                const option = document.createElement('option');
-                                option.value = project;
-                                option.textContent = project;
-                                if (searchQuery === '' ||
-                                    project.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                                    invoices[project].customerName.toLowerCase().includes(searchQuery.toLowerCase())) {
-                                    document.getElementById('invoice-dropdown').appendChild(option);
-                                }
-                            }
-                        }
-                    }
-                }).catch((error) => {
-                    console.error('Error fetching invoices:', error);
-                });
-            }
-
-            clearInvoice() {
-                document.querySelectorAll('input, textarea').forEach(input => input.value = '');
-                document.querySelectorAll('.parts-table tbody, .labor-table tbody').forEach(tbody => tbody.innerHTML = '');
-                document.getElementById('subtotal').value = '';
-                document.getElementById('tax-percent').value = '';
-                document.getElementById('tax').value = '';
-                document.getElementById('total').value = '';
-                document.getElementById('amount-paid').value = '';
+                if (Array.isArray(labor)) {
+                    labor.forEach(item => {
+                        this.addLaborRow(item.description, item.hours, item.rate);
+                    });
+                } else {
+                    console.warn('Labor data is not an array:', labor);
+                }
             }
 
             addPartRow(partName, quantity = 1, price = 0, actualPrice = 0) {
                 const partsTableBody = document.querySelector('.parts-table tbody');
                 const newRow = document.createElement('tr');
                 newRow.innerHTML = `
-                    <td id="populated-part">${partName}</td>
-                    <td><input type="number" name="part-quantity" value="${quantity}"></td>
-                    <td><input type="number" name="part-price" value="${price}"></td>
-                    <td><input type="number" name="part-actual-price" value="${actualPrice}"></td>
-                    <td><input type="number" name="part-total" value="${price * quantity}" readonly></td>
-                `;
+            <td id="populated-part">${partName}</td>
+            <td><input type="number" name="part-quantity" value="${quantity}"></td>
+            <td><input type="number" name="part-price" value="${price}"></td>
+            <td><input type="number" name="part-actual-price" value="${actualPrice}"></td>
+            <td><input type="number" name="part-total" value="${price * quantity}" readonly></td>
+        `;
                 partsTableBody.appendChild(newRow);
                 this.updateTotals();
             }
@@ -773,13 +694,50 @@
                 const laborTableBody = document.querySelector('.labor-table tbody');
                 const newRow = document.createElement('tr');
                 newRow.innerHTML = `
-                    <td><input type="text" name="labor-description" value="${description}"></td>
-                    <td><input type="number" name="labor-hours" value="${hours}"></td>
-                    <td><input type="number" name="labor-rate" value="${rate}"></td>
-                    <td><input type="number" name="labor-total" value="${hours * rate}" readonly></td>
-                `;
+            <td><input type="text" name="labor-description" value="${description}"></td>
+            <td><input type="number" name="labor-hours" value="${hours}"></td>
+            <td><input type="number" name="labor-rate" value="${rate}"></td>
+            <td><input type="number" name="labor-total" value="${hours * rate}" readonly></td>
+        `;
                 laborTableBody.appendChild(newRow);
                 this.updateTotals();
+            }
+
+            collectFormData(invoiceId) {
+                const partsData = Array.from(document.querySelector('.parts-table tbody').querySelectorAll('tr')).map(row => ({
+                    part: row.querySelector('td#populated-part').textContent,
+                    quantity: row.querySelector('input[name="part-quantity"]').value,
+                    price: row.querySelector('input[name="part-price"]').value,
+                    actualPrice: row.querySelector('input[name="part-actual-price"]').value,
+                    total: row.querySelector('input[name="part-total"]').value,
+                }));
+
+                const laborData = Array.from(document.querySelector('.labor-table tbody').querySelectorAll('tr')).map(row => ({
+                    description: row.querySelector('input[name="labor-description"]').value,
+                    hours: row.querySelector('input[name="labor-hours"]').value,
+                    rate: row.querySelector('input[name="labor-rate"]').value,
+                    cost: row.querySelector('input[name="labor-total"]').value,
+                }));
+
+                return {
+                    id: invoiceId,
+                    invoiceType: document.getElementById('invoice-type').value,
+                    invoiceTitle: document.getElementById('title-input').value,
+                    customerName: document.getElementById('customer-name').value,
+                    customerPhone: document.getElementById('customer-phone').value,
+                    customerEmail: document.getElementById('customer-email').value,
+                    customerAddress: document.getElementById('customer-address').value,
+                    project: document.getElementById('invoice-number').value,
+                    notes: document.getElementById('notes').value,
+                    startTime: document.getElementById('invoice-date').value,
+                    parts: partsData,
+                    labor: laborData,
+                    subtotal: document.getElementById('subtotal').value,
+                    taxPercent: document.getElementById('tax-percent').value,
+                    tax: document.getElementById('tax').value,
+                    total: document.getElementById('total').value,
+                    amountPaid: document.getElementById('amount-paid').value,
+                };
             }
 
             updateTotals() {
@@ -804,110 +762,97 @@
                 const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
                 document.getElementById('remaining-balance').textContent = (total - amountPaid).toFixed(2);
             }
+
+            
+            saveDataToLocalStorage() {
+                const inputData = {
+                    invoiceTitle: document.getElementById('title-input').value,
+                    customerName: document.getElementById('customer-name').value,
+                    customerPhone: document.getElementById('customer-phone').value,
+                    customerEmail: document.getElementById('customer-email').value,
+                    customerAddress: document.getElementById('customer-address').value,
+                    invoiceDate: document.getElementById('invoice-date').value,
+                    project: document.getElementById('invoice-number').value,
+                    notes: document.getElementById('notes').value,
+                };
+
+                localStorage.setItem('inputData', JSON.stringify(inputData));
+            }
+
+            loadDataFromLocalStorage() {
+                const savedData = localStorage.getItem('inputData');
+                if (savedData) {
+                    const inputData = JSON.parse(savedData);
+
+                    document.getElementById('title-input').value = inputData.invoiceTitle || '';
+                    document.getElementById('customer-name').value = inputData.customerName || '';
+                    document.getElementById('customer-phone').value = inputData.customerPhone || '';
+                    document.getElementById('customer-email').value = inputData.customerEmail || '';
+                    document.getElementById('customer-address').value = inputData.customerAddress || '';
+
+                    const storedDateTime = new Date(inputData.invoiceDate);
+                    const localDateTime = new Date(storedDateTime.getTime() - storedDateTime.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                    document.getElementById('invoice-date').value = localDateTime;
+
+                    document.getElementById('invoice-number').value = inputData.project || '';
+                    document.getElementById('notes').value = inputData.notes || '';
+                }
+            }
+
+            clearInvoice() {
+                const inputElements = [
+                    'title-input',
+                    'customer-name',
+                    'customer-phone',
+                    'customer-email',
+                    'customer-address',
+                    'invoice-date',
+                    'invoice-number',
+                    'notes',
+                ];
+
+                inputElements.forEach((elementId) => {
+                    document.getElementById(elementId).value = '';
+                });
+
+                const partsTableBody = document.querySelector('.parts-table tbody');
+                partsTableBody.innerHTML = '';
+
+                const laborTableBody = document.querySelector('.labor-table tbody');
+                laborTableBody.innerHTML = '';
+
+                document.getElementById('subtotal').value = '';
+                document.getElementById('tax-percent').value = '';
+                document.getElementById('tax').value = '';
+                document.getElementById('total').value = '';
+                document.getElementById('amount-paid').value = '';
+
+                document.getElementById('remaining').checked = false;
+                document.querySelector('.remaining').style.display = 'none';
+
+                document.getElementById('price-difference').innerText = '';
+                document.getElementById('remaining-balance').innerText = '';
+
+                localStorage.removeItem('inputData');
+            }
         }
+
+        document.addEventListener('DOMContentLoaded', () => {
+    const hideParentCheckboxes = document.querySelectorAll('.hide-parent-checkbox');
+
+    hideParentCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', () => {
+            const parentDiv = checkbox.closest('div');
+            if (parentDiv) {
+                parentDiv.style.display = checkbox.checked ? 'none' : 'block';
+            }
+        });
+    });
+});
 
         document.addEventListener('DOMContentLoaded', () => {
             new InvoiceMakerApp();
         });
-    </script>
-    <script>
-        // Hiding Fields
-        const hideParentCheckboxes = document.querySelectorAll('.hide-parent-checkbox');
-
-        hideParentCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', () => {
-                const parentDiv = checkbox.closest('div');
-                if (parentDiv) {
-                    parentDiv.style.display = checkbox.checked ? 'none' : 'block';
-                }
-            });
-        });
-
-        function saveDataToLocalStorage() {
-            const inputData = {
-                invoiceTitle: document.getElementById('title-input').value,
-                customerName: document.getElementById('customer-name').value,
-                customerPhone: document.getElementById('customer-phone').value,
-                customerEmail: document.getElementById('customer-email').value,
-                customerAddress: document.getElementById('customer-address').value,
-                invoiceDate: document.getElementById('invoice-date').value,  // Save as is
-                project: document.getElementById('project').value,
-                notes: document.getElementById('notes').value,
-            };
-
-            localStorage.setItem('inputData', JSON.stringify(inputData));
-        }
-
-        function loadDataFromLocalStorage() {
-            const savedData = localStorage.getItem('inputData');
-            if (savedData) {
-                const inputData = JSON.parse(savedData);
-
-                document.getElementById('title-input').value = inputData.invoiceTitle || '';
-                document.getElementById('customer-name').value = inputData.customerName || '';
-                document.getElementById('customer-phone').value = inputData.customerPhone || '';
-                document.getElementById('customer-email').value = inputData.customerEmail || '';
-                document.getElementById('customer-address').value = inputData.customerAddress || '';
-
-                // Convert and load datetime
-                const storedDateTime = new Date(inputData.invoiceDate);
-                const localDateTime = new Date(storedDateTime.getTime() - storedDateTime.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-                document.getElementById('invoice-date').value = localDateTime;
-
-                document.getElementById('project').value = inputData.project || '';
-                document.getElementById('notes').value = inputData.notes || '';
-            }
-        }
-
-        document.getElementById('title-input').addEventListener('input', saveDataToLocalStorage);
-        document.getElementById('customer-name').addEventListener('input', saveDataToLocalStorage);
-        document.getElementById('customer-phone').addEventListener('input', saveDataToLocalStorage);
-        document.getElementById('customer-email').addEventListener('input', saveDataToLocalStorage);
-        document.getElementById('customer-address').addEventListener('input', saveDataToLocalStorage);
-        document.getElementById('invoice-date').addEventListener('input', saveDataToLocalStorage);
-        document.getElementById('project').addEventListener('input', saveDataToLocalStorage);
-        document.getElementById('notes').addEventListener('input', saveDataToLocalStorage);
-
-        document.addEventListener('DOMContentLoaded', loadDataFromLocalStorage);
-        // Clear Invoice Fields
-        function clearInvoice() {
-            const inputElements = [
-                'title-input',
-                'customer-name',
-                'customer-phone',
-                'customer-email',
-                'customer-address',
-                'invoice-date',
-                'project',
-                'notes',
-            ];
-
-            inputElements.forEach((elementId) => {
-                document.getElementById(elementId).value = '';
-            });
-
-            const partsTableBody = document.querySelector('.parts-table tbody');
-            partsTableBody.innerHTML = '';
-
-            const laborTableBody = document.querySelector('.labor-table tbody');
-            laborTableBody.innerHTML = '';
-
-            document.getElementById('subtotal').value = '';
-            document.getElementById('tax-percent').value = '';
-            document.getElementById('tax').value = '';
-            document.getElementById('total').value = '';
-            document.getElementById('amount-paid').value = '';
-
-            document.getElementById('remaining').checked = false;
-            document.querySelector('.remaining').style.display = 'none';
-
-            document.getElementById('price-difference').innerText = '';
-            document.getElementById('remaining-balance').innerText = '';
-
-            localStorage.removeItem('inputData');
-        }
-
-        document.getElementById('clear-button').addEventListener('click', clearInvoice);
     </script>
 </body>
 
