@@ -34,14 +34,15 @@ var appNamesMap = {
 };
 
 var appDisplayNames = Object.keys(appNamesMap);
-
 var iframe = document.getElementById('myIframe');
 var dropdownContent = document.getElementById('myDropdown');
 var currentIndex = 0;
 
 function setIframeSrc(index) {
   currentIndex = index;
-  iframe.src = "../../apps/" + appNamesMap[appDisplayNames[index]] + ".html";
+  var appSrc = "../../apps/" + appNamesMap[appDisplayNames[index]] + ".html";
+  iframe.src = appSrc;
+  localStorage.setItem('lastUsedApp', index); // Store the index of the last used app
 }
 
 function generateButtons() {
@@ -53,13 +54,17 @@ function generateButtons() {
 }
 
 window.onload = function () {
+  var lastUsedApp = localStorage.getItem('lastUsedApp');
+  if (lastUsedApp !== null) {
+    currentIndex = parseInt(lastUsedApp, 10);
+  }
   setIframeSrc(currentIndex);
   generateButtons();
 }
 
 document.getElementById('loadContent').addEventListener('click', loadIframeContent);
 document.getElementById('iframeSource').addEventListener('keyup', function (e) {
-  if (event.key === "Enter") {
+  if (e.key === "Enter") {
     loadIframeContent();
   }
 });
@@ -68,6 +73,7 @@ function loadIframeContent() {
   var sourceName = document.getElementById('iframeSource').value;
   var fullPath = "../../apps/" + appNamesMap[sourceName] + ".html";
   document.getElementById('myIframe').src = fullPath;
+  localStorage.setItem('lastUsedApp', appDisplayNames.indexOf(sourceName)); // Store the index when loaded manually
 }
 
 function updateTime() {
