@@ -42,7 +42,7 @@ function setIframeSrc(index) {
   currentIndex = index;
   var appSrc = "../../apps/" + appNamesMap[appDisplayNames[index]] + ".html";
   iframe.src = appSrc;
-  localStorage.setItem('lastUsedApp', index); // Store the index of the last used app
+  localStorage.setItem('lastUsedApp', index);
 }
 
 function generateButtons() {
