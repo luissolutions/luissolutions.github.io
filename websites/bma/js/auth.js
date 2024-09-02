@@ -2,25 +2,18 @@ import { getAuth, onAuthStateChanged, signOut } from "../../../assets/js/firebas
 
 document.addEventListener("DOMContentLoaded", () => {
   const auth = getAuth();
-  const loginButton = document.querySelector("a[href='login.html'] button");
-  const accountButton = document.createElement("button");
+  const loginButton = document.getElementById("loginButton");
+  const accountButton = document.getElementById("accountButton");
   const signOutButton = document.getElementById("signOutButton");
-
-  accountButton.textContent = "Account";
-  accountButton.addEventListener("click", () => {
-    window.location.href = "account.html";
-  });
 
   onAuthStateChanged(auth, (user) => {
     if (user) {
-      if (loginButton) {
-        loginButton.replaceWith(accountButton);
-      }
+      loginButton.style.display = "none";
+      accountButton.style.display = "inline-block";
       signOutButton.style.display = "inline-block";
     } else {
-      if (accountButton.parentNode) {
-        accountButton.replaceWith(loginButton);
-      }
+      loginButton.style.display = "inline-block";
+      accountButton.style.display = "none";
       signOutButton.style.display = "none";
     }
   });
