@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Settings</title>
+    <link rel="stylesheet" href="css/index.css">
+    <script src="js/main.js" defer></script>
+    <script src="../khmc/assets/js/sidebar.js" defer></script>
+    <style>
+        .user-info {
+            display: flex;
+            flex-direction: column;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="header-container">
+            <a href="login.html"><img src="img/android-chrome-192x192.png" class="logo" id="finished" alt="Logo"></a>
+            <h1>Business App</h1>
+            <div class="dark-container">
+                <label class="switch">
+                    <input type="checkbox" id="dark-mode-toggle">
+                    <span class="slider round"></span>
+                </label>
+                <p class="dark-mode">Dark Mode</p>
+            </div>
+        </div>
+    </header>
+    <nav>
+        <ul class="nav-links">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="base.html">Apps</a></li>
+        </ul>
+        <button id="toggleSidebar">Open Sidebar</button>
+    </nav>
+    <main>
+        <section id="user-info">
+            <h2>Your Information</h2>
+            <form class="user-info" id="user-info-form">
+                <label for="displayName">Display Name:</label>
+                <input type="text" id="displayName" name="displayName" placeholder="Your Name">
+
+                <label for="email">Email:</label>
+                <input type="email" id="email" name="email" placeholder="Your Email" disabled>
+
+                <label for="phoneNumber">Phone Number:</label>
+                <input type="tel" id="phoneNumber" name="phoneNumber" placeholder="Your Phone Number">
+
+                <label for="address">Address:</label>
+                <input type="text" id="address" name="address" placeholder="Your Address">
+
+                <label for="bio">Bio:</label>
+                <textarea id="bio" name="bio" placeholder="Tell us about yourself"></textarea>
+
+                <label for="website">Website:</label>
+                <input type="url" id="website" name="website" placeholder="Your Website URL">
+
+                <button type="submit">Save Information</button>
+            </form>
+
+            <div class="login-container" id="password-change">
+                <h2>Change Password</h2>
+                <form id="password-change-form">
+                    <label for="currentPassword">Current Password:</label>
+                    <input type="password" id="currentPassword" name="currentPassword" required>
+
+                    <label for="newPassword">New Password:</label>
+                    <input type="password" id="newPassword" name="newPassword" required>
+
+                    <button type="submit">Change Password</button>
+                </form>
+            </div>
+        </section>
+    </main>
+
+    <div id="sidebar" class="hidden">
+        <div class="sidebar-content">
+            <iframe id="chatAppIframe" src="../../apps/livechat.html"></iframe>
+        </div>
+    </div>
+
+    <footer>
+        <p>&copy; 2024 Luis's Apps. All rights reserved.</p>
+    </footer>
+
+    <script type="module">
+        import { getAuth, updateProfile, updatePassword, onAuthStateChanged, reauthenticateWithCredential, EmailAuthProvider, getDatabase, ref, set, get } from "../../assets/js/firebase-init.js";
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const auth = getAuth();
+            const db = getDatabase();
+
+            const displayNameInput = document.getElementById('displayName');
+            const emailInput = document.getElementById('email');
+            const phoneNumberInput = document.getElementById('phoneNumber');
+            const addressInput = document.getElementById('address');
+            const bioTextarea = document.getElementById('bio');
+            const websiteInput = document.getElementById('website');
+
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    emailInput.value = user.email;
+                    displayNameInput.value = user.displayName || '';
+
+                    try {
+                        const userInfoRef = ref(db, `${user.uid}/info`);
+                        const snapshot = await get(userInfoRef);
+                        if (snapshot.exists()) {
+                            const userInfo = snapshot.val();
+                            phoneNumberInput.value = userInfo.phoneNumber || '';
+                            addressInput.value = userInfo.address || '';
+                            bioTextarea.value = userInfo.bio || '';
+                            websiteInput.value = userInfo.website || '';
+                        }
+                    } catch (error) {
+                        console.error('Error loading custom information:', error);
+                    }
+                } else {
+                    window.location.href = 'login.html';
+                }
+            });
+
+            document.getElementById('user-info-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const user = auth.currentUser;
+                if (user) {
+                    try {
+                        await updateProfile(user, {
+                            displayName: displayNameInput.value
+                        });
+
+                        const userInfo = {
+                            phoneNumber: phoneNumberInput.value,
+                            address: addressInput.value,
+                            bio: bioTextarea.value,
+                            website: websiteInput.value
+                        };
+
+                        const userInfoRef = ref(db, `${user.uid}/info`);
+                        await set(userInfoRef, userInfo);
+
+                        alert('Information updated successfully!');
+                    } catch (error) {
+                        console.error('Error updating information:', error);
+                        alert('Failed to update information: ' + error.message);
+                    }
+                }
+            });
+
+            document.getElementById('password-change-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const user = auth.currentUser;
+                const currentPassword = document.getElementById('currentPassword').value;
+                const newPassword = document.getElementById('newPassword').value;
+
+                if (user) {
+                    try {
+                        const credential = EmailAuthProvider.credential(user.email, currentPassword);
+                        await reauthenticateWithCredential(user, credential);
+                        await updatePassword(user, newPassword);
+                        alert('Password changed successfully!');
+                    } catch (error) {
+                        console.error('Error changing password:', error);
+                        alert('Failed to change password: ' + error.message);
+                    }
+                }
+            });
+        });
+
+    </script>
+</body>
+
+</html>
