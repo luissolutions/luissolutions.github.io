@@ -51,6 +51,11 @@
         <label>Select a subfolder:
             <select id="folderSelect"></select>
         </label>
+        <br>
+        <input type="file" id="fileUploader" accept="image/*">
+        <button id="uploadButton">Upload Image</button>
+        <div id="uploadStatus"></div>
+
         <div class="photoGrid">
             <div id="photoWrapper">
                 <button id="prevButton">Previous</button>
@@ -62,18 +67,23 @@
             <div id="loadingIndicator">Loading...</div>
             <div class="gridContainer" id="photoContainer"></div>
         </div>
+        <button id="deleteButton">Delete Photo</button>
     </section>
 
     <script type="module">
-        import { ref, app, database, storage, getStorage, storageRef, getDownloadURL, listAll } from '../assets/js/firebase-init.js';
+        import { ref, app, database, storage, getStorage, storageRef, getDownloadURL, listAll, uploadBytesResumable, deleteObject } from '../assets/js/firebase-init.js';
 
         document.addEventListener('DOMContentLoaded', function () {
             const photoContainer = document.getElementById('photoContainer');
             const prevButton = document.getElementById('prevButton');
             const nextButton = document.getElementById('nextButton');
+            const deleteButton = document.getElementById('deleteButton');
             const rememberCheckbox = document.getElementById('rememberCheckbox');
             const folderSelect = document.getElementById('folderSelect');
             const loadingIndicator = document.getElementById('loadingIndicator');
+            const fileUploader = document.getElementById('fileUploader');
+            const uploadButton = document.getElementById('uploadButton');
+            const uploadStatus = document.getElementById('uploadStatus');
 
             let currentPhotoIndex = 0;
             let photoUrls = [];
@@ -179,6 +189,58 @@
 
             rememberCheckbox.addEventListener('change', () => {
                 localStorage.setItem(photoUrls[currentPhotoIndex], rememberCheckbox.checked);
+            });
+
+            uploadButton.addEventListener('click', () => {
+                const file = fileUploader.files[0];
+                const selectedFolder = folderSelect.value;
+
+                if (file && selectedFolder) {
+                    const fileRef = storageRef(storage, `/images/${selectedFolder}/${file.name}`);
+                    const uploadTask = uploadBytesResumable(fileRef, file);
+
+                    uploadTask.on('state_changed',
+                        (snapshot) => {
+                            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                            uploadStatus.textContent = `Upload is ${progress}% done`;
+                        },
+                        (error) => {
+                            console.error('Upload failed:', error);
+                            uploadStatus.textContent = 'Upload failed!';
+                        },
+                        () => {
+                            uploadTask.snapshot.ref.getDownloadURL().then((downloadURL) => {
+                                uploadStatus.textContent = 'Upload successful!';
+                                photoUrls.push(downloadURL);
+                                displayCurrentPhoto();
+                            });
+                        }
+                    );
+                } else {
+                    uploadStatus.textContent = 'Please select an image and a subfolder.';
+                }
+            });
+
+            deleteButton.addEventListener('click', () => {
+                const photoUrl = photoUrls[currentPhotoIndex];
+                if (photoUrl) {
+                    const fileRef = storageRef(storage, photoUrl);
+
+                    deleteObject(fileRef)
+                        .then(() => {
+                            uploadStatus.textContent = 'Photo deleted successfully!';
+                            // Remove the photo from the local array
+                            photoUrls.splice(currentPhotoIndex, 1);
+                            currentPhotoIndex = currentPhotoIndex % photoUrls.length;
+                            displayCurrentPhoto();
+                        })
+                        .catch(error => {
+                            console.error('Error deleting photo:', error);
+                            uploadStatus.textContent = 'Failed to delete photo!';
+                        });
+                } else {
+                    uploadStatus.textContent = 'No photo to delete.';
+                }
             });
 
             fetchPhotoUrls();
