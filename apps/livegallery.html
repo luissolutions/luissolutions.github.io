@@ -33,7 +33,7 @@
         }
 
         .photo {
-            width: 98vw;
+            width: 95vw;
             height: auto;
             margin: 5px;
             cursor: pointer;
@@ -44,6 +44,22 @@
             font-size: 18px;
             margin-top: 20px;
         }
+
+        /* Hide the default checkbox */
+        #rememberCheckbox {
+            display: none;
+        }
+
+        .star {
+            font-size: 40px;
+            color: gray;
+            cursor: pointer;
+            transition: color 0.2s ease-in-out;
+        }
+
+        #rememberCheckbox:checked+.star {
+            color: yellow;
+        }
     </style>
 </head>
 
@@ -52,13 +68,14 @@
         <h1>Gallery</h1>
     </header>
     <section>
-        <label>Select a subfolder:
+        <br>
+        <label>Select a folder:
             <select id="folderSelect"></select>
         </label>
         <div>
-            <label for="newSubfolderInput">Create subfolder:</label>
-            <input type="text" id="newSubfolderInput" placeholder="Subfolder Name">
-            <button id="createSubfolderButton">Create Subfolder</button>
+            <label for="newSubfolderInput">Create folder:</label>
+            <input type="text" id="newSubfolderInput" placeholder="Folder Name">
+            <button id="createSubfolderButton">Create Folder</button>
             <div id="subfolderStatus"></div>
         </div>
         <input type="file" id="fileUploader" accept="image/*">
@@ -70,7 +87,8 @@
                 <button id="prevButton">Previous</button>
                 <button id="nextButton">Next</button>
                 <label>
-                    <input type="checkbox" id="rememberCheckbox"> Remember this photo
+                    <input type="checkbox" id="rememberCheckbox">
+                    <span class="star">&#9733;</span>
                 </label>
             </div>
             <div id="loadingIndicator">Loading...</div>
@@ -205,68 +223,68 @@
             });
 
             uploadButton.addEventListener('click', () => {
-    const file = fileUploader.files[0];
-    const selectedFolder = folderSelect.value;
+                const file = fileUploader.files[0];
+                const selectedFolder = folderSelect.value;
 
-    if (file && selectedFolder) {
-        const img = new Image();
-        const reader = new FileReader();
+                if (file && selectedFolder) {
+                    const img = new Image();
+                    const reader = new FileReader();
 
-        reader.onload = function (e) {
-            img.src = e.target.result;
+                    reader.onload = function (e) {
+                        img.src = e.target.result;
 
-            img.onload = function () {
-                const MAX_WIDTH = 1024;
-                let width = img.width;
-                let height = img.height;
+                        img.onload = function () {
+                            const MAX_WIDTH = 1024;
+                            let width = img.width;
+                            let height = img.height;
 
-                if (width > MAX_WIDTH) {
-                    height = (MAX_WIDTH / width) * height;
-                    width = MAX_WIDTH;
+                            if (width > MAX_WIDTH) {
+                                height = (MAX_WIDTH / width) * height;
+                                width = MAX_WIDTH;
+                            }
+
+                            const canvas = document.createElement('canvas');
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+
+                            ctx.drawImage(img, 0, 0, width, height);
+
+                            canvas.toBlob((blob) => {
+                                const fileRef = storageRef(storage, `/images/${selectedFolder}/${file.name}`);
+                                const uploadTask = uploadBytesResumable(fileRef, blob);
+
+                                uploadTask.on('state_changed',
+                                    (snapshot) => {
+                                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                                        uploadStatus.textContent = `Upload is ${progress}% done`;
+                                    },
+                                    (error) => {
+                                        console.error('Upload failed:', error);
+                                        uploadStatus.textContent = 'Upload failed!';
+                                    },
+                                    () => {
+                                        getDownloadURL(fileRef).then((downloadURL) => {
+                                            uploadStatus.textContent = 'Upload successful!';
+
+                                            photoUrls.push(downloadURL);
+
+                                            currentPhotoIndex = photoUrls.length - 1;
+                                            displayCurrentPhoto();
+                                        }).catch((error) => {
+                                            console.error('Error getting download URL:', error);
+                                        });
+                                    }
+                                );
+                            }, file.type);
+                        };
+                    };
+
+                    reader.readAsDataURL(file);
+                } else {
+                    uploadStatus.textContent = 'Please select an image and a subfolder.';
                 }
-
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-
-                ctx.drawImage(img, 0, 0, width, height);
-
-                canvas.toBlob((blob) => {
-                    const fileRef = storageRef(storage, `/images/${selectedFolder}/${file.name}`);
-                    const uploadTask = uploadBytesResumable(fileRef, blob);
-
-                    uploadTask.on('state_changed',
-                        (snapshot) => {
-                            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                            uploadStatus.textContent = `Upload is ${progress}% done`;
-                        },
-                        (error) => {
-                            console.error('Upload failed:', error);
-                            uploadStatus.textContent = 'Upload failed!';
-                        },
-                        () => {
-                            getDownloadURL(fileRef).then((downloadURL) => {
-                                uploadStatus.textContent = 'Upload successful!';
-
-                                photoUrls.push(downloadURL);
-
-                                currentPhotoIndex = photoUrls.length - 1;
-                                displayCurrentPhoto();
-                            }).catch((error) => {
-                                console.error('Error getting download URL:', error);
-                            });
-                        }
-                    );
-                }, file.type);
-            };
-        };
-
-        reader.readAsDataURL(file);
-    } else {
-        uploadStatus.textContent = 'Please select an image and a subfolder.';
-    }
-});
+            });
 
             deleteButton.addEventListener('click', () => {
                 const photoUrl = photoUrls[currentPhotoIndex];
@@ -307,7 +325,6 @@
                     subfolderStatus.textContent = 'Please enter a subfolder name.';
                 }
             });
-
 
             fetchPhotoUrls();
         });
