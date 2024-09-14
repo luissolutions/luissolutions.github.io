@@ -140,6 +140,9 @@
             <label for="priceInput">Sell:</label>
             <input type="number" step=".01" id="priceInput">
 
+            <label for="imageInput">Upload Image:</label>
+            <input type="file" id="imageInput" accept="image/*">
+
             <button type="button" id="clearButton">Clear</button>
             <br>
             <button type="submit">Submit</button>
@@ -155,7 +158,9 @@
     </div>
 
     <script type="module">
-        import { database, ref, onValue, set, remove, get } from '../assets/js/firebase-init.js';
+        import { database, ref, onValue, set, remove, get, getStorage, storageRef, uploadBytesResumable, getDownloadURL } from '../assets/js/firebase-init.js';
+
+        const storage = getStorage();
 
         const selectionSelect = document.getElementById('selectionSelect');
         const itemOptions = document.getElementById('itemOptions');
@@ -234,11 +239,11 @@
         selectionSelect.addEventListener('change', () => {
             const selectedCategoryRadios = document.querySelector('input[name="category"]:checked');
             if (!selectedCategoryRadios) return;
-            const clearButton = document.getElementById('clearButton');
 
             const selectedCategory = selectedCategoryRadios.value;
             const selectedSelection = selectionSelect.value;
             localStorage.setItem('selectedSelection', selectedSelection);
+
             const selectionImage = document.getElementById('selectionImage');
             selectionImage.src = `../assets/img/database/${selectedSelection}.png`;
             selectionImage.onerror = () => {
@@ -259,6 +264,7 @@
                         const itemQuantity = itemDetails.quantity;
                         const itemPrice = itemDetails.price;
                         const itemActualPrice = itemDetails.actualPrice;
+                        const itemImageUrl = itemDetails.imageUrl || defaultImageSrc;
 
                         const itemLabel = document.createElement('label');
                         itemLabel.classList.add('item-container');
@@ -272,7 +278,7 @@
                         const itemText = document.createTextNode(`${itemName} - Quantity: ${itemQuantity}, Price: $${itemPrice}, Paid: $${itemActualPrice}`);
 
                         const itemImg = document.createElement('img');
-                        itemImg.src = `../assets/img/database/${itemName}.png`;
+                        itemImg.src = itemImageUrl;
                         itemImg.alt = itemName;
                         itemImg.width = 50;
                         itemImg.onerror = () => {
@@ -320,62 +326,83 @@
         document.getElementById('dataModifyForm').addEventListener('submit', function (event) {
             event.preventDefault();
 
-            function sanitizeInput(input) {
-                return input.replace(/\//g, '_');
-            }
-
             const category = sanitizeInput(document.getElementById('categoryInput').value);
             const selection = sanitizeInput(document.getElementById('selectionInput').value);
             const item = sanitizeInput(document.getElementById('itemInput').value);
             const quantity = document.getElementById('amountInput').value;
             const price = document.getElementById('priceInput').value;
             const actualPrice = document.getElementById('actualPriceInput').value;
+            const imageFile = document.getElementById('imageInput').files[0];
 
             const path = `share/inventory/${category}/${selection}/${item}`;
-
             const itemRef = ref(database, path);
-            get(itemRef).then((snapshot) => {
-                if (snapshot.exists()) {
-                    const existingData = snapshot.val();
 
-                    const updatedData = {
-                        ...existingData,
-                        quantity,
-                        price,
-                        actualPrice
-                    };
+            if (imageFile) {
+                const imageStorageRef = storageRef(storage, `share/inventory-files/${category}/${selection}/${imageFile.name}`);
+                const uploadTask = uploadBytesResumable(imageStorageRef, imageFile);
 
-                    set(ref(database, path), updatedData)
-                        .then(() => {
-                            alert('Data updated successfully!');
-                        }).catch((error) => {
-                            console.error('Error updating data: ', error);
-                            alert('Failed to update data!');
+                uploadTask.on('state_changed',
+                    (snapshot) => {
+                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                        console.log(`Upload is ${progress}% done`);
+                    },
+                    (error) => {
+                        console.error('Image upload failed:', error);
+                        alert('Failed to upload image!');
+                    },
+                    () => {
+                        getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
+                            saveDataToDatabase(downloadURL);
                         });
-                } else {
-                    const newData = {
-                        quantity,
-                        price,
-                        actualPrice
-                    };
+                    }
+                );
+            } else {
+                saveDataToDatabase(null);
+            }
 
-                    set(ref(database, path), newData)
-                        .then(() => {
-                            alert('New entry created successfully!');
-                        })
-                        .catch((error) => {
-                            console.error('Error creating new entry: ', error);
-                            alert('Failed to create new entry!');
-                        });
-                }
-            }).catch((error) => {
-                console.error('Error fetching existing data: ', error);
-            });
+            function saveDataToDatabase(imageURL) {
+                get(itemRef).then((snapshot) => {
+                    if (snapshot.exists()) {
+                        const existingData = snapshot.val();
+                        const updatedData = {
+                            ...existingData,
+                            quantity,
+                            price,
+                            actualPrice,
+                            imageUrl: imageURL || existingData.imageUrl
+                        };
+                        set(itemRef, updatedData)
+                            .then(() => {
+                                alert('Data updated successfully!');
+                            }).catch((error) => {
+                                console.error('Error updating data: ', error);
+                                alert('Failed to update data!');
+                            });
+                    } else {
+                        const newData = {
+                            quantity,
+                            price,
+                            actualPrice,
+                            imageUrl: imageURL
+                        };
+                        set(itemRef, newData)
+                            .then(() => {
+                                alert('New entry created successfully!');
+                            }).catch((error) => {
+                                console.error('Error creating new entry: ', error);
+                                alert('Failed to create new entry!');
+                            });
+                    }
+                }).catch((error) => {
+                    console.error('Error fetching existing data: ', error);
+                });
+            }
+
+            function sanitizeInput(input) {
+                return input.replace(/\//g, '_');
+            }
         });
 
-        function sanitizeInput(input) {
-            return input.replace(/\//g, '_');
-        }
 
         function storeDeletedData(category, selection, itemName, itemAmount) {
             const deletedData = {
@@ -538,14 +565,15 @@
         function showImageModal(imageSrc) {
             const modal = document.getElementById('imageModal');
             const modalImage = document.getElementById('modalImage');
-
             modalImage.src = imageSrc;
             modal.style.display = "block";
         }
+
         const modal = document.getElementById('imageModal');
         modal.addEventListener('click', function (event) {
             modal.style.display = 'none';
         });
+
         const itemImages = document.querySelectorAll('.image-container img, #itemOptions img');
         itemImages.forEach(img => {
             img.addEventListener('click', function () {
