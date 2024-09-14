@@ -23,6 +23,7 @@ var appNamesMap = {
   "Favorites/Bookmarks": "livelinks",
   "View/Edit Inventory": "liveinventory",
   "View/Edit Database": "livedatabase",
+  "Gallery/Uplaod": "livegallery",
   "Timer": "livetimer",
   "Quiz/Testing": "livelearn",
   "Password Generator": "password",
