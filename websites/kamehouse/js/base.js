@@ -48,7 +48,6 @@ var appNames = [
   "chat", 
   "reg", 
   "livechess", 
-  "gallery", 
   "livetasker", 
   "liveinvoice", 
   "livemileage",
