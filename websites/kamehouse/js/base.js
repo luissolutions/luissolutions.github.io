@@ -53,6 +53,8 @@ var appNames = [
   "livemileage",
   "livegallery",
   "livegas", 
+  "liveinventory", 
+  "liveanalytics", 
   "info", 
   "viewer", 
   "password", 
