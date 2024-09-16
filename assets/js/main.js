@@ -44,8 +44,30 @@ function populateThumbnails(items, containerId, userLoggedIn) {
 function toggleMenu() {
   const nav = document.querySelector('nav');
   const hamburger = document.querySelector('.hamburger');
+  
   nav.classList.toggle('active');
   hamburger.classList.toggle('active');
+
+  // Only add the click event listener when the menu is active (opened)
+  if (nav.classList.contains('active')) {
+    document.addEventListener('click', handleOutsideClick);
+  } else {
+    document.removeEventListener('click', handleOutsideClick);
+  }
+}
+
+function handleOutsideClick(event) {
+  const nav = document.querySelector('nav');
+  const hamburger = document.querySelector('.hamburger');
+  
+  // If the clicked element is not the nav or the hamburger icon, close the nav
+  if (!nav.contains(event.target) && !hamburger.contains(event.target)) {
+    nav.classList.remove('active');
+    hamburger.classList.remove('active');
+    
+    // Remove the event listener once the menu is closed
+    document.removeEventListener('click', handleOutsideClick);
+  }
 }
 
 document.addEventListener("DOMContentLoaded", function () {
