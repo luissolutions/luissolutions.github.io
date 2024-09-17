@@ -33,7 +33,7 @@
         }
 
         .photo {
-            width: 95vw;
+            width: 95%;
             height: auto;
             margin: 5px;
             cursor: pointer;
@@ -68,35 +68,37 @@
     <header>
         <h1>Gallery</h1>
     </header>
-    <section>
-        <br>
-        <label>Select a folder:
-            <select id="folderSelect"></select>
-        </label>
-        <div>
-            <label for="newSubfolderInput">Create folder:</label>
-            <input type="text" id="newSubfolderInput" placeholder="Folder Name">
-            <button id="createSubfolderButton">Create Folder</button>
-            <div id="subfolderStatus"></div>
-        </div>
-        <input type="file" id="fileUploader" accept="image/*">
-        <button id="uploadButton">Upload Image</button>
-        <div id="uploadStatus"></div>
-
-        <div class="photoGrid">
-            <div id="photoWrapper">
-                <button id="prevButton">Previous</button>
-                <button id="nextButton">Next</button>
-                <label>
-                    <input type="checkbox" id="rememberCheckbox">
-                    <span class="star">&#9733;</span>
-                </label>
+    <main>
+        <section>
+            <br>
+            <label>Select a folder:
+                <select id="folderSelect"></select>
+            </label>
+            <div>
+                <label for="newSubfolderInput">Create folder:</label>
+                <input type="text" id="newSubfolderInput" placeholder="Folder Name">
+                <button id="createSubfolderButton">Create Folder</button>
+                <div id="subfolderStatus"></div>
             </div>
-            <div id="loadingIndicator">Loading...</div>
-            <div class="gridContainer" id="photoContainer"></div>
-        </div>
-        <button id="deleteButton">Delete Photo</button>
-    </section>
+            <input type="file" id="fileUploader" accept="image/*">
+            <button id="uploadButton">Upload Image</button>
+            <div id="uploadStatus"></div>
+
+            <div class="photoGrid">
+                <div id="photoWrapper">
+                    <button id="prevButton">Previous</button>
+                    <button id="nextButton">Next</button>
+                    <label>
+                        <input type="checkbox" id="rememberCheckbox">
+                        <span class="star">&#9733;</span>
+                    </label>
+                </div>
+                <div id="loadingIndicator">Loading...</div>
+                <div class="gridContainer" id="photoContainer"></div>
+            </div>
+            <button id="deleteButton">Delete Photo</button>
+        </section>
+    </main>
 
     <script type="module">
         import { ref, app, database, storage, getStorage, storageRef, getDownloadURL, listAll, uploadBytesResumable, deleteObject } from './assets/js/firebase-init.js';
@@ -121,13 +123,12 @@
 
             function fetchPhotoUrls() {
                 loadingIndicator.style.display = 'block';
-                const subfoldersRef = storageRef(storage, '/images');
+                const subfoldersRef = storageRef(storage, '/share/images');
 
                 listAll(subfoldersRef)
                     .then(result => {
                         const subfolders = result.prefixes.map(folderRef => folderRef.name);
                         populateSubfolders(subfolders);
-                        loadImagesFromSubfolder(subfolders[0]);
                     })
                     .catch(error => {
                         console.error('Error loading photo URLs:', error);
@@ -145,10 +146,20 @@
                     option.textContent = folder;
                     folderSelect.appendChild(option);
                 });
+
+                const lastSelectedFolder = localStorage.getItem('lastSelectedFolder');
+
+                if (lastSelectedFolder && subfolders.includes(lastSelectedFolder)) {
+                    folderSelect.value = lastSelectedFolder;
+                } else {
+                    folderSelect.value = subfolders[0];
+                }
+
+                loadImagesFromSubfolder(folderSelect.value);
             }
 
             function loadImagesFromSubfolder(subfolder) {
-                const folderRef = storageRef(storage, `/images/${subfolder}`);
+                const folderRef = storageRef(storage, `/share/images/${subfolder}`);
                 photoUrls = [];
 
                 listAll(folderRef)
@@ -213,6 +224,7 @@
             }
 
             folderSelect.addEventListener('change', () => {
+                localStorage.setItem('lastSelectedFolder', folderSelect.value);
                 loadImagesFromSubfolder(folderSelect.value);
             });
 
@@ -220,7 +232,9 @@
             prevButton.addEventListener('click', loadPreviousImage);
 
             rememberCheckbox.addEventListener('change', () => {
-                localStorage.setItem(photoUrls[currentPhotoIndex], rememberCheckbox.checked);
+                if (currentPhotoIndex >= 0 && currentPhotoIndex < photoUrls.length) {
+                    localStorage.setItem(photoUrls[currentPhotoIndex], rememberCheckbox.checked);
+                }
             });
 
             uploadButton.addEventListener('click', () => {
@@ -252,7 +266,7 @@
                             ctx.drawImage(img, 0, 0, width, height);
 
                             canvas.toBlob((blob) => {
-                                const fileRef = storageRef(storage, `/images/${selectedFolder}/${file.name}`);
+                                const fileRef = storageRef(storage, `/share/images/${selectedFolder}/${file.name}`);
                                 const uploadTask = uploadBytesResumable(fileRef, blob);
 
                                 uploadTask.on('state_changed',
@@ -311,11 +325,14 @@
             createSubfolderButton.addEventListener('click', () => {
                 const newSubfolderName = newSubfolderInput.value.trim();
                 if (newSubfolderName) {
-                    const folderRef = storageRef(storage, `/images/${newSubfolderName}/.keep`);
+                    const folderRef = storageRef(storage, `/share/images/${newSubfolderName}/.keep`);
 
                     const emptyFile = new Blob();
                     uploadBytesResumable(folderRef, emptyFile).then(() => {
                         subfolderStatus.textContent = `Subfolder "${newSubfolderName}" created!`;
+
+                        localStorage.setItem('lastSelectedFolder', newSubfolderName);
+
                         folderSelect.innerHTML = '';
                         fetchPhotoUrls();
                     }).catch(error => {
