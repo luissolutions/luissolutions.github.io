@@ -11,10 +11,6 @@ function applyDarkMode(isDarkMode) {
     content.style.filter = isDarkMode ? 'invert(1)' : 'none';
 
     sidebar.style.filter = isDarkMode ? 'invert(1)' : 'none';
-
-    document.querySelectorAll('iframe').forEach(iframe => {
-        iframe.style.filter = isDarkMode ? 'invert(0)' : 'none';
-    });
 }
 
 darkModeToggle.addEventListener('change', () => {

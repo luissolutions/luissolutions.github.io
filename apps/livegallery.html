@@ -45,7 +45,6 @@
             margin-top: 20px;
         }
 
-        /* Hide the default checkbox */
         #rememberCheckbox {
             display: none;
         }
@@ -129,12 +128,48 @@
                     .then(result => {
                         const subfolders = result.prefixes.map(folderRef => folderRef.name);
                         populateSubfolders(subfolders);
+
+                        const lastSelectedFolder = localStorage.getItem('lastSelectedFolder');
+
+                        if (lastSelectedFolder && !subfolders.includes(lastSelectedFolder)) {
+                            createFolderIfNotExists(lastSelectedFolder, () => {
+                                loadImagesFromSubfolder(lastSelectedFolder);
+                            });
+                        } else {
+                            if (lastSelectedFolder) {
+                                folderSelect.value = lastSelectedFolder;
+                            } else {
+                                folderSelect.value = subfolders[0];
+                            }
+                            loadImagesFromSubfolder(folderSelect.value);
+                        }
                     })
                     .catch(error => {
                         console.error('Error loading photo URLs:', error);
                     })
                     .finally(() => {
                         loadingIndicator.style.display = 'none';
+                    });
+            }
+
+            function createFolderIfNotExists(folderName, callback) {
+                const folderRef = storageRef(storage, `/share/images/${folderName}/.keep`);
+
+                const emptyFile = new Blob();
+                uploadBytesResumable(folderRef, emptyFile)
+                    .then(() => {
+                        subfolderStatus.textContent = `Subfolder "${folderName}" created!`;
+                        localStorage.setItem('lastSelectedFolder', folderName);
+
+                        folderSelect.innerHTML = '';
+                        fetchPhotoUrls();
+                        if (callback) {
+                            callback();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error creating subfolder:', error);
+                        subfolderStatus.textContent = 'Failed to create subfolder.';
                     });
             }
 
@@ -283,9 +318,17 @@
                                             uploadStatus.textContent = 'Upload successful!';
 
                                             photoUrls.push(downloadURL);
-
                                             currentPhotoIndex = photoUrls.length - 1;
                                             displayCurrentPhoto();
+
+                                            const keepFileRef = storageRef(storage, `/share/images/${selectedFolder}/.keep`);
+                                            deleteObject(keepFileRef)
+                                                .then(() => {
+                                                    console.log('.keep file deleted successfully!');
+                                                })
+                                                .catch((error) => {
+                                                    console.error('Error deleting .keep file:', error);
+                                                });
                                         }).catch((error) => {
                                             console.error('Error getting download URL:', error);
                                         });
