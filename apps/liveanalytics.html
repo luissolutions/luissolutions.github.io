@@ -172,23 +172,43 @@
                 const snapshot = await get(invoicesRef);
                 if (snapshot.exists()) {
                     const invoices = snapshot.val();
-                    const customerNames = new Set();
+                    const customers = {};
 
                     for (const invoiceId in invoices) {
-                        const customerName = invoices[invoiceId].customerName;
-                        if (customerName) {
-                            customerNames.add(customerName);
+                        const invoice = invoices[invoiceId];
+                        const customerName = invoice.customerName;
+
+                        if (!customerName) continue;
+
+                        if (!customers[customerName]) {
+                            customers[customerName] = {
+                                phones: new Set(),
+                                addresses: new Set(),
+                                emails: new Set()
+                            };
+                        }
+
+                        if (invoice.customerPhone && invoice.customerPhone !== 'undefined') {
+                            customers[customerName].phones.add(invoice.customerPhone);
+                        }
+                        if (invoice.customerAddress && invoice.customerAddress !== 'undefined') {
+                            customers[customerName].addresses.add(invoice.customerAddress);
+                        }
+                        if (invoice.customerEmail && invoice.customerEmail !== 'undefined') {
+                            customers[customerName].emails.add(invoice.customerEmail);
                         }
                     }
 
                     const dropdown = document.getElementById('customer-dropdown');
                     dropdown.innerHTML = '<option value="">Select a Customer</option>';
-                    customerNames.forEach(name => {
+                    Object.keys(customers).forEach(name => {
                         const option = document.createElement('option');
                         option.value = name;
                         option.textContent = name;
                         dropdown.appendChild(option);
                     });
+
+                    window.customers = customers;
                 } else {
                     console.error('No invoice data found.');
                 }
@@ -198,55 +218,32 @@
         }
 
         function updateCustomerDetails(customerName) {
-            const invoicesRef = ref(database, 'share/tasks');
-            get(invoicesRef).then(snapshot => {
-                if (snapshot.exists()) {
-                    const invoices = snapshot.val();
-                    const phoneNumbers = new Set();
-                    const addresses = new Set();
-                    const emails = new Set();
+            if (!window.customers || !window.customers[customerName]) return;
 
-                    for (const invoiceId in invoices) {
-                        const invoice = invoices[invoiceId];
-                        if (invoice.customerName === customerName) {
-                            if (invoice.customerPhone && invoice.customerPhone !== 'undefined') {
-                                phoneNumbers.add(invoice.customerPhone);
-                            }
-                            if (invoice.customerAddress && invoice.customerAddress !== 'undefined') {
-                                addresses.add(invoice.customerAddress);
-                            }
-                            if (invoice.customerEmail && invoice.customerEmail !== 'undefined') {
-                                emails.add(invoice.customerEmail);
-                            }
-                        }
-                    }
+            const customer = window.customers[customerName];
 
-                    const phoneNumbersList = document.getElementById('customer-phone-numbers');
-                    phoneNumbersList.innerHTML = '';
-                    phoneNumbers.forEach(phone => {
-                        const li = document.createElement('li');
-                        li.textContent = phone;
-                        phoneNumbersList.appendChild(li);
-                    });
+            const phoneNumbersList = document.getElementById('customer-phone-numbers');
+            phoneNumbersList.innerHTML = '';
+            customer.phones.forEach(phone => {
+                const li = document.createElement('li');
+                li.textContent = phone;
+                phoneNumbersList.appendChild(li);
+            });
 
-                    const addressesList = document.getElementById('customer-addresses');
-                    addressesList.innerHTML = '';
-                    addresses.forEach(address => {
-                        const li = document.createElement('li');
-                        li.textContent = address;
-                        addressesList.appendChild(li);
-                    });
+            const addressesList = document.getElementById('customer-addresses');
+            addressesList.innerHTML = '';
+            customer.addresses.forEach(address => {
+                const li = document.createElement('li');
+                li.textContent = address;
+                addressesList.appendChild(li);
+            });
 
-                    const emailsList = document.getElementById('customer-emails');
-                    emailsList.innerHTML = '';
-                    emails.forEach(email => {
-                        const li = document.createElement('li');
-                        li.textContent = email;
-                        emailsList.appendChild(li);
-                    });
-                }
-            }).catch(error => {
-                console.error('Error fetching invoices:', error);
+            const emailsList = document.getElementById('customer-emails');
+            emailsList.innerHTML = '';
+            customer.emails.forEach(email => {
+                const li = document.createElement('li');
+                li.textContent = email;
+                emailsList.appendChild(li);
             });
         }
 
@@ -257,18 +254,15 @@
             } else {
                 document.getElementById('customer-phone-numbers').innerHTML = '';
                 document.getElementById('customer-addresses').innerHTML = '';
+                document.getElementById('customer-emails').innerHTML = '';
             }
         });
-
 
         document.addEventListener('DOMContentLoaded', () => {
             analyzeInvoiceData();
             populateCustomerDropdown();
             analyzeInventoryData();
         });
-
-        document.addEventListener('DOMContentLoaded', analyzeInvoiceData);
-
     </script>
 </body>
 
