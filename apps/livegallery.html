@@ -93,7 +93,11 @@
                     </label>
                 </div>
                 <div id="loadingIndicator">Loading...</div>
+                <p id="fileName"></p>
                 <div class="gridContainer" id="photoContainer"></div>
+
+                <input type="text" id="renameInput" placeholder="New file name">
+                <button id="renameButton">Rename</button>
             </div>
             <button id="deleteButton">Delete Photo</button>
         </section>
@@ -110,6 +114,9 @@
             const rememberCheckbox = document.getElementById('rememberCheckbox');
             const folderSelect = document.getElementById('folderSelect');
             const loadingIndicator = document.getElementById('loadingIndicator');
+            const fileNameDisplay = document.getElementById('fileName');
+            const renameInput = document.getElementById('renameInput');
+            const renameButton = document.getElementById('renameButton');
             const fileUploader = document.getElementById('fileUploader');
             const uploadButton = document.getElementById('uploadButton');
             const uploadStatus = document.getElementById('uploadStatus');
@@ -119,6 +126,7 @@
 
             let currentPhotoIndex = 0;
             let photoUrls = [];
+            let photoNames = [];
 
             function fetchPhotoUrls() {
                 loadingIndicator.style.display = 'block';
@@ -196,10 +204,14 @@
             function loadImagesFromSubfolder(subfolder) {
                 const folderRef = storageRef(storage, `/share/images/${subfolder}`);
                 photoUrls = [];
+                photoNames = [];
 
                 listAll(folderRef)
                     .then(result => {
-                        const promises = result.items.map(itemRef => getDownloadURL(itemRef));
+                        const promises = result.items.map(itemRef => {
+                            photoNames.push(itemRef.name);
+                            return getDownloadURL(itemRef);
+                        });
                         return Promise.all(promises);
                     })
                     .then(urls => {
@@ -218,6 +230,8 @@
                 if (currentPhotoIndex >= 0 && currentPhotoIndex < photoUrls.length) {
                     const img = createPhotoElement(photoUrls[currentPhotoIndex]);
                     photoContainer.appendChild(img);
+
+                    fileNameDisplay.textContent = `File: ${photoNames[currentPhotoIndex]}`;
 
                     rememberCheckbox.checked = localStorage.getItem(photoUrls[currentPhotoIndex]) === 'true';
                 } else {
@@ -269,6 +283,34 @@
             rememberCheckbox.addEventListener('change', () => {
                 if (currentPhotoIndex >= 0 && currentPhotoIndex < photoUrls.length) {
                     localStorage.setItem(photoUrls[currentPhotoIndex], rememberCheckbox.checked);
+                }
+            });
+
+            renameButton.addEventListener('click', () => {
+                const newFileName = renameInput.value.trim();
+                if (newFileName && currentPhotoIndex >= 0 && currentPhotoIndex < photoUrls.length) {
+                    const selectedFolder = folderSelect.value;
+                    const oldFileName = photoNames[currentPhotoIndex];
+                    const oldFileRef = storageRef(storage, `/share/images/${selectedFolder}/${oldFileName}`);
+                    const newFileRef = storageRef(storage, `/share/images/${selectedFolder}/${newFileName}`);
+
+                    getDownloadURL(oldFileRef).then((url) => {
+                        fetch(url).then(res => res.blob()).then((blob) => {
+                            uploadBytesResumable(newFileRef, blob).then(() => {
+                                deleteObject(oldFileRef).then(() => {
+                                    console.log('File renamed successfully');
+                                    photoNames[currentPhotoIndex] = newFileName;
+                                    displayCurrentPhoto();
+                                }).catch(error => {
+                                    console.error('Error deleting old file:', error);
+                                });
+                            }).catch(error => {
+                                console.error('Error uploading new file:', error);
+                            });
+                        });
+                    });
+                } else {
+                    alert('Please enter a valid new name.');
                 }
             });
 
