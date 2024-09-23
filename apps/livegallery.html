@@ -96,17 +96,13 @@
                 <p id="fileName"></p>
                 <div class="gridContainer" id="photoContainer"></div>
 
-                <div id="fileInfo" style="display: none;">
-                    <input type="text" id="renameInput" placeholder="New file name">
-                    <button id="renameButton">Rename</button>
-                </div>
             </div>
             <button id="deleteButton">Delete Photo</button>
         </section>
     </main>
 
     <script type="module">
-        import { ref, app, database, storage, getStorage, storageRef, getDownloadURL, listAll, uploadBytesResumable, deleteObject } from './assets/js/firebase-init.js';
+        import { ref, app, database, storage, getStorage, storageRef, getDownloadURL, listAll, uploadBytesResumable, deleteObject, getFunctions, httpsCallable } from './assets/js/firebase-init.js';
 
         document.addEventListener('DOMContentLoaded', function () {
             const photoContainer = document.getElementById('photoContainer');
@@ -288,34 +284,6 @@
                 }
             });
 
-            renameButton.addEventListener('click', () => {
-                const newFileName = renameInput.value.trim();
-                if (newFileName && currentPhotoIndex >= 0 && currentPhotoIndex < photoUrls.length) {
-                    const selectedFolder = folderSelect.value;
-                    const oldFileName = photoNames[currentPhotoIndex];
-                    const oldFileRef = storageRef(storage, `/share/images/${selectedFolder}/${oldFileName}`);
-                    const newFileRef = storageRef(storage, `/share/images/${selectedFolder}/${newFileName}`);
-
-                    getDownloadURL(oldFileRef).then((url) => {
-                        fetch(url).then(res => res.blob()).then((blob) => {
-                            uploadBytesResumable(newFileRef, blob).then(() => {
-                                deleteObject(oldFileRef).then(() => {
-                                    console.log('File renamed successfully');
-                                    photoNames[currentPhotoIndex] = newFileName;
-                                    displayCurrentPhoto();
-                                }).catch(error => {
-                                    console.error('Error deleting old file:', error);
-                                });
-                            }).catch(error => {
-                                console.error('Error uploading new file:', error);
-                            });
-                        });
-                    });
-                } else {
-                    alert('Please enter a valid new name.');
-                }
-            });
-
             uploadButton.addEventListener('click', () => {
                 const file = fileUploader.files[0];
                 const selectedFolder = folderSelect.value;
@@ -346,7 +314,11 @@
 
                             canvas.toBlob((blob) => {
                                 const timestamp = Date.now();
-                                const uniqueFileName = `${timestamp}_${file.name}`;
+
+                                const fileName = file.name.split('.').slice(0, -1).join('.');
+                                const fileExtension = file.name.split('.').pop();
+
+                                const uniqueFileName = `${fileName}_${timestamp}.${fileExtension}`;
                                 const fileRef = storageRef(storage, `/share/images/${selectedFolder}/${uniqueFileName}`);
 
                                 const uploadTask = uploadBytesResumable(fileRef, blob);
