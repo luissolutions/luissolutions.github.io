@@ -10,7 +10,9 @@ darkModeToggle.checked = isDarkModeActive;
 function applyDarkMode(isDarkMode) {
     content.style.filter = isDarkMode ? 'invert(1)' : 'none';
 
-    sidebar.style.filter = isDarkMode ? 'invert(1)' : 'none';
+    if (sidebar) {
+        sidebar.style.filter = isDarkMode ? 'invert(1)' : 'none';
+    }
 }
 
 darkModeToggle.addEventListener('change', () => {
