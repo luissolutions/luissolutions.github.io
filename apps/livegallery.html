@@ -69,7 +69,6 @@
     </header>
     <main>
         <section>
-            <br>
             <label>Select a folder:
                 <select id="folderSelect"></select>
             </label>
@@ -94,13 +93,10 @@
                     </label>
                 </div>
                 <div id="loadingIndicator">Loading...</div>
-                <p>
                 <p id="fileName" style="display: none;"></p>
                 <label for="fileSelect">Select a file:</label>
                 <select id="fileSelect"></select>
-                </p>
                 <div class="gridContainer" id="photoContainer"></div>
-
             </div>
             <button id="downloadButton">Download Photo</button>
             <button id="deleteButton">Delete Photo</button>
@@ -111,149 +107,87 @@
         import { ref, app, database, storage, getStorage, storageRef, getDownloadURL, listAll, uploadBytesResumable, deleteObject, getFunctions, httpsCallable } from './assets/js/firebase-init.js';
 
         document.addEventListener('DOMContentLoaded', function () {
-            const photoContainer = document.getElementById('photoContainer');
-            const prevButton = document.getElementById('prevButton');
-            const nextButton = document.getElementById('nextButton');
-            const downloadButton = document.getElementById('downloadButton');
-            const deleteButton = document.getElementById('deleteButton');
-            const rememberCheckbox = document.getElementById('rememberCheckbox');
-            const folderSelect = document.getElementById('folderSelect');
-            const loadingIndicator = document.getElementById('loadingIndicator');
-            const fileNameDisplay = document.getElementById('fileName');
-            const renameInput = document.getElementById('renameInput');
-            const renameButton = document.getElementById('renameButton');
-            const fileUploader = document.getElementById('fileUploader');
-            const uploadButton = document.getElementById('uploadButton');
-            const uploadStatus = document.getElementById('uploadStatus');
-            const createSubfolderButton = document.getElementById('createSubfolderButton');
-            const newSubfolderInput = document.getElementById('newSubfolderInput');
-            const subfolderStatus = document.getElementById('subfolderStatus');
-            const fileSelect = document.getElementById('fileSelect');
+            const elements = {
+                photoContainer: document.getElementById('photoContainer'),
+                prevButton: document.getElementById('prevButton'),
+                nextButton: document.getElementById('nextButton'),
+                downloadButton: document.getElementById('downloadButton'),
+                deleteButton: document.getElementById('deleteButton'),
+                rememberCheckbox: document.getElementById('rememberCheckbox'),
+                folderSelect: document.getElementById('folderSelect'),
+                loadingIndicator: document.getElementById('loadingIndicator'),
+                fileUploader: document.getElementById('fileUploader'),
+                customFileNameInput: document.getElementById('customFileName'),
+                uploadButton: document.getElementById('uploadButton'),
+                uploadStatus: document.getElementById('uploadStatus'),
+                createSubfolderButton: document.getElementById('createSubfolderButton'),
+                newSubfolderInput: document.getElementById('newSubfolderInput'),
+                subfolderStatus: document.getElementById('subfolderStatus'),
+                fileSelect: document.getElementById('fileSelect'),
+            };
 
             let currentPhotoIndex = 0;
             let photoUrls = [];
             let photoNames = [];
 
-            function fetchPhotoUrls() {
-                loadingIndicator.style.display = 'block';
-                const subfoldersRef = storageRef(storage, '/share/images');
-
-                listAll(subfoldersRef)
-                    .then(result => {
+            function initializeGallery() {
+                elements.loadingIndicator.style.display = 'block';
+                listAll(storageRef(storage, '/share/images'))
+                    .then((result) => {
                         const subfolders = result.prefixes.map(folderRef => folderRef.name);
                         populateSubfolders(subfolders);
-
-                        const lastSelectedFolder = localStorage.getItem('lastSelectedFolder');
-
-                        if (lastSelectedFolder && !subfolders.includes(lastSelectedFolder)) {
-                            createFolderIfNotExists(lastSelectedFolder, () => {
-                                loadImagesFromSubfolder(lastSelectedFolder);
-                            });
-                        } else {
-                            if (lastSelectedFolder) {
-                                folderSelect.value = lastSelectedFolder;
-                            } else {
-                                folderSelect.value = subfolders[0];
-                            }
-                            loadImagesFromSubfolder(folderSelect.value);
-                        }
+                        loadInitialFolder(subfolders);
                     })
-                    .catch(error => {
-                        console.error('Error loading photo URLs:', error);
-                    })
-                    .finally(() => {
-                        loadingIndicator.style.display = 'none';
-                    });
-            }
-
-            function createFolderIfNotExists(folderName, callback) {
-                const folderRef = storageRef(storage, `/share/images/${folderName}/.keep`);
-
-                const emptyFile = new Blob();
-                uploadBytesResumable(folderRef, emptyFile)
-                    .then(() => {
-                        subfolderStatus.textContent = `Subfolder "${folderName}" created!`;
-                        localStorage.setItem('lastSelectedFolder', folderName);
-
-                        folderSelect.innerHTML = '';
-                        fetchPhotoUrls();
-                        if (callback) {
-                            callback();
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error creating subfolder:', error);
-                        subfolderStatus.textContent = 'Failed to create subfolder.';
-                    });
+                    .catch(error => console.error('Error loading photo URLs:', error))
+                    .finally(() => elements.loadingIndicator.style.display = 'none');
             }
 
             function populateSubfolders(subfolders) {
-                folderSelect.innerHTML = '';
-                subfolders.forEach(folder => {
-                    const option = document.createElement('option');
-                    option.value = folder;
-                    option.textContent = folder;
-                    folderSelect.appendChild(option);
-                });
+                elements.folderSelect.innerHTML = subfolders.map(folder => `<option value="${folder}">${folder}</option>`).join('');
+            }
 
+            function loadInitialFolder(subfolders) {
                 const lastSelectedFolder = localStorage.getItem('lastSelectedFolder');
-
                 if (lastSelectedFolder && subfolders.includes(lastSelectedFolder)) {
-                    folderSelect.value = lastSelectedFolder;
-                } else {
-                    folderSelect.value = subfolders[0];
+                    elements.folderSelect.value = lastSelectedFolder;
                 }
-
-                loadImagesFromSubfolder(folderSelect.value);
+                loadImagesFromSubfolder(elements.folderSelect.value || subfolders[0]);
             }
 
             function loadImagesFromSubfolder(subfolder) {
                 const folderRef = storageRef(storage, `/share/images/${subfolder}`);
                 photoUrls = [];
                 photoNames = [];
-
                 listAll(folderRef)
-                    .then(result => {
+                    .then((result) => {
                         const promises = result.items.map(itemRef => {
                             photoNames.push(itemRef.name);
                             return getDownloadURL(itemRef);
                         });
                         return Promise.all(promises);
                     })
-                    .then(urls => {
+                    .then((urls) => {
                         photoUrls = urls;
                         currentPhotoIndex = 0;
                         populateFileDropdown();
                         displayCurrentPhoto();
                     })
-                    .catch(error => {
-                        console.error('Error loading images from subfolder:', error);
-                    });
+                    .catch(error => console.error('Error loading images:', error));
             }
 
             function populateFileDropdown() {
-                fileSelect.innerHTML = '';
-                photoNames.forEach((name, index) => {
-                    const option = document.createElement('option');
-                    option.value = index;
-                    option.textContent = name;
-                    fileSelect.appendChild(option);
-                });
+                elements.fileSelect.innerHTML = photoNames.map((name, index) => `<option value="${index}">${name}</option>`).join('');
             }
 
             function displayCurrentPhoto() {
-                photoContainer.innerHTML = '';
-
-                if (currentPhotoIndex >= 0 && currentPhotoIndex < photoUrls.length) {
+                elements.photoContainer.innerHTML = '';
+                if (photoUrls[currentPhotoIndex]) {
                     const img = createPhotoElement(photoUrls[currentPhotoIndex]);
-                    photoContainer.appendChild(img);
-
-                    fileNameDisplay.textContent = `File: ${photoNames[currentPhotoIndex]}`;
-                    fileSelect.value = currentPhotoIndex;
-
-                    rememberCheckbox.checked = localStorage.getItem(photoUrls[currentPhotoIndex]) === 'true';
+                    elements.photoContainer.appendChild(img);
+                    elements.fileSelect.value = currentPhotoIndex;
+                    elements.rememberCheckbox.checked = localStorage.getItem(photoUrls[currentPhotoIndex]) === 'true';
                 } else {
-                    photoContainer.innerHTML = '<p>No photos available for this subfolder.</p>';
+                    elements.photoContainer.innerHTML = '<p>No photos available for this subfolder.</p>';
                 }
             }
 
@@ -261,22 +195,10 @@
                 const img = document.createElement('img');
                 img.src = src;
                 img.className = 'photo';
-
-                img.addEventListener('click', function (event) {
-                    const clickX = event.clientX - img.getBoundingClientRect().left;
-                    const imgWidth = img.offsetWidth;
-
-                    if (clickX < imgWidth / 2) {
-                        loadPreviousImage();
-                    } else {
-                        loadNextImage();
-                    }
+                img.addEventListener('click', (event) => {
+                    event.clientX < img.offsetWidth / 2 ? loadPreviousImage() : loadNextImage();
                 });
-
-                img.onerror = function () {
-                    img.src = './assets/img/default.png';
-                };
-
+                img.onerror = () => img.src = './assets/img/default.png';
                 return img;
             }
 
@@ -290,181 +212,101 @@
                 displayCurrentPhoto();
             }
 
-            folderSelect.addEventListener('change', () => {
-                localStorage.setItem('lastSelectedFolder', folderSelect.value);
-                loadImagesFromSubfolder(folderSelect.value);
+            function uploadImage() {
+                const file = elements.fileUploader.files[0];
+                const folder = elements.folderSelect.value;
+                if (!file || !folder) {
+                    elements.uploadStatus.textContent = 'Please select an image and a subfolder.';
+                    return;
+                }
+
+                const uniqueFileName = elements.customFileNameInput.value
+                    ? `${elements.customFileNameInput.value}.${file.name.split('.').pop()}`
+                    : `${file.name.split('.').slice(0, -1).join('_')}_${Date.now()}.${file.name.split('.').pop()}`;
+
+                const fileRef = storageRef(storage, `/share/images/${folder}/${uniqueFileName}`);
+                const uploadTask = uploadBytesResumable(fileRef, file);
+
+                uploadTask.on('state_changed',
+                    snapshot => elements.uploadStatus.textContent = `Upload is ${(snapshot.bytesTransferred / snapshot.totalBytes) * 100}% done`,
+                    error => console.error('Upload failed:', error),
+                    () => {
+                        getDownloadURL(fileRef).then(downloadURL => {
+                            photoUrls.push(downloadURL);
+                            photoNames.push(uniqueFileName);
+                            elements.uploadStatus.textContent = 'Upload successful!';
+                            populateFileDropdown();
+                            displayCurrentPhoto();
+                        });
+                    }
+                );
+            }
+
+            function deletePhoto() {
+                if (!confirm('Are you sure you want to delete this photo?')) return;
+                const fileRef = storageRef(storage, `/share/images/${elements.folderSelect.value}/${photoNames[currentPhotoIndex]}`);
+                deleteObject(fileRef)
+                    .then(() => {
+                        photoUrls.splice(currentPhotoIndex, 1);
+                        photoNames.splice(currentPhotoIndex, 1);
+                        elements.uploadStatus.textContent = 'Photo deleted successfully!';
+                        if (photoUrls.length > 0) {
+                            displayCurrentPhoto();
+                        } else {
+                            elements.photoContainer.innerHTML = '<p>No photos available for this subfolder.</p>';
+                        }
+                        populateFileDropdown();
+                        displayCurrentPhoto();
+                    })
+                    .catch(error => console.error('Error deleting photo:', error));
+            }
+
+            elements.folderSelect.addEventListener('change', () => {
+                localStorage.setItem('lastSelectedFolder', elements.folderSelect.value);
+                loadImagesFromSubfolder(elements.folderSelect.value);
             });
 
-            fileSelect.addEventListener('change', () => {
-                currentPhotoIndex = parseInt(fileSelect.value, 10);
+            elements.fileSelect.addEventListener('change', () => {
+                currentPhotoIndex = parseInt(elements.fileSelect.value, 10);
                 displayCurrentPhoto();
             });
 
-            nextButton.addEventListener('click', loadNextImage);
-            prevButton.addEventListener('click', loadPreviousImage);
+            elements.prevButton.addEventListener('click', loadPreviousImage);
+            elements.nextButton.addEventListener('click', loadNextImage);
+            elements.uploadButton.addEventListener('click', uploadImage);
+            elements.deleteButton.addEventListener('click', deletePhoto);
 
-            rememberCheckbox.addEventListener('change', () => {
-                if (currentPhotoIndex >= 0 && currentPhotoIndex < photoUrls.length) {
-                    localStorage.setItem(photoUrls[currentPhotoIndex], rememberCheckbox.checked);
-                }
+            elements.downloadButton.addEventListener('click', () => {
+                const link = document.createElement('a');
+                link.href = photoUrls[currentPhotoIndex];
+                link.download = photoNames[currentPhotoIndex];
+                link.click();
             });
 
-            uploadButton.addEventListener('click', () => {
-                const file = fileUploader.files[0];
-                const selectedFolder = folderSelect.value;
-                const customFileNameInput = document.getElementById('customFileName').value.trim();  // Get the custom file name input
-
-                if (file && selectedFolder) {
-                    const img = new Image();
-                    const reader = new FileReader();
-
-                    reader.onload = function (e) {
-                        img.src = e.target.result;
-
-                        img.onload = function () {
-                            const MAX_WIDTH = 1024;
-                            let width = img.width;
-                            let height = img.height;
-
-                            if (width > MAX_WIDTH) {
-                                height = (MAX_WIDTH / width) * height;
-                                width = MAX_WIDTH;
-                            }
-
-                            const canvas = document.createElement('canvas');
-                            canvas.width = width;
-                            canvas.height = height;
-                            const ctx = canvas.getContext('2d');
-
-                            ctx.drawImage(img, 0, 0, width, height);
-
-                            canvas.toBlob((blob) => {
-                                const timestamp = Date.now();
-
-                                let uniqueFileName;
-
-                                if (customFileNameInput) {
-                                    const fileExtension = file.name.split('.').pop();
-                                    uniqueFileName = `${customFileNameInput}.${fileExtension}`;
-                                } else {
-                                    const fileName = file.name.split('.').slice(0, -1).join('.');
-                                    const fileExtension = file.name.split('.').pop();
-                                    uniqueFileName = `${fileName}_${timestamp}.${fileExtension}`;
-                                }
-
-                                const fileRef = storageRef(storage, `/share/images/${selectedFolder}/${uniqueFileName}`);
-
-                                const uploadTask = uploadBytesResumable(fileRef, blob);
-
-                                uploadTask.on('state_changed',
-                                    (snapshot) => {
-                                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                                        uploadStatus.textContent = `Upload is ${progress}% done`;
-                                    },
-                                    (error) => {
-                                        console.error('Upload failed:', error);
-                                        uploadStatus.textContent = 'Upload failed!';
-                                    },
-                                    () => {
-                                        getDownloadURL(fileRef).then((downloadURL) => {
-                                            uploadStatus.textContent = 'Upload successful!';
-
-                                            photoUrls.push(downloadURL);
-                                            currentPhotoIndex = photoUrls.length - 1;
-                                            displayCurrentPhoto();
-
-                                            loadImagesFromSubfolder(selectedFolder);
-
-                                            const keepFileRef = storageRef(storage, `/share/images/${selectedFolder}/.keep`);
-                                            deleteObject(keepFileRef)
-                                                .then(() => {
-                                                    console.log('.keep file deleted successfully!');
-                                                })
-                                                .catch((error) => {
-                                                    console.error('Error deleting .keep file:', error);
-                                                });
-                                        }).catch((error) => {
-                                            console.error('Error getting download URL:', error);
-                                        });
-                                    }
-                                );
-                            }, file.type);
-                        };
-                    };
-
-                    reader.readAsDataURL(file);
-                } else {
-                    uploadStatus.textContent = 'Please select an image and a subfolder.';
-                }
+            elements.rememberCheckbox.addEventListener('change', () => {
+                localStorage.setItem(photoUrls[currentPhotoIndex], elements.rememberCheckbox.checked);
             });
 
-            downloadButton.addEventListener('click', () => {
-                if (currentPhotoIndex >= 0 && currentPhotoIndex < photoUrls.length) {
-                    const link = document.createElement('a');
-                    link.href = photoUrls[currentPhotoIndex];
-                    link.download = photoNames[currentPhotoIndex];
-                    link.click();
-                } else {
-                    alert("No photo to download.");
+            elements.createSubfolderButton.addEventListener('click', () => {
+                const newSubfolder = elements.newSubfolderInput.value.trim();
+                if (!newSubfolder) {
+                    elements.subfolderStatus.textContent = 'Please enter a subfolder name.';
+                    return;
                 }
-            });
 
-            deleteButton.addEventListener('click', () => {
-                if (confirm('Are you sure you want to delete this photo?')) {
-                    const photoUrl = photoUrls[currentPhotoIndex];
-                    if (!photoUrl) return uploadStatus.textContent = 'No photo to delete.';
-
-                    const fileRef = storageRef(storage, `/share/images/${folderSelect.value}/${photoNames[currentPhotoIndex]}`);
-
-                    deleteObject(fileRef)
-                        .then(() => {
-                            uploadStatus.textContent = 'Photo deleted successfully!';
-
-                            photoUrls.splice(currentPhotoIndex, 1);
-                            photoNames.splice(currentPhotoIndex, 1);
-
-                            if (currentPhotoIndex >= photoUrls.length) {
-                                currentPhotoIndex = photoUrls.length - 1;
-                            }
-
-                            populateFileDropdown();
-
-                            if (photoUrls.length > 0) {
-                                displayCurrentPhoto();
-                            } else {
-                                photoContainer.innerHTML = '<p>No photos available for this subfolder.</p>';
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error deleting photo:', error);
-                            uploadStatus.textContent = 'Failed to delete photo!';
-                        });
-                }
-            });
-
-            createSubfolderButton.addEventListener('click', () => {
-                const newSubfolderName = newSubfolderInput.value.trim();
-                if (newSubfolderName) {
-                    const folderRef = storageRef(storage, `/share/images/${newSubfolderName}/.keep`);
-
-                    const emptyFile = new Blob();
-                    uploadBytesResumable(folderRef, emptyFile).then(() => {
-                        subfolderStatus.textContent = `Subfolder "${newSubfolderName}" created!`;
-
-                        localStorage.setItem('lastSelectedFolder', newSubfolderName);
-
-                        folderSelect.innerHTML = '';
+                const folderRef = storageRef(storage, `/share/images/${newSubfolder}/.keep`);
+                uploadBytesResumable(folderRef, new Blob())
+                    .then(() => {
+                        elements.subfolderStatus.textContent = `Subfolder "${newSubfolder}" created!`;
                         fetchPhotoUrls();
-                    }).catch(error => {
+                    })
+                    .catch(error => {
                         console.error('Error creating subfolder:', error);
-                        subfolderStatus.textContent = 'Failed to create subfolder.';
+                        elements.subfolderStatus.textContent = 'Failed to create subfolder.';
                     });
-                } else {
-                    subfolderStatus.textContent = 'Please enter a subfolder name.';
-                }
             });
 
-            fetchPhotoUrls();
+            initializeGallery();
         });
     </script>
 
