@@ -66,17 +66,19 @@
                 <label for="searchTask">Search Tasks:</label>
                 <input type="text" id="searchTask" placeholder="Enter Name">
             </div>
-            <table id="taskLog">
-                <thead>
-                    <tr>
-                        <th>Job Name</th>
-                        <th>Project</th>
-                        <th>Notes</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
+            <div class="table">
+                <table id="taskLog">
+                    <thead>
+                        <tr>
+                            <th>Job Name</th>
+                            <th>Project</th>
+                            <th>Notes</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
         </section>
     </main>
 
@@ -134,23 +136,33 @@
             }
         };
 
-        const loadTasks = async () => {
+        const loadTasks = () => {
             taskLogTable.innerHTML = '';
             taskSelect.innerHTML = '<option value="" disabled selected>Select</option>';
-            try {
-                const tasksSnapshot = await get(ref(database, 'share/tasks'));
-                if (!tasksSnapshot.exists()) {
+
+            const tasksRef = ref(database, 'share/tasks');
+
+            onValue(tasksRef, (snapshot) => {
+                taskLogTable.innerHTML = '';
+                taskSelect.innerHTML = '<option value="" disabled selected>Select</option>';
+
+                if (!snapshot.exists()) {
                     console.log('No tasks found.');
                     return;
                 }
 
-                const tasks = tasksSnapshot.val();
-                for (const task of Object.values(tasks)) {
+                const tasks = snapshot.val();
+
+                const tasksArray = Object.values(tasks);
+
+                tasksArray.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+
+                tasksArray.forEach(task => {
                     addTaskToTable(task);
-                }
-            } catch (error) {
+                });
+            }, (error) => {
                 console.error('Error loading tasks:', error);
-            }
+            });
         };
 
         const addTaskToTable = (task) => {
@@ -185,16 +197,42 @@
                 return;
             }
 
-            const taskData = { customerName, project, notes };
+            const timestamp = Date.now();
+            let taskData = {
+                id: timestamp,
+                customerName,
+                project,
+                notes
+            };
 
             try {
                 if (isEditing && currentTaskId) {
-                    await update(ref(database, `share/tasks/${currentTaskId}`), taskData);
-                    console.log(`Task ${currentTaskId} updated successfully`);
+                    const taskRef = ref(database, `share/tasks/${currentTaskId}`);
+                    const snapshot = await get(taskRef);
+
+                    if (snapshot.exists()) {
+                        const existingData = snapshot.val();
+
+                        taskData = {
+                            ...existingData,
+                            customerName,
+                            project,
+                            notes,
+                        };
+
+                        await update(taskRef, taskData);
+                        console.log(`Task ${currentTaskId} updated successfully`);
+                    }
                 } else {
-                    const newTaskRef = push(ref(database, 'share/tasks'));
-                    currentTaskId = newTaskRef.key;
-                    await set(newTaskRef, { id: currentTaskId, ...taskData, images: {} });
+                    taskData = {
+                        ...taskData,
+                        startTime: new Date().toISOString(),
+                        endTime: new Date().toISOString(),
+                        images: {}
+                    };
+
+                    currentTaskId = timestamp;
+                    await set(ref(database, `share/tasks/${currentTaskId}`), taskData);
                     console.log(`Task ${currentTaskId} created successfully`);
                     toggleVisibility(imageUploadSection, true);
                 }
