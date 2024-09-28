@@ -21,6 +21,7 @@ const appNamesMap = {
   "View/Edit Inventory": "liveinventory",
   "View/Edit Database": "livedatabase",
   "Gallery/Upload": "livegallery",
+  "Notes/Images": "livejobnotes",
   "Timer": "livetimer",
   "Quiz/Testing": "livelearn",
   "Password Generator": "password",
@@ -52,7 +53,7 @@ function loadIframeContent() {
   const sourceName = document.getElementById('iframeSource').value;
   const fullPath = `../../apps/${appNamesMap[sourceName]}.html`;
   iframe.src = fullPath;
-  localStorage.setItem('lastUsedApp', appDisplayNames.indexOf(sourceName)); // Store the index when loaded manually
+  localStorage.setItem('lastUsedApp', appDisplayNames.indexOf(sourceName));
 }
 
 function updateTime() {
