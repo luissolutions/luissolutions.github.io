@@ -10,7 +10,7 @@
 
 <body>
     <header>
-        <h1>Job Notes with Images</h1>
+        <h1>Task Notes w/ Images</h1>
         <section id="login-section">
             <form id="login-form">
                 <label for="username">Email:</label>
@@ -28,7 +28,7 @@
     <main>
         <section id="taskFormSection" class="task-form">
             <h2>Create or Edit Job</h2>
-            <label for="taskSelect">Select a Job to edit:</label>
+            <label for="taskSelect">Select a Task to edit:</label>
             <select id="taskSelect">
                 <option value="" disabled selected>Select a Project</option>
             </select>
@@ -49,13 +49,14 @@
             <select id="imageSelect">
                 <option value="" disabled selected>Select Image</option>
             </select>
-            <div id="imageControls">
-                <button style="display: none;" id="prevImage">Previous</button>
-                <button style="display: none;" id="nextImage">Next</button>
+            <div style="display: none;" id="imageControls">
+                <button id="prevImage">Previous</button>
+                <button id="nextImage">Next</button>
                 <button id="showAllImages">Show All</button>
             </div>
             <div class="photoGrid">
                 <div id="photoContainer"></div>
+                <div id="paginationControls"></div>
             </div>
             <button id="deleteImageButton">Delete Selected Image</button>
         </section>
@@ -383,109 +384,141 @@
             });
         });
 
-        let currentImageIndex = 0;
-        let imageUrls = [];
+        let currentPage = 1;
+let imagesPerPage = 5; // Number of images to show per page
+let totalPages = 0;
+let imageUrls = [];
 
-        const displayImageByIndex = (index) => {
-            const url = imageUrls[index];
-            displaySelectedImage(url);
-        };
+// Display images for the current page
+const displayImagesForPage = (page) => {
+    const startIndex = (page - 1) * imagesPerPage;
+    const endIndex = Math.min(startIndex + imagesPerPage, imageUrls.length);
 
-        const displayAllImages = () => {
-            photoContainer.innerHTML = '';
-            imageUrls.forEach((url) => {
-                const img = document.createElement('img');
-                img.src = url;
-                img.className = 'thumbnail';
-                img.addEventListener('click', () => displaySelectedImage(url));
-                photoContainer.appendChild(img);
-            });
-        };
+    photoContainer.innerHTML = ''; // Clear the container
 
-        document.getElementById('nextImage').addEventListener('click', () => {
-            currentImageIndex = (currentImageIndex + 1) % imageUrls.length;
-            displayImageByIndex(currentImageIndex);
+    for (let i = startIndex; i < endIndex; i++) {
+        const url = imageUrls[i];
+        const img = document.createElement('img');
+        img.src = url;
+        img.className = 'thumbnail';
+        img.addEventListener('click', () => displaySelectedImage(url));
+        photoContainer.appendChild(img);
+    }
+
+    updatePaginationControls();
+};
+
+const updatePaginationControls = () => {
+    const paginationControls = document.getElementById('paginationControls');
+    paginationControls.innerHTML = ''; // Clear existing controls
+
+    // Create previous button
+    const prevButton = document.createElement('button');
+    prevButton.textContent = 'Previous';
+    prevButton.disabled = currentPage === 1;
+    prevButton.addEventListener('click', () => {
+        if (currentPage > 1) {
+            currentPage--;
+            displayImagesForPage(currentPage);
+        }
+    });
+    paginationControls.appendChild(prevButton);
+
+    // Create page numbers
+    for (let i = 1; i <= totalPages; i++) {
+        const pageButton = document.createElement('button');
+        pageButton.textContent = i;
+        if (i === currentPage) {
+            pageButton.disabled = true;
+        }
+        pageButton.addEventListener('click', () => {
+            currentPage = i;
+            displayImagesForPage(currentPage);
         });
+        paginationControls.appendChild(pageButton);
+    }
 
-        document.getElementById('prevImage').addEventListener('click', () => {
-            currentImageIndex = (currentImageIndex - 1) % imageUrls.length;
-            displayImageByIndex(currentImageIndex);
-        });
+    // Create next button
+    const nextButton = document.createElement('button');
+    nextButton.textContent = 'Next';
+    nextButton.disabled = currentPage === totalPages;
+    nextButton.addEventListener('click', () => {
+        if (currentPage < totalPages) {
+            currentPage++;
+            displayImagesForPage(currentPage);
+        }
+    });
+    paginationControls.appendChild(nextButton);
+};
 
-        document.getElementById('showAllImages').addEventListener('click', () => {
-            displayAllImages();
-        });
+const displaySelectedImage = (url) => {
+    photoContainer.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = url;
+    img.className = 'photo';
+    photoContainer.appendChild(img);
 
-        const displaySelectedImage = (url) => {
-            photoContainer.innerHTML = '';
-            const img = document.createElement('img');
-            img.src = url;
-            img.className = 'photo';
-            photoContainer.appendChild(img);
+    const options = imageSelect.options;
+    for (let i = 0; i < options.length; i++) {
+        if (options[i].value === url) {
+            imageSelect.selectedIndex = i;
+            break;
+        }
+    }
+};
 
-            const options = imageSelect.options;
-            for (let i = 0; i < options.length; i++) {
-                if (options[i].value === url) {
-                    imageSelect.selectedIndex = i;
-                    currentImageIndex = i;
-                    break;
-                }
+const loadTaskImages = async (project) => {
+    const projectImagesRef = ref(database, `share/images/${project}`);
+    const storageImagesRef = storageRef(storage, `share/images/${project}`);
+
+    try {
+        const storageSnapshot = await listAll(storageImagesRef);
+        const databaseSnapshot = await get(projectImagesRef);
+
+        let databaseImages = {};
+        if (databaseSnapshot.exists()) {
+            databaseImages = databaseSnapshot.val();
+        }
+
+        imageSelect.innerHTML = '<option value="" disabled selected>Select an image</option>';
+        imageUrls = [];
+
+        for (const item of storageSnapshot.items) {
+            const fileNameWithoutExtension = removeFileExtension(item.name);
+            let imageUrl;
+
+            if (!databaseImages[fileNameWithoutExtension]) {
+                imageUrl = await getDownloadURL(item);
+                await set(ref(database, `share/images/${project}/${fileNameWithoutExtension}`), imageUrl);
+            } else {
+                imageUrl = databaseImages[fileNameWithoutExtension];
             }
-        };
 
-        const loadTaskImages = async (project) => {
-            const projectImagesRef = ref(database, `share/images/${project}`);
-            const storageImagesRef = storageRef(storage, `share/images/${project}`);
+            imageUrls.push(imageUrl);
+            addImageToDropdown(fileNameWithoutExtension, imageUrl);
+        }
 
-            try {
-                const storageSnapshot = await listAll(storageImagesRef);
-                const databaseSnapshot = await get(projectImagesRef);
+        totalPages = Math.ceil(imageUrls.length / imagesPerPage); // Calculate total pages
+        currentPage = 1; // Reset to the first page
 
-                let databaseImages = {};
-                if (databaseSnapshot.exists()) {
-                    databaseImages = databaseSnapshot.val();
-                }
+        displayImagesForPage(currentPage); // Display the first page of images
+    } catch (error) {
+        console.error('Error loading task images:', error);
+    }
+};
 
-                photoContainer.innerHTML = '';
-                imageSelect.innerHTML = '<option value="" disabled selected>Select an image</option>';
-                imageUrls = [];
+const addImageToDropdown = (name, url) => {
+    const option = document.createElement('option');
+    option.value = url;
+    option.textContent = name;
+    imageSelect.appendChild(option);
+};
 
-                for (const item of storageSnapshot.items) {
-                    const fileNameWithoutExtension = removeFileExtension(item.name);
-                    let imageUrl;
-
-                    if (!databaseImages[fileNameWithoutExtension]) {
-                        imageUrl = await getDownloadURL(item);
-                        await set(ref(database, `share/images/${project}/${fileNameWithoutExtension}`), imageUrl);
-                    } else {
-                        imageUrl = databaseImages[fileNameWithoutExtension];
-                    }
-
-                    imageUrls.push(imageUrl);
-                    addImageToDropdown(fileNameWithoutExtension, imageUrl);
-                }
-
-                displayAllImages();
-
-                if (imageUrls.length > 0) {
-                    currentImageIndex = 0;
-                }
-            } catch (error) {
-                console.error('Error loading task images:', error);
-            }
-        };
-
-        const addImageToDropdown = (name, url) => {
-            const option = document.createElement('option');
-            option.value = url;
-            option.textContent = name;
-            imageSelect.appendChild(option);
-        };
-
-        imageSelect.addEventListener('change', (e) => {
-            const selectedUrl = e.target.value;
-            displaySelectedImage(selectedUrl);
-        });
+// Event listener for image selection in dropdown
+imageSelect.addEventListener('change', (e) => {
+    const selectedUrl = e.target.value;
+    displaySelectedImage(selectedUrl);
+});
 
         saveTaskButton.addEventListener('click', saveTask);
         uploadButton.addEventListener('click', uploadImage);
