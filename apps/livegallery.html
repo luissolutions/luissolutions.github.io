@@ -144,8 +144,15 @@
                 listAll(storageRef(storage, '/share/images'))
                     .then((result) => {
                         const subfolders = result.prefixes.map(folderRef => folderRef.name);
+                        const lastSelectedFolder = localStorage.getItem('lastSelectedFolder');
+
                         populateSubfolders(subfolders);
-                        loadInitialFolder(subfolders);
+
+                        if (lastSelectedFolder && !subfolders.includes(lastSelectedFolder)) {
+                            createMissingFolder(lastSelectedFolder);
+                        } else {
+                            loadInitialFolder(subfolders);
+                        }
                     })
                     .catch(error => console.error('Error loading photo URLs:', error))
                     .finally(() => elements.loadingIndicator.style.display = 'none');
@@ -224,6 +231,36 @@
                 displayCurrentPhoto();
             }
 
+            function resizeImage(file, maxWidth = 1024) {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    const canvas = document.createElement('canvas');
+                    const reader = new FileReader();
+
+                    reader.onload = (e) => {
+                        img.src = e.target.result;
+                    };
+
+                    img.onload = () => {
+                        if (img.width > maxWidth) {
+                            const scaleFactor = maxWidth / img.width;
+                            canvas.width = maxWidth;
+                            canvas.height = img.height * scaleFactor;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                            canvas.toBlob((blob) => {
+                                resolve(blob);
+                            }, file.type, 0.95);
+                        } else {
+                            resolve(file);
+                        }
+                    };
+
+                    img.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+            }
+
             function uploadImage() {
                 const file = elements.fileUploader.files[0];
                 const folder = elements.folderSelect.value;
@@ -232,27 +269,43 @@
                     return;
                 }
 
-                const uniqueFileName = elements.customFileNameInput.value
-                    ? `${elements.customFileNameInput.value}.${file.name.split('.').pop()}`
-                    : `${file.name.split('.').slice(0, -1).join('_')}_${Date.now()}.${file.name.split('.').pop()}`;
+                resizeImage(file).then((resizedFile) => {
+                    const uniqueFileName = elements.customFileNameInput.value
+                        ? `${elements.customFileNameInput.value}.${file.name.split('.').pop()}`
+                        : `${file.name.split('.').slice(0, -1).join('_')}_${Date.now()}.${file.name.split('.').pop()}`;
 
-                const fileRef = storageRef(storage, `/share/images/${folder}/${uniqueFileName}`);
-                const uploadTask = uploadBytesResumable(fileRef, file);
+                    const fileRef = storageRef(storage, `/share/images/${folder}/${uniqueFileName}`);
+                    const uploadTask = uploadBytesResumable(fileRef, resizedFile);
 
-                uploadTask.on('state_changed',
-                    snapshot => elements.uploadStatus.textContent = `Upload is ${(snapshot.bytesTransferred / snapshot.totalBytes) * 100}% done`,
-                    error => console.error('Upload failed:', error),
-                    () => {
-                        getDownloadURL(fileRef).then(downloadURL => {
-                            photoUrls.push(downloadURL);
-                            photoNames.push(uniqueFileName);
-                            elements.uploadStatus.textContent = 'Upload successful!';
-                            populateFileDropdown();
-                            displayCurrentPhoto();
-                            initializeGallery();
-                        });
-                    }
-                );
+                    uploadTask.on('state_changed',
+                        snapshot => elements.uploadStatus.textContent = `Upload is ${(snapshot.bytesTransferred / snapshot.totalBytes) * 100}% done`,
+                        error => console.error('Upload failed:', error),
+                        () => {
+                            getDownloadURL(fileRef).then(downloadURL => {
+                                photoUrls.push(downloadURL);
+                                photoNames.push(uniqueFileName);
+                                elements.uploadStatus.textContent = 'Upload successful!';
+                                populateFileDropdown();
+                                displayCurrentPhoto();
+                                deleteKeepFileIfPresent(folder); // Delete .keep file after successful upload
+                            });
+                        }
+                    );
+                }).catch(error => {
+                    console.error('Error resizing the image:', error);
+                    elements.uploadStatus.textContent = 'Image resize failed.';
+                });
+            }
+
+            function deleteKeepFileIfPresent(folder) {
+                const keepFileRef = storageRef(storage, `/share/images/${folder}/.keep`);
+                deleteObject(keepFileRef)
+                    .then(() => {
+                        console.log('.keep file deleted successfully');
+                    })
+                    .catch((error) => {
+                        console.error('Error deleting .keep file:', error);
+                    });
             }
 
             function deletePhoto() {
@@ -325,6 +378,20 @@
                         window.open(url, '_blank');
                     }, index * 500);
                 });
+            }
+
+            function createMissingFolder(folderName) {
+                const folderRef = storageRef(storage, `/share/images/${folderName}/.keep`);
+                uploadBytesResumable(folderRef, new Blob())
+                    .then(() => {
+                        elements.subfolderStatus.textContent = `Folder "${folderName}" has been created.`;
+                        localStorage.setItem('lastSelectedFolder', folderName);
+                        initializeGallery();
+                    })
+                    .catch(error => {
+                        console.error('Error creating missing folder:', error);
+                        elements.subfolderStatus.textContent = 'Failed to create missing folder.';
+                    });
             }
 
             elements.downloadAllButton.addEventListener('click', downloadAllImages);
