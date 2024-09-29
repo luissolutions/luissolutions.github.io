@@ -533,6 +533,8 @@
                     option.dataset.price = parts[part].price;
                     option.dataset.actualPrice = parts[part].actualPrice;
                     option.dataset.quantity = parts[part].quantity;
+                    option.dataset.category = category;
+                    option.dataset.component = subcategory;
                     partSelector.appendChild(option);
                 }
             });
@@ -613,14 +615,6 @@
                 amountPaid: amountPaid,
             };
 
-            for (const part of newInvoiceData.parts) {
-                try {
-                    await updatePartQuantityInDatabase(part.category, part.component, part.part, part.quantity);
-                } catch (error) {
-                    console.error(`Error updating part ${part.part}:`, error);
-                }
-            }
-
             const invoiceRef = ref(database, 'share/tasks/' + invoiceId);
 
             try {
@@ -666,21 +660,36 @@
         }
 
         function addPartRow(partName, category = null, component = null, quantity = 1, price = 0, actualPrice = 0) {
-            if (!category || !component) {
-                const selectedOption = partSelector.querySelector(`option[value="${partName}"]`);
-                if (!selectedOption) return;
+            const selectedOption = partSelector.querySelector(`option[value="${partName}"]`);
 
-                price = parseFloat(selectedOption.dataset.price) || 0;
-                actualPrice = parseFloat(selectedOption.dataset.actualPrice) || 0;
-                category = selectedOption.dataset.category;
-                component = selectedOption.dataset.component;
+            if (!selectedOption) {
+                console.error('No selected option found for part.');
+                return;
+            }
+
+            category = selectedOption.dataset.category;
+            component = selectedOption.dataset.component;
+            price = parseFloat(selectedOption.dataset.price) || price;
+            actualPrice = parseFloat(selectedOption.dataset.actualPrice) || actualPrice;
+
+            console.log(`Add Part Row - Category: ${category}, Component: ${component}, Part Name: ${partName}, Quantity: ${quantity}`);
+
+            if (!category || !component) {
+                console.error('Category or component is missing, cannot add part.');
+                return;
             }
 
             const existingRow = partsTableBody.querySelector(`tr[data-part="${partName}"][data-category="${category}"][data-component="${component}"]`);
+
             if (existingRow) {
                 const quantityInput = existingRow.querySelector('input[name="part-quantity"]');
                 quantityInput.value = parseInt(quantityInput.value, 10) + quantity;
                 updatePartRowTotal(existingRow);
+
+                updatePartQuantityInDatabase(category, component, partName, quantity);
+
+                quantityInput.addEventListener('input', (event) => handleQuantityChange(event, partName, category, component));
+
             } else {
                 const newRow = document.createElement('tr');
                 newRow.dataset.part = partName;
@@ -688,12 +697,12 @@
                 newRow.dataset.component = component;
 
                 newRow.innerHTML = `
-                    <td id="populated-part">${partName}</td>
-                    <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
-                    <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
-                    <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
-                    <td><input type="number" name="part-total" min="0" value="${price * quantity}" readonly></td>
-                `;
+            <td id="populated-part">${partName}</td>
+            <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
+            <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
+            <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
+            <td><input type="number" name="part-total" min="0" value="${price * quantity}" readonly></td>
+        `;
 
                 partsTableBody.appendChild(newRow);
 
@@ -702,6 +711,10 @@
 
                 priceInput.addEventListener('input', () => updatePartRowTotal(newRow));
                 quantityInput.addEventListener('input', () => updatePartRowTotal(newRow));
+
+                quantityInput.addEventListener('input', (event) => handleQuantityChange(event, partName, category, component));
+
+                updatePartQuantityInDatabase(category, component, partName, quantity);
             }
 
             updateTotals();
@@ -709,16 +722,36 @@
             updateRemainingBalance();
         }
 
+        function handleQuantityChange(event, partName, category, component) {
+            const newQuantity = parseInt(event.target.value, 10);
+            const oldQuantity = parseInt(event.target.defaultValue, 10);
+
+            const quantityChange = newQuantity - oldQuantity;
+
+            event.target.defaultValue = newQuantity;
+
+            updatePartQuantityInDatabase(category, component, partName, quantityChange);
+        }
+
         function delPartRow() {
             const lastRow = partsTableBody.querySelector('tr:last-child');
 
             if (lastRow) {
-                partsTableBody.removeChild(lastRow);
-            }
+                const partName = lastRow.dataset.part;
+                const category = lastRow.dataset.category;
+                const component = lastRow.dataset.component;
+                const quantity = parseInt(lastRow.querySelector('input[name="part-quantity"]').value, 10);
 
-            updateTotals();
-            updatePriceDifference();
-            updateRemainingBalance();
+                partsTableBody.removeChild(lastRow);
+
+                updatePartQuantityInDatabase(category, component, partName, -quantity);
+
+                updateTotals();
+                updatePriceDifference();
+                updateRemainingBalance();
+            } else {
+                console.error('No parts available to undo.');
+            }
         }
 
         function addLaborRow() {
@@ -821,19 +854,27 @@
             totalInput.value = total.toFixed(2);
         }
 
-        async function updatePartQuantityInDatabase(category, component, partName, quantity) {
-            if (!category || !component || !partName || quantity === undefined) {
+        async function updatePartQuantityInDatabase(category, component, partName, quantityChange) {
+            if (!category || !component || !partName || quantityChange === undefined) {
+                console.error('Missing parameters to update the database.');
                 throw new Error('Missing parameters to update database.');
             }
 
             const partRef = ref(database, `share/inventory/${category}/${component}/${partName}/quantity`);
 
             try {
+                const partSnapshot = await get(partRef);
+                if (!partSnapshot.exists()) {
+                    console.error(`Error: Part "${partName}" does not exist in database.`);
+                    throw new Error(`Part "${partName}" does not exist in database.`);
+                }
+
                 await runTransaction(partRef, (currentQuantity) => {
                     if (currentQuantity === null) {
                         throw new Error('Part does not exist in database.');
                     } else {
-                        const updatedQuantity = currentQuantity - parseInt(quantity, 10);
+                        const currentQuantityNumber = parseInt(currentQuantity, 10);
+                        const updatedQuantity = currentQuantityNumber - quantityChange;
                         if (updatedQuantity < 0) {
                             throw new Error('Not enough stock.');
                         }
