@@ -289,7 +289,7 @@
                             photoContainer.innerHTML = '';
                             imageSelect.innerHTML = '<option value="" disabled selected>Select an image</option>';
 
-                            await loadTaskImages(project); // Call this to refresh the image list
+                            await loadTaskImages(project);
                         }, file.type);
                     };
                 };
@@ -412,24 +412,32 @@
 
             const prevButton = document.createElement('button');
             prevButton.textContent = 'Previous';
-            prevButton.disabled = imageSelect.selectedIndex <= 1;
+            prevButton.disabled = currentPage === 1;
             prevButton.addEventListener('click', () => {
-                if (imageSelect.selectedIndex > 1) {
-                    imageSelect.selectedIndex--;
-                    const selectedUrl = imageSelect.value;
-                    displaySelectedImage(selectedUrl);
+                if (currentPage > 1) {
+                    currentPage--;
+                    displayImagesForPage(currentPage);
                 }
             });
             paginationControls.appendChild(prevButton);
 
+            for (let i = 1; i <= totalPages; i++) {
+                const pageButton = document.createElement('button');
+                pageButton.textContent = i;
+                pageButton.addEventListener('click', () => {
+                    currentPage = i;
+                    displayImagesForPage(currentPage);
+                });
+                paginationControls.appendChild(pageButton);
+            }
+
             const nextButton = document.createElement('button');
             nextButton.textContent = 'Next';
-            nextButton.disabled = imageSelect.selectedIndex >= imageSelect.options.length - 1;
+            nextButton.disabled = currentPage === totalPages;
             nextButton.addEventListener('click', () => {
-                if (imageSelect.selectedIndex < imageSelect.options.length - 1) {
-                    imageSelect.selectedIndex++;
-                    const selectedUrl = imageSelect.value;
-                    displaySelectedImage(selectedUrl);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    displayImagesForPage(currentPage);
                 }
             });
             paginationControls.appendChild(nextButton);
@@ -437,10 +445,14 @@
 
         const displaySelectedImage = (url) => {
             photoContainer.innerHTML = '';
+            const imgWrapper = document.createElement('div');
+            imgWrapper.className = 'img-wrapper';
+
             const img = document.createElement('img');
             img.src = url;
             img.className = 'photo';
-            photoContainer.appendChild(img);
+            imgWrapper.appendChild(img);
+            photoContainer.appendChild(imgWrapper);
 
             const options = imageSelect.options;
             for (let i = 0; i < options.length; i++) {
@@ -449,12 +461,34 @@
                     break;
                 }
             }
+
+            imgWrapper.addEventListener('click', (event) => {
+                const rect = img.getBoundingClientRect();
+                const x = event.clientX - rect.left;
+
+                if (x < rect.width / 2) {
+                    goToPreviousImage();
+                } else {
+                    goToNextImage();
+                }
+            });
         };
 
-        imageSelect.addEventListener('change', (e) => {
-            const selectedUrl = e.target.value;
-            displaySelectedImage(selectedUrl);
-        });
+        const goToPreviousImage = () => {
+            if (imageSelect.selectedIndex > 1) {
+                imageSelect.selectedIndex--;
+                const selectedUrl = imageSelect.value;
+                displaySelectedImage(selectedUrl);
+            }
+        };
+
+        const goToNextImage = () => {
+            if (imageSelect.selectedIndex < imageSelect.options.length - 1) {
+                imageSelect.selectedIndex++;
+                const selectedUrl = imageSelect.value;
+                displaySelectedImage(selectedUrl);
+            }
+        };
 
         const loadTaskImages = async (project) => {
             const projectImagesRef = ref(database, `share/images/${project}`);
