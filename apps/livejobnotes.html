@@ -27,7 +27,7 @@
 
     <main>
         <section id="taskFormSection" class="task-form">
-            <h2>Create or Edit Job</h2>
+            <h2>Create or Edit Task</h2>
             <label for="taskSelect">Select a Task to edit:</label>
             <select id="taskSelect">
                 <option value="" disabled selected>Select a Project</option>
@@ -412,32 +412,24 @@
 
             const prevButton = document.createElement('button');
             prevButton.textContent = 'Previous';
-            prevButton.disabled = currentPage === 1;
+            prevButton.disabled = imageSelect.selectedIndex <= 1;
             prevButton.addEventListener('click', () => {
-                if (currentPage > 1) {
-                    currentPage--;
-                    displayImagesForPage(currentPage);
+                if (imageSelect.selectedIndex > 1) {
+                    imageSelect.selectedIndex--;
+                    const selectedUrl = imageSelect.value;
+                    displaySelectedImage(selectedUrl);
                 }
             });
             paginationControls.appendChild(prevButton);
 
-            for (let i = 1; i <= totalPages; i++) {
-                const pageButton = document.createElement('button');
-                pageButton.textContent = i;
-                pageButton.addEventListener('click', () => {
-                    currentPage = i;
-                    displayImagesForPage(currentPage);
-                });
-                paginationControls.appendChild(pageButton);
-            }
-
             const nextButton = document.createElement('button');
             nextButton.textContent = 'Next';
-            nextButton.disabled = currentPage === totalPages;
+            nextButton.disabled = imageSelect.selectedIndex >= imageSelect.options.length - 1;
             nextButton.addEventListener('click', () => {
-                if (currentPage < totalPages) {
-                    currentPage++;
-                    displayImagesForPage(currentPage);
+                if (imageSelect.selectedIndex < imageSelect.options.length - 1) {
+                    imageSelect.selectedIndex++;
+                    const selectedUrl = imageSelect.value;
+                    displaySelectedImage(selectedUrl);
                 }
             });
             paginationControls.appendChild(nextButton);
@@ -459,6 +451,11 @@
             }
         };
 
+        imageSelect.addEventListener('change', (e) => {
+            const selectedUrl = e.target.value;
+            displaySelectedImage(selectedUrl);
+        });
+
         const loadTaskImages = async (project) => {
             const projectImagesRef = ref(database, `share/images/${project}`);
             const storageImagesRef = storageRef(storage, `share/images/${project}`);
@@ -477,6 +474,12 @@
 
                 for (const item of storageSnapshot.items) {
                     const fileNameWithoutExtension = removeFileExtension(item.name);
+
+                    if (fileNameWithoutExtension.includes('.') || fileNameWithoutExtension.includes('#') || fileNameWithoutExtension.includes('$') || fileNameWithoutExtension.includes('[') || fileNameWithoutExtension.includes(']')) {
+                        console.warn(`Skipping invalid file: ${item.name}`);
+                        continue;
+                    }
+
                     let imageUrl;
 
                     if (!databaseImages[fileNameWithoutExtension]) {
@@ -488,6 +491,12 @@
 
                     imageUrls.push(imageUrl);
                     addImageToDropdown(fileNameWithoutExtension, imageUrl);
+                }
+
+                if (imageUrls.length === 0) {
+                    const placeholderUrl = './assets/img/default.png';
+                    imageUrls.push(placeholderUrl);
+                    addImageToDropdown('Placeholder Image', placeholderUrl);
                 }
 
                 totalPages = Math.ceil(imageUrls.length / imagesPerPage);
