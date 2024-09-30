@@ -12,12 +12,10 @@ window.onclick = function (event) {
 
 const appNamesMap = {
   "Time Logging": "livetasker",
-  "Task Notes": "livejobnotes",
   "Notes App": "livenotes",
   "Fuel Logging": "livegas",
   "Quote/Invoice Maker": "liveinvoice",
   "Mileage Logging": "livemileage",
-  "Task Images": "livegallery",
   "Financial Logging": "livebudget",
   "Favorites/Bookmarks": "livelinks",
   "View/Edit Inventory": "liveinventory",
