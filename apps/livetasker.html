@@ -172,6 +172,8 @@
         const taskLogTable = document.getElementById('task-log').getElementsByTagName('tbody')[0];
         const totalHoursSpan = document.getElementById('totalHours');
         const currentTaskTimeDisplay = document.getElementById('currentTaskTime');
+        const deleteImageButton = document.getElementById('deleteImageButton');
+
         let sortOrder = 'asc';
 
         let currentTask = null;
@@ -764,7 +766,6 @@
 
         document.addEventListener('DOMContentLoaded', createButtons);
 
-
         function getGeolocation(callback) {
             if ('geolocation' in navigator) {
                 navigator.geolocation.getCurrentPosition(position => {
@@ -1043,6 +1044,37 @@
                 displaySelectedImage(selectedUrl);
             }
         });
+
+        const deleteSelectedImage = async () => {
+            const selectedImageUrl = imageSelect.value;
+            if (!selectedImageUrl || !projectInput.value.trim()) return;
+
+            if (!confirm('Are you sure you want to delete this image?')) {
+                return;
+            }
+
+            const project = projectInput.value.trim();
+
+            try {
+                const imageRef = storageRef(storage, selectedImageUrl);
+                await deleteObject(imageRef);
+
+                const projectImagesRef = ref(database, `share/images/${project}`);
+                const imagesSnapshot = await get(projectImagesRef);
+                const images = imagesSnapshot.val();
+                const imageKey = Object.keys(images).find(key => images[key] === selectedImageUrl);
+
+                if (imageKey) {
+                    await remove(ref(database, `share/images/${project}/${imageKey}`));
+                    loadTaskImages(project);
+                    photoContainer.innerHTML = '';
+                }
+            } catch (error) {
+                console.error('Error deleting image:', error);
+            }
+        };
+        
+        deleteImageButton.addEventListener('click', deleteSelectedImage);
 
         loadTasksIntoSelect();
     </script>
