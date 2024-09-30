@@ -24,7 +24,7 @@
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip-utils/0.1.0/jszip-utils.min.js"></script>    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip-utils/0.1.0/jszip-utils.min.js"></script>
 </head>
 
 <body>
@@ -47,27 +47,57 @@
 
     <main>
         <section id="task-manager" class="app-section">
-            <div class="name-column-input">
-                <input type="text" id="taskName" placeholder="Name">
-            </div>
-            <div class="project-column-input">
-                <input type="text" id="project" placeholder="Project">
-            </div>
-            <div class="start-odometer-column-input odometer-input">
-                <input type="number" id="startOdometer" placeholder="Start Odometer">
-            </div>
-            <div class="end-odometer-column-input odometer-input">
-                <input type="number" id="endOdometer" placeholder="End Odometer" disabled>
-            </div>
-            <div class="notes-column-input">
-                <textarea id="taskNotes" placeholder="Notes"></textarea>
-            </div>
-            <button id="toggleTimer">Start/Stop Timer</button>
-            <div>Timer: <span id="currentTaskTime">00:00:00</span></div>
+
             <div>
+                <div class="name-column-input">
+                    <input type="text" id="taskName" placeholder="Name">
+                </div>
+                <div class="project-column-input">
+                    <input type="text" id="project" placeholder="Project">
+                </div>
+                <div class="start-odometer-column-input odometer-input">
+                    <input type="number" id="startOdometer" placeholder="Start Odometer">
+                </div>
+                <div class="end-odometer-column-input odometer-input">
+                    <input type="number" id="endOdometer" placeholder="End Odometer" disabled>
+                </div>
+                <div class="notes-column-input">
+                    <textarea id="taskNotes" placeholder="Notes"></textarea>
+                </div>
+                <button id="toggleTimer">Start/Stop Timer</button>
+                <div>Timer: <span id="currentTaskTime">00:00:00</span></div>
+            </div>
+
+            <div id="imageUploadSection" class="hidden">
+                <p>Images for Task</p>
+                <input type="file" id="fileUploader" accept="image/*">
+                <input type="text" id="imageNameInput" placeholder="Enter Image Name">
+                <button id="uploadButton">Upload Image</button>
+                <br>
+                <label for="imageSelect">Existing Images:</label>
+                <select id="imageSelect">
+                    <option value="" disabled selected>Select Image</option>
+                </select>
+                <div class="photoGrid">
+                    <div id="photoContainer"></div>
+                    <div id="paginationControls"></div>
+                </div>
+                <button id="deleteImageButton">Delete Selected Image</button>
+            </div>
+
+            <div>
+                <br>
                 <label for="searchTask">Search Tasks:</label>
                 <input type="text" id="searchTask" placeholder="Enter Name">
             </div>
+
+            <div>
+                <label for="taskSelect">Select Task:</label>
+                <select id="taskSelect">
+                    <option value="" disabled selected>Select Task</option>
+                </select>
+            </div>
+
             <div class="checkbox">
                 <label style="display: none;"><input type="checkbox" class="toggle-column" value="name-column" checked>
                     Name</label>
@@ -83,6 +113,7 @@
                 <label><input type="checkbox" class="toggle-column" value="length-column" checked> Length |</label>
                 <label><input type="checkbox" class="toggle-column" value="notes-column" checked> Notes</label>
             </div>
+
             <div class="table">
                 <table id="task-log">
                     <thead>
@@ -103,10 +134,12 @@
                     <tbody></tbody>
                 </table>
             </div>
+
             <div>
                 <h3>Hours:</h3>
                 <span id="dailyTimeSpent"></span>
             </div>
+
             <div>
                 <b>Total Hours: </b><span id="totalHours">0</span>
             </div>
@@ -119,13 +152,16 @@
                 <button id="calculateHoursBtn">Calculate Hours</button>
                 <div>Total Hours Between Dates: <span id="calculatedHours">0</span></div>
             </div>
+
             <div id="buttons"></div>
+
             <button id="goToTopBtn">Go to Top ⤒</button>
+
         </section>
     </main>
 
     <script type="module">
-        import { database, ref, set, get, push, onValue, remove, update } from './assets/js/firebase-init.js';
+        import { database, ref, set, get, push, onValue, remove, update, storageRef, uploadBytesResumable, getDownloadURL, deleteObject, listAll, getStorage, storage } from './assets/js/firebase-init.js';
 
         const taskNameInput = document.getElementById('taskName');
         const projectInput = document.getElementById('project');
@@ -140,6 +176,11 @@
 
         let currentTask = null;
         let timerInterval = null;
+        let currentTaskId = null;
+        let imageUrls = [];
+        let currentPage = 1;
+        let imagesPerPage = 5;
+        let totalPages = 0;
 
         toggleTimerBtn.addEventListener('click', toggleTimer);
 
@@ -258,17 +299,12 @@
             lengthCell.innerText = task.endTime ? calculateTaskLength(task) : '';
             notesCell.innerText = task.notes;
 
-            const imagesButton = document.createElement('button');
-            imagesButton.classList.add('images-button');
-            imagesButton.innerText = 'Images';
-
-            imagesButton.addEventListener('click', () => {
-                localStorage.setItem('lastSelectedFolder', task.project);
-
-                window.location.href = 'livegallery.html';
+            const loadTaskButton = document.createElement('button');
+            loadTaskButton.innerText = 'Load';
+            loadTaskButton.addEventListener('click', () => {
+                loadTaskForEditing(task.id);
             });
-
-            actionsCell.appendChild(imagesButton);
+            actionsCell.appendChild(loadTaskButton);
 
             nameCell.contentEditable = true;
             projectCell.contentEditable = true;
@@ -291,6 +327,26 @@
             deleteButton.innerText = 'Delete';
             deleteButton.addEventListener('click', () => confirmDeleteTask(task.id, row));
             actionsCell.appendChild(deleteButton);
+        }
+
+        async function loadTaskForEditing(taskId) {
+            currentTaskId = taskId;
+            const taskRef = ref(database, `share/tasks/${taskId}`);
+
+            const snapshot = await get(taskRef);
+            if (snapshot.exists()) {
+                const task = snapshot.val();
+                taskNameInput.value = task.customerName || '';
+                projectInput.value = task.project || '';
+                taskNotesTextarea.value = task.notes || '';
+                startOdometerInput.value = task.startOdometer || '';
+                endOdometerInput.value = task.endOdometer || '';
+                endOdometerInput.disabled = !task.endOdometer;
+
+                loadTaskImages(task.project);
+            } else {
+                console.error('Task not found');
+            }
         }
 
         function confirmDeleteTask(taskId, row) {
@@ -785,6 +841,193 @@
                 }
             });
         });
+
+        function loadTasksIntoSelect() {
+            const taskRef = ref(database, 'share/tasks');
+            onValue(taskRef, (snapshot) => {
+                taskSelect.innerHTML = '<option value="" disabled selected>Select Task</option>';
+                snapshot.forEach(taskSnapshot => {
+                    const task = taskSnapshot.val();
+                    const option = document.createElement('option');
+                    option.value = task.id;
+                    option.text = `${task.customerName} (${task.project})`;
+                    taskSelect.appendChild(option);
+                });
+            });
+        }
+
+        taskSelect.addEventListener('change', async (event) => {
+            currentTaskId = event.target.value;
+            if (!currentTaskId) return;
+
+            const taskRef = ref(database, `share/tasks/${currentTaskId}`);
+            const snapshot = await get(taskRef);
+            if (snapshot.exists()) {
+                const task = snapshot.val();
+                taskNameInput.value = task.customerName || '';
+                projectInput.value = task.project || '';
+                taskNotesTextarea.value = task.notes || '';
+                startOdometerInput.value = task.startOdometer || '';
+                endOdometerInput.value = task.endOdometer || '';
+                endOdometerInput.disabled = !task.endOdometer;
+
+                loadTaskImages(task.project);
+            }
+        });
+
+        async function loadTaskImages(project) {
+            imageUrls = [];
+            imageSelect.innerHTML = '<option value="" disabled selected>Select Image</option>';
+            photoContainer.innerHTML = '';
+
+            const storageImagesRef = storageRef(storage, `share/images/${project}`);
+            const storageSnapshot = await listAll(storageImagesRef);
+
+            for (const item of storageSnapshot.items) {
+                const imageUrl = await getDownloadURL(item);
+                const option = document.createElement('option');
+                option.value = imageUrl;
+                option.textContent = item.name;
+                imageSelect.appendChild(option);
+                imageUrls.push(imageUrl);
+            }
+
+            totalPages = Math.ceil(imageUrls.length / imagesPerPage);
+
+            displayImagesForPage(1);
+        }
+
+        uploadButton.addEventListener('click', async () => {
+            const files = fileUploader.files;
+            if (!files.length || !currentTaskId || !projectInput.value.trim()) {
+                alert('Please select a task, project, and choose an image.');
+                return;
+            }
+
+            const file = files[0];
+            const fileName = file.name.split('.').slice(0, -1).join('.');
+            const fullFileName = `${fileName}.${file.name.split('.').pop()}`;
+            const project = projectInput.value.trim();
+
+            const storageReference = storageRef(storage, `share/images/${project}/${fullFileName}`);
+            const uploadTask = uploadBytesResumable(storageReference, file);
+
+            uploadTask.on('state_changed', null, null, async () => {
+                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                await set(ref(database, `share/images/${project}/${fileName}`), downloadURL);
+                await loadTaskImages(project);
+            });
+        });
+
+        const displayImagesForPage = (page) => {
+            currentPage = Math.max(1, Math.min(page, totalPages));
+
+            const startIndex = (currentPage - 1) * imagesPerPage;
+            const endIndex = Math.min(startIndex + imagesPerPage, imageUrls.length);
+
+            photoContainer.innerHTML = '';
+
+            for (let i = startIndex; i < endIndex; i++) {
+                const url = imageUrls[i];
+                const img = document.createElement('img');
+                img.src = url;
+                img.className = 'thumbnail';
+                img.addEventListener('click', () => displaySelectedImage(url));
+                photoContainer.appendChild(img);
+            }
+
+            updatePaginationControls();
+        };
+
+        const updatePaginationControls = () => {
+            const paginationControls = document.getElementById('paginationControls');
+            paginationControls.innerHTML = '';
+
+            const prevButton = document.createElement('button');
+            prevButton.textContent = 'Previous Page';
+            prevButton.disabled = currentPage === 1;
+            prevButton.addEventListener('click', () => {
+                if (currentPage > 1) {
+                    displayImagesForPage(currentPage - 1);
+                }
+            });
+            paginationControls.appendChild(prevButton);
+
+            for (let i = 1; i <= totalPages; i++) {
+                const pageButton = document.createElement('button');
+                pageButton.textContent = i;
+                pageButton.addEventListener('click', () => {
+                    displayImagesForPage(i);
+                });
+                paginationControls.appendChild(pageButton);
+            }
+
+            const nextButton = document.createElement('button');
+            nextButton.textContent = 'Next Page';
+            nextButton.disabled = currentPage === totalPages;
+            nextButton.addEventListener('click', () => {
+                if (currentPage < totalPages) {
+                    displayImagesForPage(currentPage + 1);
+                }
+            });
+            paginationControls.appendChild(nextButton);
+        };
+
+        const displaySelectedImage = (url) => {
+            photoContainer.innerHTML = '';
+            const imgWrapper = document.createElement('div');
+            imgWrapper.className = 'img-wrapper';
+
+            const img = document.createElement('img');
+            img.src = url;
+            img.className = 'photo';
+            imgWrapper.appendChild(img);
+            photoContainer.appendChild(imgWrapper);
+
+            const options = imageSelect.options;
+            for (let i = 0; i < options.length; i++) {
+                if (options[i].value === url) {
+                    imageSelect.selectedIndex = i;
+                    break;
+                }
+            }
+
+            imgWrapper.addEventListener('click', (event) => {
+                const rect = img.getBoundingClientRect();
+                const x = event.clientX - rect.left;
+
+                if (x < rect.width / 2) {
+                    goToPreviousImage();
+                } else {
+                    goToNextImage();
+                }
+            });
+        };
+
+        const goToPreviousImage = () => {
+            if (imageSelect.selectedIndex > 1) {
+                imageSelect.selectedIndex--;
+                const selectedUrl = imageSelect.value;
+                displaySelectedImage(selectedUrl);
+            }
+        };
+
+        const goToNextImage = () => {
+            if (imageSelect.selectedIndex < imageSelect.options.length - 1) {
+                imageSelect.selectedIndex++;
+                const selectedUrl = imageSelect.value;
+                displaySelectedImage(selectedUrl);
+            }
+        };
+
+        imageSelect.addEventListener('change', (event) => {
+            const selectedUrl = event.target.value;
+            if (selectedUrl) {
+                displaySelectedImage(selectedUrl);
+            }
+        });
+
+        loadTasksIntoSelect();
     </script>
 </body>
 
