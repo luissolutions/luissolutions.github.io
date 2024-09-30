@@ -11,18 +11,17 @@ window.onclick = function (event) {
 }
 
 const appNamesMap = {
-  "Task Logging": "livetasker",
-  "Quote/Invoice Maker": "liveinvoice",
-  "Fuel Logging": "livegas",
-  "Mileage Logging": "livemileage",
-  "Financial Logging": "livebudget",
+  "Time Logging": "livetasker",
+  "Task Notes": "livejobnotes",
   "Notes App": "livenotes",
+  "Fuel Logging": "livegas",
+  "Quote/Invoice Maker": "liveinvoice",
+  "Mileage Logging": "livemileage",
+  "Task Images": "livegallery",
+  "Financial Logging": "livebudget",
   "Favorites/Bookmarks": "livelinks",
   "View/Edit Inventory": "liveinventory",
   "View/Edit Database": "livedatabase",
-  "Gallery/Upload": "livegallery",
-  "Notes/Images": "livejobnotes",
-  "Timer": "livetimer",
   "Quiz/Testing": "livelearn",
   "Password Generator": "password",
   "Conversion Calculator": "conversion",
@@ -30,6 +29,7 @@ const appNamesMap = {
   "Calculator": "calc",
   "Wire Counter": "count",
   "Analytics": "liveanalytics",
+  "Timer": "livetimer",
 };
 
 const appDisplayNames = Object.keys(appNamesMap);
