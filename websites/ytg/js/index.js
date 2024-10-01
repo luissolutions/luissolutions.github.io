@@ -123,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const subject = `Contact Request from ${name}`;
 
                 // Use mailto to open the default email client with pre-filled information
-                window.location.href = `mailto:smartelectronicssolutionsllc@gmail.com?subject=${encodeURIComponent(subject)}&body=${emailBody}`;
+                window.location.href = `mailto:luis@smartelectronicssolutions.com?subject=${encodeURIComponent(subject)}&body=${emailBody}`;
             });
         }
     }
@@ -139,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 emailText.style.color = 'green';
 
                 setTimeout(() => {
-                    emailText.textContent = 'support@yourtechguy.com';
+                    emailText.textContent = 'luis@smartelectronicssolutions.com';
                     emailText.style.color = '';
                 }, 2000);
             });

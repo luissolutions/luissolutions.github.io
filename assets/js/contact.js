@@ -16,7 +16,7 @@
                 const emailBody = `${message} %0D%0A %0D%0A ${name} %0D%0A ${phone} %0D%0A ${email}`;
                 const subject = `Contact Request from ${name}`;
     
-                window.location.href = `mailto:smartelectronicssolutionsllc@gmail.com?subject=${encodeURIComponent(subject)}&body=${emailBody}`;
+                window.location.href = `mailto:luis@smartelectronicssolutions.com?subject=${encodeURIComponent(subject)}&body=${emailBody}`;
             });
         }
     
@@ -31,7 +31,7 @@
                     emailText.style.color = 'green';
 
                     setTimeout(() => {
-                        emailText.textContent = 'smartelectronicssolutionsllc@gmail.com';
+                        emailText.textContent = 'luis@smartelectronicssolutions.com';
                         emailText.style.color = '';
                     }, 2000);
                 });
