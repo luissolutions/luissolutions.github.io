@@ -123,7 +123,7 @@ function setupHeaderFooterLogo() {
   };
 }
 
-document.getElementById('shortcutIconOne').addEventListener('click', () => setIframeSrc(3));
+document.getElementById('shortcutIconOne').addEventListener('click', () => setIframeSrc(4));
 document.getElementById('shortcutIconTwo').addEventListener('click', () => setIframeSrc(0));
 
 document.getElementById('toggleBookmarks').addEventListener('click', function () {
