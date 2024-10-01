@@ -86,6 +86,7 @@
                     <div id="photoContainer"></div>
                     <div id="paginationControls"></div>
                 </div>
+                <div id="loadingIndicator" style="display: none;">Loading images...</div>
                 <button id="deleteImageButton">Delete Selected Image</button>
             </div>
 
@@ -326,6 +327,10 @@
             loadTaskButton.innerText = 'Load';
             loadTaskButton.addEventListener('click', () => {
                 loadTaskForEditing(task.id);
+                window.scrollTo({
+                    top: 0,
+                    behavior: 'smooth'
+                });
             });
             actionsCell.appendChild(loadTaskButton);
 
@@ -933,26 +938,34 @@
             }
         });
 
+        const loadingIndicator = document.getElementById('loadingIndicator');
+
         async function loadTaskImages(project) {
             imageUrls = [];
             imageSelect.innerHTML = '<option value="" disabled selected>Select Image</option>';
             photoContainer.innerHTML = '';
 
-            const storageImagesRef = storageRef(storage, `share/images/${project}`);
-            const storageSnapshot = await listAll(storageImagesRef);
+            loadingIndicator.style.display = 'block';
 
-            for (const item of storageSnapshot.items) {
-                const imageUrl = await getDownloadURL(item);
-                const option = document.createElement('option');
-                option.value = imageUrl;
-                option.textContent = item.name;
-                imageSelect.appendChild(option);
-                imageUrls.push(imageUrl);
+            try {
+                const storageImagesRef = storageRef(storage, `share/images/${project}`);
+                const storageSnapshot = await listAll(storageImagesRef);
+
+                for (const item of storageSnapshot.items) {
+                    const imageUrl = await getDownloadURL(item);
+                    const option = document.createElement('option');
+                    option.value = imageUrl;
+                    option.textContent = item.name;
+                    imageSelect.appendChild(option);
+                    imageUrls.push(imageUrl);
+                }
+
+                displayImagesForPage(1);
+            } catch (error) {
+                console.error("Error loading images:", error);
+            } finally {
+                loadingIndicator.style.display = 'none';
             }
-
-            totalPages = Math.ceil(imageUrls.length / imagesPerPage);
-
-            displayImagesForPage(1);
         }
 
         function updateTask() {
