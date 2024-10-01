@@ -61,6 +61,9 @@
                 <div class="end-odometer-column-input odometer-input">
                     <input type="number" id="endOdometer" placeholder="End Odometer" disabled>
                 </div>
+                <div class="address-column-input">
+                    <input type="text" id="customerAddress" placeholder="Address">
+                </div>                
                 <div class="notes-column-input">
                     <textarea id="taskNotes" placeholder="Notes"></textarea>
                 </div>
@@ -103,7 +106,7 @@
                     Name</label>
                 <label><input type="checkbox" class="toggle-column" value="project-column" checked>
                     Project |</label>
-
+                <label><input type="checkbox" class="toggle-column" value="address-column"> Address |</label>
                 <label><input type="checkbox" class="toggle-column" value="odometer-column"> Mileage |</label>
                 <label><input type="checkbox" class="toggle-column" value="location-column">
                     Location |</label>
@@ -120,6 +123,7 @@
                         <tr>
                             <th class="name-column">Name</th>
                             <th class="project-column">Project</th>
+                            <th class="address-column">Address</th>
                             <th class="start-odometer-column odometer-column">Start Odometer</th>
                             <th class="end-odometer-column odometer-column">End Odometer</th>
                             <th class="distance-column odometer-column">Distance</th>
@@ -136,12 +140,12 @@
             </div>
 
             <div>
-                <h3>Hours:</h3>
+                <h3>Hours (last 14 days):</h3>
                 <span id="dailyTimeSpent"></span>
             </div>
 
             <div>
-                <b>Total Hours: </b><span id="totalHours">0</span>
+                <b>Total Hours (all time): </b><span id="totalHours">0</span>
             </div>
             <div id="date-range-picker" class="app-section">
                 <h3>Hours Between Dates:</h3>
@@ -165,6 +169,7 @@
 
         const taskNameInput = document.getElementById('taskName');
         const projectInput = document.getElementById('project');
+        const customerAddressInput = document.getElementById('customerAddress');
         const taskNotesTextarea = document.getElementById('taskNotes');
         const startOdometerInput = document.getElementById('startOdometer');
         const endOdometerInput = document.getElementById('endOdometer');
@@ -269,18 +274,20 @@
 
             const nameCell = row.insertCell(0);
             const projectCell = row.insertCell(1);
-            const startOdometerCell = row.insertCell(2);
-            const endOdometerCell = row.insertCell(3);
-            const distanceCell = row.insertCell(4);
-            const locationCell = row.insertCell(5);
-            const startTimeCell = row.insertCell(6);
-            const endTimeCell = row.insertCell(7);
-            const lengthCell = row.insertCell(8);
-            const notesCell = row.insertCell(9);
-            const actionsCell = row.insertCell(10);
+            const addressCell = row.insertCell(2);
+            const startOdometerCell = row.insertCell(3);
+            const endOdometerCell = row.insertCell(4);
+            const distanceCell = row.insertCell(5);
+            const locationCell = row.insertCell(6);
+            const startTimeCell = row.insertCell(7);
+            const endTimeCell = row.insertCell(8);
+            const lengthCell = row.insertCell(9);
+            const notesCell = row.insertCell(10);
+            const actionsCell = row.insertCell(11);
 
             nameCell.classList.add('name-column');
             projectCell.classList.add('project-column');
+            addressCell.classList.add('address-column');
             startOdometerCell.classList.add('start-odometer-column', 'odometer-column');
             endOdometerCell.classList.add('end-odometer-column', 'odometer-column');
             distanceCell.classList.add('distance-column', 'odometer-column');
@@ -292,6 +299,7 @@
 
             nameCell.innerText = task.customerName;
             projectCell.innerText = task.project;
+            addressCell.innerText = task.customerAddress;
             startOdometerCell.innerText = task.startOdometer;
             endOdometerCell.innerText = task.endOdometer;
             distanceCell.innerText = task.endOdometer ? calculateDistance(task.startOdometer, task.endOdometer) : '';
@@ -310,6 +318,7 @@
 
             nameCell.contentEditable = true;
             projectCell.contentEditable = true;
+            addressCell.contentEditable = true;
             startOdometerCell.contentEditable = true;
             endOdometerCell.contentEditable = true;
             startTimeCell.contentEditable = true;
@@ -318,6 +327,7 @@
 
             nameCell.addEventListener('blur', () => updateTaskField(task.id, 'customerName', nameCell.innerText));
             projectCell.addEventListener('blur', () => updateTaskField(task.id, 'project', projectCell.innerText));
+            addressCell.addEventListener('blur', () => updateTaskField(task.id, 'customerAddress', addressCell.innerText));
             startOdometerCell.addEventListener('blur', () => updateTaskField(task.id, 'startOdometer', startOdometerCell.innerText));
             endOdometerCell.addEventListener('blur', () => updateTaskField(task.id, 'endOdometer', endOdometerCell.innerText));
             startTimeCell.addEventListener('blur', () => updateTaskField(task.id, 'startTime', new Date(startTimeCell.innerText).toISOString()));
@@ -343,6 +353,7 @@
                 taskNotesTextarea.value = task.notes || '';
                 startOdometerInput.value = task.startOdometer || '';
                 endOdometerInput.value = task.endOdometer || '';
+                customerAddressInput.value = task.customerAddress || '';
                 endOdometerInput.disabled = !task.endOdometer;
 
                 loadTaskImages(task.project);
@@ -444,7 +455,7 @@
                     taskCount++;
                 });
                 document.getElementById('totalTasks').innerText = taskCount;
-                sortTableByColumn(6);
+                sortTableByColumn(7);
                 updateTotalHours();
                 applyColumnVisibility();
             });
@@ -482,6 +493,7 @@
             update(taskRef, { [field]: value })
                 .then(() => {
                     console.log(`Task ${taskId} updated: ${field} = ${value}`);
+                    applySearchFilter();
                 })
                 .catch(error => {
                     console.error('Error updating task:', error);
@@ -586,16 +598,24 @@
             const dailyTimeContainer = document.getElementById('dailyTimeSpent');
             dailyTimeContainer.innerHTML = '';
 
-            const sortedDates = Object.keys(dailyTimeSpent).sort((a, b) => new Date(a) - new Date(b));
+            const today = new Date();
+            const pastDate = new Date(today);
+            pastDate.setDate(today.getDate() - 15);
+
+            const sortedDates = Object.keys(dailyTimeSpent)
+                .map(date => new Date(date))
+                .filter(date => date >= pastDate)
+                .sort((a, b) => a - b);
 
             sortedDates.forEach(date => {
-                const totalSeconds = dailyTimeSpent[date];
+                const dateString = date.toISOString().split('T')[0];
+                const totalSeconds = dailyTimeSpent[dateString];
                 const hours = Math.floor(totalSeconds / 3600);
                 const minutes = Math.floor((totalSeconds % 3600) / 60);
                 const decimalHours = (totalSeconds / 3600).toFixed(2);
 
                 const dateElement = document.createElement('div');
-                dateElement.innerText = `Date: ${date} - Time: ${hours} hours, ${minutes} min (${decimalHours})`;
+                dateElement.innerText = `Date: ${dateString} - Time: ${hours} hours, ${minutes} min (${decimalHours})`;
                 dailyTimeContainer.appendChild(dateElement);
             });
         }
@@ -631,7 +651,7 @@
             const startTimeHeader = document.querySelector('#task-log th.start-time-column');
 
             startTimeHeader.addEventListener('click', () => {
-                sortTableByColumn(6, sortOrder);
+                sortTableByColumn(7, sortOrder);
                 sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
             });
         });
@@ -841,8 +861,10 @@
             });
         });
 
-        document.getElementById('searchTask').addEventListener('input', function () {
-            const searchTerm = this.value.toLowerCase();
+        document.getElementById('searchTask').addEventListener('input', applySearchFilter);
+
+        function applySearchFilter() {
+            const searchTerm = document.getElementById('searchTask').value.toLowerCase();
             const rows = document.querySelectorAll('#task-log tbody tr');
 
             rows.forEach(row => {
@@ -856,14 +878,20 @@
                     row.style.display = 'none';
                 }
             });
-        });
+        }
 
         function loadTasksIntoSelect() {
             const taskRef = ref(database, 'share/tasks');
             onValue(taskRef, (snapshot) => {
-                taskSelect.innerHTML = '<option value="" disabled selected>Select Task</option>';
+                const taskArray = [];
                 snapshot.forEach(taskSnapshot => {
                     const task = taskSnapshot.val();
+                    taskArray.push(task);
+                });
+
+                taskSelect.innerHTML = '<option value="" disabled selected>Select Task</option>';
+
+                taskArray.sort((a, b) => b.id - a.id).forEach(task => {
                     const option = document.createElement('option');
                     option.value = task.id;
                     option.text = `${task.customerName} (${task.project})`;
@@ -917,7 +945,7 @@
         uploadButton.addEventListener('click', async () => {
             const files = fileUploader.files;
             if (!files.length || !currentTaskId || !projectInput.value.trim()) {
-                alert('Please select a task, project, and choose an image.');
+                alert('Please select a task, and choose an image.');
                 return;
             }
 
@@ -1073,7 +1101,7 @@
                 console.error('Error deleting image:', error);
             }
         };
-        
+
         deleteImageButton.addEventListener('click', deleteSelectedImage);
 
         loadTasksIntoSelect();
