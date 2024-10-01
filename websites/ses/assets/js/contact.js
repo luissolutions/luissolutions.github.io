@@ -30,7 +30,7 @@ submitButton.addEventListener('click', function(e) {
     const subject = `Contact Request from ${name}`;
 
     // Use mailto to open the default email client with pre-filled information
-    window.location.href = `mailto:smartelectronicssolutionsllc@gmail.com?subject=${encodeURIComponent(subject)}&body=${emailBody}`;
+    window.location.href = `mailto:luis@smartelectronicssolutions.com?subject=${encodeURIComponent(subject)}&body=${emailBody}`;
 });
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -53,7 +53,7 @@ document.addEventListener('DOMContentLoaded', function() {
       emailText.style.color = 'green';
   
       setTimeout(() => {
-        emailText.textContent = 'Luis@SmartElectronicsSolutions.com';
+        emailText.textContent = 'Luis@smartelectronicssolutions.com';
         emailText.style.color = '';
       }, 2000);
     });
