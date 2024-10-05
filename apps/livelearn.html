@@ -7,14 +7,32 @@
   <title>Information Learning App</title>
   <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
   <link rel="icon" href="./assets/img/t_logo.png" sizes="32x32" type="image/png" />
+  <script type="module" src="./assets/js/login.js" defer></script>
 </head>
 
 <body>
   <header>
-    <div>
-      <img src="./assets/img/t_logo.png" alt="Logo">
-      <h1>Learn what you want.</h1>
-    </div>
+    <h1>Tester</h1>
+    <section class="stats">
+      <div id="scoreDisplay">Score: 0% (0 correct / 0 wrong)</div>
+      <div id="timer">Time: <span id="timer-value">0</span> s</div>
+      <div>
+        <div id="highScore">High Scores:</div>
+      </div>
+    </section>
+    </section>
+    <section id="login-section">
+      <form id="login-form">
+        <label for="username">Email:</label>
+        <input type="email" id="username" required>
+        <br>
+        <label for="password">Password:</label>
+        <input type="password" id="password" required>
+        <br>
+        <button type="submit">Login</button>
+      </form>
+      <button id="logout" style="display: none;">Logout</button>
+    </section>
   </header>
 
   <main>
@@ -39,7 +57,6 @@
           <label for="showIncorrect">Show Incorrect Answers</label>
         </div>
         <div id="questionCounter">Questions Remaining: 0</div>
-        <div id="scoreDisplay">Score: 0% (0 correct / 0 wrong)</div>
         <div>
           <input type="checkbox" id="saveQuestionCheckbox">
           <label for="saveQuestionCheckbox">Save Question</label>
@@ -82,8 +99,86 @@
     let answeredQuestions = {};
     let currentQuestionId = null;
     let currentDescription = '';
+    let timerInterval;
+    let timeElapsed = 0;
+
+    function saveToFirebase(path, value) {
+      const dataRef = ref(database, `share/quizData/${path}`);
+      set(dataRef, value);
+    }
+
+    function loadFromFirebase(path, defaultValue, callback) {
+      const dataRef = ref(database, `share/quizData/${path}`);
+
+      onValue(dataRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data !== null) {
+          callback(data);
+        } else {
+          callback(defaultValue);
+        }
+      });
+    }
+
+    function startTimer() {
+      timeElapsed = 0;
+      clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        timeElapsed += 1;
+        document.getElementById('timer-value').textContent = timeElapsed;
+      }, 1000);
+    }
+
+    document.getElementById('nextQuestion').addEventListener('click', () => {
+      if (currentQuestionIndex === 0) {
+        startTimer();
+      }
+    });
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+    }
+
+    function updateHighScore() {
+      const highScoresPath = 'highScores';
+      const highScoreElement = document.getElementById('highScore');
+      const highScores = loadFromLocalStorage('highScores', '[]');
+
+      const currentScore = Math.round((correctAnswersCount / (correctAnswersCount + wrongAnswersCount)) * 100);
+      const timeTaken = timeElapsed;
+
+      if (highScores.length < 3 || currentScore > highScores[highScores.length - 1].score) {
+        let playerName = prompt("New high score! Enter your 3-letter name:");
+
+        while (!playerName || playerName.length !== 3) {
+          playerName = prompt("Please enter a valid 3-letter name:");
+        }
+
+        highScores.push({ name: playerName.toUpperCase(), score: currentScore, time: timeTaken });
+
+        highScores.sort((a, b) => b.score - a.score || a.time - b.time);
+        if (highScores.length > 3) {
+          highScores.pop();
+        }
+
+        saveToFirebase(highScoresPath, highScores);
+        displayHighScores(highScores);
+      }
+    }
+
+    function displayHighScores(highScores) {
+      const highScoreElement = document.getElementById('highScore');
+      highScoreElement.innerHTML = 'High Scores: <br>';
+
+      highScores.forEach(scoreEntry => {
+        highScoreElement.innerHTML += `${scoreEntry.name}: ${scoreEntry.score}% - ${scoreEntry.time}s<br>`;
+      });
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
+      loadFromFirebase('highScores', [], (highScores) => {
+        displayHighScores(highScores);
+      });
       loadSavedData();
       registerEventListeners();
       fetchQuestions();
@@ -135,14 +230,6 @@
       });
     }
 
-    function loadSavedData() {
-      answeredQuestions = loadFromLocalStorage('answeredQuestions', '{}');
-      correctAnswersCount = loadFromLocalStorage('correctAnswersCount', '0');
-      wrongAnswersCount = loadFromLocalStorage('wrongAnswersCount', '0');
-      currentQuestionIndex = loadFromLocalStorage('currentQuestionIndex', '0');
-      updateScoreDisplay();
-    }
-
     function fetchQuestions(applyFilter = false) {
       const showIncorrect = document.getElementById('showIncorrect').checked;
       const filterText = document.getElementById('filterInput').value.toLowerCase();
@@ -178,6 +265,10 @@
         quizSection.innerHTML = '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
         document.getElementById('resetQuiz').addEventListener('click', resetQuiz);
         return;
+      }
+
+      if (currentQuestionIndex === 0) {
+        startTimer();
       }
 
       currentQuestionId = question.id;
@@ -310,7 +401,10 @@
         }
       }
 
-      localStorage.setItem('answeredQuestions', JSON.stringify(answeredQuestions));
+      saveToFirebase('answeredQuestions', answeredQuestions);
+      saveToFirebase('correctAnswersCount', correctAnswersCount);
+      saveToFirebase('wrongAnswersCount', wrongAnswersCount);
+
       updateScoreDisplay();
 
       questions.splice(currentQuestionIndex, 1);
@@ -434,6 +528,8 @@
     }
 
     function resetQuiz() {
+      stopTimer();
+      updateHighScore();
       correctAnswersCount = 0;
       wrongAnswersCount = 0;
       currentQuestionIndex = 0;
@@ -443,6 +539,7 @@
       fetchQuestions();
       updateQuestionCounter();
       updateScoreDisplay();
+      startTimer();
     }
 
     function downloadQuestions() {
@@ -463,6 +560,26 @@
 
     function toggleShowIncorrect() {
       fetchQuestions(true);
+    }
+
+    function loadSavedData() {
+      loadFromFirebase('answeredQuestions', {}, (data) => {
+        answeredQuestions = data;
+      });
+
+      loadFromFirebase('correctAnswersCount', 0, (data) => {
+        correctAnswersCount = data;
+      });
+
+      loadFromFirebase('wrongAnswersCount', 0, (data) => {
+        wrongAnswersCount = data;
+      });
+
+      loadFromFirebase('currentQuestionIndex', 0, (data) => {
+        currentQuestionIndex = data;
+      });
+
+      updateScoreDisplay();
     }
   </script>
 </body>
