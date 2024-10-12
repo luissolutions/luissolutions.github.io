@@ -55,6 +55,26 @@
         #rememberCheckbox:checked+.star {
             color: yellow;
         }
+
+        .thumbnailGrid {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .thumbnail {
+            width: 100px;
+            height: auto;
+            margin: 5px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: border 0.3s ease;
+        }
+
+        .thumbnail:hover {
+            border: 2px solid #000;
+        }
     </style>
 </head>
 
@@ -103,7 +123,10 @@
                 <p id="fileName" style="display: none;"></p>
                 <label for="fileSelect">Select a file:</label>
                 <select id="fileSelect"></select>
+
                 <div class="gridContainer" id="photoContainer"></div>
+
+                <div id="thumbnailContainer" class="thumbnailGrid"></div>
             </div>
             <button id="downloadButton">Download Photo</button>
             <button id="deleteButton">Delete Photo</button>
@@ -112,7 +135,7 @@
     </main>
 
     <script type="module">
-        import { ref, app, database, storage, getStorage, storageRef, getDownloadURL, listAll, uploadBytesResumable, deleteObject, getFunctions, httpsCallable } from './assets/js/firebase-init.js';
+        import { ref, app, get, database, storage, getStorage, storageRef, getDownloadURL, listAll, uploadBytesResumable, deleteObject, getFunctions, httpsCallable } from './assets/js/firebase-init.js';
 
         document.addEventListener('DOMContentLoaded', function () {
             const elements = {
@@ -133,6 +156,7 @@
                 subfolderStatus: document.getElementById('subfolderStatus'),
                 fileSelect: document.getElementById('fileSelect'),
                 downloadAllButton: document.getElementById('downloadAllButton'),
+                thumbnailContainer: document.getElementById('thumbnailContainer'),
             };
 
             let currentPhotoIndex = 0;
@@ -200,11 +224,18 @@
 
             function displayCurrentPhoto() {
                 elements.photoContainer.innerHTML = '';
+                elements.thumbnailContainer.innerHTML = '';
+
                 if (photoUrls[currentPhotoIndex]) {
                     const img = createPhotoElement(photoUrls[currentPhotoIndex]);
                     elements.photoContainer.appendChild(img);
                     elements.fileSelect.value = currentPhotoIndex;
                     elements.rememberCheckbox.checked = localStorage.getItem(photoUrls[currentPhotoIndex]) === 'true';
+
+                    photoUrls.forEach((url, index) => {
+                        const thumbnail = createThumbnailElement(url, index);
+                        elements.thumbnailContainer.appendChild(thumbnail);
+                    });
                 } else {
                     elements.photoContainer.innerHTML = '<p>No photos available for this subfolder.</p>';
                 }
@@ -219,6 +250,17 @@
                 });
                 img.onerror = () => img.src = './assets/img/default.png';
                 return img;
+            }
+
+            function createThumbnailElement(src, index) {
+                const thumbnail = document.createElement('img');
+                thumbnail.src = src;
+                thumbnail.className = 'thumbnail';
+                thumbnail.addEventListener('click', () => {
+                    currentPhotoIndex = index;
+                    displayCurrentPhoto();
+                });
+                return thumbnail;
             }
 
             function loadNextImage() {
@@ -287,7 +329,7 @@
                                 elements.uploadStatus.textContent = 'Upload successful!';
                                 populateFileDropdown();
                                 displayCurrentPhoto();
-                                deleteKeepFileIfPresent(folder); // Delete .keep file after successful upload
+                                deleteKeepFileIfPresent(folder);
                             });
                         }
                     );
@@ -393,6 +435,53 @@
                         elements.subfolderStatus.textContent = 'Failed to create missing folder.';
                     });
             }
+
+            function initializeTaskDropdown() {
+                const databaseRef = ref(database, '/share/tasks');
+                get(databaseRef).then(snapshot => {
+                    if (snapshot.exists()) {
+                        const tasksData = snapshot.val();
+                        populateTaskDropdown(tasksData);
+                    } else {
+                        console.log('No data available');
+                    }
+                }).catch(error => {
+                    console.error('Error fetching tasks data:', error);
+                });
+            }
+
+            function populateTaskDropdown(tasksData) {
+                const sortedTasks = Object.values(tasksData).sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+
+                const taskOptions = sortedTasks.map(task => {
+                    const projectName = task.customerName || 'Unnamed Project';
+                    const startDate = new Date(task.startTime).toLocaleDateString();
+                    const projectNumber = task.project || 'No Project Number';
+                    return `<option value="${task.project}">${projectNumber} - ${projectName} - ${startDate}</option>`;
+                }).join('');
+
+                elements.folderSelect.innerHTML = taskOptions;
+            }
+
+            initializeTaskDropdown();
+
+            elements.createSubfolderButton.addEventListener('click', () => {
+                const newSubfolder = elements.newSubfolderInput.value.trim();
+                if (!newSubfolder) {
+                    elements.subfolderStatus.textContent = 'Please enter a subfolder name.';
+                    return;
+                }
+                const folderRef = storageRef(storage, `/share/images/${newSubfolder}/.keep`);
+                uploadBytesResumable(folderRef, new Blob())
+                    .then(() => {
+                        elements.subfolderStatus.textContent = `Subfolder "${newSubfolder}" created!`;
+                        initializeTaskDropdown();
+                    })
+                    .catch(error => {
+                        console.error('Error creating subfolder:', error);
+                        elements.subfolderStatus.textContent = 'Failed to create subfolder.';
+                    });
+            });
 
             elements.downloadAllButton.addEventListener('click', downloadAllImages);
 
