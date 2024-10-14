@@ -16,7 +16,7 @@
 
     <section class="stats">
       <div id="scoreDisplay">Learned: 0% (0 correct / 0 wrong)</div>
-      <div id="timer">Time: <span id="timer-value">0</span> s</div>
+      <div id="timer">Time: <span id="timer-value"></span> s</div>
       <div>
         <div id="highScore">High Scores:</div>
       </div>
@@ -122,19 +122,28 @@
     }
 
     function startTimer() {
-      timeElapsed = 0;
-      clearInterval(timerInterval);
-      timerInterval = setInterval(() => {
-        timeElapsed += 1;
-        document.getElementById('timer-value').textContent = timeElapsed;
-      }, 1000);
+      const currentTime = Date.now();
+      saveToFirebase('startTime', currentTime);
+
+      updateElapsedTime(currentTime);
     }
 
-    document.getElementById('nextQuestion').addEventListener('click', () => {
-      if (currentQuestionIndex === 0) {
-        startTimer();
-      }
-    });
+    function updateElapsedTime(startTime) {
+      clearInterval(timerInterval);
+
+      timerInterval = setInterval(() => {
+        const currentTime = Date.now();
+        const elapsedTime = Math.floor((currentTime - startTime) / 1000);
+
+        const hours = Math.floor(elapsedTime / 3600);
+        const minutes = Math.floor((elapsedTime % 3600) / 60);
+        const seconds = elapsedTime % 60;
+
+        const formattedTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+        document.getElementById('timer-value').textContent = formattedTime;
+      }, 1000);
+    }
 
     function stopTimer() {
       clearInterval(timerInterval);
@@ -172,11 +181,19 @@
       highScoreElement.innerHTML = 'High Scores:<br>';
 
       highScores.forEach((scoreEntry) => {
-        highScoreElement.innerHTML += `${scoreEntry.name}: ${scoreEntry.score}% (out of ${scoreEntry.totalQuestions}) - ${scoreEntry.time}s<br>`;
+        highScoreElement.innerHTML += `${scoreEntry.name}: ${scoreEntry.score}% (out of ${scoreEntry.totalQuestions})<br>`;
       });
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      loadFromFirebase('startTime', null, (savedStartTime) => {
+        if (savedStartTime) {
+          updateElapsedTime(savedStartTime);
+        } else {
+          startTimer();
+        }
+      });
+
       loadFromFirebase('highScores', [], (highScores) => {
         displayHighScores(highScores);
       });
@@ -270,7 +287,6 @@
 
       if (currentQuestionIndex === 0) {
         updateScoreDisplay();
-        startTimer();
       }
 
       currentQuestionId = question.id;
@@ -556,6 +572,7 @@
       updateQuestionCounter();
       updateScoreDisplay();
       startTimer();
+      location.reload();
     }
 
     function downloadQuestions() {
