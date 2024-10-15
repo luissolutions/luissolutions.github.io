@@ -4,6 +4,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/9.1.3/firebase
 import { firebaseConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
+let currentUserUID = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     const auth = getAuth(app);
@@ -37,11 +38,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     onAuthStateChanged(auth, (user) => {
         if (user) {
+            currentUserUID = user.uid;
             loginForm.style.display = 'none';
             logoutButton.style.display = 'flex';
+            console.log("Logged in as user: ", user.email);
         } else {
+            currentUserUID = null;
             loginForm.style.display = 'flex';
             logoutButton.style.display = 'none';
+            console.log("No user is logged in.");
         }
     });
 });
