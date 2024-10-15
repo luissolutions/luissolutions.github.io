@@ -25,6 +25,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 logoutButton.style.display = 'flex';
                 window.location.reload();
             })
+            .catch((error) => {
+                alert("Invalid login. Please check your email and password.");
+                console.log(`Error [${error.code}]: ${error.message}`);
+            });
     });
 
     logoutButton.addEventListener('click', () => {
