@@ -16,7 +16,7 @@ exportButtonEl.addEventListener("click", function () {
 });
 
 function exportToCSV() {
-  const phonesInDB = ref(database, `devices/Phones/${selectedCategory}`);
+  const phonesInDB = ref(database, `share/devices/Phones/${selectedCategory}`);
   const fileName = "data.csv";
   csvContent = "Phone Model,Repair Type,Price\n";
 
@@ -117,7 +117,7 @@ addButtonEl.addEventListener("click", function () {
   let price = inputFieldEl.value.trim();
 
   if (phoneName !== "" && repairType !== "" && price !== "") {
-    const categoryRef = ref(database, `devices/Phones/${selectedCategory}/${phoneName}/${repairType}`);
+    const categoryRef = ref(database, `share/devices/Phones/${selectedCategory}/${phoneName}/${repairType}`);
     set(categoryRef, price)
       .then(() => {
         clearInputFieldEl();
@@ -136,7 +136,7 @@ addButtonEl.addEventListener("click", function () {
 function performSearch() {
   let searchString = searchInputEl.value.trim().toLowerCase();
   clearPhoneListEl();
-  const phonesInDB = ref(database, `devices/Phones/${selectedCategory}`);
+  const phonesInDB = ref(database, `/share/devices/Phones/${selectedCategory}`);
 
   onValue(phonesInDB, function (snapshot) {
     let itemsObject = snapshot.val();
@@ -146,7 +146,7 @@ function performSearch() {
 }
 
 function fetchDataForSelectedCategory() {
-  const phonesInDB = ref(database, `devices/Phones/${selectedCategory}`);
+  const phonesInDB = ref(database, `share/devices/Phones/${selectedCategory}`);
 
   onValue(phonesInDB, function (snapshot) {
     let itemsObject = snapshot.val();
@@ -225,7 +225,7 @@ function recursivelyAppendItemsToPhonesListEl(obj, prefix = "") {
         let newPrice = priceInput.value.trim();
 
         if (newRepair !== "" && newPrice !== "") {
-          let exactLocationOfItemInDB = ref(database, `devices/Phones/${selectedCategory}/${phoneModel}`);
+          let exactLocationOfItemInDB = ref(database, `share/devices/Phones/${selectedCategory}/${phoneModel}`);
           let updates = {};
           updates[newRepair] = newPrice;
 
@@ -257,11 +257,11 @@ function recursivelyAppendItemsToPhonesListEl(obj, prefix = "") {
         }
 
         if (newModel !== "" && newRepair !== "" && newPrice !== "") {
-          let exactLocationOfItemInDB = ref(database, `devices/Phones/${selectedCategory}/${phoneModel}/${key}`);
+          let exactLocationOfItemInDB = ref(database, `share/devices/Phones/${selectedCategory}/${phoneModel}/${key}`);
 
           if (newModel !== phoneModel || newRepair !== key) {
             remove(exactLocationOfItemInDB);
-            exactLocationOfItemInDB = ref(database, `devices/Phones/${selectedCategory}/${newModel}/${newRepair}`);
+            exactLocationOfItemInDB = ref(database, `share/devices/Phones/${selectedCategory}/${newModel}/${newRepair}`);
           }
 
           set(exactLocationOfItemInDB, newPrice)
@@ -280,7 +280,7 @@ function recursivelyAppendItemsToPhonesListEl(obj, prefix = "") {
       let deleteButton = document.createElement("button");
       deleteButton.textContent = "Delete";
       deleteButton.addEventListener("click", function () {
-        let exactLocationOfItemInDB = ref(database, `devices/Phones/${selectedCategory}/${currentKey}`);
+        let exactLocationOfItemInDB = ref(database, `share/devices/Phones/${selectedCategory}/${currentKey}`);
         remove(exactLocationOfItemInDB)
           .then(() => {
             performSearch();
