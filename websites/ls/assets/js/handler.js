@@ -232,19 +232,18 @@ const handlers = {
     const stylesheetLink = document.getElementById('stylesheet');
 
     stylesheetInput.addEventListener('input', () => {
-        const fileName = stylesheetInput.value.trim();
-        if (fileName) {
-            // Add .css extension if not present
-            const cssFileName = fileName.endsWith('.css') ? fileName : `${fileName}.css`;
-            stylesheetLink.href = cssFileName;
-        } else {
-            stylesheetLink.href = 'assets/css/classic-styles.css';
-        }
+      const fileName = stylesheetInput.value.trim();
+      if (fileName) {
+        // Add .css extension if not present
+        const cssFileName = fileName.endsWith('.css') ? fileName : `${fileName}.css`;
+        stylesheetLink.href = cssFileName;
+      } else {
+        stylesheetLink.href = 'assets/css/classic-styles.css';
+      }
     });
   },
   'apps.html': function () {
     var appNames = [
-      "notes",
       "password",
       "localtimer",
       "localmileage",
@@ -259,12 +258,10 @@ const handlers = {
       "mousegame",
       "livemathgame",
       "chess",
-      "viewer",
-      "gallery"
     ];
 
     var pages = appNames.map(function (name) {
-      return "apps/" + name + ".html";
+      return "../../apps/" + name + ".html";
     });
 
     var iframe = document.getElementById('myIframe');

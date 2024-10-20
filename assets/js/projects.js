@@ -1,9 +1,33 @@
 const projects = [
     {
+        title: "SES",
+        image: "assets/img/ses-thumbnail.png",
+        link: "websites/ses/index.html",
+        description: "Smart Electronics Solutions LLC website.",
+    },
+    {
+        title: "Business App",
+        image: "assets/img/qmp-thumbnail.png",
+        link: "websites/bma/index.html",
+        description: "An app designed for business management.",
+    },
+    {
         title: "Repair App",
         image: "assets/img/cpr-thumbnail.png",
         link: "websites/cpr/index.html",
         description: "A web application for managing repair jobs.",
+    },
+    {
+        title: "Your Tech Guy",
+        image: "assets/img/ytg-thumbnail.png",
+        link: "websites/ytg/index.html",
+        description: "Tech support and services website.",
+    },
+    {
+        title: "Luis Solutions",
+        image: "assets/img/ls-thumbnail.png",
+        link: "websites/ls/index.html",
+        description: "IT solutions service website.",
     },
     {
         title: "Kame House",
@@ -18,28 +42,10 @@ const projects = [
         description: "A helper app for managing household tasks.",
     },
     {
-        title: "Business App",
-        image: "assets/img/qmp-thumbnail.png",
-        link: "websites/bma/index.html",
-        description: "An app designed for business management.",
-    },
-    {
-        title: "Your Tech Guy",
-        image: "assets/img/ytg-thumbnail.png",
-        link: "websites/ytg/index.html",
-        description: "Tech support and services website.",
-    },
-    {
         title: "Gallery",
         image: "assets/img/gdg-thumbnail.png",
         link: "websites/gdg/index.html",
         description: "A gallery showcasing various images.",
-    },
-    {
-        title: "SES",
-        image: "assets/img/ses-thumbnail.png",
-        link: "websites/ses/index.html",
-        description: "Smart Electronics Solutions LLC website.",
     },
     {
         title: "Gaming",
@@ -52,12 +58,6 @@ const projects = [
         image: "assets/img/khmc-thumbnail.png",
         link: "websites/khmc/index.html",
         description: "A Minecraft server community site.",
-    },
-    {
-        title: "Luis Solutions",
-        image: "assets/img/ls-thumbnail.png",
-        link: "websites/ls/index.html",
-        description: "IT solutions service website.",
     },
 ];
 
