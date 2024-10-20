@@ -201,6 +201,13 @@ const apps = [
         description: "Play math games with live scoring.",
     },
     {
+        title: "Online Schedule Calendar",
+        image: "assets/img/liveschedule-thumbnail.png",
+        link: "apps/liveschedule.html",
+        description: "Schedule calendar with live data updates.",
+        requiresLogin: true,
+    },
+    {
         title: "Online Mileage Tracker",
         image: "assets/img/livemileage-thumbnail.png",
         link: "apps/livemileage.html",
