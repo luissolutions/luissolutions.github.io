@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Appointment Scheduler</title>
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
+    <style>
+        #calendar {
+            max-width: 900px;
+            margin: 50px auto;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            padding: 0;
+            padding-top: 100px;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: #fff;
+            padding: 20px;
+            border: 1px solid #888;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .fc .fc-scroller-liquid-absolute {
+            position: relative;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Appointment Scheduler</h1>
+    <div id="calendar"></div>
+    <div id="appointmentModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Schedule Appointment</h2>
+            <form id="appointmentForm">
+                <input type="hidden" id="id">
+                <label for="customerName">Name:</label><br>
+                <input type="text" id="customerName" required><br><br>
+
+                <label for="appointmentDate">Date:</label><br>
+                <input type="date" id="appointmentDate" readonly><br><br>
+
+                <label for="appointmentTime">Time:</label><br>
+                <input type="time" id="appointmentTime"><br><br>
+
+                <label for="appointmentLocation">Location:</label><br>
+                <input type="text" id="appointmentLocation"><br><br>
+
+                <label for="appointmentNotes">Notes:</label><br>
+                <textarea id="appointmentNotes"></textarea><br><br>
+
+                <button type="submit">Save Appointment</button>
+                <button type="button" id="deleteButton" style="display:none;">Delete Appointment</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.js"></script>
+    <script type="module">
+        import { database, ref, get, set, remove } from './assets/js/firebase-init.js';
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const calendarEl = document.getElementById('calendar');
+            const modal = document.getElementById("appointmentModal");
+            const closeBtn = document.querySelector(".close");
+            const form = document.getElementById("appointmentForm");
+            const deleteButton = document.getElementById('deleteButton');
+            const calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                dateClick: function (info) {
+                    openModalForNewAppointment(info.dateStr);
+                },
+                eventClick: function (info) {
+                    openModalForExistingTask(info.event);
+                },
+                events: loadAppointments
+            });
+
+            calendar.render();
+
+            function openModalForNewAppointment(dateStr) {
+                resetForm();
+                document.getElementById('appointmentDate').value = dateStr;
+                modal.style.display = "block";
+                deleteButton.style.display = 'none';
+            }
+
+            function openModalForExistingTask(event) {
+                resetForm();
+                fillFormWithTaskDetails(event);
+                modal.style.display = "block";
+                deleteButton.style.display = 'block';
+            }
+
+            closeBtn.onclick = () => modal.style.display = "none";
+            window.onclick = (e) => { if (e.target == modal) modal.style.display = "none"; };
+
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                const appointmentData = getFormData();
+                saveAppointmentToDatabase(appointmentData);
+                calendar.addEvent({
+                    id: appointmentData.id,
+                    title: appointmentData.customerName,
+                    start: appointmentData.startTime,
+                    extendedProps: appointmentData
+                });
+                modal.style.display = "none";
+                form.reset();
+            });
+
+            deleteButton.addEventListener('click', function () {
+                const id = document.getElementById('id').value;
+                if (id && confirm('Are you sure you want to delete this task?')) {
+                    deleteTask(id);
+                }
+            });
+
+            function loadAppointments(fetchInfo, successCallback, failureCallback) {
+                const tasksRef = ref(database, 'share/tasks');
+                get(tasksRef).then(snapshot => {
+                    const tasks = snapshot.val();
+                    const events = tasks ? Object.keys(tasks).map(id => formatTaskAsEvent(tasks[id], id)) : [];
+                    successCallback(events);
+                }).catch(failureCallback);
+            }
+
+            function formatTaskAsEvent(task, id) {
+                const eventColor = getEventColor(task.invoiceType, task.startTime);
+                return {
+                    id: id,
+                    title: task.customerName,
+                    start: task.startTime,
+                    end: task.endTime,
+                    backgroundColor: eventColor,
+                    borderColor: eventColor,
+                    extendedProps: { ...task }
+                };
+            }
+
+            function getEventColor(invoiceType, startTime) {
+                const taskDate = new Date(startTime);
+                const currentDate = new Date();
+                if (invoiceType === 'invoice') return 'lightgreen';
+                if (invoiceType === 'quote' && taskDate < currentDate) return 'lightcoral';
+                return 'lightblue';
+            }
+
+            function fillFormWithTaskDetails(event) {
+                const { customerName, start, extendedProps: { location, notes, id } } = event;
+                document.getElementById('customerName').value = customerName || '';
+                document.getElementById('appointmentDate').value = start.toISOString().slice(0, 10);
+                document.getElementById('appointmentTime').value = start.toTimeString().slice(0, 5);
+                document.getElementById('appointmentLocation').value = location || '';
+                document.getElementById('appointmentNotes').value = notes || '';
+                document.getElementById('id').value = id || '';
+            }
+
+            function getFormData() {
+                const date = document.getElementById('appointmentDate').value;
+                const time = document.getElementById('appointmentTime').value;
+                const combinedDateTime = new Date(`${date}T${time}:00.000Z`).toISOString();
+                const id = document.getElementById('id').value || Date.now().toString();
+                return {
+                    customerName: document.getElementById('customerName').value,
+                    startTime: combinedDateTime,
+                    location: document.getElementById('appointmentLocation').value || { latitude: '41.6711', longitude: '-72.5205' },
+                    notes: document.getElementById('appointmentNotes').value,
+                    id
+                };
+            }
+
+            function saveAppointmentToDatabase(appointment) {
+                const taskRef = ref(database, `share/tasks/${appointment.id}`);
+                get(taskRef).then(snapshot => {
+                    const existingTaskData = snapshot.exists() ? snapshot.val() : {};
+                    const updatedTaskData = { ...existingTaskData, ...appointment, invoiceType: existingTaskData.invoiceType || 'quote' };
+                    set(taskRef, updatedTaskData).then(() => {
+                        console.log('Task saved successfully.');
+                        calendar.refetchEvents();
+                    });
+                }).catch(error => console.error('Error saving task:', error));
+            }
+
+            function deleteTask(id) {
+                const taskRef = ref(database, `share/tasks/${id}`);
+                remove(taskRef).then(() => {
+                    const event = calendar.getEventById(id);
+                    if (event) event.remove();
+                    alert('Task deleted successfully.');
+                    modal.style.display = "none";
+                    calendar.refetchEvents();
+                }).catch(error => console.error('Error deleting task:', error));
+            }
+
+            function resetForm() {
+                form.reset();
+                document.getElementById('id').value = '';
+            }
+        });
+    </script>
+</body>
+
+</html>
