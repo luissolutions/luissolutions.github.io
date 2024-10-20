@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Appointment Scheduler</title>
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
+    <style>
+        #calendar {
+            max-width: 900px;
+            margin: 50px auto;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            padding-top: 100px;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: #fff;
+            margin: auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Appointment Scheduler</h1>
+    <div id="calendar"></div>
+
+    <!-- Modal for adding appointments -->
+    <div id="appointmentModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Schedule Appointment</h2>
+            <form id="appointmentForm">
+                <label for="appointmentName">Appointment Name:</label><br>
+                <input type="text" id="appointmentName" required><br><br>
+
+                <label for="appointmentDate">Date:</label><br>
+                <input type="date" id="appointmentDate" readonly><br><br>
+
+                <label for="appointmentTime">Time:</label><br>
+                <input type="time" id="appointmentTime"><br><br>
+
+                <label for="appointmentLocation">Location:</label><br>
+                <input type="text" id="appointmentLocation"><br><br>
+
+                <label for="appointmentNotes">Notes:</label><br>
+                <textarea id="appointmentNotes"></textarea><br><br>
+
+                <button type="submit">Save Appointment</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var calendarEl = document.getElementById('calendar');
+            var modal = document.getElementById("appointmentModal");
+            var span = document.getElementsByClassName("close")[0];
+            var form = document.getElementById("appointmentForm");
+
+            var calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                dateClick: function (info) {
+                    openAppointmentModal(info.dateStr);
+                },
+                eventClick: function (info) {
+                    redirectToTasker(info.event.extendedProps);
+                },
+                events: [] // Events will be loaded from the database
+            });
+
+            calendar.render();
+
+            function openAppointmentModal(dateStr) {
+                document.getElementById('appointmentDate').value = dateStr;
+                modal.style.display = "block";
+            }
+
+            // Close modal
+            span.onclick = function () {
+                modal.style.display = "none";
+            }
+
+            // Close modal if clicked outside of modal
+            window.onclick = function (event) {
+                if (event.target == modal) {
+                    modal.style.display = "none";
+                }
+            }
+
+            // Save appointment
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+
+                const appointmentData = {
+                    title: document.getElementById('appointmentName').value,
+                    date: document.getElementById('appointmentDate').value,
+                    time: document.getElementById('appointmentTime').value,
+                    location: document.getElementById('appointmentLocation').value,
+                    notes: document.getElementById('appointmentNotes').value
+                };
+
+                // Add the event to the calendar
+                calendar.addEvent({
+                    title: appointmentData.title,
+                    start: `${appointmentData.date}T${appointmentData.time}`,
+                    extendedProps: appointmentData
+                });
+
+                // Save the event to the database (Firebase or other DB)
+                saveAppointmentToDatabase(appointmentData);
+
+                modal.style.display = "none";
+                form.reset();
+            });
+
+            // Mock function to simulate saving to the database
+            function saveAppointmentToDatabase(appointment) {
+                console.log('Saving appointment:', appointment);
+                // Implement Firebase or other DB saving logic here
+            }
+
+            // Redirect to tasker page with pre-filled data
+            function redirectToTasker(appointmentDetails) {
+                const { title, date, time, location, notes } = appointmentDetails;
+                const taskerURL = `/tasker?name=${title}&date=${date}&time=${time}&location=${location}&notes=${notes}`;
+                window.location.href = taskerURL;
+            }
+        });
+    </script>
+
+</body>
+
+</html>
