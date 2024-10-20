@@ -67,6 +67,9 @@
                 <label for="customerName">Name:</label><br>
                 <input type="text" id="customerName" required><br><br>
 
+                <label for="project">Project:</label><br>
+                <input type="text" id="project"><br><br>
+
                 <label for="appointmentDate">Date:</label><br>
                 <input type="date" id="appointmentDate" readonly><br><br>
 
@@ -87,7 +90,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.js"></script>
     <script type="module">
-        import { database, ref, get, set, remove } from './assets/js/firebase-init.js';
+        import { database, ref, get, set, remove, onValue } from './assets/js/firebase-init.js';
 
         document.addEventListener('DOMContentLoaded', function () {
             const calendarEl = document.getElementById('calendar');
@@ -95,6 +98,7 @@
             const closeBtn = document.querySelector(".close");
             const form = document.getElementById("appointmentForm");
             const deleteButton = document.getElementById('deleteButton');
+
             const calendar = new FullCalendar.Calendar(calendarEl, {
                 initialView: 'dayGridMonth',
                 dateClick: function (info) {
@@ -103,10 +107,22 @@
                 eventClick: function (info) {
                     openModalForExistingTask(info.event);
                 },
-                events: loadAppointments
+                events: []
             });
 
             calendar.render();
+
+            const tasksRef = ref(database, 'share/tasks');
+            onValue(tasksRef, snapshot => {
+                const tasks = snapshot.val();
+                calendar.removeAllEvents();
+                if (tasks) {
+                    Object.keys(tasks).forEach(id => {
+                        const event = formatTaskAsEvent(tasks[id], id);
+                        calendar.addEvent(event);
+                    });
+                }
+            });
 
             function openModalForNewAppointment(dateStr) {
                 resetForm();
@@ -146,15 +162,6 @@
                 }
             });
 
-            function loadAppointments(fetchInfo, successCallback, failureCallback) {
-                const tasksRef = ref(database, 'share/tasks');
-                get(tasksRef).then(snapshot => {
-                    const tasks = snapshot.val();
-                    const events = tasks ? Object.keys(tasks).map(id => formatTaskAsEvent(tasks[id], id)) : [];
-                    successCallback(events);
-                }).catch(failureCallback);
-            }
-
             function formatTaskAsEvent(task, id) {
                 const eventColor = getEventColor(task.invoiceType, task.startTime);
                 return {
@@ -177,12 +184,13 @@
             }
 
             function fillFormWithTaskDetails(event) {
-                const { customerName, start, extendedProps: { location, notes, id } } = event;
+                const { customerName, start, extendedProps: { location, notes, id, project } } = event;
                 document.getElementById('customerName').value = customerName || '';
                 document.getElementById('appointmentDate').value = start.toISOString().slice(0, 10);
                 document.getElementById('appointmentTime').value = start.toTimeString().slice(0, 5);
                 document.getElementById('appointmentLocation').value = location || '';
                 document.getElementById('appointmentNotes').value = notes || '';
+                document.getElementById('project').value = project || '';
                 document.getElementById('id').value = id || '';
             }
 
@@ -194,8 +202,9 @@
                 return {
                     customerName: document.getElementById('customerName').value,
                     startTime: combinedDateTime,
-                    location: document.getElementById('appointmentLocation').value || { latitude: '41.6711', longitude: '-72.5205' },
+                    location: document.getElementById('appointmentLocation').value,
                     notes: document.getElementById('appointmentNotes').value,
+                    project: document.getElementById('project').value,
                     id
                 };
             }
@@ -207,7 +216,6 @@
                     const updatedTaskData = { ...existingTaskData, ...appointment, invoiceType: existingTaskData.invoiceType || 'quote' };
                     set(taskRef, updatedTaskData).then(() => {
                         console.log('Task saved successfully.');
-                        calendar.refetchEvents();
                     });
                 }).catch(error => console.error('Error saving task:', error));
             }
@@ -219,7 +227,6 @@
                     if (event) event.remove();
                     alert('Task deleted successfully.');
                     modal.style.display = "none";
-                    calendar.refetchEvents();
                 }).catch(error => console.error('Error deleting task:', error));
             }
 
