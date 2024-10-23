@@ -32,6 +32,7 @@
             <button id="add-task-btn">Add Task</button>
 
             <h3>List 1</h3>
+            <input type="text" id="search-list1" placeholder="Search List 1..." onkeyup="filterTable(1)">
             <div class="table">
                 <table id="listitem1-table">
                     <thead>
@@ -67,6 +68,7 @@
             <button id="add-listitem1-btn">Add List Item 1</button>
 
             <h3>List 2</h3>
+            <input type="text" id="search-list2" placeholder="Search List 2..." onkeyup="filterTable(2)">
             <div class="table">
                 <table id="listitem2-table">
                     <thead>
@@ -158,8 +160,13 @@
                     const li = document.createElement('li');
                     li.innerHTML = `
                         <label>Date: <input type="datetime-local" value="${new Date(task.date).toISOString().substring(0, 16)}"></label><br>
-                        <label>Notes: <input type="text" value="${task.notes}"></label><br>
+                        <label>Notes: <input type="text" value="${task.notes}" data-id="${key}" data-field="notes"></label><br>
                     `;
+
+                    const notesInput = li.querySelector('input[data-field="notes"]');
+                    notesInput.addEventListener('change', () => {
+                        updateTaskField(key, 'notes', notesInput.value);
+                    });
 
                     const deleteButton = document.createElement('button');
                     deleteButton.textContent = 'Delete Task';
@@ -178,37 +185,38 @@
             const tableBody = getElement(`listitem${listNum}-table`).getElementsByTagName('tbody')[0];
             tableBody.innerHTML = '';
 
-            if (listData) {
-                Object.keys(listData).forEach((key) => {
-                    const item = listData[key];
-                    const row = tableBody.insertRow();
-                    row.innerHTML = `
-                        <td>${item.id}</td>
-                        <td><input type="text" value="${item.model}" data-id="${key}" data-list="${listNum}" data-field="model"></td>
-                        <td><input type="text" value="${item.type}" data-id="${key}" data-list="${listNum}" data-field="type"></td>
-                        <td><input type="text" value="${item.location}" data-id="${key}" data-list="${listNum}" data-field="location"></td>
-                        <td><input type="text" value="${item.status}" data-id="${key}" data-list="${listNum}" data-field="status"></td>
-                        <td><input type="text" value="${item.ipAddress}" data-id="${key}" data-list="${listNum}" data-field="ipAddress"></td>
-                        <td><input type="text" value="${item.macAddress}" data-id="${key}" data-list="${listNum}" data-field="macAddress"></td>
-                        <td><button class="delete-item-btn" data-list="${listNum}" data-id="${key}">Delete</button></td>
-                    `;
+            const sortedList = Object.keys(listData)
+                .map(key => ({ id: key, ...listData[key] }))
+                .sort((a, b) => a.id.localeCompare(b.id));
 
-                    const inputs = row.getElementsByTagName('input');
-                    Array.from(inputs).forEach(input => {
-                        input.addEventListener('change', (e) => {
-                            const field = e.target.getAttribute('data-field');
-                            const id = e.target.getAttribute('data-id');
-                            const listNum = e.target.getAttribute('data-list');
-                            updateListItemField(listNum, id, field, e.target.value);
-                        });
-                    });
+            sortedList.forEach(item => {
+                const row = tableBody.insertRow();
+                row.innerHTML = `
+                    <td>${item.id}</td>
+                    <td><input type="text" value="${item.model}" data-id="${item.id}" data-list="${listNum}" data-field="model"></td>
+                    <td><input type="text" value="${item.type}" data-id="${item.id}" data-list="${listNum}" data-field="type"></td>
+                    <td><input type="text" value="${item.location}" data-id="${item.id}" data-list="${listNum}" data-field="location"></td>
+                    <td><input type="text" value="${item.status}" data-id="${item.id}" data-list="${listNum}" data-field="status"></td>
+                    <td><input type="text" value="${item.ipAddress}" data-id="${item.id}" data-list="${listNum}" data-field="ipAddress"></td>
+                    <td><input type="text" value="${item.macAddress}" data-id="${item.id}" data-list="${listNum}" data-field="macAddress"></td>
+                    <td><button class="delete-item-btn" data-list="${listNum}" data-id="${item.id}">Delete</button></td>
+                `;
 
-                    const deleteButton = row.querySelector('.delete-item-btn');
-                    deleteButton.addEventListener('click', () => {
-                        deleteListItem(listNum, key);
+                const inputs = row.getElementsByTagName('input');
+                Array.from(inputs).forEach(input => {
+                    input.addEventListener('change', (e) => {
+                        const field = e.target.getAttribute('data-field');
+                        const id = e.target.getAttribute('data-id');
+                        const listNum = e.target.getAttribute('data-list');
+                        updateListItemField(listNum, id, field, e.target.value);
                     });
                 });
-            }
+
+                const deleteButton = row.querySelector('.delete-item-btn');
+                deleteButton.addEventListener('click', () => {
+                    deleteListItem(listNum, item.id);
+                });
+            });
         }
 
         function deleteListItem(listNum, itemId) {
@@ -259,6 +267,7 @@
             if (taskDate && taskNotes) {
                 const newTask = { date: taskDate, notes: taskNotes };
                 set(ref(database, `public/jobs/tasks/${taskDate}`), newTask)
+                    .then(() => alert('Task added successfully.'))
                     .catch((error) => console.error('Error adding task:', error));
             } else {
                 alert('Please enter both date and notes for the task.');
@@ -291,12 +300,32 @@
             }
         }
 
+        function filterTable(listNum) {
+            const input = getElement(`search-list${listNum}`);
+            const filter = input.value.toLowerCase();
+            const table = getElement(`listitem${listNum}-table`);
+            const tr = table.getElementsByTagName("tr");
+
+            for (let i = 1; i < tr.length; i++) { // Start from 1 to skip the header row
+                const tds = tr[i].getElementsByTagName("td");
+                let match = false;
+                for (let j = 0; j < tds.length; j++) {
+                    if (tds[j]) {
+                        const txtValue = tds[j].textContent || tds[j].innerText;
+                        if (txtValue.toLowerCase().indexOf(filter) > -1) {
+                            match = true;
+                            break;
+                        }
+                    }
+                }
+                tr[i].style.display = match ? "" : "none";
+            }
+        }
+
         getElement('add-task-btn').addEventListener('click', addTask);
         getElement('add-listitem1-btn').addEventListener('click', () => addListItem(1));
         getElement('add-listitem2-btn').addEventListener('click', () => addListItem(2));
-
     </script>
 
 </body>
-
 </html>
