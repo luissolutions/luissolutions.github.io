@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Information - Task Manager</title>
+    <link rel="stylesheet" href="./assets/css/app-styles.css">
+</head>
+
+<body>
+    <header>
+        <h1>Job Information - Task Manager</h1>
+    </header>
+
+    <main>
+        <section>
+            <h2>Job Info</h2>
+            <label for="site-name-input">Site Name:</label>
+            <input type="text" id="site-name-input">
+            <br>
+            <label for="project-name-input">Project:</label>
+            <input type="text" id="project-name-input">
+
+            <h3>Tasks</h3>
+            <ul id="task-list"></ul>
+
+            <h4>Add New Task</h4>
+            <label for="task-date-input">Date:</label>
+            <input type="datetime-local" id="task-date-input">
+            <label for="task-notes-input">Notes:</label>
+            <input type="text" id="task-notes-input">
+            <button id="add-task-btn">Add Task</button>
+
+            <h3>List 1</h3>
+            <table class="table" id="listitem1-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Model</th>
+                        <th>Location</th>
+                        <th>Status</th>
+                        <th>IP Address</th>
+                        <th>MAC Address</th>
+                    </tr>
+                </thead>
+                <tbody class="tbody"></tbody>
+            </table>
+
+            <h4>Add New List 1 Item</h4>
+            <label for="list1-id-input">ID:</label>
+            <input type="text" id="list1-id-input">
+            <label for="list1-model-input">Model:</label>
+            <input type="text" id="list1-model-input">
+            <label for="list1-location-input">Location:</label>
+            <input type="text" id="list1-location-input">
+            <label for="list1-status-input">Status:</label>
+            <input type="text" id="list1-status-input">
+            <label for="list1-ip-input">IP Address:</label>
+            <input type="text" id="list1-ip-input">
+            <label for="list1-mac-input">MAC Address:</label>
+            <input type="text" id="list1-mac-input">
+            <button id="add-listitem1-btn">Add List Item 1</button>
+
+            <h3>List 2</h3>
+            <table class="table" id="listitem2-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Model</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>IP Address</th>
+                        <th>MAC Address</th>
+                    </tr>
+                </thead>
+                <tbody  class="tbody"></tbody>
+            </table>
+
+            <h4>Add New List 2 Item</h4>
+            <label for="list2-id-input">ID:</label>
+            <input type="text" id="list2-id-input">
+            <label for="list2-model-input">Model:</label>
+            <input type="text" id="list2-model-input">
+            <label for="list2-type-input">Type:</label>
+            <input type="text" id="list2-type-input">
+            <label for="list2-status-input">Status:</label>
+            <input type="text" id="list2-status-input">
+            <label for="list2-ip-input">IP Address:</label>
+            <input type="text" id="list2-ip-input">
+            <label for="list2-mac-input">MAC Address:</label>
+            <input type="text" id="list2-mac-input">
+            <button id="add-listitem2-btn">Add List Item 2</button>
+        </section>
+    </main>
+
+    <script type="module">
+        import { database, ref, onValue, update, set, remove } from './assets/js/firebase-init.js';
+
+        const jobRef = ref(database, 'public/jobs/');
+
+        function getElement(id) {
+            return document.getElementById(id);
+        }
+
+        onValue(jobRef, (snapshot) => {
+            if (snapshot.exists()) {
+                const jobData = snapshot.val();
+                console.log("Job Data loaded:", jobData);
+                displayJobInfo(jobData);
+            } else {
+                console.error("No data available at this location! Initializing data.");
+                initializeJobInfo();
+            }
+        }, (error) => {
+            console.error("Error fetching data:", error);
+        });
+
+        function initializeJobInfo() {
+            const initialData = {
+                siteName: "Enter Site Name",
+                project: "Enter Project Name",
+                tasks: [],
+                list1: {},
+                list2: {}
+            };
+            set(jobRef, initialData)
+                .then(() => console.log("Job data initialized"))
+                .catch((error) => console.error("Error initializing job data:", error));
+        }
+
+        function displayJobInfo(jobInfo) {
+            getElement('site-name-input').value = jobInfo.siteName || '';
+            getElement('project-name-input').value = jobInfo.project || '';
+
+            getElement('site-name-input').addEventListener('change', (e) => {
+                updateField('public/jobs/siteName', e.target.value);
+            });
+            getElement('project-name-input').addEventListener('change', (e) => {
+                updateField('public/jobs/project', e.target.value);
+            });
+
+            const taskList = getElement('task-list');
+            taskList.innerHTML = '';
+            if (jobInfo.tasks) {
+                Object.keys(jobInfo.tasks).forEach((key) => {
+                    const task = jobInfo.tasks[key];
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                <label>Date: <input type="datetime-local" value="${new Date(task.date).toISOString().substring(0, 16)}"></label><br>
+                <label>Notes: <input type="text" value="${task.notes}"></label><br>
+            `;
+
+                    const deleteButton = document.createElement('button');
+                    deleteButton.textContent = 'Delete Task';
+                    deleteButton.addEventListener('click', () => deleteTask(key));
+                    li.appendChild(deleteButton);
+
+                    taskList.appendChild(li);
+                });
+            }
+
+            populateListTable(jobInfo.list1, 1);
+            populateListTable(jobInfo.list2, 2);
+        }
+
+        function populateListTable(listData, listNum) {
+            const tableBody = getElement(`listitem${listNum}-table`).getElementsByTagName('tbody')[0];
+            tableBody.innerHTML = '';
+
+            if (listData) {
+                Object.keys(listData).forEach((key) => {
+                    const item = listData[key];
+                    const row = tableBody.insertRow();
+                    row.innerHTML = `
+                <td>${item.id}</td>
+                <td><input type="text" value="${item.model}" data-id="${key}" data-list="${listNum}" data-field="model"></td>
+                <td><input type="text" value="${item.location || item.type}" data-id="${key}" data-list="${listNum}" data-field="${listNum === 1 ? 'location' : 'type'}"></td>
+                <td><input type="text" value="${item.status}" data-id="${key}" data-list="${listNum}" data-field="status"></td>
+                <td><input type="text" value="${item.ipAddress}" data-id="${key}" data-list="${listNum}" data-field="ipAddress"></td>
+                <td><input type="text" value="${item.macAddress}" data-id="${key}" data-list="${listNum}" data-field="macAddress"></td>
+                <td><button class="delete-item-btn" data-list="${listNum}" data-id="${key}">Delete</button></td>
+            `;
+
+                    const inputs = row.getElementsByTagName('input');
+                    Array.from(inputs).forEach(input => {
+                        input.addEventListener('change', (e) => {
+                            const field = e.target.getAttribute('data-field');
+                            const id = e.target.getAttribute('data-id');
+                            const listNum = e.target.getAttribute('data-list');
+                            updateListItemField(listNum, id, field, e.target.value);
+                        });
+                    });
+
+                    const deleteButton = row.querySelector('.delete-item-btn');
+                    deleteButton.addEventListener('click', () => {
+                        deleteListItem(listNum, key);
+                    });
+                });
+            }
+        }
+
+        function deleteListItem(listNum, itemId) {
+            const path = `public/jobs/list${listNum}/${itemId}`;
+            updateField(path, null) 
+                .then(() => {
+                    console.log(`List item ${itemId} deleted successfully.`);
+                    refreshJobInfo();
+                })
+                .catch((error) => {
+                    console.error(`Error deleting list item ${itemId}:`, error);
+                });
+        }
+
+        function refreshJobInfo() {
+            onValue(jobRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    const jobData = snapshot.val();
+                    displayJobInfo(jobData);
+                }
+            });
+        }
+
+        function updateField(path, value) {
+            const updates = {};
+            updates[path] = value;
+            return update(ref(database), updates)
+                .then(() => console.log(`${path} updated successfully.`))
+                .catch((error) => console.error(`Error updating ${path}:`, error));
+        }
+
+
+        function updateTaskField(taskId, field, value) {
+            updateField(`public/jobs/tasks/${taskId}/${field}`, value);
+        }
+
+        function updateListItemField(listNum, itemId, field, value) {
+            updateField(`public/jobs/list${listNum}/${itemId}/${field}`, value);
+        }
+
+        function deleteTask(taskId) {
+            updateField(`public/jobs/tasks/${taskId}`, null);
+        }
+
+        function addTask() {
+            const taskDate = getElement('task-date-input').value;
+            const taskNotes = getElement('task-notes-input').value;
+
+            if (taskDate && taskNotes) {
+                const newTask = { date: taskDate, notes: taskNotes };
+                set(ref(database, `public/jobs/tasks/${taskDate}`), newTask)
+                    .then(() => alert('Task added successfully.'))
+                    .catch((error) => console.error('Error adding task:', error));
+            } else {
+                alert('Please enter both date and notes for the task.');
+            }
+        }
+
+        function addListItem(listNum) {
+            const id = getElement(`list${listNum}-id-input`).value;
+            const model = getElement(`list${listNum}-model-input`).value;
+            const locationOrType = getElement(`list${listNum}-${listNum === 1 ? 'location' : 'type'}-input`).value;
+            const status = getElement(`list${listNum}-status-input`).value;
+            const ipAddress = getElement(`list${listNum}-ip-input`).value;
+            const macAddress = getElement(`list${listNum}-mac-input`).value;
+
+            if (id && model && locationOrType && status && ipAddress && macAddress) {
+                const newItem = {
+                    id,
+                    model,
+                    [listNum === 1 ? 'location' : 'type']: locationOrType,
+                    status,
+                    ipAddress,
+                    macAddress
+                };
+                set(ref(database, `public/jobs/list${listNum}/${id}`), newItem)
+                    .catch((error) => console.error('Error adding list item:', error));
+            } else {
+                alert('Please fill out all fields before adding a new list item.');
+            }
+        }
+
+        getElement('add-task-btn').addEventListener('click', addTask);
+        getElement('add-listitem1-btn').addEventListener('click', () => addListItem(1));
+        getElement('add-listitem2-btn').addEventListener('click', () => addListItem(2));
+
+    </script>
+
+</html>
