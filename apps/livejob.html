@@ -5,24 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Job Information - Task Manager</title>
     <link rel="stylesheet" href="./assets/css/app-styles.css">
-    <script type="module" src="./assets/js/login.js" defer></script>
 </head>
 
 <body>
     <header>
         <h1>Job Information - Task Manager</h1>
-        <section id="login-section">
-            <form id="login-form">
-                <label for="username">Email:</label>
-                <input type="email" id="username" required>
-                <br>
-                <label for="password">Password:</label>
-                <input type="password" id="password" required>
-                <br>
-                <button type="submit">Login</button>
-            </form>
-            <button id="logout" style="display: none;">Logout</button>
-        </section>
     </header>
 
     <main>
@@ -120,7 +107,7 @@
     </main>
 
     <script type="module">
-        import { database, ref, onValue, update, set, get, remove, getStorage, uploadBytes, getDownloadURL } from './assets/js/firebase-init.js';
+        import { database, ref, onValue, update, set, remove } from './assets/js/firebase-init.js';
 
         const jobRef = ref(database, 'public/jobs/');
 
@@ -232,16 +219,13 @@
                 const row = tableBody.insertRow();
                 row.innerHTML = `
                     <td><input type="text" value="${item.id}" data-id="${item.id}" data-list="${listNum}" data-field="id"></td>
-                    <td><input type="text" value="${item.model || ''}" data-id="${item.id}" data-list="${listNum}" data-field="model"></td>
-                    <td><input type="text" value="${item.type || ''}" data-id="${item.id}" data-list="${listNum}" data-field="type"></td>
-                    <td><input type="text" value="${item.location || ''}" data-id="${item.id}" data-list="${listNum}" data-field="location"></td>
-                    <td><input type="text" value="${item.status || ''}" data-id="${item.id}" data-list="${listNum}" data-field="status"></td>
-                    <td><input type="text" value="${item.ipAddress || ''}" data-id="${item.id}" data-list="${listNum}" data-field="ipAddress"></td>
-                    <td><input type="text" value="${item.macAddress || ''}" data-id="${item.id}" data-list="${listNum}" data-field="macAddress"></td>
-                    <td>
-                        <button class="delete-item-btn" data-list="${listNum}" data-id="${item.id}">Delete</button>
-                        <button class="open-file-btn" data-list="${listNum}" data-id="${item.id}">Image</button>
-                    </td>
+                    <td><input type="text" value="${item.model}" data-id="${item.id}" data-list="${listNum}" data-field="model"></td>
+                    <td><input type="text" value="${item.type}" data-id="${item.id}" data-list="${listNum}" data-field="type"></td>
+                    <td><input type="text" value="${item.location}" data-id="${item.id}" data-list="${listNum}" data-field="location"></td>
+                    <td><input type="text" value="${item.status}" data-id="${item.id}" data-list="${listNum}" data-field="status"></td>
+                    <td><input type="text" value="${item.ipAddress}" data-id="${item.id}" data-list="${listNum}" data-field="ipAddress"></td>
+                    <td><input type="text" value="${item.macAddress}" data-id="${item.id}" data-list="${listNum}" data-field="macAddress"></td>
+                    <td><button class="delete-item-btn" data-list="${listNum}" data-id="${item.id}">Delete</button></td>
                 `;
 
                 const inputs = row.getElementsByTagName('input');
@@ -251,13 +235,17 @@
                         const id = e.target.getAttribute('data-id');
                         const listNum = e.target.getAttribute('data-list');
 
+                        // If ID is being changed, handle ID update logic
                         if (field === 'id') {
-                            const oldId = id;
-                            const newId = e.target.value.trim();
+                            const oldId = id; // Store old ID
+                            const newId = e.target.value.trim(); // Get new ID
 
+                            // Update Firebase with the new ID
                             updateListItemField(listNum, oldId, field, newId)
                                 .then(() => {
+                                    // Remove old entry
                                     remove(ref(database, `public/jobs/list${listNum}/${oldId}`));
+                                    // Add new entry with the new ID
                                     const newItemData = {
                                         model: row.cells[1].querySelector('input').value,
                                         type: row.cells[2].querySelector('input').value,
@@ -277,15 +265,6 @@
                 const deleteButton = row.querySelector('.delete-item-btn');
                 deleteButton.addEventListener('click', () => {
                     deleteListItem(listNum, item.id);
-                });
-
-                const openFileButton = row.querySelector('.open-file-btn');
-                openFileButton.addEventListener('click', () => {
-                    const projectName = getElement('project-name-input').value.trim(); // Get the project name
-                    const projectId = database.app.options.projectId; // Dynamically obtain the project ID from the Firebase config
-                    const filePath = `share/images/${projectName}/${item.id}.jpg`; // Construct the path with .jpg extension
-                    const fileUrl = `https://firebasestorage.googleapis.com/v0/b/${projectId}.appspot.com/o/${encodeURIComponent(filePath)}?alt=media`;
-                    window.open(fileUrl, '_blank'); // Open the file in a new tab
                 });
             });
         }
@@ -347,24 +326,30 @@
 
         function addListItem(listNum) {
             const id = getElement(`list${listNum}-id-input`).value.trim();
-            const newItem = {
-                id,
-                model: getElement(`list${listNum}-model-input`).value || undefined,
-                type: getElement(`list${listNum}-type-input`).value || undefined,
-                location: getElement(`list${listNum}-location-input`).value || undefined,
-                status: getElement(`list${listNum}-status-input`).value || undefined,
-                ipAddress: getElement(`list${listNum}-ip-input`).value || undefined,
-                macAddress: getElement(`list${listNum}-mac-input`).value || undefined
-            };
+            const model = getElement(`list${listNum}-model-input`).value;
+            const type = getElement(`list${listNum}-type-input`).value;
+            const location = getElement(`list${listNum}-location-input`).value;
+            const status = getElement(`list${listNum}-status-input`).value;
+            const ipAddress = getElement(`list${listNum}-ip-input`).value;
+            const macAddress = getElement(`list${listNum}-mac-input`).value;
 
-            if (id) {
+            if (id && model && type && location && status && ipAddress && macAddress) {
+                const newItem = {
+                    id,
+                    model,
+                    type,
+                    location,
+                    status,
+                    ipAddress,
+                    macAddress
+                };
                 set(ref(database, `public/jobs/list${listNum}/${id}`), newItem)
                     .then(() => {
                         clearInputs(listNum);
                     })
                     .catch((error) => console.error('Error adding list item:', error));
             } else {
-                alert('Please enter an ID for the new list item.');
+                alert('Please fill out all fields before adding a new list item.');
             }
         }
 
