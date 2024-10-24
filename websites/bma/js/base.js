@@ -30,6 +30,7 @@ const appNamesMap = {
   "Timer": "livetimer",
   "Gallery": "livegallery",
   "Calendar": "liveschedule",
+  "Job Info": "livejob",
 };
 
 const appDisplayNames = Object.keys(appNamesMap);
