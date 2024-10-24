@@ -6,6 +6,11 @@
     <title>Job Information - Task Manager</title>
     <link rel="stylesheet" href="./assets/css/app-styles.css">
     <script type="module" src="./assets/js/login.js" defer></script>
+    <style>
+        ul {
+            list-style-type: none;
+        }
+    </style>
 </head>
 
 <body>
@@ -40,8 +45,10 @@
             <h4>Add New Task</h4>
             <label for="task-date-input">Date:</label>
             <input type="datetime-local" id="task-date-input">
+            <br>
             <label for="task-notes-input">Notes:</label>
-            <input type="text" id="task-notes-input">
+            <textarea id="task-notes-input" rows="3"></textarea>
+            <br>
             <button id="add-task-btn">Add Task</button>
 
             <h3>List 1</h3>
@@ -120,7 +127,7 @@
     </main>
 
     <script type="module">
-        import { database, ref, onValue, update, set, remove } from './assets/js/firebase-init.js';
+        import { database, ref, onValue, update, set, remove, getStorage, storage, storageRef, getDownloadURL } from './assets/js/firebase-init.js';
 
         const jobRef = ref(database, 'public/jobs/');
 
@@ -199,13 +206,14 @@
                     const li = document.createElement('li');
                     li.innerHTML = `
                         <label>Date: <input type="datetime-local" value="${new Date(task.date).toISOString().substring(0, 16)}"></label><br>
-                        <label>Notes: <input type="text" value="${task.notes}" data-id="${key}" data-field="notes"></label><br>
+                        <label>Notes: <textarea rows="3" data-id="${key}" data-field="notes">${task.notes || ''}</textarea></label><br>
                     `;
 
-                    const notesInput = li.querySelector('input[data-field="notes"]');
+                    const notesInput = li.querySelector('textarea[data-field="notes"]');
                     notesInput.addEventListener('change', () => {
                         updateTaskField(key, 'notes', notesInput.value);
                     });
+
 
                     const deleteButton = document.createElement('button');
                     deleteButton.textContent = 'Delete Task';
@@ -238,8 +246,16 @@
                     <td><input type="text" value="${item.status}" data-id="${item.id}" data-list="${listNum}" data-field="status"></td>
                     <td><input type="text" value="${item.ipAddress}" data-id="${item.id}" data-list="${listNum}" data-field="ipAddress"></td>
                     <td><input type="text" value="${item.macAddress}" data-id="${item.id}" data-list="${listNum}" data-field="macAddress"></td>
-                    <td><button class="delete-item-btn" data-list="${listNum}" data-id="${item.id}">Delete</button></td>
+                    <td><button class="delete-item-btn" data-list="${listNum}" data-id="${item.id}">Delete</button>
+                        <button class="open-image-btn" data-id="${item.id}" data-list="${listNum}">Image</button></td>
                 `;
+
+                const viewImageButton = row.querySelector('.open-image-btn');
+                viewImageButton.addEventListener('click', () => {
+                    const projectName = getElement('project-name-input').value;
+                    handleViewImage(projectName, item.id);
+
+                });
 
                 const inputs = row.getElementsByTagName('input');
                 Array.from(inputs).forEach(input => {
@@ -277,6 +293,29 @@
                 });
             });
         }
+
+        function handleViewImage(projectName, itemId) {
+            const imagePath = `share/images/${encodeURIComponent(projectName)}/${encodeURIComponent(itemId)}.jpg`;
+            const imageRef = storageRef(storage, imagePath);
+
+            getDownloadURL(imageRef)
+                .then((url) => {
+                    window.open(url, '_blank');
+                })
+                .catch((error) => {
+                    console.error('Error fetching image:', error);
+                    alert('Error: Image not found!');
+                });
+        }
+
+        document.querySelectorAll('.open-image-btn').forEach(button => {
+            button.addEventListener('click', (e) => {
+                const itemId = e.target.getAttribute('data-id');
+                const projectName = getElement('project-name-input').value;
+
+                handleViewImage(projectName, itemId);
+            });
+        });
 
         function deleteListItem(listNum, itemId) {
             const path = `public/jobs/list${listNum}/${itemId}`;
@@ -335,31 +374,35 @@
 
         function addListItem(listNum) {
             const id = getElement(`list${listNum}-id-input`).value.trim();
-            const model = getElement(`list${listNum}-model-input`).value;
-            const type = getElement(`list${listNum}-type-input`).value;
-            const location = getElement(`list${listNum}-location-input`).value;
-            const status = getElement(`list${listNum}-status-input`).value;
-            const ipAddress = getElement(`list${listNum}-ip-input`).value;
-            const macAddress = getElement(`list${listNum}-mac-input`).value;
 
-            if (id && model && type && location && status && ipAddress && macAddress) {
-                const newItem = {
-                    id,
-                    model,
-                    type,
-                    location,
-                    status,
-                    ipAddress,
-                    macAddress
-                };
-                set(ref(database, `public/jobs/list${listNum}/${id}`), newItem)
-                    .then(() => {
-                        clearInputs(listNum);
-                    })
-                    .catch((error) => console.error('Error adding list item:', error));
-            } else {
-                alert('Please fill out all fields before adding a new list item.');
+            if (!id) {
+                alert('ID is required to add a new list item.');
+                return;
             }
+
+            const model = getElement(`list${listNum}-model-input`).value || 'N/A';
+            const type = getElement(`list${listNum}-type-input`).value || 'Unknown';
+            const location = getElement(`list${listNum}-location-input`).value || 'Not specified';
+            const status = getElement(`list${listNum}-status-input`).value || 'Pending';
+            const ipAddress = getElement(`list${listNum}-ip-input`).value || 'No IP';
+            const macAddress = getElement(`list${listNum}-mac-input`).value || 'No MAC';
+
+            const newItem = {
+                id,
+                model,
+                type,
+                location,
+                status,
+                ipAddress,
+                macAddress
+            };
+
+            set(ref(database, `public/jobs/list${listNum}/${id}`), newItem)
+                .then(() => {
+                    clearInputs(listNum);
+                    console.log('New list item added successfully.');
+                })
+                .catch((error) => console.error('Error adding list item:', error));
         }
 
         function clearInputs(listNum) {
