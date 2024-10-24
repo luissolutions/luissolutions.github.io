@@ -129,7 +129,7 @@
     <script type="module">
         import { database, ref, onValue, update, set, remove, getStorage, storage, storageRef, getDownloadURL } from './assets/js/firebase-init.js';
 
-        const jobRef = ref(database, 'public/jobs/');
+        const jobRef = ref(database, 'share/jobs/');
 
         function getElement(id) {
             return document.getElementById(id);
@@ -192,10 +192,10 @@
             getElement('project-name-input').value = jobInfo.project || '';
 
             getElement('site-name-input').addEventListener('change', (e) => {
-                updateField('public/jobs/siteName', e.target.value);
+                updateField('share/jobs/siteName', e.target.value);
             });
             getElement('project-name-input').addEventListener('change', (e) => {
-                updateField('public/jobs/project', e.target.value);
+                updateField('share/jobs/project', e.target.value);
             });
 
             const taskList = getElement('task-list');
@@ -270,7 +270,7 @@
 
                             updateListItemField(listNum, oldId, field, newId)
                                 .then(() => {
-                                    remove(ref(database, `public/jobs/list${listNum}/${oldId}`));
+                                    remove(ref(database, `share/jobs/list${listNum}/${oldId}`));
                                     const newItemData = {
                                         model: row.cells[1].querySelector('input').value,
                                         type: row.cells[2].querySelector('input').value,
@@ -279,7 +279,7 @@
                                         ipAddress: row.cells[5].querySelector('input').value,
                                         macAddress: row.cells[6].querySelector('input').value
                                     };
-                                    set(ref(database, `public/jobs/list${listNum}/${newId}`), { id: newId, ...newItemData });
+                                    set(ref(database, `share/jobs/list${listNum}/${newId}`), { id: newId, ...newItemData });
                                 });
                         } else {
                             updateListItemField(listNum, id, field, e.target.value);
@@ -295,17 +295,27 @@
         }
 
         function handleViewImage(projectName, itemId) {
-            const imagePath = `share/images/${encodeURIComponent(projectName)}/${encodeURIComponent(itemId)}.jpg`;
-            const imageRef = storageRef(storage, imagePath);
+            const imagePathJpg = `share/images/${encodeURIComponent(projectName)}/${encodeURIComponent(itemId)}.jpg`;
+            const imagePathJpeg = `share/images/${encodeURIComponent(projectName)}/${encodeURIComponent(itemId)}.jpeg`;
+            const imageRefJpg = storageRef(storage, imagePathJpg);
+            const imageRefJpeg = storageRef(storage, imagePathJpeg);
 
-            getDownloadURL(imageRef)
-                .then((url) => {
-                    window.open(url, '_blank');
-                })
-                .catch((error) => {
-                    console.error('Error fetching image:', error);
-                    alert('Error: Image not found!');
-                });
+            function tryFetchingImage(imageRef, fallbackRef = null) {
+                getDownloadURL(imageRef)
+                    .then((url) => {
+                        window.open(url, '_blank');
+                    })
+                    .catch((error) => {
+                        if (error.code === 'storage/object-not-found' && fallbackRef) {
+                            tryFetchingImage(fallbackRef);
+                        } else {
+                            console.error('Error fetching image:', error);
+                            alert('Error: Image not found!');
+                        }
+                    });
+            }
+
+            tryFetchingImage(imageRefJpg, imageRefJpeg);
         }
 
         document.querySelectorAll('.open-image-btn').forEach(button => {
@@ -318,7 +328,7 @@
         });
 
         function deleteListItem(listNum, itemId) {
-            const path = `public/jobs/list${listNum}/${itemId}`;
+            const path = `share/jobs/list${listNum}/${itemId}`;
             updateField(path, null)
                 .then(() => {
                     console.log(`List item ${itemId} deleted successfully.`);
@@ -347,16 +357,16 @@
         }
 
         function updateTaskField(taskId, field, value) {
-            updateField(`public/jobs/tasks/${taskId}/${field}`, value);
+            updateField(`share/jobs/tasks/${taskId}/${field}`, value);
         }
 
         function updateListItemField(listNum, itemId, field, value) {
-            const path = `public/jobs/list${listNum}/${itemId}/${field}`;
+            const path = `share/jobs/list${listNum}/${itemId}/${field}`;
             return updateField(path, value);
         }
 
         function deleteTask(taskId) {
-            updateField(`public/jobs/tasks/${taskId}`, null);
+            updateField(`share/jobs/tasks/${taskId}`, null);
         }
 
         function addTask() {
@@ -365,7 +375,7 @@
 
             if (taskDate && taskNotes) {
                 const newTask = { date: taskDate, notes: taskNotes };
-                set(ref(database, `public/jobs/tasks/${taskDate}`), newTask)
+                set(ref(database, `share/jobs/tasks/${taskDate}`), newTask)
                     .catch((error) => console.error('Error adding task:', error));
             } else {
                 alert('Please enter both date and notes for the task.');
@@ -397,7 +407,7 @@
                 macAddress
             };
 
-            set(ref(database, `public/jobs/list${listNum}/${id}`), newItem)
+            set(ref(database, `share/jobs/list${listNum}/${id}`), newItem)
                 .then(() => {
                     clearInputs(listNum);
                     console.log('New list item added successfully.');
