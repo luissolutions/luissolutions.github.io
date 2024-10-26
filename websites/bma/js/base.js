@@ -11,14 +11,14 @@ window.onclick = function (event) {
 }
 
 const appNamesMap = {
-  "Time Logging": "livetasker",
+  "Job Logging": "livetasker",
   "Notes App": "livenotes",
-  "Fuel Logging": "livegas",
+  "Gas Logging": "livegas",
   "Quote/Invoice Maker": "liveinvoice",
   "Mileage Logging": "livemileage",
-  "Calendar": "liveschedule",
+  "Jobs Calendar": "liveschedule",
   "Job Info": "livejob",
-  "Gallery": "livegallery",
+  "Jobs Gallery": "livegallery",
   "Financial Logging": "livebudget",
   "Favorites/Bookmarks": "livelinks",
   "View/Edit Inventory": "liveinventory",
