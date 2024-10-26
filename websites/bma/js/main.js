@@ -8,10 +8,19 @@ applyDarkMode(isDarkModeActive);
 darkModeToggle.checked = isDarkModeActive;
 
 function applyDarkMode(isDarkMode) {
-    content.style.filter = isDarkMode ? 'invert(1)' : 'none';
+    content.classList.toggle('dark-mode', isDarkMode);
+    sidebar.classList.toggle('dark-mode', isDarkMode);
 
-    if (sidebar) {
-        sidebar.style.filter = isDarkMode ? 'invert(1)' : 'none';
+    const iframe = document.getElementById('myIframe');
+    if (iframe && iframe.contentWindow) {
+        const iframeDocument = iframe.contentWindow.document;
+
+        try {
+            const images = iframeDocument.querySelectorAll('img');
+            images.forEach(img => img.classList.toggle('revert-image', isDarkMode));
+        } catch (error) {
+            console.error('Could not access iframe images due to cross-origin restrictions');
+        }
     }
 }
 
