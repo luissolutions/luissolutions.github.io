@@ -227,18 +227,28 @@
             if (jobInfo.tasks) {
                 Object.keys(jobInfo.tasks).forEach((key) => {
                     const task = jobInfo.tasks[key];
+                    const timestamp = task.date;
 
-                    const localDate = task.date;
+                    let localDate;
+                    try {
+                        localDate = new Date(timestamp - new Date().getTimezoneOffset() * 60000)
+                            .toISOString()
+                            .substring(0, 16);
+                    } catch (error) {
+                        console.warn(`Invalid date for task ${key}:`, error);
+                        return;
+                    }
 
                     const li = document.createElement('li');
                     li.innerHTML = `
-                <label>Date: <input type="datetime-local" value="${localDate}" data-id="${key}" data-field="date"></label>
-                <label>Notes: <textarea rows="3" data-id="${key}" data-field="notes">${task.notes || ''}</textarea></label>
-            `;
+                        <label>Date: <input type="datetime-local" value="${localDate}" data-id="${key}" data-field="date"></label>
+                        <label>Notes: <textarea rows="3" data-id="${key}" data-field="notes">${task.notes || ''}</textarea></label>
+                    `;
 
                     const dateInput = li.querySelector('input[data-field="date"]');
                     dateInput.addEventListener('change', () => {
-                        updateTaskField(key, 'date', dateInput.value);
+                        const updatedTimestamp = new Date(dateInput.value).getTime();
+                        updateTaskField(key, 'date', updatedTimestamp);
                     });
 
                     const notesInput = li.querySelector('textarea[data-field="notes"]');
@@ -396,10 +406,10 @@
         }
 
         function updateTaskField(taskId, field, value) {
-    updateField(`share/jobs/tasks/${taskId}/${field}`, value)
-        .then(() => console.log(`Task ${field} updated successfully.`))
-        .catch((error) => console.error(`Error updating task ${field}:`, error));
-}
+            updateField(`share/jobs/tasks/${taskId}/${field}`, value)
+                .then(() => console.log(`Task ${field} updated successfully.`))
+                .catch((error) => console.error(`Error updating task ${field}:`, error));
+        }
 
         function updateListItemField(listNum, itemId, field, value) {
             const path = `share/jobs/list${listNum}/${itemId}/${field}`;
@@ -415,12 +425,23 @@
         }
 
         function addTask() {
-            const taskDate = getElement('task-date-input').value;
+            const taskDateInput = getElement('task-date-input').value;
             const taskNotes = getElement('task-notes-input').value;
 
-            if (taskDate && taskNotes) {
-                const newTask = { date: taskDate, notes: taskNotes };
-                set(ref(database, `share/jobs/tasks/${taskDate}`), newTask)
+            if (taskDateInput && taskNotes) {
+                const timestamp = new Date(taskDateInput).getTime();
+
+                const newTask = {
+                    date: timestamp,
+                    notes: taskNotes
+                };
+
+                set(ref(database, `share/jobs/tasks/${timestamp}`), newTask)
+                    .then(() => {
+                        console.log("Task added successfully with Unix timestamp as key.");
+                        getElement('task-date-input').value = '';
+                        getElement('task-notes-input').value = '';
+                    })
                     .catch((error) => console.error('Error adding task:', error));
             } else {
                 alert('Please enter both date and notes for the task.');
