@@ -17,18 +17,6 @@
             padding: 0;
         }
 
-        #task-list label {
-            display: block;
-        }
-
-        #task-list input[type="datetime-local"],
-        #task-list textarea,
-        #task-notes-input,
-        #task-date-input {
-            width: -webkit-fill-available;
-            border-radius: 4px;
-        }
-
         input[type="text"] {
             width: -webkit-fill-available;
         }
@@ -36,13 +24,6 @@
         input[type="text"][id^="search-list"] {
             width: -webkit-fill-available;
             margin: 10px 0;
-        }
-
-        .add {
-            border: 1px solid #333;
-            padding: 8px;
-            border-radius: 8px;
-            margin: 8px;
         }
     </style>
 </head>
@@ -231,26 +212,24 @@
         }
 
         function displayJobInfo(jobInfo) {
-            getElement('site-name-input').value = jobInfo.siteName || '';
-            getElement('project-name-input').value = jobInfo.project || '';
-
-            getElement('site-name-input').addEventListener('change', (e) => {
-                updateField('share/jobs/siteName', e.target.value);
-            });
-            getElement('project-name-input').addEventListener('change', (e) => {
-                updateField('share/jobs/project', e.target.value);
-            });
-
             const taskList = getElement('task-list');
             taskList.innerHTML = '';
             if (jobInfo.tasks) {
                 Object.keys(jobInfo.tasks).forEach((key) => {
                     const task = jobInfo.tasks[key];
+
+                    const localDate = task.date;
+
                     const li = document.createElement('li');
                     li.innerHTML = `
-                        <label>Date: <input type="datetime-local" value="${new Date(task.date).toISOString().substring(0, 16)}"></label>
-                        <label>Notes: <textarea rows="3" data-id="${key}" data-field="notes">${task.notes || ''}</textarea></label>
-                    `;
+                <label>Date: <input type="datetime-local" value="${localDate}" data-id="${key}" data-field="date"></label>
+                <label>Notes: <textarea rows="3" data-id="${key}" data-field="notes">${task.notes || ''}</textarea></label>
+            `;
+
+                    const dateInput = li.querySelector('input[data-field="date"]');
+                    dateInput.addEventListener('change', () => {
+                        updateTaskField(key, 'date', dateInput.value);
+                    });
 
                     const notesInput = li.querySelector('textarea[data-field="notes"]');
                     notesInput.addEventListener('change', () => {
@@ -266,7 +245,6 @@
                     taskList.appendChild(li);
                 });
             }
-
             populateListTable(jobInfo.list1, 1);
             populateListTable(jobInfo.list2, 2);
         }
@@ -408,7 +386,9 @@
         }
 
         function updateTaskField(taskId, field, value) {
-            updateField(`share/jobs/tasks/${taskId}/${field}`, value);
+            updateField(`share/jobs/tasks/${taskId}/${field}`, value)
+                .then(() => console.log(`Task ${field} updated successfully.`))
+                .catch((error) => console.error(`Error updating task ${field}:`, error));
         }
 
         function updateListItemField(listNum, itemId, field, value) {
@@ -485,27 +465,7 @@
         getElement('add-task-btn').addEventListener('click', addTask);
         getElement('add-listitem1-btn').addEventListener('click', () => addListItem(1));
         getElement('add-listitem2-btn').addEventListener('click', () => addListItem(2));
-
-        const maxWidthBtn = document.createElement('button');
-        maxWidthBtn.id = 'maxWidthBtn';
-        maxWidthBtn.textContent = '⟷';
-
-        const wbuttonDiv = document.getElementById('wbutton');
-        if (wbuttonDiv) {
-            wbuttonDiv.appendChild(maxWidthBtn);
-        }
-
-        const mainElement = document.querySelector('main');
-
-        maxWidthBtn.addEventListener('click', () => {
-            const currentMaxWidth = window.getComputedStyle(mainElement).maxWidth;
-
-            if (currentMaxWidth === '1000px') {
-                mainElement.style.maxWidth = 'none';
-            } else {
-                mainElement.style.maxWidth = '1000px';
-            }
-        });
+        getElement('export-csv-btn').addEventListener('click', exportToExcel);
 
         function exportToExcel() {
             const tasks = [];
@@ -562,7 +522,26 @@
             XLSX.writeFile(wb, "job_information.xlsx");
         }
 
-        getElement('export-csv-btn').addEventListener('click', exportToExcel);
+        const maxWidthBtn = document.createElement('button');
+        maxWidthBtn.id = 'maxWidthBtn';
+        maxWidthBtn.textContent = '⟷';
+
+        const wbuttonDiv = document.getElementById('wbutton');
+        if (wbuttonDiv) {
+            wbuttonDiv.appendChild(maxWidthBtn);
+        }
+
+        const mainElement = document.querySelector('main');
+
+        maxWidthBtn.addEventListener('click', () => {
+            const currentMaxWidth = window.getComputedStyle(mainElement).maxWidth;
+
+            if (currentMaxWidth === '1000px') {
+                mainElement.style.maxWidth = 'none';
+            } else {
+                mainElement.style.maxWidth = '1000px';
+            }
+        });
     </script>
 
 </body>

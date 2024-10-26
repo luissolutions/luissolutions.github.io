@@ -16,6 +16,9 @@ const appNamesMap = {
   "Fuel Logging": "livegas",
   "Quote/Invoice Maker": "liveinvoice",
   "Mileage Logging": "livemileage",
+  "Calendar": "liveschedule",
+  "Job Info": "livejob",
+  "Gallery": "livegallery",
   "Financial Logging": "livebudget",
   "Favorites/Bookmarks": "livelinks",
   "View/Edit Inventory": "liveinventory",
@@ -28,9 +31,6 @@ const appNamesMap = {
   "Wire Counter": "count",
   "Analytics": "liveanalytics",
   "Timer": "livetimer",
-  "Gallery": "livegallery",
-  "Calendar": "liveschedule",
-  "Job Info": "livejob",
 };
 
 const appDisplayNames = Object.keys(appNamesMap);
