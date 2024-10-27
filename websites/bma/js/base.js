@@ -11,7 +11,7 @@ window.onclick = function (event) {
 }
 
 const appNamesMap = {
-  "Job Logging": "livetasker",
+  "Job Task Logging": "livetasker",
   "Notes App": "livenotes",
   "Gas Logging": "livegas",
   "Quote/Invoice Maker": "liveinvoice",
@@ -31,6 +31,7 @@ const appNamesMap = {
   "Wire Counter": "count",
   "Analytics": "liveanalytics",
   "Timer": "livetimer",
+  "Contacts": "livecontacts",
 };
 
 const appDisplayNames = Object.keys(appNamesMap);

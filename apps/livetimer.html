@@ -103,7 +103,8 @@
             clearInterval(timer.interval);
 
             const endTime = new Date().toLocaleString();
-            const elapsedTime = formatTime(Date.now() - timer.startTime);
+            const elapsedTimeInMs = Date.now() - timer.startTime;
+            const elapsedTime = formatTime(elapsedTimeInMs);
 
             elements.currentTaskTimeDisplay.textContent = `${elapsedTime}`;
 
@@ -113,7 +114,11 @@
                     const lastEntryKey = Object.keys(data).find(key => data[key].endTime === "");
                     if (lastEntryKey) {
                         const lastEntryRef = ref(database, `share/times/${lastEntryKey}`);
-                        set(lastEntryRef, { ...data[lastEntryKey], endTime, elapsedTime }).then(() => {
+                        set(lastEntryRef, {
+                            ...data[lastEntryKey],
+                            endTime,
+                            elapsedTime: elapsedTime
+                        }).then(() => {
                             updateWeeklyTimeSheet(data[lastEntryKey].taskName, data[lastEntryKey].startTime, endTime);
                             resetTimerState();
                         });
@@ -173,7 +178,12 @@
                 elements.timerLogTableBody.innerHTML = "";
                 Object.entries(data).forEach(([key, log]) => {
                     const row = elements.timerLogTableBody.insertRow();
-                    row.innerHTML = `<td>${log.taskName}</td><td>${log.startTime}</td><td>${log.endTime}</td><td>${log.elapsedTime}</td>`;
+                    row.innerHTML = `
+                <td>${log.taskName}</td>
+                <td>${log.startTime}</td>
+                <td>${log.endTime}</td>
+                <td>${calculateElapsedTime(log.startTime, log.endTime)}</td> <!-- Call a function to calculate elapsed time -->
+            `;
                     const deleteCell = row.insertCell();
                     const deleteButton = document.createElement("button");
                     deleteButton.classList.add('clear-button');
@@ -182,6 +192,14 @@
                     deleteCell.appendChild(deleteButton);
                 });
             });
+        }
+
+        function calculateElapsedTime(startTime, endTime) {
+            const start = new Date(startTime);
+            const end = new Date(endTime);
+            const elapsedMs = end - start;
+
+            return formatTime(elapsedMs);
         }
 
         function init() {
