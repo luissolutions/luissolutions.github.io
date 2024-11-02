@@ -44,6 +44,10 @@
             <input type="radio" id="budgeting" name="conversionType" value="budgeting">
             <label for="budgeting">Budgeting</label>
         </div>
+        <div>
+            <input type="radio" id="multiPart" name="conversionType" value="multiPart">
+            <label for="multiPart"><a href="https://www.udemy.com/">Tech Question</a></label>
+        </div>
         <br>
         <input type="checkbox" id="removeForbiddenChars" name="">
         <label for="removeForbiddenChars">Remove Forbidden Characters</label>
@@ -85,6 +89,9 @@
                     break;
                 case 'budgeting': // This case is for the "Budgeting" radio option
                     convertedText = convertToBudgeting(text);
+                    break;
+                case 'multiPart': // New case for Multi-Part Questions
+                    convertedText = convertMultiPartQuestionsToJSON(text);
                     break;
                 default:
                     // Handle the default case or provide an error message
@@ -297,6 +304,51 @@
             }
 
             return JSON.stringify(result, null, 2);
+        }
+
+        function convertMultiPartQuestionsToJSON(text) {
+            const questions = text.split(/(?=Question \d+)/).map(q => q.trim()).filter(q => q);
+            const jsonOutput = {};
+            let questionID = 1;
+
+            questions.forEach(questionText => {
+                const lines = questionText.split('\n').map(line => line.trim()).filter(line => line);
+
+                let question = '';
+                const options = [];
+                let correctAnswer = '';
+                let explanation = '';
+                let isOptionsPart = false;
+
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+
+                    if (line.startsWith("Question")) {
+                        question = lines[i + 2];
+                        i += 2;  // Move to the line after question text
+                        isOptionsPart = true; // Start collecting options
+                    } else if (line === "Correct" || line === "Correct answer" || line === "Your answer is correct") {
+                        correctAnswer = lines[i + 1];
+                        options.push(correctAnswer);  // Ensure the correct answer is included in options
+                        i += 1;  // Skip the correct answer line
+                    } else if (line === "Overall explanation") {
+                        explanation = lines.slice(i + 1).join(' ');
+                        isOptionsPart = false; // Stop collecting options
+                    } else if (isOptionsPart && line !== correctAnswer) {
+                        options.push(line);
+                    }
+                }
+
+                jsonOutput[`Question${String(questionID).padStart(5, '0')}`] = {
+                    question,
+                    correctAnswer,
+                    options,
+                    explanation
+                };
+                questionID++;
+            });
+
+            return JSON.stringify(jsonOutput, null, 2);
         }
 
         function handleShorthandInput() {
