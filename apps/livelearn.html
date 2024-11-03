@@ -196,20 +196,26 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      loadFromFirebase('startTime', null, (savedStartTime) => {
-        if (savedStartTime) {
-          updateElapsedTime(savedStartTime);
-        } else {
-          startTimer();
-        }
-      });
+      const userId = getCurrentUserUID();
 
-      loadFromFirebase('highScores', [], (highScores) => {
-        displayHighScores(highScores);
-      });
-      loadSavedData();
-      registerEventListeners();
-      fetchQuestions();
+      if (userId) {
+        loadFromFirebase('startTime', null, (savedStartTime) => {
+          if (savedStartTime) {
+            updateElapsedTime(savedStartTime);
+          } else {
+            startTimer();
+          }
+        });
+
+        loadFromFirebase('highScores', [], (highScores) => {
+          displayHighScores(highScores);
+        });
+        loadSavedData();
+        registerEventListeners();
+        fetchQuestions();
+      } else {
+        console.error("User not authenticated. Data loading skipped.");
+      }
     });
 
     function saveToLocalStorage(key, value) {
@@ -568,17 +574,31 @@
 
     function resetQuiz() {
       stopTimer();
-      updateHighScore();
+
+      const currentUserUID = localStorage.getItem("currentUserUID");
+
       correctAnswersCount = 0;
       wrongAnswersCount = 0;
       currentQuestionIndex = 0;
       answeredQuestions = {};
+      timeElapsed = 0;
+
+      saveToFirebase('startTime', null);
 
       saveToFirebase('correctAnswersCount', correctAnswersCount);
       saveToFirebase('wrongAnswersCount', wrongAnswersCount);
       saveToFirebase('answeredQuestions', answeredQuestions);
 
-      localStorage.clear();
+      localStorage.removeItem("correctAnswersCount");
+      localStorage.removeItem("wrongAnswersCount");
+      localStorage.removeItem("answeredQuestions");
+      localStorage.removeItem("savedQuestions");
+      localStorage.removeItem("currentQuestionIndex");
+
+      if (currentUserUID) {
+        localStorage.setItem("currentUserUID", currentUserUID);
+      }
+
       fetchQuestions();
       updateQuestionCounter();
       updateScoreDisplay();
