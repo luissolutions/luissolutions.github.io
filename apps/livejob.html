@@ -263,13 +263,21 @@
         }
 
         function updateTaskField(taskId, field, value) {
-            updateField(`share/jobs/tasks/${taskId}/${field}`, value)
+            updateField(`${currentProjectName}/tasks/${taskId}/${field}`, value)
                 .then(() => console.log(`Task ${field} updated successfully.`))
                 .catch((error) => console.error(`Error updating task ${field}:`, error));
         }
 
+        function deleteListItem(listNum, itemId) {
+            if (confirm('Are you sure you want to delete this list item?')) {
+                remove(ref(database, `share/jobs/${currentProjectName}/list${listNum}/${itemId}`))
+                    .then(() => console.log(`List item ${itemId} from List ${listNum} deleted successfully.`))
+                    .catch((error) => console.error(`Error deleting list item ${itemId}:`, error));
+            }
+        }
+
         function updateListItemField(listNum, itemId, field, value) {
-            const path = `share/jobs/list${listNum}/${itemId}/${field}`;
+            const path = `${currentProjectName}/list${listNum}/${itemId}/${field}`;
             return updateField(path, value)
                 .then(() => {
                     console.log(`Updated ${field} for item ${itemId} successfully.`);
@@ -282,15 +290,6 @@
                 remove(ref(database, `share/jobs/${currentProjectName}/tasks/${taskId}`))
                     .then(() => console.log(`Task ${taskId} deleted successfully.`))
                     .catch((error) => console.error(`Error deleting task ${taskId}:`, error));
-            }
-        }
-
-        // Delete list item from Firebase
-        function deleteListItem(listNum, itemId) {
-            if (confirm('Are you sure you want to delete this list item?')) {
-                remove(ref(database, `share/jobs/${currentProjectName}/list${listNum}/${itemId}`))
-                    .then(() => console.log(`List item ${itemId} from List ${listNum} deleted successfully.`))
-                    .catch((error) => console.error(`Error deleting list item ${itemId}:`, error));
             }
         }
 
@@ -332,7 +331,6 @@
                 .catch((error) => console.error('Error adding list item:', error));
         }
 
-        // Initialize default functions and event listeners for task and list actions
         getElement('search-list1').addEventListener('keyup', () => filterTable(1));
         getElement('search-list2').addEventListener('keyup', () => filterTable(2));
         getElement('add-task-btn').addEventListener('click', addTask);
@@ -366,18 +364,35 @@
         function populateTaskList(tasks) {
             const taskList = getElement('task-list');
             taskList.innerHTML = '';
+
             Object.keys(tasks).forEach((key) => {
                 const task = tasks[key];
                 const localDate = new Date(task.date).toISOString().substring(0, 16);
 
                 const li = document.createElement('li');
                 li.innerHTML = `
-                <label>Date: <input type="datetime-local" value="${localDate}" data-id="${key}" data-field="date"></label>
-                <label>Notes: <textarea rows="3" data-id="${key}" data-field="notes">${task.notes || ''}</textarea></label>
-                <button class="delete-task-btn" data-id="${key}">Delete Task</button>
-            `;
+                    <label>Date: <input type="datetime-local" value="${localDate}" data-id="${key}" data-field="date"></label>
+                    <label>Notes: <textarea rows="3" data-id="${key}" data-field="notes">${task.notes || ''}</textarea></label>
+                    <button class="delete-task-btn" data-id="${key}">Delete Task</button>
+                `;
+
+                const dateInput = li.querySelector('input[type="datetime-local"]');
+                const notesInput = li.querySelector('textarea');
+
+                dateInput.addEventListener('change', (e) => {
+                    const taskId = e.target.getAttribute('data-id');
+                    const newDateValue = new Date(e.target.value).getTime();
+                    updateTaskField(taskId, 'date', newDateValue);
+                });
+
+                notesInput.addEventListener('change', (e) => {
+                    const taskId = e.target.getAttribute('data-id');
+                    const newNotesValue = e.target.value;
+                    updateTaskField(taskId, 'notes', newNotesValue);
+                });
 
                 li.querySelector('.delete-task-btn').addEventListener('click', () => deleteTask(key));
+
                 taskList.appendChild(li);
             });
         }
@@ -399,6 +414,17 @@
                 <td><button class="delete-task-btn" data-id="${id}" data-list="${listNum}">Delete</button>
                     <button class="open-image-btn" data-id="${item.id}" data-list="${listNum}">Image</button></td>
                 `;
+
+                const inputs = row.querySelectorAll('input[type="text"]');
+                inputs.forEach(input => {
+                    input.addEventListener('change', (e) => {
+                        const field = e.target.getAttribute('data-field');
+                        const itemId = e.target.getAttribute('data-id');
+                        const newValue = e.target.value;
+
+                        updateListItemField(listNum, itemId, field, newValue);
+                    });
+                });
 
                 row.querySelector('.delete-task-btn').addEventListener('click', () => deleteListItem(listNum, id));
 
