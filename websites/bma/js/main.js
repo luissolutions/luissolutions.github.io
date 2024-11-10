@@ -5,17 +5,28 @@ const sidebar = document.getElementById('sidebar');
 let isDarkModeActive = localStorage.getItem('darkMode') === 'true';
 applyDarkMode(isDarkModeActive);
 
-darkModeToggle.checked = isDarkModeActive;
+if (darkModeToggle) {
+    darkModeToggle.checked = isDarkModeActive;
+
+    darkModeToggle.addEventListener('change', () => {
+        isDarkModeActive = darkModeToggle.checked;
+        applyDarkMode(isDarkModeActive);
+        localStorage.setItem('darkMode', isDarkModeActive.toString());
+    });
+}
 
 function applyDarkMode(isDarkMode) {
-    content.classList.toggle('dark-mode', isDarkMode);
-    sidebar.classList.toggle('dark-mode', isDarkMode);
+    if (content) {
+        content.classList.toggle('dark-mode', isDarkMode);
+    }
+    if (sidebar) {
+        sidebar.classList.toggle('dark-mode', isDarkMode);
+    }
 
     const iframe = document.getElementById('myIframe');
     if (iframe && iframe.contentWindow) {
-        const iframeDocument = iframe.contentWindow.document;
-
         try {
+            const iframeDocument = iframe.contentWindow.document;
             const images = iframeDocument.querySelectorAll('img');
             images.forEach(img => img.classList.toggle('revert-image', isDarkMode));
         } catch (error) {
@@ -23,9 +34,3 @@ function applyDarkMode(isDarkMode) {
         }
     }
 }
-
-darkModeToggle.addEventListener('change', () => {
-    isDarkModeActive = darkModeToggle.checked;
-    applyDarkMode(isDarkModeActive);
-    localStorage.setItem('darkMode', isDarkModeActive.toString());
-});
