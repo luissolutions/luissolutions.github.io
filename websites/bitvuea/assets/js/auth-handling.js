@@ -19,11 +19,22 @@ if (loginForm) {
     });
 }
 
+const specialAccessPassword = "M1n3Rm4N"; // Replace with the actual access password
+
 // Check for registration form and add event listener if present
 const registrationForm = document.getElementById("registration-form");
 if (registrationForm) {
     registrationForm.addEventListener("submit", function (event) {
         event.preventDefault();
+
+        // Prompt for special access password
+        const accessPassword = prompt("Please enter the access password to complete registration:");
+        if (accessPassword !== specialAccessPassword) {
+            alert("Incorrect access password. Registration not allowed.");
+            return; // Exit registration if access password is incorrect
+        }
+
+        // Get email and passwords from form fields
         const email = document.getElementById('reg-email').value;
         const password = document.getElementById('reg-password').value;
         const confirmPassword = document.getElementById('reg-confirm-password').value;
@@ -33,6 +44,7 @@ if (registrationForm) {
             return;
         }
 
+        // Proceed with Firebase registration
         createUserWithEmailAndPassword(auth, email, password)
             .then((userCredential) => {
                 console.log('User registered:', userCredential.user);
