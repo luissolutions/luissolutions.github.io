@@ -49,6 +49,12 @@
 
     <main>
         <section id="task-manager" class="app-section">
+            <div>
+                <label for="taskSelect">Select Task:</label>
+                <select id="taskSelect">
+                    <option value="" disabled selected>Select Task</option>
+                </select>
+            </div>
 
             <div>
                 <div class="name-column-input">
@@ -92,17 +98,11 @@
                 <button id="deleteImageButton">Delete Selected Image</button>
             </div>
 
+
             <div>
                 <br>
                 <label for="searchTask">Search <span id="totalTasks">0</span> Tasks:</label>
                 <input type="text" id="searchTask" placeholder="Enter Name">
-            </div>
-
-            <div>
-                <label for="taskSelect">Select Task:</label>
-                <select id="taskSelect">
-                    <option value="" disabled selected>Select Task</option>
-                </select>
             </div>
 
             <div class="checkbox">
@@ -747,18 +747,23 @@
                 .filter(th => th.style.display !== 'none' && !th.classList.contains('actions-column'))
                 .map(th => th.innerText);
 
-            const rows = Array.from(document.querySelectorAll('#task-log tbody tr')).map(row => {
+            const allRows = Array.from(document.querySelectorAll('#task-log tbody tr'));
+            const visibleRows = allRows.filter(row => row.style.display !== 'none');
+
+            const rowsToExport = (visibleRows.length === allRows.length) ? allRows : visibleRows;
+
+            const rows = rowsToExport.map(row => {
                 return Array.from(row.cells)
-                    .filter(cell => !cell.classList.contains('actions-column'))
-                    .filter(cell => cell.style.display !== 'none')
+                    .filter((cell, index) => headers.includes(document.querySelectorAll('#task-log thead th')[index].innerText))
                     .map(cell => cell.innerText.trim());
             });
 
             rows.unshift(headers);
-            exportToSpreadsheet(rows);
+
+            exportToCSV(rows);
         }
 
-        function exportToSpreadsheet(rows) {
+        function exportToCSV(rows) {
             let csvContent = "data:text/csv;charset=utf-8,";
 
             rows.forEach(rowArray => {
@@ -770,15 +775,6 @@
                         field = field.toString().trim();
 
                         field = field.replace(/[\u00A0\r?\n|\r]/g, ' ');
-
-                        if (field === 'Delete') {
-                            return '';
-                        }
-
-                        if (!isNaN(field) && field.length > 10) {
-                            field = `="${field}"`;
-                        }
-
                         if (field.includes(',') || field.includes('"') || field.includes('\n')) {
                             field = `"${field.replace(/"/g, '""')}"`;
                         }
