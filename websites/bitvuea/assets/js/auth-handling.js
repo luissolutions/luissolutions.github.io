@@ -19,7 +19,7 @@ if (loginForm) {
     });
 }
 
-const specialAccessPassword = "M1n3Rm4N"; // Replace with the actual access password
+const specialAccessPassword = "M1n3Rm4N";
 
 // Check for registration form and add event listener if present
 const registrationForm = document.getElementById("registration-form");
