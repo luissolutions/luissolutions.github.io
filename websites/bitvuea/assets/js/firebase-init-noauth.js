@@ -1,4 +1,4 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 import { getDatabase, ref, onValue, set, get, off, remove, runTransaction, push, update, limitToLast, query } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
 
@@ -12,7 +12,9 @@ const firebaseConfig = {
   appId: "1:803825556227:web:556a3db8526287763aa736"
 };
 
-const app = initializeApp(firebaseConfig);
+// Check if the app is already initialized, and if not, initialize it
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+
 const auth = getAuth(app);
 const database = getDatabase(app);
 

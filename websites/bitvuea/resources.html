@@ -7,6 +7,7 @@
     <title>Bitveau</title>
     <link rel="stylesheet" href="assets/css/styles.css">
     <script src="assets/js/html.js" defer></script>
+    <script type="module" src="assets/js/auth-handling.js" defer></script>
 </head>
 
 <body>
@@ -59,7 +60,7 @@
                 }
 
                 const categories = categoryInputValue.split(',').map(cat => cat.trim()).filter(cat => cat);
-                const newLinkRef = push(ref(database, 'bitveau/links'));
+                const newLinkRef = push(ref(database, 'share/bitveau/links'));
                 const linkData = { url: linkUrl, categories: categories.length > 0 ? categories : null };
 
                 set(newLinkRef, linkData)
@@ -84,7 +85,7 @@
                 const categories = categoryInputValue.split(',').map(cat => cat.trim()).filter(cat => cat);
                 const linkData = { url: linkUrl, categories: categories.length > 0 ? categories : null };
 
-                const linkRef = ref(database, 'bitveau/links/' + editingLinkKey);
+                const linkRef = ref(database, 'share/bitveau/links/' + editingLinkKey);
                 update(linkRef, linkData)
                     .then(() => {
                         console.log('Link updated successfully!');
@@ -101,12 +102,15 @@
             });
 
             function fetchLinksFromFirebase() {
-                const linksRef = ref(database, 'bitveau/links');
+                const linksRef = ref(database, 'share/bitveau/links');
                 onValue(linksRef, (snapshot) => {
                     const data = snapshot.val();
+                    console.log("Fetched data from Firebase:", data); // Debug log
                     if (data) {
                         populateCategoryFilter(data);
                         displayLinksByCategory(data);
+                    } else {
+                        linksContainer.innerHTML = '<p>No links available.</p>';
                     }
                 }, (error) => {
                     console.error('Error fetching links:', error);
@@ -119,11 +123,12 @@
 
                 const categorizedLinks = {};
 
-                // Categorize the links
+                // Categorize the links, even if they lack a categories field
                 Object.keys(links).forEach(key => {
                     const link = links[key];
-                    const linkCategories = link.categories || [];
+                    const linkCategories = link.categories || ['Uncategorized']; // Default to "Uncategorized" if no categories
 
+                    // If a specific category is selected, only display matching links
                     if (selectedCategory && selectedCategory !== '' && !linkCategories.includes(selectedCategory)) return;
 
                     linkCategories.forEach(category => {
@@ -134,13 +139,13 @@
                     });
                 });
 
+                console.log("Categorized Links:", categorizedLinks); // Debug log
+
                 // Sort categories alphabetically
                 const sortedCategories = Object.keys(categorizedLinks).sort();
 
-                // Sort links within each category alphabetically by URL
+                // Display each category and its links
                 sortedCategories.forEach(category => {
-                    categorizedLinks[category].sort((a, b) => a.url.localeCompare(b.url));
-
                     const categoryHeader = document.createElement('h3');
                     categoryHeader.textContent = category;
                     linksContainer.appendChild(categoryHeader);
@@ -178,7 +183,7 @@
             function populateCategoryFilter(links) {
                 const categories = new Set(['All Categories']);
                 Object.keys(links).forEach(key => {
-                    const linkCategories = links[key].categories || [];
+                    const linkCategories = links[key].categories || ['Uncategorized'];
                     linkCategories.forEach(category => categories.add(category));
                 });
 
@@ -195,13 +200,20 @@
             }
 
             function deleteLink(key) {
-                const linkRef = ref(database, 'bitveau/links/' + key);
-                remove(linkRef).then(() => {
-                    console.log('Link removed successfully');
-                    fetchLinksFromFirebase();
-                }).catch(error => {
-                    console.error('Error removing link:', error);
-                });
+                const userConfirmed = confirm("Are you sure you want to delete this link?");
+                if (!userConfirmed) {
+                    return;
+                }
+
+                const linkRef = ref(database, 'share/bitveau/links/' + key);
+                remove(linkRef)
+                    .then(() => {
+                        console.log('Link removed successfully');
+                        fetchLinksFromFirebase();
+                    })
+                    .catch(error => {
+                        console.error('Error removing link:', error);
+                    });
             }
 
             function editLink(key, link) {
@@ -222,6 +234,7 @@
 
             fetchLinksFromFirebase();
         });
+
     </script>
 
 </body>
