@@ -22,6 +22,13 @@
             <div class="entry-container">
                 <h2>Enter New Item:</h2>
                 <div class="entry">
+                    <label for="image">Upload Part Image:</label>
+                    <input type="file" id="image" accept="image/*">
+                    <img id="image-preview" src="./assets/img/default.png" alt="Uploaded Part Image" width="200"
+                        style="display: block; margin-top: 10px;">
+                </div>
+
+                <div class="entry">
                     <label for="category">Category:</label>
                     <input type="text" id="category" required>
                 </div>
@@ -75,7 +82,12 @@
     <footer></footer>
 
     <script type="module">
-        import { ref, onValue, set, remove, database } from './assets/js/firebase-init-noauth.js';
+        import { ref, onValue, set, remove, database, getStorage, ref as storageRef, uploadBytesResumable, getDownloadURL } from '../../apps/assets/js/firebase-init.js';
+
+        const storage = getStorage();
+        const imageInput = document.getElementById('image');
+        const imagePreview = document.getElementById('image-preview');
+        const saveButton = document.getElementById('save-data-button');
 
         const categoryFilter = document.getElementById('category-filter');
         const entriesContainer = document.getElementById('entries-container');
@@ -86,7 +98,7 @@
         const actualPriceInput = document.getElementById('actualPrice');
         const quantityInput = document.getElementById('quantity');
         const descriptionInput = document.getElementById('description');
-        const inventoryRef = ref(database, 'bitveau/inventory');
+        const inventoryRef = ref(database, 'share/bitveau/inventory');
 
         function loadDatabaseEntries() {
             onValue(inventoryRef, (snapshot) => {
@@ -171,7 +183,7 @@
         }
 
         function loadAndDisplayEntries(filterCategory) {
-            const entriesRef = ref(database, 'bitveau/inventory');
+            const entriesRef = ref(database, 'share/bitveau/inventory');
             onValue(entriesRef, (snapshot) => {
                 const entries = snapshot.val();
                 displayEntries(entries, filterCategory);
@@ -181,7 +193,7 @@
         }
 
         function loadAndDisplayEntriesBySearch(searchText) {
-            const entriesRef = ref(database, 'bitveau/inventory');
+            const entriesRef = ref(database, 'share/bitveau/inventory');
             onValue(entriesRef, (snapshot) => {
                 const entries = snapshot.val();
                 const filteredEntries = filterEntries(entries, searchText);
@@ -237,7 +249,7 @@
                 return;
             }
 
-            const entryRef = ref(database, `bitveau/inventory/${sanitizedCategory}/${sanitizedComponent}/${sanitizedPartName}`);
+            const entryRef = ref(database, `share/bitveau/inventory/${sanitizedCategory}/${sanitizedComponent}/${sanitizedPartName}`);
             const dataToSave = {
                 price: price,
                 actualPrice: actualPrice,
@@ -253,7 +265,7 @@
                         sanitizedComponent !== oldComponent ||
                         sanitizedPartName !== oldPartName
                     ) {
-                        const oldEntryRef = ref(database, `bitveau/inventory/${oldCategory}/${oldComponent}/${oldPartName}`);
+                        const oldEntryRef = ref(database, `share/bitveau/inventory/${oldCategory}/${oldComponent}/${oldPartName}`);
                         remove(oldEntryRef).catch((error) => {
                             console.error('Error deleting old entry:', error);
                         });
@@ -268,7 +280,7 @@
             const userConfirmed = confirm(`Are you sure you want to delete the entry for "${partName}"? This action cannot be undone.`);
 
             if (userConfirmed) {
-                const entryRef = ref(database, `bitveau/inventory/${category}/${component}/${partName}`);
+                const entryRef = ref(database, `share/bitveau/inventory/${category}/${component}/${partName}`);
                 remove(entryRef)
                     .then(() => {
                         console.log('Entry deleted successfully');
@@ -281,6 +293,82 @@
                 console.log('Delete action cancelled.');
             }
         }
+
+        function uploadImageAndGetURL(category, component, partName, callback) {
+            const file = imageInput.files[0];
+            if (file) {
+                const imageRef = storageRef(storage, `share/bitveau/inventory/${category}/${component}/${partName}/${file.name}`);
+                const uploadTask = uploadBytesResumable(imageRef, file);
+
+                uploadTask.on('state_changed',
+                    (snapshot) => {
+                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                        console.log(`Upload is ${progress}% done`);
+                    },
+                    (error) => {
+                        console.error("Image upload failed:", error);
+                        alert("Failed to upload image.");
+                    },
+                    () => {
+                        // Get the download URL and pass it to the callback
+                        getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
+                            callback(downloadURL);
+                        });
+                    }
+                );
+            } else {
+                callback(null);
+            }
+        }
+
+        function saveEntryData(category, component, partName, imageURL) {
+            const price = priceInput.value;
+            const actualPrice = actualPriceInput.value;
+            const quantity = quantityInput.value;
+            const description = descriptionInput.value;
+
+            const entryRef = ref(database, `share/bitveau/inventory/${category}/${component}/${partName}`);
+            const dataToSave = {
+                price: price,
+                actualPrice: actualPrice,
+                quantity: quantity,
+                description: description,
+                imageUrl: imageURL // Store the image URL
+            };
+
+            set(entryRef, dataToSave)
+                .then(() => {
+                    console.log('Entry saved successfully');
+                    alert("Entry saved with updated image.");
+                    if (imageURL) {
+                        imagePreview.src = imageURL; // Update the image preview
+                    }
+                })
+                .catch((error) => {
+                    console.error('Error saving entry:', error);
+                });
+        }
+
+        saveButton.addEventListener('click', (event) => {
+            event.preventDefault();
+
+            const category = sanitizeInput(categoryInput.value);
+            const component = sanitizeInput(componentInput.value);
+            const partName = sanitizeInput(partNameInput.value);
+
+            if (!category || !component || !partName) {
+                console.error('Please fill in all required fields.');
+                return;
+            }
+
+            if (imageInput.files.length > 0) {
+                uploadImageAndGetURL(category, component, partName, (imageURL) => {
+                    saveEntryData(category, component, partName, imageURL);
+                });
+            } else {
+                saveEntryData(category, component, partName, imagePreview.src); // Save with existing preview image
+            }
+        });
 
         function convertToCSV(objArray) {
             const array = typeof objArray !== 'object' ? JSON.parse(objArray) : objArray;
@@ -325,7 +413,7 @@
                 return;
             }
 
-            const entryRef = ref(database, `bitveau/inventory/${category}/${component}/${partName}`);
+            const entryRef = ref(database, `share/bitveau/inventory/${category}/${component}/${partName}`);
             const dataToSave = {
                 price: price,
                 actualPrice: actualPrice,
@@ -353,7 +441,7 @@
         });
 
         document.getElementById('download-csv-button').addEventListener('click', () => {
-            const entriesRef = ref(database, 'bitveau/inventory');
+            const entriesRef = ref(database, 'share/bitveau/inventory');
             onValue(entriesRef, (snapshot) => {
                 const entries = snapshot.val();
                 const csvData = convertToCSV(entries);
