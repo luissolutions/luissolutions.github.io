@@ -2,6 +2,7 @@
     <title>Database</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
+    <script type="module" src="./assets/js/login.js" defer></script>
     <style>
         section {
             display: flex;
@@ -118,6 +119,18 @@
 <body>
     <header>
         <h1>Database</h1>
+        <section style="display: none;" id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+            <button id="logout" style="display: none;">Logout</button>
+        </section>
     </header>
     <main>
         <section>
@@ -178,7 +191,7 @@
     </div>
 
     <script type="module">
-        import { ref, onValue, set, remove, database } from './assets/js/firebase-init.js';
+        import { ref, onValue, set, remove, database, get } from './assets/js/firebase-init.js';
 
         const categoryFilter = document.getElementById('category-filter');
         const entriesContainer = document.getElementById('entries-container');
@@ -222,18 +235,20 @@
                         const entryDiv = document.createElement('div');
                         entryDiv.classList.add('data');
 
+                        const imageUrl = entry.imageUrl || '../assets/img/default.png'; // Use imageUrl or a default
+
                         entryDiv.innerHTML = `
-                        <label>Category:<input type="text" class="category" value="${category || ''}"></label>
-                        <label>Sub-Category:<input type="text" class="component" value="${component || ''}"></label>
-                        <label>Part Info:<input type="text" class="partName" value="${partName || ''}"></label>
-                        <label>Price: $<input type="number" class="price" value="${entry.price || 0}"></label>
-                        <label>Cost: $<input type="number" class="actualPrice" value="${entry.actualPrice || 0}"></label>
-                        <label>Quantity:<input type="number" class="quantity" value="${entry.quantity || 0}"></label>
-                        <label>Description:<textarea class="description">${entry.description || ''}</textarea></label>                        
-                        <button class="view-image-btn" data-partname="${partName}">View Image</button>
-                        <button class="save-button">Update</button>
-                        <button class="delete-button">Delete</button>
-                        `;
+                    <label>Category:<input type="text" class="category" value="${category || ''}"></label>
+                    <label>Sub-Category:<input type="text" class="component" value="${component || ''}"></label>
+                    <label>Part Info:<input type="text" class="partName" value="${partName || ''}"></label>
+                    <label>Price: $<input type="number" class="price" value="${entry.price || 0}"></label>
+                    <label>Cost: $<input type="number" class="actualPrice" value="${entry.actualPrice || 0}"></label>
+                    <label>Quantity:<input type="number" class="quantity" value="${entry.quantity || 0}"></label>
+                    <label>Description:<textarea class="description">${entry.description || ''}</textarea></label>                        
+                    <button class="view-image-btn" data-imageurl="${imageUrl}">View Image</button>
+                    <button class="save-button">Update</button>
+                    <button class="delete-button">Delete</button>
+                `;
 
                         const saveButton = entryDiv.querySelector('.save-button');
                         saveButton.addEventListener('click', () => saveEntry(entryDiv, category, component, partName));
@@ -243,7 +258,7 @@
 
                         const viewImageButton = entryDiv.querySelector('.view-image-btn');
                         viewImageButton.addEventListener('click', function () {
-                            showPartImage(this.dataset.partname);
+                            showPartImage(this.dataset.imageurl);
                         });
 
                         container.appendChild(entryDiv);
@@ -252,19 +267,19 @@
             }
         }
 
-        function handleError(error) {
-            console.error("Database operation failed:", error);
-        }
-
-        function showPartImage(partName) {
+        function showPartImage(imageUrl) {
             const modal = document.getElementById('modal');
             const img = document.getElementById('part-image');
-            img.src = `../assets/img/database/${partName}.png`;
+            img.src = imageUrl;
             modal.style.display = 'block';
 
             img.addEventListener('click', function () {
                 modal.style.display = 'none';
             });
+        }
+
+        function handleError(error) {
+            console.error("Database operation failed:", error);
         }
 
         function loadAndDisplayEntries(filterCategory) {
@@ -330,35 +345,42 @@
             const sanitizedPartName = sanitizeInput(partNameInput.value);
 
             if (!sanitizedCategory || !sanitizedComponent || !sanitizedPartName) {
-                console.error('Please fill in all required fields.', error);
+                console.error('Please fill in all required fields.');
                 return;
             }
 
             const entryRef = ref(database, `share/inventory/${sanitizedCategory}/${sanitizedComponent}/${sanitizedPartName}`);
-            const dataToSave = {
-                price: price,
-                actualPrice: actualPrice,
-                quantity: quantity,
-                description: description
-            };
 
-            set(entryRef, dataToSave)
-                .then(() => {
-                    console.log('Entry saved successfully');
-                    if (
-                        sanitizedCategory !== oldCategory ||
-                        sanitizedComponent !== oldComponent ||
-                        sanitizedPartName !== oldPartName
-                    ) {
-                        const oldEntryRef = ref(database, `share/inventory/${oldCategory}/${oldComponent}/${oldPartName}`);
-                        remove(oldEntryRef).catch((error) => {
-                            console.error('Error deleting old entry:', error);
-                        });
-                    }
-                })
-                .catch((error) => {
-                    console.error('Error saving entry:', error);
-                });
+            get(entryRef).then((snapshot) => {
+                const existingData = snapshot.val() || {};
+                const updatedData = {
+                    ...existingData,
+                    price: price,
+                    actualPrice: actualPrice,
+                    quantity: quantity,
+                    description: description
+                };
+
+                set(entryRef, updatedData)
+                    .then(() => {
+                        console.log('Entry saved successfully');
+                        if (
+                            sanitizedCategory !== oldCategory ||
+                            sanitizedComponent !== oldComponent ||
+                            sanitizedPartName !== oldPartName
+                        ) {
+                            const oldEntryRef = ref(database, `share/inventory/${oldCategory}/${oldComponent}/${oldPartName}`);
+                            remove(oldEntryRef).catch((error) => {
+                                console.error('Error deleting old entry:', error);
+                            });
+                        }
+                    })
+                    .catch((error) => {
+                        console.error('Error saving entry:', error);
+                    });
+            }).catch((error) => {
+                console.error('Error fetching existing data:', error);
+            });
         }
 
         function deleteEntry(category, component, partName, entryDiv) {
