@@ -61,6 +61,7 @@ var appNames = [
   "converting", 
   "conversion", 
   "cheatsheet",
+  "loader",
 ];
 
 var pages = appNames.map(name => "../../apps/" + name + ".html");
