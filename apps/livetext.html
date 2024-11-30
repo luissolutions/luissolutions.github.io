@@ -18,7 +18,7 @@
         #display {
             font-size: 2em;
             font-weight: bold;
-            margin: 20px 0;
+            margin: 40px 0;
             height: 100px;
             display: flex;
             align-items: center;
@@ -70,6 +70,7 @@
             <select id="savedTexts">
                 <option value="">Select a saved text</option>
             </select>
+            <button id="deleteTextButton" disabled>Delete Text</button>
         </div>
         <div id="display">Text will appear here</div>
         <div id="controls">
@@ -100,12 +101,13 @@
             <textarea id="textInput" rows="5" cols="50" placeholder="Paste your text here..."></textarea>
             <br>
             <button id="saveTextButton">Save Text</button>
+            <button id="clearTextButton">Clear Text</button>
         </div>
         <br>
         <div id="fullText"></div>
     </main>
     <script type="module">
-        import { getDatabase, ref, set, push, onValue } from './assets/js/firebase-init.js';
+        import { getDatabase, ref, set, push, onValue, remove } from './assets/js/firebase-init.js';
 
         const database = getDatabase();
         const textsRef = ref(database, 'public/texts');
@@ -120,6 +122,8 @@
         const wordGroup = document.getElementById('wordGroup');
         const display = document.getElementById('display');
         const fullText = document.getElementById('fullText');
+        const deleteTextButton = document.getElementById('deleteTextButton');
+        const clearTextButton = document.getElementById('clearTextButton');
 
         let words = [];
         let currentIndex = 0;
@@ -186,31 +190,6 @@
                 }
             });
         }
-
-        saveTextButton.addEventListener('click', () => {
-            const text = textInput.value.trim();
-            if (text) {
-                const newTextRef = push(textsRef);
-                set(newTextRef, { text }).then(() => {
-                    alert('Text saved successfully.');
-                    textInput.value = '';
-                    saveSettings();
-                });
-            }
-        });
-
-        savedTexts.addEventListener('change', () => {
-            const selectedKey = savedTexts.value;
-            if (selectedKey) {
-                const selectedTextRef = ref(database, `public/texts/${selectedKey}`);
-                onValue(selectedTextRef, (snapshot) => {
-                    if (snapshot.exists()) {
-                        textInput.value = snapshot.val().text;
-                        saveSettings();
-                    }
-                }, { onlyOnce: true });
-            }
-        });
 
         function startPlayback() {
             if (!textInput.value.trim()) {
@@ -284,6 +263,63 @@
             fullText.innerHTML = highlightedWords.join(' ');
         }
 
+        function updateSpeedDisplay() {
+            const milliseconds = parseInt(speedSlider.value, 10);
+            const wordsPerSecond = (1000 / milliseconds).toFixed(2);
+            speedValue.textContent = `${wordsPerSecond} words/sec`;
+        }
+
+        saveTextButton.addEventListener('click', () => {
+            const text = textInput.value.trim();
+            if (text) {
+                const newTextRef = push(textsRef);
+                set(newTextRef, { text }).then(() => {
+                    alert('Text saved successfully.');
+                    textInput.value = '';
+                    saveSettings();
+                });
+            }
+        });
+
+        savedTexts.addEventListener('change', () => {
+            const selectedKey = savedTexts.value;
+            if (selectedKey) {
+                const selectedTextRef = ref(database, `public/texts/${selectedKey}`);
+                onValue(selectedTextRef, (snapshot) => {
+                    if (snapshot.exists()) {
+                        textInput.value = snapshot.val().text;
+
+                        words = [];
+                        currentIndex = 0;
+                        display.textContent = 'Text will appear here';
+                        fullText.innerHTML = textInput.value;
+
+                        saveSettings();
+                    }
+                }, { onlyOnce: true });
+            }
+
+            deleteTextButton.disabled = !savedTexts.value;
+        });
+
+        savedTexts.addEventListener('change', () => {
+            deleteTextButton.disabled = !savedTexts.value;
+        });
+
+        deleteTextButton.addEventListener('click', () => {
+            const selectedKey = savedTexts.value;
+            if (selectedKey) {
+                const selectedTextRef = ref(database, `public/texts/${selectedKey}`);
+                remove(selectedTextRef).then(() => {
+                    alert('Text deleted successfully.');
+                    fetchSavedTexts();
+                    savedTexts.value = '';
+                }).catch(error => {
+                    console.error('Error deleting text: ', error);
+                });
+            }
+        });
+
         wordGroup.addEventListener('change', () => {
             saveSettings();
             if (isPlaying.status) {
@@ -293,7 +329,10 @@
         });
 
         speedSlider.addEventListener('input', () => {
-            speedValue.textContent = `${speedSlider.value}ms`;
+            const milliseconds = parseInt(speedSlider.value, 10);
+            const wordsPerSecond = (1000 / milliseconds).toFixed(2);
+            speedValue.textContent = `${wordsPerSecond} words/sec`;
+
             saveSettings();
             if (isPlaying.status) {
                 clearInterval(timer);
@@ -301,17 +340,27 @@
             }
         });
 
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSettings();
+            updateSpeedDisplay();
+            fetchSavedTexts();
+        });
+
         startPauseButton.addEventListener('click', () => {
             togglePlayPause();
             saveSettings();
         });
 
-        resetButton.addEventListener('click', resetPlayback);
-
-        document.addEventListener('DOMContentLoaded', () => {
-            loadSettings();
-            fetchSavedTexts();
+        clearTextButton.addEventListener('click', () => {
+            textInput.value = '';
+            words = [];
+            currentIndex = 0;
+            display.textContent = 'Text will appear here';
+            fullText.innerHTML = '';
+            saveSettings();
         });
+
+        resetButton.addEventListener('click', resetPlayback);
     </script>
 </body>
 
