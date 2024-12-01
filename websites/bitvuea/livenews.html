@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News - Latest Insights</title>
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <script src="assets/js/contact-us.js" defer></script>
+    <script src="assets/js/html.js" defer></script>
+    <script src="assets/js/sidebar.js" defer></script>
+
+</head>
+
+<body>
+    <header></header>
+    <nav></nav>
+
+    <main>
+        <section class="news-section">
+            <h2>Latest News & Insights</h2>
+            <p>Stay informed with the latest strategies and insights to maximize your investments and growth potential.
+            </p>
+
+            <div class="service-grid"></div>
+
+            <div id="detailed-article-placeholder" class="detailed-article"></div>
+        </section>
+
+        <section style="display: none;" class="add-article-section">
+            <div class="entry-container">
+                <h2 id="toggle-entry-form">Add New Article</h2>
+                <br>
+                <form id="add-article-form" class="entry">
+                    <label for="title">Title:</label>
+                    <input type="text" id="title" required><br>
+
+                    <label for="description">Description:</label>
+                    <textarea id="description" required></textarea><br>
+
+                    <label for="date">Date:</label>
+                    <input type="date" id="date" required><br>
+
+                    <label for="author">Author:</label>
+                    <input type="text" id="author" required><br>
+
+                    <label for="video">Video URL (optional):</label>
+                    <input type="url" id="video"><br>
+
+                    <h3>Sections</h3>
+                    <div id="sections-container">
+                        <div class="section">
+                            <label for="section-title-1">Section Title:</label>
+                            <input type="text" id="section-title-1" class="section-title" required><br>
+
+                            <label for="section-content-1">Section Content:</label>
+                            <textarea id="section-content-1" class="section-content" required></textarea><br>
+                        </div>
+                    </div>
+                    <button type="button" id="add-section-button">Add Section</button><br>
+                    <button type="submit">Add Article</button>
+                </form>
+            </div>
+        </section>
+    </main>
+
+    <aside></aside>
+
+    <footer></footer>
+
+    <script type="module">
+        import { database, ref, set, push, get } from './assets/js/firebase-init-noauth.js';
+
+        document.addEventListener("DOMContentLoaded", async () => {
+            const placeholder = document.getElementById("detailed-article-placeholder");
+            const serviceGrid = document.querySelector(".service-grid");
+            const addArticleForm = document.getElementById("add-article-form");
+            const sectionsContainer = document.getElementById("sections-container");
+            const addSectionButton = document.getElementById("add-section-button");
+
+            let sectionCount = 1;
+
+            // Function to add a new section input field
+            addSectionButton.addEventListener("click", () => {
+                sectionCount++;
+                const sectionDiv = document.createElement("div");
+                sectionDiv.classList.add("section");
+                sectionDiv.innerHTML = `
+                    <label for="section-title-${sectionCount}">Section Title:</label>
+                    <input type="text" id="section-title-${sectionCount}" class="section-title" required><br>
+
+                    <label for="section-content-${sectionCount}">Section Content:</label>
+                    <textarea id="section-content-${sectionCount}" class="section-content" required></textarea><br>
+                `;
+                sectionsContainer.appendChild(sectionDiv);
+            });
+
+            // Load articles from Firebase
+            async function loadArticles() {
+                try {
+                    const articlesRef = ref(database, "articles");
+                    const snapshot = await get(articlesRef);
+
+                    if (!snapshot.exists()) {
+                        serviceGrid.innerHTML = `<p>No articles found.</p>`;
+                        return;
+                    }
+
+                    const articlesData = snapshot.val();
+                    const articles = Object.entries(articlesData).map(([id, article]) => ({
+                        id,
+                        ...article
+                    }));
+
+                    articles.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                    serviceGrid.innerHTML = articles
+                        .map(
+                            article => `
+                        <div class="service-item">
+                            <h3>${article.title}</h3>
+                            <p>${article.description}</p>
+                            <p><small>${new Date(article.date).toLocaleDateString()} | Author: ${article.author}</small></p>
+                            <button class="service-button more-info-button" data-article="${article.id}">More Info</button>
+                        </div>
+                    `
+                        )
+                        .join("");
+
+                    document.querySelectorAll(".more-info-button").forEach(button => {
+                        button.addEventListener("click", () => {
+                            const articleId = button.getAttribute("data-article");
+                            const article = articles.find(a => a.id === articleId);
+
+                            if (article) {
+                                placeholder.innerHTML = `
+                                    <h2>${article.title}</h2>
+                                    ${Object.values(article.sections)
+                                        .map(
+                                            section => `
+                                            <h3>${section.title}</h3>
+                                            ${section.content.join("<p></p>")}
+                                        `
+                                        )
+                                        .join("")}
+                                    ${article.video
+                                        ? `<p><strong>Watch the video:</strong> <a href="${article.video}" target="_blank">${article.video}</a></p>`
+                                        : ""
+                                    }
+                                `;
+                                placeholder.scrollIntoView({ behavior: "smooth" });
+                            } else {
+                                placeholder.innerHTML = "<p>Article not found.</p>";
+                            }
+                        });
+                    });
+                } catch (error) {
+                    console.error("Error fetching articles:", error);
+                    serviceGrid.innerHTML = `<p>Error loading articles: ${error.message}</p>`;
+                }
+            }
+
+            // Add new article to Firebase
+            addArticleForm.addEventListener("submit", async (event) => {
+                event.preventDefault();
+
+                const title = document.getElementById("title").value;
+                const description = document.getElementById("description").value;
+                const date = document.getElementById("date").value;
+                const author = document.getElementById("author").value;
+                const video = document.getElementById("video").value;
+
+                const sections = {};
+                const sectionTitles = document.querySelectorAll(".section-title");
+                const sectionContents = document.querySelectorAll(".section-content");
+
+                sectionTitles.forEach((titleInput, index) => {
+                    const sectionId = `section${index + 1}`;
+                    sections[sectionId] = {
+                        title: titleInput.value,
+                        content: sectionContents[index].value.split("\n")
+                    };
+                });
+
+                try {
+                    const newArticle = {
+                        title,
+                        description,
+                        date,
+                        author,
+                        video: video || null,
+                        sections
+                    };
+
+                    const articlesRef = ref(database, "articles");
+                    const newArticleRef = push(articlesRef);
+                    await set(newArticleRef, newArticle);
+
+                    alert("Article added successfully!");
+                    addArticleForm.reset();
+                    sectionsContainer.innerHTML = ""; // Clear sections
+                    sectionCount = 1;
+                    loadArticles(); // Refresh the list of articles
+                } catch (error) {
+                    console.error("Error adding article:", error);
+                    alert("Failed to add article.");
+                }
+            });
+
+            loadArticles();
+        });
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const toggleButton = document.getElementById('toggle-entry-form');
+            const entryContainer = document.querySelector('.entry-container');
+
+            toggleButton.addEventListener('click', () => {
+                entryContainer.classList.toggle('expanded');
+            });
+        });
+
+    </script>
+</body>
+
+</html>
