@@ -29,7 +29,7 @@
             style="background: white; width: max-content; margin: 5% auto; padding: 20px; border-radius: 10px; text-align: center;">
             <h2>Checkout</h2>
             <form id="checkout-form">
-                <p><strong>Total: $<span id="total-amount">0.00</span></strong></p>
+                <p><strong>Total: $<span id="total-amount">0.00</span> + Tax</strong></p>
                 <label for="name">Name:</label><br>
                 <input type="text" id="name" name="name" required><br><br>
 
@@ -49,7 +49,10 @@
     <footer></footer>
 
     <script type="module">
-        import { database, ref, set, push } from '../../apps/assets/js/firebase-init.js';
+        import { database, ref, push, set, getAuth } from '../../apps/assets/js/firebase-init.js';
+
+        const auth = getAuth();
+
 
         const cart = JSON.parse(localStorage.getItem('cart')) || [];
         const cartContainer = document.getElementById('cart-container');
@@ -67,18 +70,21 @@
 
             let total = 0;
             cartContainer.innerHTML = cart.map((item, index) => {
-                total += parseFloat(item.price) || 0;
+                const itemTotal = (parseFloat(item.price) || 0) * (item.quantity || 1);
+                total += itemTotal;
                 return `
-                    <div class="cart-item">
-                        <img src="${item.imageUrl || './assets/img/default.png'}" alt="${item.partName} Image" width="100">
-                        <p><strong>Category:</strong> ${item.category}</p>
-                        <p><strong>Sub-Category:</strong> ${item.component}</p>
-                        <p><strong>Part Info:</strong> ${item.partName}</p>
-                        <p><strong>Price:</strong> $${item.price}</p>
-                        <button onclick="removeFromCart(${index})">Remove</button>
-                    </div>
-                    <br>
-                `;
+            <div class="cart-item">
+                <img src="${item.imageUrl || './assets/img/default.png'}" alt="${item.partName} Image" width="100">
+                <p><strong>Category:</strong> ${item.category}</p>
+                <p><strong>Sub-Category:</strong> ${item.component}</p>
+                <p><strong>Part Info:</strong> ${item.partName}</p>
+                <p><strong>Price:</strong> $${item.price}</p>
+                <p><strong>Quantity:</strong> ${item.quantity || 1}</p>
+                <p><strong>Total:</strong> $${itemTotal.toFixed(2)}</p>
+                <button onclick="removeFromCart(${index})">Remove</button>
+            </div>
+            <br>
+        `;
             }).join('');
             totalAmount.innerText = total.toFixed(2);
         }
@@ -110,8 +116,15 @@
                 return;
             }
 
-            const userId = 'user-id';
-            const ordersRef = ref(database, `share/bitveau/orders/${userId}`);
+            const user = auth.currentUser;
+
+            if (!user) {
+                alert('You need to be logged in to place an order.');
+                return;
+            }
+
+            const userId = user.uid;
+            const ordersRef = ref(database, `${userId}/orders`);
 
             const newOrderRef = push(ordersRef);
 
