@@ -72,12 +72,13 @@
                     <button type="submit" id="save-data-button">Save</button>
                 </div>
             </div>
+            <a href="cart.html"><button>Go to Cart</button></a>
         </section>
         <br>
     </main>
 
     <div id="modal">
-        <img id="part-image" style="display: block; margin: auto; max-width: 90%; max-height: 90%;">
+        <img id="part-image" class="part-image">
     </div>
 
     <aside></aside>
@@ -145,10 +146,14 @@
                             <label>Part Info:<input type="text" class="partName" value="${partName || ''}"></label>
                             <label>Price: $<input type="number" class="price" value="${entry.price || 0}"></label>
                             <label>Quantity:<input type="number" class="quantity" value="${entry.quantity || 0}"></label>
-                            <label>Description:<textarea class="description">${entry.description || ''}</textarea></label>                        
+                            <label>Description:<textarea class="description">${entry.description || ''}</textarea></label>
+                            <button class="add-to-cart-button">Add to Cart</button>
                             <button class="save-button">Update</button>
                             <button class="delete-button">Delete</button>
                         `;
+
+                        const addToCartButton = entryDiv.querySelector('.add-to-cart-button');
+                        addToCartButton.addEventListener('click', () => addToCart(entry, category, component, partName));
 
                         const imageElement = entryDiv.querySelector('.clickable-image');
                         imageElement.addEventListener('click', function () {
@@ -165,6 +170,21 @@
                     }
                 }
             }
+        }
+
+        function addToCart(entry, category, component, partName) {
+            const cart = JSON.parse(localStorage.getItem('cart')) || [];
+
+            cart.push({
+                ...entry,
+                category,
+                component,
+                partName,
+            });
+
+            localStorage.setItem('cart', JSON.stringify(cart));
+
+            alert(`${partName} has been added to the cart.`);
         }
 
         function handleError(error) {
@@ -242,41 +262,97 @@
             const categoryInput = entryDiv.querySelector('.category');
             const componentInput = entryDiv.querySelector('.component');
             const partNameInput = entryDiv.querySelector('.partName');
-            const price = entryDiv.querySelector('.price').value;
-            const actualPrice = entryDiv.querySelector('.actualPrice').value;
-            const quantity = entryDiv.querySelector('.quantity').value;
-            const description = entryDiv.querySelector('.description').value;
+            const priceInput = entryDiv.querySelector('.price');
+            const quantityInput = entryDiv.querySelector('.quantity');
+            const descriptionInput = entryDiv.querySelector('.description');
+            const imageElement = entryDiv.querySelector('.clickable-image');
 
-            const sanitizedCategory = sanitizeInput(categoryInput.value);
-            const sanitizedComponent = sanitizeInput(componentInput.value);
-            const sanitizedPartName = sanitizeInput(partNameInput.value);
-
-            if (!sanitizedCategory || !sanitizedComponent || !sanitizedPartName) {
-                console.error('Please fill in all required fields.', error);
+            if (!categoryInput || !componentInput || !partNameInput || !priceInput || !quantityInput || !descriptionInput) {
+                console.error("One or more input fields are missing.");
                 return;
             }
 
-            const entryRef = ref(database, `share/bitveau/inventory/${sanitizedCategory}/${sanitizedComponent}/${sanitizedPartName}`);
-            const dataToSave = {
+            const category = sanitizeInput(categoryInput.value);
+            const component = sanitizeInput(componentInput.value);
+            const partName = sanitizeInput(partNameInput.value);
+            const price = parseFloat(priceInput.value);
+            const quantity = parseInt(quantityInput.value, 10);
+            const description = descriptionInput.value;
+
+            let imageUrl = imageElement.src;
+
+            const entryRef = ref(database, `share/bitveau/inventory/${category}/${component}/${partName}`);
+
+            get(entryRef)
+                .then((snapshot) => {
+                    const existingData = snapshot.val() || {};
+
+                    const updatedData = {
+                        ...existingData,
+                        price: price || existingData.price,
+                        quantity: quantity || existingData.quantity,
+                        description: description || existingData.description,
+                        imageUrl: imageUrl || existingData.imageUrl,
+                    };
+
+                    const imageInput = entryDiv.querySelector('#image');
+                    if (imageInput && imageInput.files.length > 0) {
+                        const imageFile = imageInput.files[0];
+                        const storagePath = `inventory_images/${Date.now()}_${sanitizeInput(imageFile.name)}`;
+                        const imageRef = storageRef(storage, storagePath);
+
+                        const uploadTask = uploadBytesResumable(imageRef, imageFile);
+
+                        uploadTask.on(
+                            'state_changed',
+                            (snapshot) => {
+                            },
+                            (error) => {
+                                console.error("Image upload failed:", error);
+                            },
+                            () => {
+                                getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
+                                    updatedData.imageUrl = downloadURL;
+                                    set(entryRef, updatedData)
+                                        .then(() => {
+                                            console.log('Entry updated successfully!');
+                                            loadDatabaseEntries();
+                                        })
+                                        .catch((error) => {
+                                            console.error('Error saving entry:', error);
+                                        });
+                                });
+                            }
+                        );
+                    } else {
+                        set(entryRef, updatedData)
+                            .then(() => {
+                                console.log('Entry updated successfully!');
+                                loadDatabaseEntries();
+                            })
+                            .catch((error) => {
+                                console.error('Error saving entry:', error);
+                            });
+                    }
+                })
+                .catch((error) => {
+                    console.error('Error fetching existing entry:', error);
+                });
+        }
+
+        function saveEntryToDatabase(category, component, partName, price, quantity, description, imageUrl) {
+            const updatedEntry = {
                 price: price,
-                actualPrice: actualPrice,
                 quantity: quantity,
-                description: description
+                description: description,
+                imageUrl: imageUrl,
             };
 
-            set(entryRef, dataToSave)
+            const entryRef = ref(database, `share/bitveau/inventory/${category}/${component}/${partName}`);
+            set(entryRef, updatedEntry)
                 .then(() => {
-                    console.log('Entry saved successfully');
-                    if (
-                        sanitizedCategory !== oldCategory ||
-                        sanitizedComponent !== oldComponent ||
-                        sanitizedPartName !== oldPartName
-                    ) {
-                        const oldEntryRef = ref(database, `share/bitveau/inventory/${oldCategory}/${oldComponent}/${oldPartName}`);
-                        remove(oldEntryRef).catch((error) => {
-                            console.error('Error deleting old entry:', error);
-                        });
-                    }
+                    console.log('Entry updated successfully!');
+                    loadDatabaseEntries();
                 })
                 .catch((error) => {
                     console.error('Error saving entry:', error);
@@ -340,7 +416,7 @@
                 actualPrice: actualPrice,
                 quantity: quantity,
                 description: description,
-                imageUrl: imageURL // Store the image URL
+                imageUrl: imageURL
             };
 
             set(entryRef, dataToSave)
@@ -348,7 +424,7 @@
                     console.log('Entry saved successfully');
                     alert("Entry saved with updated image.");
                     if (imageURL) {
-                        imagePreview.src = imageURL; // Update the image preview
+                        imagePreview.src = imageURL;
                     }
                 })
                 .catch((error) => {

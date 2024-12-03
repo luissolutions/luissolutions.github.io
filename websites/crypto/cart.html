@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catalog</title>
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <script src="assets/js/html.js" defer></script>
+    <script type="module" src="assets/js/auth-handling.js" defer></script>
+</head>
+
+<body>
+
+    <header></header>
+
+    <nav></nav>
+
+    <main>
+        <section>
+            <h1>Your Cart</h1>
+            <div class="cart-container" id="cart-container"></div>
+            <button id="checkout-button">Checkout</button>
+        </section>
+    </main>
+
+    <div id="checkout-modal" class="checkout-modal">
+        <div
+            style="background: white; width: max-content; margin: 5% auto; padding: 20px; border-radius: 10px; text-align: center;">
+            <h2>Checkout</h2>
+            <form id="checkout-form">
+                <p><strong>Total: $<span id="total-amount">0.00</span></strong></p>
+                <label for="name">Name:</label><br>
+                <input type="text" id="name" name="name" required><br><br>
+
+                <label for="address">Address:</label><br>
+                <textarea id="address" name="address" required></textarea><br><br>
+
+                <label for="phone">Phone Number:</label><br>
+                <input type="tel" id="phone" name="phone" required pattern="[0-9]{10}" placeholder="1234567890"><br><br>
+
+                <p>Our agent will call you at the provided number to complete the payment.</p>
+                <button type="submit">Submit</button>
+                <button type="button" id="cancel-button">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <footer></footer>
+
+    <script type="module">
+        import { database, ref, set, push } from '../../apps/assets/js/firebase-init.js';
+
+        const cart = JSON.parse(localStorage.getItem('cart')) || [];
+        const cartContainer = document.getElementById('cart-container');
+        const checkoutButton = document.getElementById('checkout-button');
+        const modal = document.getElementById('checkout-modal');
+        const totalAmount = document.getElementById('total-amount');
+        const checkoutForm = document.getElementById('checkout-form');
+        const cancelButton = document.getElementById('cancel-button');
+
+        function loadCart() {
+            if (cart.length === 0) {
+                cartContainer.innerHTML = '<p>Your cart is empty.</p>';
+                return;
+            }
+
+            let total = 0;
+            cartContainer.innerHTML = cart.map((item, index) => {
+                total += parseFloat(item.price) || 0;
+                return `
+                    <div class="cart-item">
+                        <img src="${item.imageUrl || './assets/img/default.png'}" alt="${item.partName} Image" width="100">
+                        <p><strong>Category:</strong> ${item.category}</p>
+                        <p><strong>Sub-Category:</strong> ${item.component}</p>
+                        <p><strong>Part Info:</strong> ${item.partName}</p>
+                        <p><strong>Price:</strong> $${item.price}</p>
+                        <button onclick="removeFromCart(${index})">Remove</button>
+                    </div>
+                    <br>
+                `;
+            }).join('');
+            totalAmount.innerText = total.toFixed(2);
+        }
+
+        function removeFromCart(index) {
+            cart.splice(index, 1);
+            localStorage.setItem('cart', JSON.stringify(cart));
+            loadCart();
+        }
+
+        checkoutButton.addEventListener('click', () => {
+            modal.style.display = 'block';
+        });
+
+        cancelButton.addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+
+        checkoutForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const name = document.getElementById('name').value;
+            const address = document.getElementById('address').value;
+            const phone = document.getElementById('phone').value;
+
+            const total = parseFloat(totalAmount.innerText) || 0;
+            if (total === 0) {
+                alert('Cart total is invalid. Please try again.');
+                return;
+            }
+
+            const userId = 'user-id';
+            const ordersRef = ref(database, `share/bitveau/orders/${userId}`);
+
+            const newOrderRef = push(ordersRef);
+
+            const orderData = {
+                name,
+                address,
+                phone,
+                cart,
+                total,
+                timestamp: new Date().toISOString(),
+            };
+
+            set(newOrderRef, orderData)
+                .then(() => {
+                    alert('Your order has been submitted. An agent will contact you shortly.');
+                    localStorage.removeItem('cart');
+                    loadCart();
+                    modal.style.display = 'none';
+                })
+                .catch((error) => {
+                    console.error('Error submitting order:', error);
+                    alert('Failed to submit your order. Please try again.');
+                });
+        });
+
+        document.addEventListener('DOMContentLoaded', loadCart);
+    </script>
+
+</body>
+
+</html>
