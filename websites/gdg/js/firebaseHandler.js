@@ -88,12 +88,6 @@ function handleRegisterFormSubmission(event) {
         });
 }
 
-function getIP() {
-    return fetch('https://api.ipify.org?format=json')
-        .then(response => response.json())
-        .then(data => data.ip);
-}
-
 function attachLoginEventListener() {
     const loginForm = document.getElementById("login-form");
     if (loginForm) {
@@ -109,7 +103,6 @@ function attachRegisterEventListener() {
 }
 
 async function registerNewUser(username, email, password) {
-    const ipAddress = await getIP();
     if (!isFirebaseInitialized) {
         throw new Error('Firebase is not initialized');
     }
@@ -117,8 +110,7 @@ async function registerNewUser(username, email, password) {
     const userInfo = {
         username,
         email,
-        password,
-        ipAddress
+        password
     };
     return set(userRef, userInfo);
 }
