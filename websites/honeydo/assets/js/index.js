@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // Load the header, main content, and footer
     loadContent('header.html', 'headerContainer', setupNavigation);
     loadContent('pages/home.html', 'bodyContainer');
     loadContent('footer.html', 'footerContainer');
