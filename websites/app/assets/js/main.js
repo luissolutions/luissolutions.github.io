@@ -66,12 +66,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const appFrame = document.getElementById("app-frame");
   const toggleSidebarButton = document.getElementById("toggleSidebarButton");
 
-  // Load header and footer components
   Object.entries(components).forEach(([id, url]) => {
     loadComponent(`#${id}`, url);
   });
 
-  // Populate sidebar with app list
   const appList = document.createElement("ul");
   Object.entries(apps).forEach(([name, file]) => {
     const listItem = document.createElement("li");
@@ -84,13 +82,24 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   sidebar.appendChild(appList);
 
-  // Sidebar toggle functionality
   toggleSidebarButton.addEventListener("click", () => {
     const isHidden = sidebar.classList.toggle("hidden");
     toggleSidebarButton.textContent = isHidden ? "☰ Show Sidebar" : "☰ Hide Sidebar";
+
+    const rootStyles = document.documentElement.style;
+    if (isHidden) {
+      rootStyles.setProperty("--headerHeight", "0px");
+      rootStyles.setProperty("--footerHeight", "0px");
+      header.style.display = "none";
+      footer.style.display = "none";
+    } else {
+      rootStyles.setProperty("--headerHeight", "62px");
+      rootStyles.setProperty("--footerHeight", "35px");
+      header.style.display = "block";
+      footer.style.display = "block";
+    }
   });
 
-  // Utility function to load components dynamically
   async function loadComponent(selector, url) {
     try {
       const response = await fetch(url);
