@@ -1,5 +1,10 @@
 document.addEventListener("DOMContentLoaded", () => {
   const BASE_DIR = "../../";
+  const sidebar = document.getElementById("app-sidebar");
+  const appFrame = document.getElementById("app-frame");
+  const toggleSidebarButton = document.getElementById("toggleSidebarButton");
+  const appList = document.createElement("ul");
+  const LOCAL_STORAGE_KEY = "lastOpenedApp";
 
   const components = {
     header: `components/header.html`,
@@ -7,84 +12,86 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const apps = {
+    "Live Tasker": "livetasker",
+    "Live Schedule": "liveschedule",
+    "Live Notes": "livenotes",
+    "Live Budget": "livebudget",
+    "Live Gas Tracker": "livegas",
+    "Live Contacts": "livecontacts",
+    "Live Learning Tool": "livelearn",
+    "Live Links": "livelinks",
+    "Live Analytics": "liveanalytics",
+    "Live Chat": "livechat",
+    "Live Chess": "livechess",
+    "Live Database": "livedatabase",
+    "Live Gallery": "livegallery",
+    "Live Inventory": "liveinventory",
+    "Live Invoice": "liveinvoice",
+    "Live Job Tracker": "livejob",
+    "Live Math Game": "livemathgame",
+    "Live Mileage Tracker": "livemileage",
+    "Live Registration": "livereg",
+    "Live Show": "liveshow",
+    "Live Text Editor": "livetext",
+    "Live Timer": "livetimer",
+    "Cheat Sheet": "cheatsheet",
+    "Viewer": "viewer",
+    "Information Viewer": "info",
+    "Data Loader": "loader",
+    "Password Generator": "password",
     "Blackjack": "blackjack",
     "Budget App": "budget",
     "Calculator": "calc",
-    "Cheat Sheet": "cheatsheet",
     "Chess Game": "chess",
     "Contact Manager": "contact",
     "Conversion Tool": "conversion",
     "Data Converter": "converting",
     "Counter": "count",
     "Gas Tracker": "gas",
-    "Information Viewer": "info",
     "Invoice Maker": "invoice",
     "Learning Tool": "learn",
     "Saved Links": "links",
-    "Live Analytics": "liveanalytics",
-    "Live Budget": "livebudget",
-    "Live Chat": "livechat",
-    "Live Chess": "livechess",
-    "Live Contacts": "livecontacts",
-    "Live Database": "livedatabase",
-    "Live Gallery": "livegallery",
-    "Live Gas Tracker": "livegas",
-    "Live Inventory": "liveinventory",
-    "Live Invoice": "liveinvoice",
-    "Live Job Tracker": "livejob",
-    "Live Learning Tool": "livelearn",
-    "Live Links": "livelinks",
-    "Live Math Game": "livemathgame",
-    "Live Mileage Tracker": "livemileage",
-    "Live Notes": "livenotes",
-    "Live Registration": "livereg",
-    "Live Schedule": "liveschedule",
-    "Live Show": "liveshow",
-    "Live Tasker": "livetasker",
-    "Live Text Editor": "livetext",
-    "Live Timer": "livetimer",
-    "Data Loader": "loader",
+    "Math Game": "mathgame",
+    "Mileage Tracker": "mileage",
+    "Mouse Game": "mousegame",
+    "Notes App": "notes",
+    "Percentage Calculator": "percent",
+    "Task Manager": "tasker",
+    "Timer": "timer",
     "Local Budget": "localbudget",
     "Local Gallery": "localgallery",
     "Local Gas Tracker": "localgas",
     "Local Inventory": "localinventory",
     "Local Mileage Tracker": "localmileage",
     "Local Timer": "localtimer",
-    "Math Game": "mathgame",
-    "Mileage Tracker": "mileage",
-    "Mouse Game": "mousegame",
-    "Notes App": "notes",
-    "Password Generator": "password",
-    "Percentage Calculator": "percent",
-    "Task Manager": "tasker",
-    "Timer": "timer",
-    "Viewer": "viewer",
   };
-
-  const layout = document.getElementById("layout");
-  const sidebar = document.getElementById("app-sidebar");
-  const appFrame = document.getElementById("app-frame");
-  const toggleSidebarButton = document.getElementById("toggleSidebarButton");
 
   Object.entries(components).forEach(([id, url]) => {
     loadComponent(`#${id}`, url);
   });
 
-  const appList = document.createElement("ul");
   Object.entries(apps).forEach(([name, file]) => {
     const listItem = document.createElement("li");
     listItem.textContent = name;
     listItem.dataset.url = `${BASE_DIR}apps/${file}.html`;
     listItem.addEventListener("click", () => {
+      const appUrl = listItem.dataset.url;
       appFrame.src = listItem.dataset.url;
+      localStorage.setItem(LOCAL_STORAGE_KEY, appUrl);
     });
     appList.appendChild(listItem);
   });
+
   sidebar.appendChild(appList);
+
+  const lastOpenedApp = localStorage.getItem(LOCAL_STORAGE_KEY);
+  if (lastOpenedApp) {
+    appFrame.src = lastOpenedApp;
+  }
 
   toggleSidebarButton.addEventListener("click", () => {
     const isHidden = sidebar.classList.toggle("hidden");
-    toggleSidebarButton.textContent = isHidden ? "☰ Show Sidebar" : "☰ Hide Sidebar";
+    toggleSidebarButton.textContent = isHidden ? "☰ Show UI" : "☰ Hide UI";
 
     const rootStyles = document.documentElement.style;
     if (isHidden) {
@@ -98,6 +105,10 @@ document.addEventListener("DOMContentLoaded", () => {
       header.style.display = "block";
       footer.style.display = "block";
     }
+  });
+
+  loginButton.addEventListener("click", () => {
+    appFrame.src = `../bma/login.html`;
   });
 
   async function loadComponent(selector, url) {
