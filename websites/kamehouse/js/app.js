@@ -37,6 +37,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "Live Inventory": "liveinventory",
     "Live Invoice": "liveinvoice",
     "Live Job Tracker": "livejob",
+    "Live Keyboard Tester": "livekeystester",
     "Live Learning Tool": "livelearn",
     "Live Links": "livelinks",
     "Live Math Game": "livemathgame",
