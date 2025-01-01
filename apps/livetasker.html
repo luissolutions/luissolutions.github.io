@@ -49,6 +49,14 @@
 
     <main>
         <section id="task-manager" class="app-section">
+
+            <div style="display: none;">
+                <label for="yearSelect">Select Year:</label>
+                <select id="yearSelect">
+                    <option value="" disabled selected>Select Year</option>
+                </select>
+            </div>
+
             <div>
                 <label for="taskSelect">Select Task:</label>
                 <select id="taskSelect">
@@ -163,6 +171,8 @@
             <div id="buttons"></div>
 
             <button id="goToTopBtn">Go to Top ⤒</button>
+            <button id="populateOneNoteBtn">Populate OneNote</button>
+
 
         </section>
     </main>
@@ -1255,7 +1265,79 @@
             }
         });
 
+        // OneNote section Code
+
+        let isProcessing = false;
+
+        const populateOneNoteBtn = document.getElementById("populateOneNoteBtn");
+
+        if (populateOneNoteBtn) {
+            populateOneNoteBtn.addEventListener("click", async () => {
+                if (isProcessing) {
+                    isProcessing = false;
+                    populateOneNoteBtn.textContent = "Populate OneNote";
+                    console.log("Process stopped.");
+                    return;
+                }
+
+                isProcessing = true;
+                populateOneNoteBtn.textContent = "Stop";
+                console.log("Process started.");
+
+                try {
+                    const taskRef = ref(database, 'share/tasks');
+                    const snapshot = await get(taskRef);
+
+                    if (snapshot.exists()) {
+                        const jsonData = snapshot.val();
+
+                        const section = await getOrCreateSection("Jobs");
+                        if (!section) {
+                            alert("Failed to find or create the 'Jobs' section.");
+                            return;
+                        }
+
+                        for (const id in jsonData) {
+                            if (!isProcessing) {
+                                console.log("Process interrupted.");
+                                break;
+                            }
+
+                            const task = jsonData[id];
+                            const taskTitle = `${task.customerName || "Unnamed"} - ${task.project || `Task ${id}`}`;
+                            const taskHtml = `
+                                <p><b>Name:</b> ${task.customerName || "N/A"}</p>
+                                <p><b>Project:</b> ${task.project || "N/A"}</p>
+                                <p><b>Address:</b> ${task.customerAddress || "N/A"}</p>
+                                <p><b>Notes:</b> ${task.notes || "No notes provided"}</p>
+                                <p><b>Start Time:</b> ${task.startTime || "N/A"}</p>
+                                <p><b>End Time:</b> ${task.endTime || "N/A"}</p>
+                                <p><b>Location:</b> Latitude: ${task.location?.latitude || "N/A"}, Longitude: ${task.location?.longitude || "N/A"}</p>
+                            `;
+                            console.log(`Processing task: "${taskTitle}"`);
+                            await sendTaskToOneNote(taskTitle, taskHtml, task.startTime, section.id);
+                        }
+
+                        if (isProcessing) {
+                            alert("All tasks have been populated to OneNote.");
+                        } else {
+                            alert("Process was stopped.");
+                        }
+                    } else {
+                        alert("No tasks found in Firebase.");
+                    }
+                } catch (error) {
+                    alert("Error fetching tasks from Firebase. Check your connection.");
+                    console.error("Error fetching tasks:", error);
+                } finally {
+                    isProcessing = false;
+                    populateOneNoteBtn.textContent = "Populate OneNote";
+                }
+            });
+        }
     </script>
+    <script src="./assets/js/onenote.js"></script>
+
 </body>
 
 </html>
