@@ -5,8 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JSON to OneNote Converter</title>
-    <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
-
+    <link rel="stylesheet" href="./assets/css/app-styles.css">
 </head>
 
 <body>
@@ -15,6 +14,7 @@
     </header>
     <p>Log in to Microsoft, paste your JSON data below, and convert it to OneNote-compatible HTML.</p>
     <button id="loginButton">Login to Microsoft</button>
+    <button id="logoutButton">Logout</button>
     <br>
     <textarea id="jsonInput" placeholder="Paste your JSON data here"></textarea>
     <br>
@@ -24,20 +24,15 @@
     <div id="output"></div>
 
     <script>
-        const clientId = "f5ef88e6-7af0-40af-ae6a-5a9d3342360e"; // Your App (client) ID
-        const tenantId = "f9cb31b8-4d87-4d78-89f4-636d4e6f6509"; // Your Tenant ID
-        const redirectUri = "https://127.0.0.1:5500/testbed/onenote.html"; // Update to match your app
+        const clientId = "f5ef88e6-7af0-40af-ae6a-5a9d3342360e";
+        const tenantId = "f9cb31b8-4d87-4d78-89f4-636d4e6f6509";
+        const redirectUri = `${window.location.origin}${window.location.pathname}`;
+        let accessToken;
 
-        function loginToMicrosoft() {
-            const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(
-                redirectUri
-            )}&scope=${encodeURIComponent("Notes.Create Notes.ReadWrite User.Read")}&response_mode=fragment`;
+        const storeAccessToken = (token) => localStorage.setItem("accessToken", token);
+        const getStoredAccessToken = () => localStorage.getItem("accessToken");
+        const clearStoredAccessToken = () => localStorage.removeItem("accessToken");
 
-            window.location.href = authUrl; // Redirect to Microsoft login
-        }
-
-
-        // Function to extract the access token from the URL fragment
         function extractAccessTokenFromUrl() {
             const hash = window.location.hash.substring(1);
             const params = new URLSearchParams(hash);
@@ -45,6 +40,7 @@
 
             if (token) {
                 accessToken = token;
+                storeAccessToken(token);
                 console.log("Access Token:", accessToken);
                 alert("Successfully logged in!");
                 history.replaceState(null, null, window.location.pathname);
@@ -53,42 +49,51 @@
             }
         }
 
-        // Call this function on page load to check if token is present
-        if (window.location.hash) {
-            extractAccessTokenFromUrl();
-        }
-
-        // Add event listener for the login button
-        document.getElementById("loginButton").addEventListener("click", loginToMicrosoft);
-
-        // Function to convert JSON to OneNote-compatible HTML
-        function convertToOneNoteHTML(data) {
-            let oneNoteHTML = "<html><head><title>OneNote Data</title></head><body>";
-            for (const id in data) {
-                const task = data[id];
-                oneNoteHTML += `
-          <div>
-            <h1>${task.customerName || "Unnamed Task"}</h1>
-            <p><b>Project:</b> ${task.project || "N/A"}</p>
-            <p><b>Address:</b> ${task.customerAddress || "N/A"}</p>
-            <p><b>Notes:</b> ${task.notes || "No notes provided"}</p>
-            <p><b>Start Time:</b> ${task.startTime || "N/A"}</p>
-            <p><b>End Time:</b> ${task.endTime || "N/A"}</p>
-            <p><b>Location:</b> Latitude: ${task.location?.latitude || "N/A"}, Longitude: ${task.location?.longitude || "N/A"}</p>
-          </div>
-          <hr>`;
+        function initializeAccessToken() {
+            accessToken = getStoredAccessToken();
+            if (!accessToken && window.location.hash) {
+                extractAccessTokenFromUrl();
+            } else if (accessToken) {
+                console.log("Using stored access token.");
+            } else {
+                console.log("No access token found. Please log in.");
             }
-            return oneNoteHTML;
         }
 
-        // Function to send data to OneNote
-        async function sendToOneNote(htmlContent) {
+        function loginToMicrosoft() {
+            const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(
+                redirectUri
+            )}&scope=${encodeURIComponent("Notes.Create Notes.ReadWrite User.Read")}&response_mode=fragment`;
+            window.location.href = authUrl;
+        }
+
+        function convertToOneNoteHTML(data) {
+            return Object.keys(data)
+                .map((id) => {
+                    const task = data[id];
+                    return `
+                        <div>
+                            <h1>${task.customerName || "Unnamed Task"}</h1>
+                            <p><b>Project:</b> ${task.project || "N/A"}</p>
+                            <p><b>Address:</b> ${task.customerAddress || "N/A"}</p>
+                            <p><b>Notes:</b> ${task.notes || "No notes provided"}</p>
+                            <p><b>Start Time:</b> ${task.startTime || "N/A"}</p>
+                            <p><b>End Time:</b> ${task.endTime || "N/A"}</p>
+                            <p><b>Location:</b> Latitude: ${task.location?.latitude || "N/A"}, Longitude: ${task.location?.longitude || "N/A"}</p>
+                        </div>
+                        <hr>`;
+                })
+                .join("");
+        }
+
+        async function sendTaskToOneNote(taskTitle, taskHtml, taskStartTime) {
             if (!accessToken) {
                 alert("Please log in to Microsoft first.");
                 return;
             }
 
             const apiUrl = "https://graph.microsoft.com/v1.0/me/onenote/pages";
+            const creationDate = new Date(taskStartTime || Date.now()).toISOString();
 
             try {
                 const response = await fetch(apiUrl, {
@@ -97,44 +102,74 @@
                         "Authorization": `Bearer ${accessToken}`,
                         "Content-Type": "application/xhtml+xml"
                     },
-                    body: htmlContent
+                    body: `
+                        <html>
+                            <head>
+                                <title>${taskTitle}</title>
+                                <meta name="created" content="${creationDate}" />
+                            </head>
+                                ${taskHtml}
+                        </html>
+                    `
                 });
 
                 if (response.ok) {
-                    alert("Page successfully created in OneNote!");
+                    console.log(`Page for project "${taskTitle}" created successfully.`);
                 } else {
                     const error = await response.text();
-                    console.error("Error sending to OneNote:", error);
-                    alert("Failed to create OneNote page. Check the console for details.");
+                    console.error(`Error creating page for project "${taskTitle}":`, error);
                 }
             } catch (error) {
                 console.error("Error:", error);
-                alert("An error occurred while sending data to OneNote.");
             }
         }
 
-        // Event listener for converting JSON to HTML
-        document.getElementById("convertButton").addEventListener("click", () => {
+        document.getElementById("sendButton").addEventListener("click", async () => {
             const jsonInput = document.getElementById("jsonInput").value;
             try {
                 const jsonData = JSON.parse(jsonInput);
-                const htmlContent = convertToOneNoteHTML(jsonData);
-                document.getElementById("output").innerText = htmlContent;
+
+                for (const id in jsonData) {
+                    const task = jsonData[id];
+                    const taskTitle = task.project || `Task ${id}`;
+                    const taskHtml = `
+                        <p><b>Name:</b> ${task.customerName || "N/A"}</p>
+                        <p><b>Address:</b> ${task.customerAddress || "N/A"}</p>
+                        <p><b>Notes:</b> ${task.notes || "No notes provided"}</p>
+                        <p><b>Start Time:</b> ${task.startTime || "N/A"}</p>
+                        <p><b>End Time:</b> ${task.endTime || "N/A"}</p>
+                        <p><b>Location:</b> Latitude: ${task.location?.latitude || "N/A"}, Longitude: ${task.location?.longitude || "N/A"}</p>
+                    `;
+                    console.log(`Sending task "${taskTitle}"`);
+                    await sendTaskToOneNote(taskTitle, taskHtml, task.startTime);
+                }
+                alert("All tasks have been sent to OneNote.");
             } catch (error) {
                 alert("Invalid JSON input. Please check your data.");
                 console.error("Error parsing JSON:", error);
             }
         });
 
-        // Event listener for sending data to OneNote
-        document.getElementById("sendButton").addEventListener("click", async () => {
-            const htmlContent = document.getElementById("output").innerText;
-            if (!htmlContent) {
-                alert("Please convert the JSON data to HTML first.");
-                return;
+        document.getElementById("convertButton").addEventListener("click", () => {
+            const jsonInput = document.getElementById("jsonInput").value;
+            try {
+                const jsonData = JSON.parse(jsonInput);
+                document.getElementById("output").innerHTML = convertToOneNoteHTML(jsonData);
+            } catch (error) {
+                alert("Invalid JSON input. Please check your data.");
+                console.error("Error parsing JSON:", error);
             }
-            await sendToOneNote(htmlContent);
         });
+
+        document.getElementById("loginButton").addEventListener("click", loginToMicrosoft);
+
+        document.getElementById("logoutButton").addEventListener("click", () => {
+            clearStoredAccessToken();
+            alert("Logged out. Please log in again.");
+            window.location.reload();
+        });
+
+        initializeAccessToken();
     </script>
 </body>
 
