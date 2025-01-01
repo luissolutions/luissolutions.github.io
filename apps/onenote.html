@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON to OneNote Converter</title>
+    <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
+
+</head>
+
+<body>
+    <header>
+        <h1>JSON to OneNote Converter</h1>
+    </header>
+    <p>Log in to Microsoft, paste your JSON data below, and convert it to OneNote-compatible HTML.</p>
+    <button id="loginButton">Login to Microsoft</button>
+    <br>
+    <textarea id="jsonInput" placeholder="Paste your JSON data here"></textarea>
+    <br>
+    <button id="convertButton">Convert to HTML</button>
+    <button id="sendButton">Send to OneNote</button>
+    <h2>Generated OneNote HTML</h2>
+    <div id="output"></div>
+
+    <script>
+        const clientId = "f5ef88e6-7af0-40af-ae6a-5a9d3342360e"; // Your App (client) ID
+        const tenantId = "f9cb31b8-4d87-4d78-89f4-636d4e6f6509"; // Your Tenant ID
+        const redirectUri = "https://127.0.0.1:5500/testbed/onenote.html"; // Update to match your app
+
+        function loginToMicrosoft() {
+            const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(
+                redirectUri
+            )}&scope=${encodeURIComponent("Notes.Create Notes.ReadWrite User.Read")}&response_mode=fragment`;
+
+            window.location.href = authUrl; // Redirect to Microsoft login
+        }
+
+
+        // Function to extract the access token from the URL fragment
+        function extractAccessTokenFromUrl() {
+            const hash = window.location.hash.substring(1);
+            const params = new URLSearchParams(hash);
+            const token = params.get("access_token");
+
+            if (token) {
+                accessToken = token;
+                console.log("Access Token:", accessToken);
+                alert("Successfully logged in!");
+                history.replaceState(null, null, window.location.pathname);
+            } else {
+                alert("Unable to retrieve access token. Check your Azure configuration.");
+            }
+        }
+
+        // Call this function on page load to check if token is present
+        if (window.location.hash) {
+            extractAccessTokenFromUrl();
+        }
+
+        // Add event listener for the login button
+        document.getElementById("loginButton").addEventListener("click", loginToMicrosoft);
+
+        // Function to convert JSON to OneNote-compatible HTML
+        function convertToOneNoteHTML(data) {
+            let oneNoteHTML = "<html><head><title>OneNote Data</title></head><body>";
+            for (const id in data) {
+                const task = data[id];
+                oneNoteHTML += `
+          <div>
+            <h1>${task.customerName || "Unnamed Task"}</h1>
+            <p><b>Project:</b> ${task.project || "N/A"}</p>
+            <p><b>Address:</b> ${task.customerAddress || "N/A"}</p>
+            <p><b>Notes:</b> ${task.notes || "No notes provided"}</p>
+            <p><b>Start Time:</b> ${task.startTime || "N/A"}</p>
+            <p><b>End Time:</b> ${task.endTime || "N/A"}</p>
+            <p><b>Location:</b> Latitude: ${task.location?.latitude || "N/A"}, Longitude: ${task.location?.longitude || "N/A"}</p>
+          </div>
+          <hr>`;
+            }
+            return oneNoteHTML;
+        }
+
+        // Function to send data to OneNote
+        async function sendToOneNote(htmlContent) {
+            if (!accessToken) {
+                alert("Please log in to Microsoft first.");
+                return;
+            }
+
+            const apiUrl = "https://graph.microsoft.com/v1.0/me/onenote/pages";
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`,
+                        "Content-Type": "application/xhtml+xml"
+                    },
+                    body: htmlContent
+                });
+
+                if (response.ok) {
+                    alert("Page successfully created in OneNote!");
+                } else {
+                    const error = await response.text();
+                    console.error("Error sending to OneNote:", error);
+                    alert("Failed to create OneNote page. Check the console for details.");
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                alert("An error occurred while sending data to OneNote.");
+            }
+        }
+
+        // Event listener for converting JSON to HTML
+        document.getElementById("convertButton").addEventListener("click", () => {
+            const jsonInput = document.getElementById("jsonInput").value;
+            try {
+                const jsonData = JSON.parse(jsonInput);
+                const htmlContent = convertToOneNoteHTML(jsonData);
+                document.getElementById("output").innerText = htmlContent;
+            } catch (error) {
+                alert("Invalid JSON input. Please check your data.");
+                console.error("Error parsing JSON:", error);
+            }
+        });
+
+        // Event listener for sending data to OneNote
+        document.getElementById("sendButton").addEventListener("click", async () => {
+            const htmlContent = document.getElementById("output").innerText;
+            if (!htmlContent) {
+                alert("Please convert the JSON data to HTML first.");
+                return;
+            }
+            await sendToOneNote(htmlContent);
+        });
+    </script>
+</body>
+
+</html>
