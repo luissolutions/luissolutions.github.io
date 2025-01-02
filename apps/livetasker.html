@@ -891,8 +891,42 @@
                 const decimalHours = (totalSeconds / 3600).toFixed(2);
 
                 document.getElementById('calculatedHours').innerText = `${hours} hours, ${minutes} minutes (${decimalHours})`;
+
+                filterTasksByDateRange(startDate, endDate);
             }).catch(error => {
                 console.error('Error calculating hours:', error);
+            });
+        }
+
+        function filterTasksByDateRange(startDate, endDate) {
+            const taskRef = ref(database, 'share/tasks');
+            get(taskRef).then(snapshot => {
+                if (!snapshot.exists()) {
+                    alert('No tasks found in the database.');
+                    return;
+                }
+
+                const tasks = [];
+                snapshot.forEach(taskSnapshot => {
+                    const task = taskSnapshot.val();
+                    const taskStartTime = new Date(task.startTime);
+                    const taskEndTime = task.endTime ? new Date(task.endTime) : null;
+
+                    if (
+                        (taskStartTime >= startDate && taskStartTime <= endDate) ||
+                        (taskEndTime && taskEndTime >= startDate && taskEndTime <= endDate) ||
+                        (taskStartTime <= startDate && taskEndTime >= endDate)
+                    ) {
+                        tasks.push(task);
+                    }
+                });
+
+                taskLogTable.innerHTML = '';
+                tasks.forEach(task => addTaskToTable(task));
+                applyColumnVisibility();
+                sortTableByColumn(7);
+            }).catch(error => {
+                console.error('Error filtering tasks by date range:', error);
             });
         }
 
@@ -1283,43 +1317,60 @@
                 console.log("Process started.");
 
                 try {
+                    const visibleTasks = Array.from(document.querySelectorAll("#task-log tbody tr"))
+                        .filter(row => row.style.display !== "none")
+                        .map(row => {
+                            const taskId = row.dataset.taskId;
+                            return taskId;
+                        });
+
+                    if (visibleTasks.length === 0) {
+                        alert("No visible tasks to send.");
+                        isProcessing = false;
+                        populateOneNoteBtn.textContent = "Populate OneNote";
+                        return;
+                    }
+
                     const taskRef = ref(database, 'share/tasks');
                     const snapshot = await get(taskRef);
 
                     if (!snapshot.exists()) {
                         alert("No tasks found in Firebase.");
+                        isProcessing = false;
+                        populateOneNoteBtn.textContent = "Populate OneNote";
                         return;
                     }
 
                     const jsonData = snapshot.val();
-                    const section = await getOrCreateSection("Jobs test 2");
+                    const section = await getOrCreateSection("Jobs");
 
                     if (!section) {
                         alert("Failed to find or create the 'Jobs' section.");
+                        isProcessing = false;
+                        populateOneNoteBtn.textContent = "Populate OneNote";
                         return;
                     }
 
-                    const taskIds = Object.keys(jsonData);
-                    const totalTasks = taskIds.length;
                     let processedCount = 0;
 
-                    for (const id of taskIds) {
+                    for (const id of visibleTasks) {
                         if (!isProcessing) {
                             console.log("Process interrupted.");
                             break;
                         }
 
                         const task = jsonData[id];
-                        const taskTitle = `${task.project || "Unnamed"} - ${task.customerName || `Task ${id}`}`;
+                        if (!task) continue;
+
+                        const taskTitle = `${task.customerName || "Unnamed"} - ${task.project || `Task ${id}`}`;
                         const taskHtml = `
-                    <p><b>Name:</b> ${task.customerName || "N/A"}</p>
-                    <p><b>Project:</b> ${task.project || "N/A"}</p>
-                    <p><b>Address:</b> ${task.customerAddress || "N/A"}</p>
-                    <p><b>Notes:</b> ${task.notes || "No notes provided"}</p>
-                    <p><b>Start Time:</b> ${task.startTime || "N/A"}</p>
-                    <p><b>End Time:</b> ${task.endTime || "N/A"}</p>
-                    <p><b>Location:</b> Latitude: ${task.location?.latitude || "N/A"}, Longitude: ${task.location?.longitude || "N/A"}</p>
-                `;
+                            <p><b>Name:</b> ${task.customerName || "N/A"}</p>
+                            <p><b>Project:</b> ${task.project || "N/A"}</p>
+                            <p><b>Address:</b> ${task.customerAddress || "N/A"}</p>
+                            <p><b>Notes:</b> ${task.notes || "No notes provided"}</p>
+                            <p><b>Start Time:</b> ${task.startTime || "N/A"}</p>
+                            <p><b>End Time:</b> ${task.endTime || "N/A"}</p>
+                        `;
 
                         try {
                             console.log(`Processing task: "${taskTitle}"`);
@@ -1330,10 +1381,10 @@
                             console.error(`Error processing task "${taskTitle}":`, error);
                         }
 
-                        await delay(1000); // Prevent API throttling
+                        await delay(1000);
                     }
 
-                    alert(`${processedCount}/${totalTasks} tasks have been populated to OneNote.`);
+                    alert(`${processedCount}/${visibleTasks.length} visible tasks have been populated to OneNote.`);
                 } catch (error) {
                     alert("Error fetching tasks from Firebase. Check your connection.");
                     console.error("Error fetching tasks:", error);
