@@ -1,56 +1,5 @@
-const clientId = "f5ef88e6-7af0-40af-ae6a-5a9d3342360e";
-const tenantId = "f9cb31b8-4d87-4d78-89f4-636d4e6f6509";
-const redirectUri = `${window.location.origin}${window.location.pathname}`;
-let accessToken;
 let isProcessing = false;
-
-const storage = {
-    setAccessToken: (token) => localStorage.setItem("accessToken", token),
-    getAccessToken: () => localStorage.getItem("accessToken"),
-    clearAccessToken: () => localStorage.removeItem("accessToken")
-};
-
-function extractAccessTokenFromUrl() {
-    const hash = window.location.hash.substring(1);
-    const params = new URLSearchParams(hash);
-    const token = params.get("access_token");
-
-    if (token) {
-        accessToken = token;
-        storage.setAccessToken(token);
-        console.log("Access Token:", accessToken);
-        alert("Successfully logged in!");
-        history.replaceState(null, null, window.location.pathname);
-    } else {
-        alert("Unable to retrieve access token. Check your Azure configuration.");
-    }
-}
-
-function initializeAccessToken() {
-    accessToken = storage.getAccessToken();
-    if (!accessToken && window.location.hash) {
-        extractAccessTokenFromUrl();
-    } else if (accessToken) {
-        console.log("Using stored access token.");
-    } else {
-        console.log("No access token found. Please log in.");
-    }
-}
-
-function loginToMicrosoft() {
-    const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(
-        redirectUri
-    )}&scope=${encodeURIComponent("Notes.Create Notes.ReadWrite User.Read")}&response_mode=fragment`;
-    window.location.href = authUrl;
-}
-
-function logoutFromMicrosoft() {
-    storage.clearAccessToken();
-    accessToken = null;
-
-    const logoutUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`;
-    window.location.href = logoutUrl;
-}
+let sectionCache = {};
 
 function convertToOneNoteHTML(data) {
     return Object.keys(data)
@@ -74,9 +23,7 @@ function convertToOneNoteHTML(data) {
 async function fetchApi(url, options = {}) {
     try {
         const response = await fetch(url, options);
-        if (response.ok) {
-            return response.json();
-        }
+        if (response.ok) return response.json();
         console.error("API Error:", await response.text());
     } catch (error) {
         console.error("Fetch Error:", error);
@@ -84,34 +31,8 @@ async function fetchApi(url, options = {}) {
     return null;
 }
 
-async function doesPageExist(taskTitle, sectionId) {
-    if (!accessToken) return false;
-
-    let apiUrl = `https://graph.microsoft.com/v1.0/me/onenote/sections/${sectionId}/pages`;
-    let pages = [];
-
-    while (apiUrl) {
-        const response = await fetchApi(apiUrl, {
-            headers: { Authorization: `Bearer ${accessToken}` }
-        });
-
-        if (response?.value) {
-            pages = pages.concat(response.value);
-            apiUrl = response["@odata.nextLink"];
-        } else {
-            apiUrl = null;
-        }
-    }
-
-    return pages.some((page) => page.title === taskTitle);
-}
-
-let sectionCache = {};
-
 async function getOrCreateSection(sectionName) {
-    if (sectionCache[sectionName]) {
-        return sectionCache[sectionName];
-    }
+    if (sectionCache[sectionName]) return sectionCache[sectionName];
 
     const notebooksUrl = "https://graph.microsoft.com/v1.0/me/onenote/notebooks";
     const notebooks = await fetchApiWithRetry(notebooksUrl, {
@@ -142,29 +63,15 @@ async function getOrCreateSection(sectionName) {
         });
     }
 
-    if (section) {
-        sectionCache[sectionName] = section;
-    }
-
+    if (section) sectionCache[sectionName] = section;
     return section;
 }
 
-const processedTasks = new Set();
-
-async function sendTaskToOneNote(taskTitle, taskHtml, taskStartTime, sectionId) {
-    if (processedTasks.has(taskTitle)) {
-        console.log(`Task "${taskTitle}" already processed. Skipping.`);
-        return;
-    }
-
-    const pageExists = await doesPageExist(taskTitle, sectionId);
-    if (pageExists) {
-        console.log(`Task "${taskTitle}" already exists in OneNote. Skipping.`);
-        return;
-    }
+async function sendTaskToOneNote(taskTitle, taskHtml, startTime, sectionId) {
+    if (!accessToken) return;
 
     const apiUrl = `https://graph.microsoft.com/v1.0/me/onenote/sections/${sectionId}/pages`;
-    const creationDate = new Date(taskStartTime || Date.now()).toISOString();
+    const creationDate = new Date(startTime || Date.now()).toISOString();
 
     try {
         const response = await fetchApi(apiUrl, {
@@ -183,10 +90,7 @@ async function sendTaskToOneNote(taskTitle, taskHtml, taskStartTime, sectionId) 
                 </html>`
         });
 
-        if (response) {
-            console.log(`Task "${taskTitle}" successfully added to OneNote.`);
-            processedTasks.add(taskTitle); // Mark as processed
-        }
+        if (response) console.log(`Task "${taskTitle}" successfully added to OneNote.`);
     } catch (error) {
         console.error(`Error creating task "${taskTitle}":`, error);
     }
@@ -215,19 +119,15 @@ async function processTasks(jsonData) {
 }
 
 function setupEventListeners() {
-    document.getElementById("loginButton")?.addEventListener("click", loginToMicrosoft);
-    document.getElementById("logoutButton")?.addEventListener("click", logoutFromMicrosoft);
-
-    const sendButton = document.getElementById("sendButton");
-    sendButton?.addEventListener("click", async () => {
+    document.getElementById("sendButton")?.addEventListener("click", async () => {
         if (isProcessing) {
             isProcessing = false;
-            sendButton.textContent = "Populate OneNote";
+            document.getElementById("sendButton").textContent = "Populate OneNote";
             return;
         }
 
         isProcessing = true;
-        sendButton.textContent = "Stop";
+        document.getElementById("sendButton").textContent = "Stop";
 
         try {
             const jsonInput = document.getElementById("jsonInput").value;
@@ -237,7 +137,7 @@ function setupEventListeners() {
             alert("Invalid JSON input. Please check your data.");
             console.error("Error parsing JSON:", error);
             isProcessing = false;
-            sendButton.textContent = "Populate OneNote";
+            document.getElementById("sendButton").textContent = "Populate OneNote";
         }
     });
 
@@ -252,21 +152,23 @@ function setupEventListeners() {
         }
     });
 }
+
 async function fetchApiWithRetry(url, options = {}, retries = 3) {
     for (let attempt = 0; attempt < retries; attempt++) {
-        const response = await fetch(url, options);
+        try {
+            const response = await fetch(url, options);
+            if (response.ok) return await response.json();
 
-        if (response.ok) {
-            return await response.json();
-        }
-
-        if (response.status === 429) {
-            const retryAfter = response.headers.get("Retry-After") || 5;
-            console.warn(`Throttled. Retrying in ${retryAfter} seconds...`);
-            await new Promise((resolve) => setTimeout(resolve, retryAfter * 5000));
-        } else {
-            console.error("API Error:", await response.text());
-            break;
+            if (response.status === 429) {
+                const retryAfter = response.headers.get("Retry-After") || 5;
+                console.warn(`Throttled. Retrying in ${retryAfter} seconds...`);
+                await delay(retryAfter * 1000);
+            } else {
+                console.error("API Error:", await response.text());
+                break;
+            }
+        } catch (error) {
+            console.error("Fetch Error:", error);
         }
     }
 
