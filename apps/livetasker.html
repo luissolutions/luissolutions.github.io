@@ -1267,8 +1267,6 @@
 
         // OneNote section Code
 
-        let isProcessing = false;
-
         const populateOneNoteBtn = document.getElementById("populateOneNoteBtn");
 
         if (populateOneNoteBtn) {
@@ -1288,51 +1286,54 @@
                     const taskRef = ref(database, 'share/tasks');
                     const snapshot = await get(taskRef);
 
-                    if (snapshot.exists()) {
-                        const jsonData = snapshot.val();
-
-                        const section = await getOrCreateSection("Jobs");
-                        if (!section) {
-                            alert("Failed to find or create the 'Jobs' section.");
-                            return;
-                        }
-
-                        let processedCount = 0;
-                        const totalTasks = Object.keys(jsonData).length;
-
-                        for (const id in jsonData) {
-                            if (!isProcessing) {
-                                console.log("Process interrupted.");
-                                break;
-                            }
-
-                            const task = jsonData[id];
-                            const taskTitle = `${task.customerName || "Unnamed"} - ${task.project || `Task ${id}`}`;
-                            const taskHtml = `
-                        <p><b>Name:</b> ${task.customerName || "N/A"}</p>
-                        <p><b>Project:</b> ${task.project || "N/A"}</p>
-                        <p><b>Address:</b> ${task.customerAddress || "N/A"}</p>
-                        <p><b>Notes:</b> ${task.notes || "No notes provided"}</p>
-                        <p><b>Start Time:</b> ${task.startTime || "N/A"}</p>
-                        <p><b>End Time:</b> ${task.endTime || "N/A"}</p>
-                        <p><b>Location:</b> Latitude: ${task.location?.latitude || "N/A"}, Longitude: ${task.location?.longitude || "N/A"}</p>
-                    `;
-
-                            try {
-                                await sendTaskToOneNote(taskTitle, taskHtml, task.startTime, section.id);
-                                processedCount++;
-                                console.log(`Processed task: "${taskTitle}" (${processedCount}/${totalTasks})`);
-                            } catch (error) {
-                                console.error(`Error processing task "${taskTitle}":`, error);
-                            }
-
-                            await delay(1000);
-                        }
-
-                        alert(`${processedCount}/${totalTasks} tasks have been populated to OneNote.`);
-                    } else {
+                    if (!snapshot.exists()) {
                         alert("No tasks found in Firebase.");
+                        return;
                     }
+
+                    const jsonData = snapshot.val();
+                    const section = await getOrCreateSection("Jobs test 2");
+
+                    if (!section) {
+                        alert("Failed to find or create the 'Jobs' section.");
+                        return;
+                    }
+
+                    const taskIds = Object.keys(jsonData);
+                    const totalTasks = taskIds.length;
+                    let processedCount = 0;
+
+                    for (const id of taskIds) {
+                        if (!isProcessing) {
+                            console.log("Process interrupted.");
+                            break;
+                        }
+
+                        const task = jsonData[id];
+                        const taskTitle = `${task.project || "Unnamed"} - ${task.customerName || `Task ${id}`}`;
+                        const taskHtml = `
+                    <p><b>Name:</b> ${task.customerName || "N/A"}</p>
+                    <p><b>Project:</b> ${task.project || "N/A"}</p>
+                    <p><b>Address:</b> ${task.customerAddress || "N/A"}</p>
+                    <p><b>Notes:</b> ${task.notes || "No notes provided"}</p>
+                    <p><b>Start Time:</b> ${task.startTime || "N/A"}</p>
+                    <p><b>End Time:</b> ${task.endTime || "N/A"}</p>
+                    <p><b>Location:</b> Latitude: ${task.location?.latitude || "N/A"}, Longitude: ${task.location?.longitude || "N/A"}</p>
+                `;
+
+                        try {
+                            console.log(`Processing task: "${taskTitle}"`);
+                            await sendTaskToOneNote(taskTitle, taskHtml, task.startTime, section.id);
+                            console.log(`Task "${taskTitle}" processed.`);
+                            processedCount++;
+                        } catch (error) {
+                            console.error(`Error processing task "${taskTitle}":`, error);
+                        }
+
+                        await delay(1000); // Prevent API throttling
+                    }
+
+                    alert(`${processedCount}/${totalTasks} tasks have been populated to OneNote.`);
                 } catch (error) {
                     alert("Error fetching tasks from Firebase. Check your connection.");
                     console.error("Error fetching tasks:", error);
@@ -1343,6 +1344,8 @@
             });
         }
     </script>
+
+    <script src="./assets/js/onenoteAuth.js"></script>
     <script src="./assets/js/onenote.js"></script>
 
 </body>
