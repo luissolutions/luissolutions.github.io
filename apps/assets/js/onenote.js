@@ -87,12 +87,23 @@ async function fetchApi(url, options = {}) {
 async function doesPageExist(taskTitle, sectionId) {
     if (!accessToken) return false;
 
-    const apiUrl = `https://graph.microsoft.com/v1.0/me/onenote/sections/${sectionId}/pages`;
-    const pages = await fetchApi(apiUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-    });
+    let apiUrl = `https://graph.microsoft.com/v1.0/me/onenote/sections/${sectionId}/pages`;
+    let pages = [];
 
-    return pages?.value.some((page) => page.title === taskTitle) || false;
+    while (apiUrl) {
+        const response = await fetchApi(apiUrl, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+
+        if (response?.value) {
+            pages = pages.concat(response.value);
+            apiUrl = response["@odata.nextLink"];
+        } else {
+            apiUrl = null;
+        }
+    }
+
+    return pages.some((page) => page.title === taskTitle);
 }
 
 let sectionCache = {};
@@ -138,30 +149,47 @@ async function getOrCreateSection(sectionName) {
     return section;
 }
 
+const processedTasks = new Set();
+
 async function sendTaskToOneNote(taskTitle, taskHtml, taskStartTime, sectionId) {
-    if (!accessToken) return;
+    if (processedTasks.has(taskTitle)) {
+        console.log(`Task "${taskTitle}" already processed. Skipping.`);
+        return;
+    }
 
     const pageExists = await doesPageExist(taskTitle, sectionId);
-    if (pageExists) return;
+    if (pageExists) {
+        console.log(`Task "${taskTitle}" already exists in OneNote. Skipping.`);
+        return;
+    }
 
     const apiUrl = `https://graph.microsoft.com/v1.0/me/onenote/sections/${sectionId}/pages`;
     const creationDate = new Date(taskStartTime || Date.now()).toISOString();
 
-    await fetchApi(apiUrl, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/xhtml+xml"
-        },
-        body: `
-            <html xmlns="http://www.w3.org/1999/xhtml">
-                <head>
-                    <title>${taskTitle}</title>
-                    <meta name="created" content="${creationDate}" />
-                </head>
-                ${taskHtml}
-            </html>`
-    });
+    try {
+        const response = await fetchApi(apiUrl, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/xhtml+xml"
+            },
+            body: `
+                <html xmlns="http://www.w3.org/1999/xhtml">
+                    <head>
+                        <title>${taskTitle}</title>
+                        <meta name="created" content="${creationDate}" />
+                    </head>
+                    ${taskHtml}
+                </html>`
+        });
+
+        if (response) {
+            console.log(`Task "${taskTitle}" successfully added to OneNote.`);
+            processedTasks.add(taskTitle); // Mark as processed
+        }
+    } catch (error) {
+        console.error(`Error creating task "${taskTitle}":`, error);
+    }
 }
 
 async function processTasks(jsonData) {
