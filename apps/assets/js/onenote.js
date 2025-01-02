@@ -71,7 +71,11 @@ async function sendTaskToOneNote(taskTitle, taskHtml, startTime, sectionId) {
     if (!accessToken) return;
 
     const apiUrl = `https://graph.microsoft.com/v1.0/me/onenote/sections/${sectionId}/pages`;
-    const creationDate = new Date(startTime || Date.now()).toISOString();
+
+    const date = new Date(startTime || Date.now());
+    const timeZoneOffset = date.getTimezoneOffset() * 60000;
+    const localDate = new Date(date.getTime() - timeZoneOffset);
+    const creationDate = localDate.toISOString();
 
     try {
         const response = await fetchApi(apiUrl, {
