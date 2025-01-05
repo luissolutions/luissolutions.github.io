@@ -340,6 +340,7 @@ const apps = [
         image: "assets/img/budget-thumbnail.png",
         link: "apps/budget.html",
         description: "Manage your finances with this budget tracker.",
+        category: "Cloud, Other",
         requiresLogin: true,
     },
     {
@@ -368,6 +369,7 @@ const apps = [
         image: "assets/img/links-thumbnail.png",
         link: "apps/links.html",
         description: "A collection of useful links and resources.",
+        category: "Cloud, Other",
         requiresLogin: true,
     },
     {
