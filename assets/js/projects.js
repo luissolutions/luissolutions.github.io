@@ -67,6 +67,7 @@ const apps = [
         image: "assets/img/blackjack-thumbnail.png",
         link: "apps/blackjack.html",
         description: "Play a classic game of Blackjack.",
+        category: "Game"
     },
     {
         title: "Calculator",
@@ -85,6 +86,7 @@ const apps = [
         image: "assets/img/chess-thumbnail.png",
         link: "apps/chess.html",
         description: "Challenge yourself with a game of chess.",
+        category: "Game"
     },
     {
         title: "Contact Manager",
@@ -157,12 +159,14 @@ const apps = [
         image: "assets/img/mathgame-thumbnail.png",
         link: "apps/mathgame.html",
         description: "Challenge yourself with math games.",
+        category: "Game",
     },
     {
         title: "Mouse Game",
         image: "assets/img/mousegame-thumbnail.png",
         link: "apps/mousegame.html",
         description: "Test your reflexes in this mouse game.",
+        category: "Game",
     },
     {
         title: "Password Generator",
@@ -187,24 +191,28 @@ const apps = [
         image: "assets/img/livechess-thumbnail.png",
         link: "apps/livechess.html",
         description: "Play chess live with others online.",
+        category: "Cloud, Game",
     },
     {
         title: "Online Registration",
         image: "assets/img/livereg-thumbnail.png",
         link: "apps/livereg.html",
         description: "Register for events with live confirmation.",
+        category: "Cloud",
     },
     {
         title: "Online Math Game",
         image: "assets/img/livemathgame-thumbnail.png",
         link: "apps/livemathgame.html",
         description: "Play math games with live scoring.",
+        category: "Cloud, Game",
     },
     {
         title: "Online Schedule Calendar",
         image: "assets/img/liveschedule-thumbnail.png",
         link: "apps/liveschedule.html",
         description: "Schedule calendar with live data updates.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -212,6 +220,7 @@ const apps = [
         image: "assets/img/livemileage-thumbnail.png",
         link: "apps/livemileage.html",
         description: "Track mileage with live data updates.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -219,6 +228,7 @@ const apps = [
         image: "assets/img/liveanalytics-thumbnail.png",
         link: "apps/liveanalytics.html",
         description: "View real-time analytics data.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -226,6 +236,7 @@ const apps = [
         image: "assets/img/livebudget-thumbnail.png",
         link: "apps/livebudget.html",
         description: "Manage your budget with live updates.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -233,6 +244,7 @@ const apps = [
         image: "assets/img/livechat-thumbnail.png",
         link: "apps/livechat.html",
         description: "Communicate in real-time with live chat.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -240,6 +252,7 @@ const apps = [
         image: "assets/img/livedatabase-thumbnail.png",
         link: "apps/livedatabase.html",
         description: "Interact with a live database system.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -247,6 +260,7 @@ const apps = [
         image: "assets/img/livegallery-thumbnail.png",
         link: "apps/livegallery.html",
         description: "Browse a gallery of images in real-time.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -254,6 +268,7 @@ const apps = [
         image: "assets/img/livegas-thumbnail.png",
         link: "apps/livegas.html",
         description: "Track gas usage with live data updates.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -261,6 +276,7 @@ const apps = [
         image: "assets/img/liveinventory-thumbnail.png",
         link: "apps/liveinventory.html",
         description: "Manage inventory with live tracking.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -268,6 +284,7 @@ const apps = [
         image: "assets/img/liveinvoice-thumbnail.png",
         link: "apps/liveinvoice.html",
         description: "Generate invoices with live data integration.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -275,6 +292,7 @@ const apps = [
         image: "assets/img/livelearn-thumbnail.png",
         link: "apps/livelearn.html",
         description: "Engage in live learning sessions.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -282,6 +300,7 @@ const apps = [
         image: "assets/img/livelinks-thumbnail.png",
         link: "apps/livelinks.html",
         description: "Access live updates of useful links.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -289,6 +308,7 @@ const apps = [
         image: "assets/img/livenotes-thumbnail.png",
         link: "apps/livenotes.html",
         description: "Take and share notes in real-time.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -296,6 +316,7 @@ const apps = [
         image: "assets/img/livetasker-thumbnail.png",
         link: "apps/livetasker.html",
         description: "Manage tasks with live collaboration.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -303,6 +324,7 @@ const apps = [
         image: "assets/img/livetimer-thumbnail.png",
         link: "apps/livetimer.html",
         description: "Use a timer with live synchronization.",
+        category: "Cloud",
         requiresLogin: true,
     },
     {
@@ -310,6 +332,7 @@ const apps = [
         image: "assets/img/timer-thumbnail.png",
         link: "apps/timer.html",
         description: "A simple countdown and stopwatch timer.",
+        category: "Cloud, Other",
         requiresLogin: true,
     },
     {
@@ -359,6 +382,7 @@ const apps = [
         image: "assets/img/notes-thumbnail.png",
         link: "apps/notes.html",
         description: "Create and manage your notes.",
+        category: "Cloud, Other",
         requiresLogin: true,
     },
     {
