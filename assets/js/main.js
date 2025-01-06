@@ -10,33 +10,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function populateThumbnails(items, containerId, userLoggedIn) {
   const container = document.getElementById(containerId);
-  container.innerHTML = "";  // Clear existing content
+  container.innerHTML = "";
 
-  // Define category containers
   const categories = {
     "Cloud": [],
     "Game": [],
-    "Other": []  // Default category
+    "Other": []
   };
 
-  // Categorize items based on the category field (which can have multiple categories)
   items.forEach((item) => {
     if (!item.requiresLogin || (item.requiresLogin && userLoggedIn)) {
-      // Split the category string by comma and trim any extra spaces
       const itemCategories = item.category ? item.category.split(',').map(cat => cat.trim()) : ["Other"];
 
-      // Ensure each category exists in the categories object
       itemCategories.forEach(category => {
         if (categories[category]) {
           categories[category].push(item);
         } else {
-          categories["Other"].push(item);  // If the category doesn't exist, default to "Other"
+          categories["Other"].push(item);
         }
       });
     }
   });
 
-  // Display items in their respective categories
   Object.keys(categories).forEach((category) => {
     if (categories[category].length > 0) {
       const categorySection = document.createElement("div");
@@ -84,11 +79,10 @@ function populateThumbnails(items, containerId, userLoggedIn) {
 function toggleMenu() {
   const nav = document.querySelector('nav');
   const hamburger = document.querySelector('.hamburger');
-  
+
   nav.classList.toggle('active');
   hamburger.classList.toggle('active');
 
-  // Only add the click event listener when the menu is active (opened)
   if (nav.classList.contains('active')) {
     document.addEventListener('click', handleOutsideClick);
   } else {
@@ -99,13 +93,11 @@ function toggleMenu() {
 function handleOutsideClick(event) {
   const nav = document.querySelector('nav');
   const hamburger = document.querySelector('.hamburger');
-  
-  // If the clicked element is not the nav or the hamburger icon, close the nav
+
   if (!nav.contains(event.target) && !hamburger.contains(event.target)) {
     nav.classList.remove('active');
     hamburger.classList.remove('active');
-    
-    // Remove the event listener once the menu is closed
+
     document.removeEventListener('click', handleOutsideClick);
   }
 }
