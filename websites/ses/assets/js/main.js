@@ -26,6 +26,15 @@ function showDescription(id) {
 const descripts = document.querySelectorAll('.descript');
 const closeButtons = document.querySelectorAll('.closeBtn');
 
+document.querySelectorAll('.descript').forEach(descript => {
+  descript.addEventListener('click', (event) => {
+    // Close the popup
+    descript.style.display = 'none';
+    // Prevent the click event from propagating to child elements like links or close buttons
+    event.stopPropagation();
+  });
+});
+
 closeButtons.forEach(button => {
   button.addEventListener('click', (e) => {
     const descript = e.target.closest('.descript');
