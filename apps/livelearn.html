@@ -282,6 +282,7 @@
 
     function registerEventListeners() {
       document.getElementById('submitAnswer').addEventListener('click', submitAnswer);
+      document.getElementById('previousQuestion').addEventListener('click', displayPreviousQuestion);
       document.getElementById('nextQuestion').addEventListener('click', displayNextQuestion);
       document.getElementById('filterButton').addEventListener('click', filterQuestions);
       document.getElementById('showAnswerButton').addEventListener('click', showAnswer);
@@ -294,6 +295,7 @@
         handleSaveQuestion(questions[currentQuestionIndex]);
       });
       document.getElementById('loadSavedQuestionsButton').addEventListener('click', loadSavedQuestions);
+      document.getElementById('loadIncorrectQuestionsButton').addEventListener('click', loadIncorrectQuestions);
       document.getElementById('showIncorrect').addEventListener('change', toggleShowIncorrect);
       document.querySelectorAll('input[name="questionType"]').forEach(radio => {
         radio.addEventListener('change', () => {
@@ -343,12 +345,9 @@
         return;
       }
 
-      if (currentQuestionIndex === 0) {
-        updateScoreDisplay();
-      }
-
       currentQuestionId = question.id;
       currentDescription = question.description;
+
       quizSection.innerHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>`;
 
       const questionType = document.querySelector('input[name="questionType"]:checked').value;
@@ -368,28 +367,47 @@
 
       document.getElementById('saveQuestionCheckbox').checked = checkIfQuestionSaved(question.id);
 
-      if (document.getElementById('addQuestion').style.display === 'block') {
-        editCurrentQuestion();
+      const addQuestionSection = document.getElementById('addQuestion');
+      if (addQuestionSection.style.display === 'block') {
+        populateEditForm(question);
       }
     }
 
+    function populateEditForm(question) {
+      document.getElementById('newDescription').value = question.description;
+      document.getElementById('newQuestion').value = question.question;
+      document.getElementById('options').value = question.options.join(', ');
+      document.getElementById('correctAnswer').value = Array.isArray(question.correctAnswer)
+        ? question.correctAnswer.join(', ')
+        : question.correctAnswer;
+      document.getElementById('explanation').value = question.explanation || '';
+
+      document.getElementById('formTitle').textContent = `Edit ${question.id || 'Question'}`;
+      document.getElementById('addQuestionButton').textContent = 'Update Question';
+    }
+
+
     function displayNextQuestion() {
-      currentQuestionIndex++;
-      if (currentQuestionIndex < questions.length) {
+      if (currentQuestionIndex < questions.length - 1) {
+        currentQuestionIndex++;
         displayQuestion(questions[currentQuestionIndex]);
         localStorage.setItem('currentQuestionIndex', currentQuestionIndex);
       } else {
-        if (Object.keys(answeredQuestions).length === allQuestions.length) {
-          document.getElementById('quizSection').innerHTML = '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
-          document.getElementById('resetQuiz').addEventListener('click', resetQuiz);
-          return;
-        } else {
-          currentQuestionIndex = 0;
-          if (document.getElementById('shuffleToggle').checked) {
-            shuffleArray(questions);
-          }
-          displayQuestion(questions[currentQuestionIndex]);
-        }
+        const quizSection = document.getElementById('quizSection');
+        quizSection.innerHTML = '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
+        document.getElementById('resetQuiz').addEventListener('click', resetQuiz);
+      }
+      toggleNavigationButtons();
+      updateQuestionCounter();
+    }
+
+    function displayPreviousQuestion() {
+      if (currentQuestionIndex > 0) {
+        currentQuestionIndex--;
+        displayQuestion(questions[currentQuestionIndex]);
+        localStorage.setItem('currentQuestionIndex', currentQuestionIndex);
+      } else {
+        alert('This is the first question.');
       }
       toggleNavigationButtons();
       updateQuestionCounter();
@@ -421,8 +439,8 @@
 
           const formTitle = document.getElementById('formTitle');
           formTitle.textContent = `Edit ${currentQuestion.id || 'Question'}`;
-          document.getElementById('addQuestionButton').textContent = 'Update Question';
 
+          document.getElementById('addQuestionButton').textContent = 'Update Question';
           addQuestionSection.style.display = 'block';
         }
       }
@@ -617,10 +635,15 @@
       const addQuestionSection = document.getElementById('addQuestion');
 
       if (addQuestionSection.style.display === 'block') {
+        // If the form is already visible, hide it
         addQuestionSection.style.display = 'none';
       } else {
+        // Otherwise, show the form for adding a question
         addQuestionSection.style.display = 'block';
         resetAddQuestionForm();
+
+        document.getElementById('formTitle').textContent = 'Add Question';
+        document.getElementById('addQuestionButton').textContent = 'Add Question';
       }
     }
 
@@ -630,6 +653,7 @@
       document.getElementById('options').value = '';
       document.getElementById('correctAnswer').value = '';
       document.getElementById('formTitle').textContent = 'Add Question';
+      document.getElementById('explanation').value = '';
       document.getElementById('addQuestionButton').textContent = 'Add Question';
     }
 
@@ -784,11 +808,6 @@
       toggleNavigationButtons();
     });
 
-    document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('loadIncorrectQuestionsButton').addEventListener('click', loadIncorrectQuestions);
-      document.getElementById('previousQuestion').addEventListener('click', displayPreviousQuestion);
-    });
-
     function loadIncorrectQuestions() {
       const incorrectQuestions = allQuestions.filter(
         question => answeredQuestions[question.id] === 'incorrect'
@@ -819,21 +838,6 @@
       const savedShuffleState = localStorage.getItem('shuffleEnabled') === 'true';
       document.getElementById('shuffleToggle').checked = savedShuffleState;
     });
-
-    document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('previousQuestion').addEventListener('click', displayPreviousQuestion);
-    });
-
-    function displayPreviousQuestion() {
-      if (currentQuestionIndex > 0) {
-        currentQuestionIndex--;
-        displayQuestion(questions[currentQuestionIndex]);
-        updateQuestionCounter();
-        localStorage.setItem('currentQuestionIndex', currentQuestionIndex);
-
-        toggleNavigationButtons();
-      }
-    }
 
     function toggleNavigationButtons() {
       document.getElementById('previousQuestion').disabled = currentQuestionIndex === 0;
