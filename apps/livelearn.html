@@ -86,11 +86,16 @@
           <label for="saveQuestionCheckbox">Save Question</label>
           <button id="loadSavedQuestionsButton">Load Saved Questions</button>
         </div>
+        <div>
+          <input type="checkbox" id="shuffleToggle" checked>
+          <label for="shuffleToggle">Shuffle Questions</label>
+        </div>
     </section>
 
     <section>
       <div id="quizSection"></div>
       <button id="submitAnswer">Submit Answer</button>
+      <button id="previousQuestion" disabled>Previous Question</button>
       <button id="nextQuestion">Next Question</button>
       <button id="showAnswerButton" style="display:none;">Show Answer</button>
     </section>
@@ -105,6 +110,7 @@
         <input type="text" id="newQuestion" placeholder="Enter Question" />
         <input type="text" id="options" placeholder="Enter Options" />
         <input type="text" id="correctAnswer" placeholder="Enter Answer" />
+        <textarea id="explanation" placeholder="Enter Explanation"></textarea>
         <button id="addQuestionButton">Add Question</button>
         <button id="deleteQuestionButton">Delete Current Question</button>
         <button id="downloadData">Download Questions</button>
@@ -299,6 +305,7 @@
     function fetchQuestions(applyFilter = false) {
       const showIncorrect = document.getElementById('showIncorrect').checked;
       const filterText = document.getElementById('filterInput').value.toLowerCase();
+      const shuffleEnabled = document.getElementById('shuffleToggle').checked; // Check shuffle toggle state
       const questionsRef = ref(database, 'share/questions');
 
       onValue(questionsRef, snapshot => {
@@ -318,7 +325,10 @@
           questions = questions.filter(q => q.description.toLowerCase().includes(filterText));
         }
 
-        shuffleArray(questions);
+        if (shuffleEnabled) {
+          shuffleArray(questions);
+        }
+
         currentQuestionIndex = 0;
         displayQuestion(questions[currentQuestionIndex]);
         updateQuestionCounter();
@@ -373,9 +383,13 @@
           return;
         } else {
           currentQuestionIndex = 0;
+          if (document.getElementById('shuffleToggle').checked) {
+            shuffleArray(questions);
+          }
           displayQuestion(questions[currentQuestionIndex]);
         }
       }
+      toggleNavigationButtons();
       updateQuestionCounter();
     }
 
@@ -396,6 +410,7 @@
         document.getElementById('correctAnswer').value = Array.isArray(currentQuestion.correctAnswer)
           ? currentQuestion.correctAnswer.join(', ')
           : currentQuestion.correctAnswer;
+        document.getElementById('explanation').value = currentQuestion.explanation || '';
 
         const formTitle = document.getElementById('formTitle');
         formTitle.textContent = `Edit ${currentQuestion.id || 'Question'}`;
@@ -517,34 +532,36 @@
       const correctAnswer = document.getElementById('correctAnswer').value.includes(',')
         ? document.getElementById('correctAnswer').value.split(',').map(answer => answer.trim())
         : document.getElementById('correctAnswer').value.trim();
+      const explanation = document.getElementById('explanation').value.trim();
 
       if (newQuestion && newDescription && options.every(option => option) && correctAnswer) {
         if (document.getElementById('addQuestionButton').textContent === 'Update Question') {
-          updateQuestionInFirebase(currentQuestionId, newQuestion, newDescription, options, correctAnswer);
+          updateQuestionInFirebase(currentQuestionId, newQuestion, newDescription, options, correctAnswer, explanation);
         } else {
-          addQuestionToFirebase(newQuestion, newDescription, options, correctAnswer);
+          addQuestionToFirebase(newQuestion, newDescription, options, correctAnswer, explanation);
         }
       } else {
         alert('Please fill in all fields.');
       }
     }
 
-    function addQuestionToFirebase(question, description, options, correctAnswer) {
+    function addQuestionToFirebase(question, description, options, correctAnswer, explanation) {
       const questionsRef = ref(database, `share/questions/${description}`);
       const newQuestionRef = push(questionsRef);
 
-      set(newQuestionRef, { question, options, correctAnswer }).then(() => {
-        alert('Question added to the database.');
-        resetAddQuestionForm();
-        fetchQuestions(true);
-      });
+      set(newQuestionRef, { question, options, correctAnswer, explanation })
+        .then(() => {
+          alert('Question added to the database.');
+          resetAddQuestionForm();
+          fetchQuestions(true);
+        });
     }
 
-    function updateQuestionInFirebase(questionId, newQuestion, newDescription, options, correctAnswer) {
+    function updateQuestionInFirebase(questionId, newQuestion, newDescription, options, correctAnswer, explanation) {
       const oldQuestionRef = ref(database, `share/questions/${currentDescription}/${questionId}`);
 
       remove(oldQuestionRef).then(() => {
-        addQuestionToFirebase(newQuestion, newDescription, options, correctAnswer);
+        addQuestionToFirebase(newQuestion, newDescription, options, correctAnswer, explanation);
       });
     }
 
@@ -756,10 +773,12 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       populateIndexKey();
+      toggleNavigationButtons();
     });
 
     document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('loadIncorrectQuestionsButton').addEventListener('click', loadIncorrectQuestions);
+      document.getElementById('previousQuestion').addEventListener('click', displayPreviousQuestion);
     });
 
     function loadIncorrectQuestions() {
@@ -776,6 +795,41 @@
       currentQuestionIndex = 0;
       displayQuestion(questions[currentQuestionIndex]);
       updateQuestionCounter();
+    }
+
+    document.getElementById('shuffleToggle').addEventListener('change', () => {
+      fetchQuestions();
+    });
+
+    document.getElementById('shuffleToggle').addEventListener('change', () => {
+      const shuffleEnabled = document.getElementById('shuffleToggle').checked;
+      localStorage.setItem('shuffleEnabled', shuffleEnabled);
+      fetchQuestions();
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const savedShuffleState = localStorage.getItem('shuffleEnabled') === 'true';
+      document.getElementById('shuffleToggle').checked = savedShuffleState;
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('previousQuestion').addEventListener('click', displayPreviousQuestion);
+    });
+
+    function displayPreviousQuestion() {
+      if (currentQuestionIndex > 0) {
+        currentQuestionIndex--;
+        displayQuestion(questions[currentQuestionIndex]);
+        updateQuestionCounter();
+        localStorage.setItem('currentQuestionIndex', currentQuestionIndex);
+
+        toggleNavigationButtons();
+      }
+    }
+
+    function toggleNavigationButtons() {
+      document.getElementById('previousQuestion').disabled = currentQuestionIndex === 0;
+      document.getElementById('nextQuestion').disabled = currentQuestionIndex === questions.length - 1;
     }
 
   </script>
