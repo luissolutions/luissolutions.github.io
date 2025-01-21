@@ -8,10 +8,10 @@ document.querySelectorAll('a[data-src]').forEach(link => {
 });
 
 document.getElementById('better-minecraft').addEventListener('click', function () {
-    const textToCopy = 'oddohome.asuscomm.com:25565';
+    const textToCopy = '73.131.4.5:25565';
 
     navigator.clipboard.writeText(textToCopy).then(function () {
-        alert('oddohome.asuscomm.com:25565 copied to clipboard!');
+        alert('73.131.4.5:25565 copied to clipboard!');
     }, function (err) {
         console.error('Could not copy text: ', err);
     });
