@@ -62,6 +62,13 @@
             </form>
         </div>
         <br>
+        <div>
+            <br>
+            <label for="year-selection">Select Year:</label>
+            <select id="year-selection">
+                <!-- Options will be dynamically populated -->
+            </select>
+        </div>
         <div class="table">
             <table id="gas-table">
                 <tr>
@@ -80,13 +87,7 @@
             </table>
         </div>
         <button type="button" onclick="gasTracker.exportData()">Export Data</button>
-        <div>
-            <br>
-            <label for="year-selection">Select Year:</label>
-            <select id="year-selection">
-                <!-- Options will be dynamically populated -->
-            </select>
-        </div>
+
         <h2>Total Gas Refills for Selected Year: <span id="total-refills-year">0</span></h2>
         <h2>Total Spent for Selected Year: <span id="total-spent-year">0.00</span></h2>
 
@@ -116,7 +117,9 @@
                 });
 
                 document.getElementById('year-selection').addEventListener('change', (event) => {
-                    this.updateDisplayedDataForYear(event.target.value);
+                    const selectedYear = event.target.value;
+                    this.updateGasTable(selectedYear);
+                    this.updateDisplayedDataForYear(selectedYear);
                 });
 
                 document.getElementById('date-header').addEventListener('click', () => {
@@ -134,9 +137,9 @@
                     const data = snapshot.val();
                     if (data !== null) {
                         this.gasData = Object.keys(data).map(key => ({ ...data[key], key }));
-                        this.updateDisplayedData();
-                        this.updateGasTable();
                         this.populateYearDropdown();
+                        this.updateGasTable();
+                        this.updateDisplayedData();
                     }
                 });
             }
@@ -182,15 +185,23 @@
                 this.clearForm();
             }
 
-            updateGasTable() {
+            updateGasTable(filteredYear = null) {
                 const table = document.getElementById('gas-table');
-                this.gasData.sort(this.sortByDate.bind(this));
+
+                const dataToDisplay = filteredYear
+                    ? this.gasData.filter(entry => {
+                        const year = new Date(entry.date).getFullYear();
+                        return year.toString() === filteredYear;
+                    })
+                    : this.gasData;
+
+                dataToDisplay.sort(this.sortByDate.bind(this));
 
                 while (table.rows.length > 1) {
                     table.deleteRow(1);
                 }
 
-                this.gasData.forEach((data, i) => {
+                dataToDisplay.forEach((data, i) => {
                     const row = table.insertRow(-1);
 
                     row.insertCell(-1).innerText = data.vehicle;
@@ -206,8 +217,8 @@
                     row.insertCell(-1).innerText = data.location;
 
                     const mpgCell = row.insertCell(-1);
-                    if (i > 0 && data.vehicle === this.gasData[i - 1].vehicle) {
-                        const mpg = this.calculateMPG(data, this.gasData[i - 1]);
+                    if (i > 0 && data.vehicle === dataToDisplay[i - 1].vehicle) {
+                        const mpg = this.calculateMPG(data, dataToDisplay[i - 1]);
                         mpgCell.innerText = mpg.toFixed(2);
                     } else {
                         mpgCell.innerText = 'N/A';
@@ -304,9 +315,10 @@
             }
 
             updateDisplayedData() {
-                document.getElementById('total-refills').innerText = this.gasData.length;
-
+                const totalRefills = this.gasData.length;
                 const totalSpent = this.gasData.reduce((sum, entry) => sum + (entry.costPerUnit * entry.volume), 0);
+
+                document.getElementById('total-refills').innerText = totalRefills;
                 document.getElementById('total-spent').innerText = totalSpent.toFixed(2);
             }
 
