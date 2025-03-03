@@ -96,6 +96,7 @@
                 <br>
                 <input type="text" id="imageNameInput" placeholder="Enter Image Name">
                 <input type="text" id="markupTextInput" placeholder="Markup Text">
+                <br>
                 <button id="uploadButton">Upload Image</button>
                 <br>
                 <br>
@@ -109,6 +110,7 @@
                     <div id="paginationControls"></div>
                 </div>
                 <button id="deleteImageButton">Delete Selected Image</button>
+                <button id="downloadAllImagesBtn">Download All Images</button>
             </div>
 
             <div>
@@ -1385,6 +1387,45 @@
                 mainElement.style.maxWidth = 'none';
             } else {
                 mainElement.style.maxWidth = '1000px';
+            }
+        });
+
+        document.getElementById("downloadAllImagesBtn").addEventListener("click", async () => {
+            const project = projectInput.value.trim();
+            if (!project) {
+                alert("⚠️ Please select a task before downloading images.");
+                return;
+            }
+
+            const zip = new JSZip();
+            const storageImagesRef = storageRef(storage, `${DATABASE_BASE_PATH}/images/${project}`);
+
+            try {
+                const storageSnapshot = await listAll(storageImagesRef);
+                if (storageSnapshot.items.length === 0) {
+                    alert("⚠️ No images found for this task.");
+                    return;
+                }
+
+                for (const item of storageSnapshot.items) {
+                    const imageUrl = await getDownloadURL(item);
+                    const response = await fetch(imageUrl);
+                    const blob = await response.blob();
+                    zip.file(item.name, blob);
+                }
+
+                const zipBlob = await zip.generateAsync({ type: "blob" });
+                const downloadLink = document.createElement("a");
+                downloadLink.href = URL.createObjectURL(zipBlob);
+                downloadLink.download = `${project}_images.zip`;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+
+                alert("✅ Images downloaded successfully.");
+            } catch (error) {
+                console.error("❌ Error downloading images:", error);
+                alert("⚠️ Error downloading images. Please try again.");
             }
         });
 
