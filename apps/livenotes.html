@@ -2,11 +2,24 @@
   <title>Live Notes</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
+  <script type="module" src="./assets/js/login.js" defer></script>
 </head>
 
 <body>
   <header>
     <h1>Online Notes</h1>
+    <section id="login-section">
+      <form id="login-form">
+          <label for="username">Email:</label>
+          <input type="email" id="username" required>
+          <br>
+          <label for="password">Password:</label>
+          <input type="password" id="password" required>
+          <br>
+          <button type="submit">Login</button>
+      </form>
+      <button id="logout" style="display: none;">Logout</button>
+  </section>
   </header>
 
   <main>
@@ -30,13 +43,14 @@
   </main>
 
   <script type="module">
-    import { database, ref, onValue, set, get, off, initializeAuth, app } from './assets/js/firebase-init.js';
+    import { auth, database, ref, onValue, set, get, off, initializeAuth, app } from './assets/js/firebase-init.js';
 
     const nameInput = document.getElementById('input-name');
     const notesTextarea = document.getElementById('notes');
     const noteList = document.getElementById('note-list');
     let deletedNotes = [];
     let autoSaveInterval;
+    let DATABASE_BASE_PATH = 'public/notes';
 
     const setupEventListeners = () => {
       document.getElementById('copy-btn').addEventListener('click', copyNote);
@@ -49,6 +63,17 @@
       document.addEventListener("keydown", handleKeyboardShortcuts);
       notesTextarea.addEventListener('input', () => autoResizeTextarea('notes'));
     };
+
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        DATABASE_BASE_PATH = `${user.uid}/notes`;
+        console.log("User logged in:", user.uid);
+      } else {
+        DATABASE_BASE_PATH = 'public/notes';
+        console.log("No user logged in. Using public notes.");
+      }
+      populateNoteList();
+    });
 
     const copyNote = () => {
       notesTextarea.select();
@@ -68,7 +93,7 @@
       const timestamp = new Date().toISOString();
 
       if (nameToSave && noteToSave) {
-        const notesRef = ref(database, `share/notes/${nameToSave}`);
+        const notesRef = ref(database, `${DATABASE_BASE_PATH}/${nameToSave}`);
         try {
           await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
           console.log('Note saved successfully');
@@ -100,7 +125,7 @@
           return;
         }
 
-        const notesRef = ref(database, 'share/notes');
+        const notesRef = ref(database, DATABASE_BASE_PATH);
         const snapshot = await get(notesRef);
         const notes = snapshot.val();
 
@@ -109,7 +134,7 @@
           if (noteId) {
             const deletedNote = notes[noteId];
             storeDeletedNote(deletedNote.name, deletedNote.note);
-            await set(ref(database, `share/notes/${noteId}`), null);
+            await set(ref(database, `${DATABASE_BASE_PATH}/${noteId}`), null);
             clearNoteInputs();
             console.log(`Deleted the note with name: ${nameToDelete}`);
           } else {
@@ -127,7 +152,7 @@
       const nameToLoad = nameInput.value.trim();
 
       if (nameToLoad) {
-        const notesRef = ref(database, 'share/notes');
+        const notesRef = ref(database, '${DATABASE_BASE_PATH}');
         onValue(notesRef, snapshot => {
           const notes = snapshot.val();
           if (notes) {
@@ -154,7 +179,7 @@
     };
 
     const populateNoteList = () => {
-      const notesRef = ref(database, 'share/notes');
+      const notesRef = ref(database, DATABASE_BASE_PATH);
       onValue(notesRef, snapshot => {
         const notes = snapshot.val();
         noteList.innerHTML = '';
@@ -200,7 +225,7 @@
         const lastDeletedNote = deletedNotes.pop();
         const { name, note } = lastDeletedNote;
 
-        const notesRef = ref(database, `share/notes/${name}`);
+        const notesRef = ref(database, `${DATABASE_BASE_PATH}/${name}`);
         try {
           await set(notesRef, { name, note, timestamp: new Date().toISOString() });
           console.log(`Undone the deletion of the note with name: ${name}`);
