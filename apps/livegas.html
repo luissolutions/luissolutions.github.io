@@ -69,20 +69,33 @@
                 <!-- Options will be dynamically populated -->
             </select>
         </div>
+        <div class="checkbox">
+            <label><input type="checkbox" class="toggle-column" value="vehicle-column" checked> Vehicle |</label>
+            <label><input type="checkbox" class="toggle-column" value="date-column" checked> Date |</label>
+            <label><input type="checkbox" class="toggle-column" value="odometer-column" checked> Odometer |</label>
+            <label><input type="checkbox" class="toggle-column" value="volume-column" checked> Volume |</label>
+            <label><input type="checkbox" class="toggle-column" value="volume-unit-column" checked> Volume Unit
+                |</label>
+            <label><input type="checkbox" class="toggle-column" value="cost-column" checked> Cost Per Unit |</label>
+            <label><input type="checkbox" class="toggle-column" value="total-cost-column" checked> Total Cost |</label>
+            <label><input type="checkbox" class="toggle-column" value="location-column" checked> Location |</label>
+            <label><input type="checkbox" class="toggle-column" value="mpg-column" checked> MPG |</label>
+            <label><input type="checkbox" class="toggle-column" value="notes-column" checked> Notes</label>
+        </div>
         <div class="table">
             <table id="gas-table">
                 <tr>
-                    <th>Vehicle</th>
-                    <th id="date-header">Date</th>
-                    <th>Odometer</th>
-                    <th>Volume</th>
-                    <th>Volume Unit</th>
-                    <th>Cost Per Unit</th>
-                    <th>Total Cost</th>
-                    <th>Location</th>
-                    <th>MPG</th>
-                    <th>Notes</th>
-                    <th>Actions</th>
+                    <th class="vehicle-column">Vehicle</th>
+                    <th class="date-column" id="date-header">Date</th>
+                    <th class="odometer-column">Odometer</th>
+                    <th class="volume-column">Volume</th>
+                    <th class="volume-unit-column">Volume Unit</th>
+                    <th class="cost-column">Cost Per Unit</th>
+                    <th class="total-cost-column">Total Cost</th>
+                    <th class="location-column">Location</th>
+                    <th class="mpg-column">MPG</th>
+                    <th class="notes-column">Notes</th>
+                    <th class="actions-column">Actions</th>
                 </tr>
             </table>
         </div>
@@ -266,27 +279,42 @@
                 dataToDisplay.forEach((data, i) => {
                     const row = table.insertRow(-1);
 
-                    row.insertCell(-1).innerText = data.vehicle;
-                    row.insertCell(-1).innerText = data.date;
-                    row.insertCell(-1).innerText = data.odometer;
-                    row.insertCell(-1).innerText = data.volume;
-                    row.insertCell(-1).innerText = data.volumeUnit;
-                    row.insertCell(-1).innerText = data.costPerUnit;
+                    row.insertCell(-1).className = "vehicle-column";
+                    row.cells[row.cells.length - 1].innerText = data.vehicle;
 
-                    const totalCost = data.costPerUnit * data.volume;
-                    row.insertCell(-1).innerText = totalCost.toFixed(2);
+                    row.insertCell(-1).className = "date-column";
+                    row.cells[row.cells.length - 1].innerText = data.date;
 
-                    row.insertCell(-1).innerText = data.location;
+                    row.insertCell(-1).className = "odometer-column";
+                    row.cells[row.cells.length - 1].innerText = data.odometer;
 
-                    const mpgCell = row.insertCell(-1);
+                    row.insertCell(-1).className = "volume-column";
+                    row.cells[row.cells.length - 1].innerText = data.volume;
+
+                    row.insertCell(-1).className = "volume-unit-column";
+                    row.cells[row.cells.length - 1].innerText = data.volumeUnit;
+
+                    row.insertCell(-1).className = "cost-column";
+                    row.cells[row.cells.length - 1].innerText = data.costPerUnit;
+
+                    row.insertCell(-1).className = "total-cost-column";
+                    row.cells[row.cells.length - 1].innerText = (data.costPerUnit * data.volume).toFixed(2);
+
+                    row.insertCell(-1).className = "location-column";
+                    row.cells[row.cells.length - 1].innerText = data.location;
+
+                    row.insertCell(-1).className = "mpg-column";
                     if (i > 0 && data.vehicle === dataToDisplay[i - 1].vehicle) {
-                        const mpg = this.calculateMPG(data, dataToDisplay[i - 1]);
-                        mpgCell.innerText = mpg.toFixed(2);
+                        row.cells[row.cells.length - 1].innerText = this.calculateMPG(data, dataToDisplay[i - 1]).toFixed(2);
                     } else {
-                        mpgCell.innerText = 'N/A';
+                        row.cells[row.cells.length - 1].innerText = 'N/A';
                     }
 
-                    row.insertCell(-1).innerText = data.notes;
+                    row.insertCell(-1).className = "notes-column";
+                    row.cells[row.cells.length - 1].innerText = data.notes;
+
+                    const actionsCell = row.insertCell(-1);
+                    actionsCell.className = "actions-column";
 
                     const viewImageButton = document.createElement('button');
                     viewImageButton.innerText = data.imageUrl ? 'View Image' : 'Add Image';
@@ -301,10 +329,11 @@
                         this.deleteGasData(i);
                     });
 
-                    const actionsCell = row.insertCell(-1);
                     actionsCell.appendChild(viewImageButton);
                     actionsCell.appendChild(deleteButton);
                 });
+
+                applyColumnVisibility();
             }
 
             async handleImageAction(index) {
@@ -462,6 +491,45 @@
                 document.getElementById('total-refills-year').innerText = totalRefills;
                 document.getElementById('total-spent-year').innerText = totalSpent.toFixed(2);
             }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            loadColumnVisibility();
+            applyColumnVisibility();
+
+            document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                checkbox.addEventListener('change', () => {
+                    saveColumnVisibility();
+                    applyColumnVisibility();
+                });
+            });
+        });
+
+        function saveColumnVisibility() {
+            const checkboxStates = {};
+            document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                checkboxStates[checkbox.value] = checkbox.checked;
+            });
+            localStorage.setItem('gasColumnVisibility', JSON.stringify(checkboxStates));
+        }
+
+        function loadColumnVisibility() {
+            const savedStates = JSON.parse(localStorage.getItem('gasColumnVisibility'));
+            if (savedStates) {
+                document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                    checkbox.checked = savedStates[checkbox.value] !== undefined ? savedStates[checkbox.value] : checkbox.checked;
+                });
+            }
+        }
+
+        function applyColumnVisibility() {
+            document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                const columnClass = checkbox.value;
+
+                document.querySelectorAll(`.${columnClass}`).forEach(cell => {
+                    cell.style.display = checkbox.checked ? '' : 'none';
+                });
+            });
         }
 
         const gasTracker = new GasTracker();
