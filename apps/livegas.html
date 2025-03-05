@@ -11,7 +11,7 @@
 <body>
     <header>
         <h1>Online Gas Tracker</h1>
-        <section style="display: none;" id="login-section">
+        <section id="login-section">
             <form id="login-form">
                 <label for="username">Email:</label>
                 <input type="email" id="username" required>
@@ -99,14 +99,30 @@
     <script type="module">
         import { auth, database, ref, set, get, push, onValue, remove, update, storageRef, uploadBytesResumable, uploadBytes, getDownloadURL, deleteObject, listAll, getStorage, storage } from './assets/js/firebase-init.js';
 
+        let DATABASE_BASE_PATH = 'public/gas';
+
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                DATABASE_BASE_PATH = `${user.uid}/gas`;
+            } else {
+                DATABASE_BASE_PATH = 'public/gas';
+            }
+            gasTracker.updateDatabasePath();
+        });
+
         class GasTracker {
             constructor() {
-                this.dbRef = ref(database, 'share/gasData');
+                this.dbRef = ref(database, DATABASE_BASE_PATH);
                 this.storageRef = storage;
                 this.gasData = [];
                 this.sortOrder = 'dec';
 
                 this.setupEventListeners();
+                this.initialize();
+            }
+
+            updateDatabasePath() {
+                this.dbRef = ref(database, DATABASE_BASE_PATH);
                 this.initialize();
             }
 
@@ -168,7 +184,7 @@
                 };
 
                 const timestamp = Date.now().toString();
-                const entryKey = `share/gasData/${timestamp}`;
+                const entryKey = `${DATABASE_BASE_PATH}/${timestamp}`;
 
                 if (imageFile) {
                     const resizedImageBlob = await this.resizeImage(imageFile, 1024);
@@ -300,12 +316,12 @@
                 imageFile.addEventListener('change', async () => {
                     const file = imageFile.files[0];
                     if (file) {
-                        const imageRef = storageRef(this.storageRef, `gasImages/${data.key}`);
+                        const imageRef = storageRef(this.storageRef, `${DATABASE_BASE_PATH}/${data.key}`);
                         await uploadBytes(imageRef, file);
                         const imageUrl = await getDownloadURL(imageRef);
 
                         const updatedEntry = { ...data, imageUrl };
-                        await set(ref(database, `share/gasData/${data.key}`), updatedEntry);
+                        await set(ref(database, `${DATABASE_BASE_PATH}/${data.key}`), updatedEntry);
 
                         this.updateDisplayedData();
                         this.updateGasTable();
@@ -342,7 +358,7 @@
 
                 if (imageUrl) {
                     try {
-                        const imageRef = storageRef(this.storageRef, `gasImages/${keyToDelete}`);
+                        const imageRef = storageRef(this.storageRef, `${DATABASE_BASE_PATH}/${keyToDelete}`);
                         await deleteObject(imageRef);
                         console.log('Image deleted successfully.');
                     } catch (error) {
@@ -351,7 +367,7 @@
                     }
                 }
 
-                await remove(ref(database, `share/gasData/${keyToDelete}`));
+                await remove(ref(database, `${DATABASE_BASE_PATH}/${keyToDelete}`));
 
                 this.gasData.splice(index, 1);
 
