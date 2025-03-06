@@ -309,7 +309,13 @@
         #save-data-button {
             width: 97%;
         }
+
+        #login-form {
+            flex-direction: column;
+            padding: 10px;
+        }
     </style>
+    <script type="module" src="./assets/js/login.js" defer></script>
 </head>
 
 <body>
@@ -321,6 +327,18 @@
             </select>
             <button id="load-invoice-button" type="button">Load Invoice</button>
         </div>
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+            <button id="logout" style="display: none;">Logout</button>
+        </section>
     </header>
     <main>
         <section>
@@ -453,7 +471,18 @@
     </footer>
 
     <script type="module">
-        import { database, ref, onValue, set, remove, get, runTransaction } from './assets/js/firebase-init.js';
+        import { auth, database, ref, onValue, set, remove, get, runTransaction } from './assets/js/firebase-init.js';
+
+        let DATABASE_BASE_PATH = 'public';
+
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                DATABASE_BASE_PATH = `${user.uid}`;
+            } else {
+                DATABASE_BASE_PATH = 'public';
+            }
+            populateInvoiceDropdown();
+        });
 
         const partsTableBody = document.querySelector('.parts-table tbody');
         const subtotalInput = document.getElementById('subtotal');
@@ -478,19 +507,29 @@
         const invoiceParts = {};
 
         function loadDatabase() {
-            const partsRef = ref(database, 'share/inventory');
+            const partsRef = ref(database, `${DATABASE_BASE_PATH}/inventory`);
 
             onValue(partsRef, (snapshot) => {
                 const items = snapshot.val();
-                const categories = Object.keys(items);
+
+                if (!items || typeof items !== 'object') {
+                    console.warn("No inventory data found in Firebase.");
+                    partCategory.innerHTML = '<option value="">No Categories Available</option>';
+                    return;
+                }
 
                 partCategory.innerHTML = '<option value="">Select Category</option>';
-                categories.forEach(category => {
+
+                Object.keys(items).forEach(category => {
                     const option = document.createElement('option');
                     option.value = category;
                     option.textContent = category;
                     partCategory.appendChild(option);
                 });
+
+                console.log("Loaded categories:", Object.keys(items));
+            }, (error) => {
+                console.error("Error loading inventory data:", error);
             });
         }
 
@@ -500,17 +539,32 @@
         });
 
         function loadSubcategories(category) {
-            const subcategoriesRef = ref(database, `share/inventory/${category}`);
+            if (!category) {
+                partSubcategory.innerHTML = '<option value="">No Subcategories Available</option>';
+                return;
+            }
+
+            const subcategoriesRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}`);
+
             onValue(subcategoriesRef, (snapshot) => {
                 const subcategories = snapshot.val();
+
+                if (!subcategories) {
+                    console.warn(`No subcategories found for category: ${category}`);
+                    partSubcategory.innerHTML = '<option value="">No Subcategories Available</option>';
+                    return;
+                }
+
                 partSubcategory.innerHTML = '<option value="">Select Subcategory</option>';
 
-                for (let subcategory in subcategories) {
+                Object.keys(subcategories).forEach(subcategory => {
                     const option = document.createElement('option');
                     option.value = subcategory;
                     option.textContent = subcategory;
                     partSubcategory.appendChild(option);
-                }
+                });
+            }, (error) => {
+                console.error("Error loading subcategories:", error);
             });
         }
 
@@ -521,27 +575,44 @@
         });
 
         function loadParts(category, subcategory) {
-            const partsRef = ref(database, `share/inventory/${category}/${subcategory}`);
+            if (!category || !subcategory) {
+                partSelector.innerHTML = '<option value="">No Parts Available</option>';
+                return;
+            }
+
+            const partsRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${subcategory}`);
+
             onValue(partsRef, (snapshot) => {
                 const parts = snapshot.val();
+
+                if (!parts || typeof parts !== 'object') {
+                    console.warn(`No parts found for ${category} > ${subcategory}`);
+                    partSelector.innerHTML = '<option value="">No Parts Available</option>';
+                    return;
+                }
+
                 partSelector.innerHTML = '<option value="">Select Part</option>';
 
-                for (let part in parts) {
+                Object.keys(parts).forEach(part => {
                     const option = document.createElement('option');
                     option.value = part;
                     option.textContent = part;
-                    option.dataset.price = parts[part].price;
-                    option.dataset.actualPrice = parts[part].actualPrice;
-                    option.dataset.quantity = parts[part].quantity;
+                    option.dataset.price = parts[part].price || 0;
+                    option.dataset.actualPrice = parts[part].actualPrice || 0;
+                    option.dataset.quantity = parts[part].quantity || 0;
                     option.dataset.category = category;
                     option.dataset.component = subcategory;
                     partSelector.appendChild(option);
-                }
+                });
+
+                console.log(`Loaded parts for ${category} > ${subcategory}:`, Object.keys(parts));
+            }, (error) => {
+                console.error("Error loading parts:", error);
             });
         }
 
         function updateInvoiceDropdown(searchQuery) {
-            const invoicesRef = ref(database, 'share/tasks');
+            const invoicesRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
             get(invoicesRef).then((snapshot) => {
                 if (snapshot.exists()) {
                     const invoices = snapshot.val();
@@ -611,8 +682,8 @@
                 project: document.getElementById('invoice-number').value,
                 notes: document.getElementById('notes').value,
                 startTime: startTime,
-                parts: partsData, // Attach collected parts data
-                labor: laborData, // Attach collected labor data
+                parts: partsData,
+                labor: laborData,
                 subtotal: subtotalInput.value,
                 taxPercent: taxPercentInput.value,
                 tax: taxInput.value,
@@ -620,7 +691,7 @@
                 amountPaid: amountPaid,
             };
 
-            const invoiceRef = ref(database, 'share/tasks/' + invoiceId);
+            const invoiceRef = ref(database, DATABASE_BASE_PATH + "/tasks/" + invoiceId);
 
             try {
                 const snapshot = await get(invoiceRef);
@@ -866,7 +937,7 @@
                 throw new Error('Missing parameters to update database.');
             }
 
-            const partRef = ref(database, `share/inventory/${category}/${component}/${partName}/quantity`);
+            const partRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${partName}/quantity`);
 
             try {
                 const partSnapshot = await get(partRef);
@@ -897,44 +968,43 @@
             const dropdown = document.getElementById('invoice-dropdown');
             dropdown.innerHTML = '';
 
-            const invoicesRef = ref(database, 'share/tasks');
-            get(invoicesRef).then((snapshot) => {
+            const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+
+            get(invoiceRef).then((snapshot) => {
                 if (snapshot.exists()) {
                     const invoices = snapshot.val();
-                    for (const project in invoices) {
-                        if (invoices.hasOwnProperty(project)) {
-                            const invoice = invoices[project];
-                            const customerName = invoice.customerName || 'Unknown';
-                            const customerAddress = invoice.customerAddress || '';
-                            const customerEmail = invoice.customerEmail || '';
-                            const customerPhone = invoice.customerPhone || '';
-                            const startTime = invoice.startTime ? new Date(invoice.startTime).toLocaleDateString() : 'No Date';
 
-                            if (searchQuery === '' ||
-                                customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                                customerAddress.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                                customerEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                                customerPhone.toLowerCase().includes(searchQuery.toLowerCase())) {
+                    Object.keys(invoices).forEach((project) => {
+                        const invoice = invoices[project];
+                        const customerName = invoice.customerName || 'Unknown';
+                        const startTime = invoice.startTime ? new Date(invoice.startTime).toLocaleDateString() : 'No Date';
 
-                                const option = document.createElement('option');
-                                option.value = project;
-                                option.textContent = `${customerName} - ${startTime}`;
+                        if (
+                            searchQuery === '' ||
+                            customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            invoice.project.toLowerCase().includes(searchQuery.toLowerCase())
+                        ) {
+                            const option = document.createElement('option');
+                            option.value = project;
+                            option.textContent = `${customerName} - ${startTime}`;
 
-                                if (project === selectedInvoiceNumber) {
-                                    option.selected = true;
-                                }
-                                dropdown.appendChild(option);
+                            if (project === selectedInvoiceNumber) {
+                                option.selected = true;
                             }
+                            dropdown.appendChild(option);
                         }
-                    }
+                    });
+
                     if (dropdown.options.length === 0) {
                         const noResultsOption = document.createElement('option');
                         noResultsOption.textContent = 'No invoices found';
                         dropdown.appendChild(noResultsOption);
                     }
+                } else {
+                    console.warn("No invoices found in:", DATABASE_BASE_PATH);
                 }
             }).catch((error) => {
-                console.error('Error fetching invoices:', error);
+                console.error("Error fetching invoices:", error);
             });
         }
 
@@ -953,7 +1023,7 @@
                 const isConfirmed = confirm(`Are you sure you want to delete invoice ${selectedInvoiceNumber}? This action cannot be undone.`);
 
                 if (isConfirmed) {
-                    const invoiceRef = ref(database, 'share/tasks/' + selectedInvoiceNumber);
+                    const invoiceRef = ref(database, DATABASE_BASE_PATH + "/tasks/" + selectedInvoiceNumber);
 
                     try {
                         await remove(invoiceRef);
@@ -1008,77 +1078,94 @@
 
         document.getElementById('load-invoice-button').addEventListener('click', function () {
             const selectedInvoiceNumber = invoiceDropdown.value;
-            if (selectedInvoiceNumber) {
-                clearInvoice();
-                const invoiceRef = ref(database, 'share/tasks/' + selectedInvoiceNumber);
-                get(invoiceRef).then((snapshot) => {
-                    if (snapshot.exists()) {
-                        const invoiceData = snapshot.val();
 
-                        document.getElementById('invoice-number').dataset.id = invoiceData.id || '';
-                        document.getElementById('invoice-type').value = invoiceData.invoiceType;
-                        document.getElementById('title-input').value = invoiceData.invoiceTitle || '';
-                        document.getElementById('customer-name').value = invoiceData.customerName || '';
-                        document.getElementById('customer-phone').value = invoiceData.customerPhone || '';
-                        document.getElementById('customer-email').value = invoiceData.customerEmail || '';
-                        document.getElementById('customer-address').value = invoiceData.customerAddress || '';
-                        document.getElementById('invoice-number').value = invoiceData.project || '';
-                        document.getElementById('notes').value = invoiceData.notes || '';
+            if (!selectedInvoiceNumber) {
+                alert('Please select an invoice to load.');
+                return;
+            }
 
-                        const startTime = new Date(invoiceData.startTime);
-                        const localStartTime = new Date(startTime.getTime() - startTime.getTimezoneOffset() * 60000)
-                            .toISOString()
-                            .slice(0, 16);
+            clearInvoice();
 
-                        document.getElementById('invoice-date').value = localStartTime;
+            const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${selectedInvoiceNumber}`);
 
-                        document.getElementById('amount-paid').value = invoiceData.amountPaid;
-                        document.getElementById('tax-percent').value = invoiceData.taxPercent;
+            get(invoiceRef).then((snapshot) => {
+                if (snapshot.exists()) {
+                    const invoiceData = snapshot.val();
+                    console.log("Loaded Invoice Data:", invoiceData);
 
-                        if (invoiceData.parts && invoiceData.parts.length > 0) {
-                            invoiceData.parts.forEach(part => {
-                                addPartRow(part.part, part.category, part.component);
-                                const newRow = document.querySelector(`[data-part="${part.part}"]`);
-                                newRow.querySelector('input[name="part-quantity"]').value = part.quantity;
-                                newRow.querySelector('input[name="part-price"]').value = part.price;
-                                newRow.querySelector('input[name="part-actual-price"]').value = part.actualPrice;
-                                updatePartRowTotal(newRow);
-                            });
+                    document.getElementById('invoice-number').dataset.id = invoiceData.id || '';
+                    document.getElementById('invoice-type').value = invoiceData.invoiceType || 'invoice';
+                    document.getElementById('title-input').value = invoiceData.invoiceTitle || '';
+                    document.getElementById('customer-name').value = invoiceData.customerName || '';
+                    document.getElementById('customer-phone').value = invoiceData.customerPhone || '';
+                    document.getElementById('customer-email').value = invoiceData.customerEmail || '';
+                    document.getElementById('customer-address').value = invoiceData.customerAddress || '';
+                    document.getElementById('invoice-number').value = invoiceData.project || '';
+                    document.getElementById('notes').value = invoiceData.notes || '';
+
+                    if (invoiceData.startTime) {
+                        try {
+                            const startTime = new Date(invoiceData.startTime);
+                            const localStartTime = new Date(startTime.getTime() - startTime.getTimezoneOffset() * 60000)
+                                .toISOString()
+                                .slice(0, 16);
+                            document.getElementById('invoice-date').value = localStartTime;
+                        } catch (error) {
+                            console.error("Error parsing startTime:", error);
                         }
+                    }
 
-                        if (invoiceData.labor && invoiceData.labor.length > 0) {
-                            invoiceData.labor.forEach((labor) => {
-                                addLaborRow(labor.description, labor.hours, labor.rate);
-                                const newRow = laborTableBody.querySelector('tr:last-child');
+                    document.getElementById('amount-paid').value = invoiceData.amountPaid || '';
+                    document.getElementById('tax-percent').value = invoiceData.taxPercent || '';
 
-                                newRow.querySelector('input[name="labor-description"]').value = labor.description;
-                                newRow.querySelector('input[name="labor-hours"]').value = labor.hours;
-                                newRow.querySelector('input[name="labor-rate"]').value = labor.rate;
+                    if (invoiceData.parts && Array.isArray(invoiceData.parts)) {
+                        invoiceData.parts.forEach(part => {
+                            addPartRow(part.part, part.category, part.component);
+                            const newRow = document.querySelector(`[data-part="${part.part}"]`);
+                            if (newRow) {
+                                newRow.querySelector('input[name="part-quantity"]').value = part.quantity || 1;
+                                newRow.querySelector('input[name="part-price"]').value = part.price || 0;
+                                newRow.querySelector('input[name="part-actual-price"]').value = part.actualPrice || 0;
+                                updatePartRowTotal(newRow);
+                            }
+                        });
+                    }
+
+                    if (invoiceData.labor && Array.isArray(invoiceData.labor)) {
+                        invoiceData.labor.forEach((labor) => {
+                            addLaborRow(labor.description, labor.hours, labor.rate);
+                            const newRow = laborTableBody.querySelector('tr:last-child');
+
+                            if (newRow) {
+                                newRow.querySelector('input[name="labor-description"]').value = labor.description || '';
+                                newRow.querySelector('input[name="labor-hours"]').value = labor.hours || 0;
+                                newRow.querySelector('input[name="labor-rate"]').value = labor.rate || 0;
 
                                 const hoursInput = newRow.querySelector('input[name="labor-hours"]');
                                 const rateInput = newRow.querySelector('input[name="labor-rate"]');
                                 const totalInput = newRow.querySelector('input[name="labor-total"]');
 
                                 updateLaborTotal(hoursInput, rateInput, totalInput);
-                            });
-                        }
-
-                        updateTotals();
-                        updateRemainingBalance();
+                            }
+                        });
                     }
-                }).catch((error) => {
-                    console.error('Error fetching selected invoice:', error);
-                });
-            } else {
-                alert('Please select an invoice to load.');
-            }
+
+                    updateTotals();
+                    updateRemainingBalance();
+                } else {
+                    console.warn("Invoice not found:", selectedInvoiceNumber);
+                    alert('Invoice not found.');
+                }
+            }).catch((error) => {
+                console.error('Error fetching selected invoice:', error);
+            });
         });
 
         document.getElementById('exportButton').addEventListener('click', function () {
             const selectedInvoiceNumber = document.getElementById('invoice-dropdown').value;
 
             if (selectedInvoiceNumber) {
-                const invoiceRef = ref(database, 'share/tasks/' + selectedInvoiceNumber);
+                const invoiceRef = ref(database, DATABASE_BASE_PATH + "/tasks/" + selectedInvoiceNumber);
 
                 get(invoiceRef).then((snapshot) => {
                     if (snapshot.exists()) {
@@ -1116,7 +1203,6 @@
             }
         });
 
-        populateInvoiceDropdown();
     </script>
 
     <script>
@@ -1158,7 +1244,7 @@
                 document.getElementById('customer-address').value = inputData.customerAddress || '';
                 document.getElementById('invoice-date').value = inputData.startTime || '';
                 document.getElementById('invoice-number').value = inputData.project || '';
-                document.getElementById('notes').value = inputData.notes || '';
+                document.getElementById('notes').value = (invoiceData.notes || '').replace(/\r?\n/g, " ");
             }
         }
 
