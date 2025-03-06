@@ -9,11 +9,24 @@
     <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
     <link rel="icon" type="image/png" href="./assets/img/t_logo.png" sizes="32x32" />
     <link rel="icon" type="image/png" href="./assets/img/t_logo.png" sizes="16x16" />
+    <script type="module" src="./assets/js/login.js" defer></script>
 </head>
 
 <body>
     <header>
         <h2>Saved Links</h2>
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+            <button id="logout" style="display: none;">Logout</button>
+        </section>
     </header>
 
     <main>
@@ -46,12 +59,16 @@
             const linksList = document.getElementById('linksList');
             const categoryFilter = document.getElementById('categoryFilter');
             let editingLinkKey = null;
+            let DATABASE_BASE_PATH = 'public';
 
             onAuthStateChanged(auth, (user) => {
                 if (user) {
+                    DATABASE_BASE_PATH = `${user.uid}`;
                     fetchLinksFromFirebase();
                 } else {
                     console.log('User is not logged in');
+                    DATABASE_BASE_PATH = 'public';
+                    linksList.innerHTML = '';
                 }
             });
 
@@ -64,14 +81,13 @@
                 }
 
                 const categories = categoryInputValue.split(',').map(cat => cat.trim()).filter(cat => cat);
-                const newLinkRef = push(ref(database, 'share/links'));
+                const newLinkRef = push(ref(database, `${DATABASE_BASE_PATH}/links`));
                 const linkData = { url: linkUrl, categories: categories.length > 0 ? categories : null };
 
                 set(newLinkRef, linkData)
                     .then(() => {
                         console.log('Link saved successfully!');
                         clearForm();
-                        fetchLinksFromFirebase();
                     })
                     .catch((error) => {
                         console.error('Error saving link:', error);
@@ -89,12 +105,11 @@
                 const categories = categoryInputValue.split(',').map(cat => cat.trim()).filter(cat => cat);
                 const linkData = { url: linkUrl, categories: categories.length > 0 ? categories : null };
 
-                const linkRef = ref(database, 'share/links/' + editingLinkKey);
+                const linkRef = ref(database, `${DATABASE_BASE_PATH}/links/${editingLinkKey}`);
                 update(linkRef, linkData)
                     .then(() => {
                         console.log('Link updated successfully!');
                         clearForm();
-                        fetchLinksFromFirebase();
                     })
                     .catch((error) => {
                         console.error('Error updating link:', error);
@@ -106,12 +121,15 @@
             });
 
             function fetchLinksFromFirebase() {
-                const linksRef = ref(database, 'share/links');
+                const linksRef = ref(database, `${DATABASE_BASE_PATH}/links`);
                 onValue(linksRef, (snapshot) => {
                     const data = snapshot.val();
                     if (data) {
                         populateCategoryFilter(data);
                         displayLinks(data);
+                    } else {
+                        linksList.innerHTML = '<li>No saved links</li>';
+                        categoryFilter.innerHTML = '<option value="">All Categories</option>';
                     }
                 }, (error) => {
                     console.error('Error fetching links:', error);
@@ -173,10 +191,9 @@
 
             function deleteLink(key) {
                 if (confirm('Are you sure you want to delete this link?')) {
-                    const linkRef = ref(database, 'share/links/' + key);
+                    const linkRef = ref(database, `${DATABASE_BASE_PATH}/links/${key}`);
                     remove(linkRef).then(() => {
                         console.log('Link removed successfully');
-                        fetchLinksFromFirebase();
                     }).catch(error => {
                         console.error('Error removing link:', error);
                     });
@@ -198,8 +215,6 @@
                 updateLinkButton.style.display = 'none';
                 editingLinkKey = null;
             }
-
-            fetchLinksFromFirebase();
         });
     </script>
 </body>
