@@ -18,6 +18,7 @@
             background: none;
             border: none;
             text-align: center;
+            width: 100%;
         }
 
         main {
@@ -527,7 +528,6 @@
                     partCategory.appendChild(option);
                 });
 
-                console.log("Loaded categories:", Object.keys(items));
             }, (error) => {
                 console.error("Error loading inventory data:", error);
             });
@@ -591,7 +591,7 @@
                     return;
                 }
 
-                partSelector.innerHTML = '<option value="">Select Part</option>';
+                partSelector.innerHTML = '<option value="">Select Part</option>'; // Clear before adding
 
                 Object.keys(parts).forEach(part => {
                     const option = document.createElement('option');
@@ -737,19 +737,16 @@
         }
 
         function addPartRow(partName, category = null, component = null, quantity = 1, price = 0, actualPrice = 0) {
-            const selectedOption = partSelector.querySelector(`option[value="${partName}"]`);
+            let selectedOption = partSelector.querySelector(`option[value="${partName}"]`);
 
             if (!selectedOption) {
-                console.error('No selected option found for part.');
-                return;
+                console.warn(`Part '${partName}' not found in inventory, using saved data.`);
+            } else {
+                category = category || selectedOption.dataset.category;
+                component = component || selectedOption.dataset.component;
+                price = parseFloat(selectedOption.dataset.price) || price;
+                actualPrice = parseFloat(selectedOption.dataset.actualPrice) || actualPrice;
             }
-
-            category = selectedOption.dataset.category;
-            component = selectedOption.dataset.component;
-            price = parseFloat(selectedOption.dataset.price) || price;
-            actualPrice = parseFloat(selectedOption.dataset.actualPrice) || actualPrice;
-
-            console.log(`Add Part Row - Category: ${category}, Component: ${component}, Part Name: ${partName}, Quantity: ${quantity}`);
 
             if (!category || !component) {
                 console.error('Category or component is missing, cannot add part.');
@@ -760,13 +757,8 @@
 
             if (existingRow) {
                 const quantityInput = existingRow.querySelector('input[name="part-quantity"]');
-                quantityInput.value = parseInt(quantityInput.value, 10) + quantity;
+                quantityInput.value = parseInt(quantityInput.value, 10) + parseInt(quantity, 10);
                 updatePartRowTotal(existingRow);
-
-                updatePartQuantityInDatabase(category, component, partName, quantity);
-
-                quantityInput.addEventListener('input', (event) => handleQuantityChange(event, partName, category, component));
-
             } else {
                 const newRow = document.createElement('tr');
                 newRow.dataset.part = partName;
@@ -774,12 +766,12 @@
                 newRow.dataset.component = component;
 
                 newRow.innerHTML = `
-            <td id="populated-part">${partName}</td>
-            <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
-            <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
-            <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
-            <td><input type="number" name="part-total" min="0" value="${price * quantity}" readonly></td>
-        `;
+                    <td id="populated-part">${partName}</td>
+                    <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
+                    <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
+                    <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
+                    <td><input type="number" name="part-total" min="0" value="${(price * quantity).toFixed(2)}" readonly></td>
+                `;
 
                 partsTableBody.appendChild(newRow);
 
@@ -789,14 +781,10 @@
                 priceInput.addEventListener('input', () => updatePartRowTotal(newRow));
                 quantityInput.addEventListener('input', () => updatePartRowTotal(newRow));
 
-                quantityInput.addEventListener('input', (event) => handleQuantityChange(event, partName, category, component));
-
-                updatePartQuantityInDatabase(category, component, partName, quantity);
+                updateTotals();
+                updatePriceDifference();
+                updateRemainingBalance();
             }
-
-            updateTotals();
-            updatePriceDifference();
-            updateRemainingBalance();
         }
 
         function handleQuantityChange(event, partName, category, component) {
@@ -964,13 +952,14 @@
             }
         }
 
-        function populateInvoiceDropdown(searchQuery = '', selectedInvoiceNumber = '') {
+        function populateInvoiceDropdown() {
             const dropdown = document.getElementById('invoice-dropdown');
             dropdown.innerHTML = '';
 
             const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
 
-            get(invoiceRef).then((snapshot) => {
+            onValue(invoiceRef, (snapshot) => {
+                dropdown.innerHTML = '';
                 if (snapshot.exists()) {
                     const invoices = snapshot.val();
 
@@ -979,20 +968,10 @@
                         const customerName = invoice.customerName || 'Unknown';
                         const startTime = invoice.startTime ? new Date(invoice.startTime).toLocaleDateString() : 'No Date';
 
-                        if (
-                            searchQuery === '' ||
-                            customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            invoice.project.toLowerCase().includes(searchQuery.toLowerCase())
-                        ) {
-                            const option = document.createElement('option');
-                            option.value = project;
-                            option.textContent = `${customerName} - ${startTime}`;
-
-                            if (project === selectedInvoiceNumber) {
-                                option.selected = true;
-                            }
-                            dropdown.appendChild(option);
-                        }
+                        const option = document.createElement('option');
+                        option.value = project;
+                        option.textContent = `${customerName} - ${startTime}`;
+                        dropdown.appendChild(option);
                     });
 
                     if (dropdown.options.length === 0) {
@@ -1001,9 +980,11 @@
                         dropdown.appendChild(noResultsOption);
                     }
                 } else {
-                    console.warn("No invoices found in:", DATABASE_BASE_PATH);
+                    const noResultsOption = document.createElement('option');
+                    noResultsOption.textContent = 'No invoices found';
+                    dropdown.appendChild(noResultsOption);
                 }
-            }).catch((error) => {
+            }, (error) => {
                 console.error("Error fetching invoices:", error);
             });
         }
