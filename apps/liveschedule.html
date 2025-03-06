@@ -65,11 +65,24 @@
             height: auto !important;
         }
     </style>
+    <script type="module" src="./assets/js/login.js" defer></script>
 </head>
 
 <body>
     <header>
         <h1>Appointment Scheduler</h1>
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+            <button id="logout" style="display: none;">Logout</button>
+        </section>
     </header>
     <section>
 
@@ -110,16 +123,19 @@
 
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.js"></script>
     <script type="module">
-        import { database, ref, get, set, remove, onValue } from './assets/js/firebase-init.js';
+        import { database, ref, get, set, remove, onValue, auth, onAuthStateChanged } from './assets/js/firebase-init.js';
+
+        let calendar;
+        const modal = document.getElementById("appointmentModal");
+        const closeBtn = document.querySelector(".close");
+        const form = document.getElementById("appointmentForm");
+        const deleteButton = document.getElementById('deleteButton');
+        let DATABASE_BASE_PATH = 'public';
 
         document.addEventListener('DOMContentLoaded', function () {
             const calendarEl = document.getElementById('calendar');
-            const modal = document.getElementById("appointmentModal");
-            const closeBtn = document.querySelector(".close");
-            const form = document.getElementById("appointmentForm");
-            const deleteButton = document.getElementById('deleteButton');
 
-            const calendar = new FullCalendar.Calendar(calendarEl, {
+            calendar = new FullCalendar.Calendar(calendarEl, {
                 initialView: 'dayGridMonth',
                 headerToolbar: {
                     left: 'prev,next today',
@@ -127,14 +143,8 @@
                     right: 'dayGridMonth,listWeek'
                 },
                 views: {
-                    dayGridMonth: {
-                        buttonText: 'Month View'
-                    },
-                    listWeek: {
-                        type: 'list',
-                        duration: { month: 1 },
-                        buttonText: 'List View'
-                    }
+                    dayGridMonth: { buttonText: 'Month View' },
+                    listWeek: { type: 'list', duration: { month: 1 }, buttonText: 'List View' }
                 },
                 dateClick: function (info) {
                     openModalForNewAppointment(info.dateStr);
@@ -147,175 +157,192 @@
 
             calendar.render();
 
-            const tasksRef = ref(database, 'share/tasks');
-            onValue(tasksRef, snapshot => {
-                const tasks = snapshot.val();
-                calendar.removeAllEvents();
-                if (tasks) {
-                    Object.keys(tasks).forEach(id => {
-                        const event = formatTaskAsEvent(tasks[id], id);
-                        calendar.addEvent(event);
-                    });
+            setupFirebaseListener();
+        });
+
+        function setupFirebaseListener() {
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    DATABASE_BASE_PATH = `${user.uid}`;
+                } else {
+                    DATABASE_BASE_PATH = 'public';
                 }
-            });
 
-            function openModalForNewAppointment(dateStr) {
-                resetForm();
-                document.getElementById('appointmentDate').value = dateStr;
-                modal.style.display = "block";
-                deleteButton.style.display = 'none';
-            }
+                const tasksRef = ref(database, DATABASE_BASE_PATH + '/tasks');
 
-            function openModalForExistingTask(event) {
-                resetForm();
-                fillFormWithTaskDetails(event);
-                modal.style.display = "block";
-                deleteButton.style.display = 'block';
-            }
+                onValue(tasksRef, (snapshot) => {
+                    if (!calendar) return;
 
-            closeBtn.onclick = () => modal.style.display = "none";
-            window.onclick = (e) => { if (e.target == modal) modal.style.display = "none"; };
+                    if (snapshot.exists()) {
+                        const tasks = snapshot.val();
 
-            form.addEventListener('submit', function (e) {
-                e.preventDefault();
-                const appointmentData = getFormData();
-                saveAppointmentToDatabase(appointmentData);
-                calendar.addEvent({
-                    id: appointmentData.id,
-                    title: appointmentData.customerName,
-                    start: appointmentData.startTime,
-                    extendedProps: {
-                        customerAddress: appointmentData.customerAddress,
-                        notes: appointmentData.notes,
-                        project: appointmentData.project
-                    }
-                });
-                modal.style.display = "none";
-                form.reset();
-            });
+                        calendar.getEvents().forEach(event => event.remove());
 
-            deleteButton.addEventListener('click', function () {
-                const id = document.getElementById('id').value;
-                if (id && confirm('Are you sure you want to delete this task?')) {
-                    deleteTask(id);
-                }
-            });
-
-            function formatTaskAsEvent(task, id) {
-                const eventColor = getEventColor(task.invoiceType, task.startTime);
-                return {
-                    id: id,
-                    title: task.customerName,
-                    start: task.startTime,
-                    end: task.endTime,
-                    backgroundColor: eventColor,
-                    borderColor: eventColor,
-                    extendedProps: { ...task }
-                };
-            }
-
-            function getEventColor(invoiceType, startTime) {
-                const taskDate = new Date(startTime);
-                const currentDate = new Date();
-                if (invoiceType === 'invoice') return 'lightgreen';
-                if (invoiceType === 'quote' && taskDate < currentDate) return 'lightcoral';
-                return 'lightblue';
-            }
-
-            function fillFormWithTaskDetails(event) {
-                const { title: customerName, start, extendedProps } = event;
-                const { customerAddress, notes, project, id, customerPhone } = extendedProps;
-
-                const startDateTime = new Date(start);
-                const localDate = startDateTime.toISOString().slice(0, 10);
-                const localTime = startDateTime.toTimeString().slice(0, 5);
-
-                document.getElementById('customerName').value = customerName || '';
-                document.getElementById('appointmentDate').value = localDate;
-                document.getElementById('appointmentTime').value = localTime;
-                document.getElementById('customerAddress').value = customerAddress || '';
-                document.getElementById('appointmentNotes').value = notes || '';
-                document.getElementById('project').value = project || '';
-                document.getElementById('id').value = id || '';
-                document.getElementById('customerPhone').value = customerPhone || '';
-            }
-
-            function getFormData() {
-                const date = document.getElementById('appointmentDate').value;
-                const time = document.getElementById('appointmentTime').value;
-                const localDateTime = new Date(`${date}T${time}`).toISOString();
-
-                const id = document.getElementById('id').value || Date.now().toString();
-                const customerPhone = document.getElementById('customerPhone').value || '';
-
-                return {
-                    customerName: document.getElementById('customerName').value,
-                    startTime: localDateTime,
-                    customerAddress: document.getElementById('customerAddress').value,
-                    notes: document.getElementById('appointmentNotes').value,
-                    project: document.getElementById('project').value,
-                    id,
-                    ...(customerPhone && { customerPhone })
-                };
-            }
-
-            function saveAppointmentToDatabase(appointment) {
-                const taskRef = ref(database, `share/tasks/${appointment.id}`);
-                get(taskRef).then(snapshot => {
-                    const existingTaskData = snapshot.exists() ? snapshot.val() : {};
-                    const updatedTaskData = { ...existingTaskData, ...appointment, invoiceType: existingTaskData.invoiceType || 'quote' };
-                    set(taskRef, updatedTaskData).then(() => {
-                        console.log('Task saved successfully.');
-                    });
-                }).catch(error => console.error('Error saving task:', error));
-            }
-
-            function deleteTask(id) {
-                const taskRef = ref(database, `share/tasks/${id}`);
-                remove(taskRef).then(() => {
-                    const event = calendar.getEventById(id);
-                    if (event) event.remove();
-                    alert('Task deleted successfully.');
-                    modal.style.display = "none";
-                }).catch(error => console.error('Error deleting task:', error));
-            }
-
-            function resetForm() {
-                form.reset();
-                document.getElementById('id').value = '';
-            }
-
-            document.getElementById('addressLabel').addEventListener('click', () => {
-                const addressInput = document.getElementById('customerAddress');
-                const address = addressInput.value.trim();
-
-                if (address) {
-                    navigator.clipboard.writeText(address)
-                        .then(() => {
-                            alert('Address copied to clipboard!');
-                        })
-                        .catch(err => {
-                            console.error('Error copying address:', err);
-                            alert('Failed to copy address.');
+                        Object.keys(tasks).forEach(id => {
+                            const event = formatTaskAsEvent(tasks[id], id);
+                            calendar.addEvent(event);
                         });
-                } else {
-                    alert('No address to copy.');
+                    } else {
+                        console.log("No tasks found.");
+                    }
+                }, (error) => {
+                    console.error("Firebase read error:", error);
+                });
+            });
+        }
+
+        function openModalForNewAppointment(dateStr) {
+            resetForm();
+            document.getElementById('appointmentDate').value = dateStr;
+            modal.style.display = "block";
+            deleteButton.style.display = 'none';
+        }
+
+        function openModalForExistingTask(event) {
+            resetForm();
+            fillFormWithTaskDetails(event);
+            modal.style.display = "block";
+            deleteButton.style.display = 'block';
+        }
+
+        closeBtn.onclick = () => modal.style.display = "none";
+        window.onclick = (e) => { if (e.target == modal) modal.style.display = "none"; };
+
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            const appointmentData = getFormData();
+            saveAppointmentToDatabase(appointmentData);
+            calendar.addEvent({
+                id: appointmentData.id,
+                title: appointmentData.customerName,
+                start: appointmentData.startTime,
+                extendedProps: {
+                    customerAddress: appointmentData.customerAddress,
+                    notes: appointmentData.notes,
+                    project: appointmentData.project
                 }
             });
+            modal.style.display = "none";
+            form.reset();
+        });
 
-            document.getElementById('phoneLabel').addEventListener('click', () => {
-                const phoneInput = document.getElementById('customerPhone');
-                const phoneNumber = phoneInput.value.trim();
+        deleteButton.addEventListener('click', function () {
+            const id = document.getElementById('id').value;
+            if (id && confirm('Are you sure you want to delete this task?')) {
+                deleteTask(id);
+            }
+        });
 
-                if (phoneNumber) {
-                    const tempLink = document.createElement('a');
-                    tempLink.href = `tel:${phoneNumber}`;
-                    tempLink.click();
-                } else {
-                    alert('No phone number to call.');
-                }
-            });
+        function formatTaskAsEvent(task, id) {
+            const eventColor = getEventColor(task.invoiceType, task.startTime);
+            return {
+                id: id,
+                title: task.customerName,
+                start: task.startTime,
+                end: task.endTime,
+                backgroundColor: eventColor,
+                borderColor: eventColor,
+                extendedProps: { ...task }
+            };
+        }
 
+        function getEventColor(invoiceType, startTime) {
+            const taskDate = new Date(startTime);
+            const currentDate = new Date();
+            if (invoiceType === 'invoice') return 'lightgreen';
+            if (invoiceType === 'quote' && taskDate < currentDate) return 'lightcoral';
+            return 'lightblue';
+        }
+
+        function fillFormWithTaskDetails(event) {
+            const { title: customerName, start, extendedProps } = event;
+            const { customerAddress, notes, project, id, customerPhone } = extendedProps;
+
+            const startDateTime = new Date(start);
+            const localDate = startDateTime.toISOString().slice(0, 10);
+            const localTime = startDateTime.toTimeString().slice(0, 5);
+
+            document.getElementById('customerName').value = customerName || '';
+            document.getElementById('appointmentDate').value = localDate;
+            document.getElementById('appointmentTime').value = localTime;
+            document.getElementById('customerAddress').value = customerAddress || '';
+            document.getElementById('appointmentNotes').value = notes || '';
+            document.getElementById('project').value = project || '';
+            document.getElementById('id').value = id || '';
+            document.getElementById('customerPhone').value = customerPhone || '';
+        }
+
+        function getFormData() {
+            const date = document.getElementById('appointmentDate').value;
+            const time = document.getElementById('appointmentTime').value;
+
+            const localDateTime = new Date(`${date}T${time}:00`).toISOString(); // Store in UTC
+
+            return {
+                customerName: document.getElementById('customerName').value,
+                startTime: localDateTime,
+                customerAddress: document.getElementById('customerAddress').value,
+                notes: document.getElementById('appointmentNotes').value,
+                project: document.getElementById('project').value,
+                id: document.getElementById('id').value || Date.now().toString()
+            };
+        }
+
+        function saveAppointmentToDatabase(appointment) {
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${appointment.id}`);
+            get(taskRef).then(snapshot => {
+                const existingTaskData = snapshot.exists() ? snapshot.val() : {};
+                const updatedTaskData = { ...existingTaskData, ...appointment, invoiceType: existingTaskData.invoiceType || 'quote' };
+                set(taskRef, updatedTaskData).then(() => {
+                    console.log('Task saved successfully.');
+                });
+            }).catch(error => console.error('Error saving task:', error));
+        }
+
+        function deleteTask(id) {
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${id}`);
+            remove(taskRef).then(() => {
+                const event = calendar.getEventById(id);
+                if (event) event.remove();
+                alert('Task deleted successfully.');
+                modal.style.display = "none";
+            }).catch(error => console.error('Error deleting task:', error));
+        }
+
+        function resetForm() {
+            form.reset();
+            document.getElementById('id').value = '';
+        }
+
+        document.getElementById('addressLabel').addEventListener('click', () => {
+            const addressInput = document.getElementById('customerAddress');
+            const address = addressInput.value.trim();
+
+            if (address) {
+                navigator.clipboard.writeText(address)
+                    .then(() => {
+                        alert('Address copied to clipboard!');
+                    })
+                    .catch(err => {
+                        console.error('Error copying address:', err);
+                        alert('Failed to copy address.');
+                    });
+            } else {
+                alert('No address to copy.');
+            }
+        });
+
+        document.getElementById('phoneLabel').addEventListener('click', () => {
+            const phoneInput = document.getElementById('customerPhone');
+            const phoneNumber = phoneInput.value.trim();
+
+            if (phoneNumber) {
+                const tempLink = document.createElement('a');
+                tempLink.href = `tel:${phoneNumber}`;
+                tempLink.click();
+            } else {
+                alert('No phone number to call.');
+            }
         });
     </script>
 </body>
