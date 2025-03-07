@@ -187,17 +187,14 @@
     </main>
 
     <script type="module">
-        import { auth, database, ref, set, get, push, onValue, remove, update, storageRef, uploadBytesResumable, getDownloadURL, deleteObject, listAll, getStorage, storage } from './assets/js/firebase-init.js';
+        import { auth, database, ref, set, get, push, onValue, remove, update, storageRef, uploadBytesResumable, getDownloadURL, deleteObject, listAll, getStorage, storage, onAuthStateChanged } from './assets/js/firebase-init.js';
 
-        let DATABASE_BASE_PATH = 'public/tasks';
+        let DATABASE_BASE_PATH = 'public';
 
-        auth.onAuthStateChanged((user) => {
-            if (user) {
-                DATABASE_BASE_PATH = `${user.uid}/tasks`;
-            } else {
-                DATABASE_BASE_PATH = 'public/tasks';
-            }
+        onAuthStateChanged(auth, (user) => {
+            DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
             loadTasks();
+            loadTasksIntoSelect();
         });
 
         const taskNameInput = document.getElementById('taskName');
@@ -308,7 +305,7 @@
         }
 
         function saveTask(task) {
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/${task.id}`);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${task.id}`);
             set(taskRef, task);
         }
 
@@ -414,7 +411,7 @@
 
         async function loadTaskForEditing(taskId) {
             currentTaskId = taskId;
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/${taskId}`);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${taskId}`);
 
             const snapshot = await get(taskRef);
             if (snapshot.exists()) {
@@ -453,7 +450,7 @@
         }
 
         function deleteTask(taskId, row) {
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/${taskId}`);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${taskId}`);
             remove(taskRef).then(() => {
                 if (row && row.parentNode) {
                     row.parentNode.removeChild(row);
@@ -499,7 +496,7 @@
         }
 
         function updateTotalHours() {
-            const taskRef = ref(database, DATABASE_BASE_PATH);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
             onValue(taskRef, snapshot => {
                 let totalSeconds = 0;
                 snapshot.forEach(taskSnapshot => {
@@ -517,7 +514,7 @@
         }
 
         function loadTasks() {
-            const taskRef = ref(database, DATABASE_BASE_PATH);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
             onValue(taskRef, snapshot => {
                 taskLogTable.innerHTML = '';
                 let taskCount = 0;
@@ -562,7 +559,7 @@
         });
 
         function updateTaskField(taskId, field, value) {
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/${taskId}`);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${taskId}`);
             update(taskRef, { [field]: value })
                 .then(() => {
                     console.log(`Task ${taskId} updated: ${field} = ${value}`);
@@ -574,7 +571,7 @@
         }
 
         function checkForOngoingTask() {
-            const taskRef = ref(database, DATABASE_BASE_PATH);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/`);
             onValue(taskRef, snapshot => {
                 let incompleteTasks = [];
 
@@ -709,7 +706,7 @@
         function processTasksForDailyTimeSpent() {
             const tasks = [];
 
-            const taskRef = ref(database, DATABASE_BASE_PATH);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
             onValue(taskRef, snapshot => {
                 tasks.length = 0;
                 snapshot.forEach(taskSnapshot => {
@@ -743,7 +740,7 @@
         });
 
         function saveData() {
-            const taskRef = ref(database, DATABASE_BASE_PATH);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
             get(taskRef).then(snapshot => {
                 const tasks = [];
                 snapshot.forEach(taskSnapshot => {
@@ -783,7 +780,7 @@
         }
 
         function saveTaskIfNotExists(task) {
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/${task.id}`);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${task.id}`);
             get(taskRef).then(snapshot => {
                 if (!snapshot.exists()) {
                     set(taskRef, task);
@@ -897,7 +894,7 @@
 
             endDate.setHours(23, 59, 59, 999);
 
-            const taskRef = ref(database, DATABASE_BASE_PATH);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
             get(taskRef).then(snapshot => {
                 let totalSeconds = 0;
 
@@ -930,7 +927,7 @@
         }
 
         function filterTasksByDateRange(startDate, endDate) {
-            const taskRef = ref(database, DATABASE_BASE_PATH);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
             get(taskRef).then(snapshot => {
                 if (!snapshot.exists()) {
                     alert('No tasks found in the database.');
@@ -1003,7 +1000,7 @@
         }
 
         function loadTasksIntoSelect() {
-            const taskRef = ref(database, DATABASE_BASE_PATH);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
             onValue(taskRef, (snapshot) => {
                 const taskArray = [];
                 snapshot.forEach(taskSnapshot => {
@@ -1026,7 +1023,7 @@
             currentTaskId = event.target.value;
             if (!currentTaskId) return;
 
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/${currentTaskId}`);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${currentTaskId}`);
             const snapshot = await get(taskRef);
             if (snapshot.exists()) {
                 const task = snapshot.val();
@@ -1052,7 +1049,7 @@
             loadingIndicator.style.display = 'block';
 
             try {
-                const storageImagesRef = storageRef(storage, `${DATABASE_BASE_PATH}/images/${project}`);
+                const storageImagesRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images/${project}`);
                 const storageSnapshot = await listAll(storageImagesRef);
 
                 for (const item of storageSnapshot.items) {
@@ -1087,7 +1084,7 @@
                 customerAddress: customerAddressInput.value.trim(),
             };
 
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/${currentTaskId}`);
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${currentTaskId}`);
             update(taskRef, updatedTask)
                 .then(() => {
                     alert('Task updated successfully.');
@@ -1125,7 +1122,7 @@
                     imageBlob = await addTextToImage(imageBlob, markupText);
                 }
 
-                await uploadToFirebase(imageBlob, `${DATABASE_BASE_PATH}/images/${project}/${finalFileName}`);
+                await uploadToFirebase(imageBlob, `${DATABASE_BASE_PATH}/tasks/images/${project}/${finalFileName}`);
 
                 await loadTaskImages(project);
 
@@ -1331,7 +1328,7 @@
                 const imageRef = storageRef(storage, selectedImageUrl);
                 await deleteObject(imageRef);
 
-                const projectImagesRef = ref(database, `${DATABASE_BASE_PATH}/images/${project}`);
+                const projectImagesRef = ref(database, `${DATABASE_BASE_PATH}/tasks/images/${project}`);
                 const imagesSnapshot = await get(projectImagesRef);
 
                 if (imagesSnapshot.exists()) {
@@ -1339,7 +1336,7 @@
                     const imageKey = Object.keys(images).find(key => images[key] === selectedImageUrl);
 
                     if (imageKey) {
-                        await remove(ref(database, `${DATABASE_BASE_PATH}/images/${project}/${imageKey}`));
+                        await remove(ref(database, `${DATABASE_BASE_PATH}/tasks/images/${project}/${imageKey}`));
                         photoContainer.innerHTML = '';
                     }
                 }
@@ -1365,8 +1362,6 @@
         toggleTimerBtn.addEventListener('click', toggleTimer);
         deleteImageButton.addEventListener('click', deleteSelectedImage);
         updateTaskBtn.addEventListener('click', updateTask);
-
-        loadTasksIntoSelect();
 
         const maxWidthBtn = document.createElement('button');
         maxWidthBtn.id = 'maxWidthBtn';
@@ -1396,7 +1391,7 @@
                 return;
             }
 
-            const storageImagesRef = storageRef(storage, `${DATABASE_BASE_PATH}/images/${project}`);
+            const storageImagesRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images/${project}`);
 
             try {
                 const storageSnapshot = await listAll(storageImagesRef);
@@ -1457,7 +1452,7 @@
                         return;
                     }
 
-                    const taskRef = ref(database, DATABASE_BASE_PATH);
+                    const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
                     const snapshot = await get(taskRef);
 
                     if (!snapshot.exists()) {
