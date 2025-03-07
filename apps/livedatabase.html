@@ -151,62 +151,68 @@
     document.getElementById('search-input').addEventListener('input', filterEntries);
 
     function displayEntries(entries) {
-    const container = document.getElementById('entries-container');
-    container.innerHTML = `
-        <table id="task-log">
-            <thead>
-                <tr>
-                    <th>Category</th>
-                    <th>Sub-Category</th>
-                    <th>Item Name</th>
-                    <th>Price</th>
-                    <th>Cost</th>
-                    <th>Quantity</th>
-                    <th>Description</th>
-                    <th>Image</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="inventory-body"></tbody>
-        </table>
-    `;
+        const container = document.getElementById('entries-container');
+        container.innerHTML = `
+            <table id="task-log">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Sub-Category</th>
+                        <th>Item Name</th> <!-- Show partName -->
+                        <th>Price</th>
+                        <th>Cost</th>
+                        <th>Quantity</th>
+                        <th>Description</th>
+                        <th>Image</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="inventory-body"></tbody>
+            </table>
+        `;
 
-    const tbody = document.getElementById('inventory-body');
-    Object.entries(entries).forEach(([category, components]) => {
-        Object.entries(components).forEach(([component, items]) => {
-            Object.entries(items).forEach(([timestampKey, data]) => {
-                const imageUrl = data.imageUrl || './assets/img/default.png';
-                const partName = data.partName || "Unnamed Item";
+        const tbody = document.getElementById('inventory-body');
+        Object.entries(entries).forEach(([category, components]) => {
+            Object.entries(components).forEach(([component, items]) => {
+                Object.entries(items).forEach(([timestampKey, data]) => {
+                    const imageUrl = data.imageUrl || './assets/img/default.png';
+                    const partName = data.partName || "Unnamed Item";
 
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td><input type="text" value="${category}" data-key="category"></td>
-                    <td><input type="text" value="${component}" data-key="component"></td>
-                    <td><input type="text" value="${partName}" data-key="partName"></td>
-                    <td><input type="number" value="${data.price}" data-key="price"></td>
-                    <td><input type="number" value="${data.actualPrice}" data-key="actualPrice"></td>
-                    <td><input type="number" value="${data.quantity}" data-key="quantity"></td>
-                    <td><textarea data-key="description">${data.description || ''}</textarea></td>
-                    <td>
-                        <img src="${imageUrl}" width="50" height="50" class="view-image" data-imageurl="${imageUrl}">
-                        <input type="file" class="image-upload" data-category="${category}" data-component="${component}" data-timestampKey="${timestampKey}">
-                    </td>
-                    <td>
-                        <button class="delete-button">Delete</button>
-                    </td>
-                `;
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td><input type="text" value="${category}" data-key="category"></td>
+                        <td><input type="text" value="${component}" data-key="component"></td>
+                        <td><input type="text" value="${partName}" data-key="partName"></td> <!-- Editable -->
+                        <td><input type="number" value="${data.price}" data-key="price"></td>
+                        <td><input type="number" value="${data.actualPrice}" data-key="actualPrice"></td>
+                        <td><input type="number" value="${data.quantity}" data-key="quantity"></td>
+                        <td><textarea data-key="description">${data.description || ''}</textarea></td>
+                        <td>
+                            <img src="${imageUrl}" width="50" height="50" class="view-image" data-imageurl="${imageUrl}">
+                            <input type="file" class="image-upload" data-category="${category}" data-component="${component}" data-timestampKey="${timestampKey}">
+                        </td>
+                        <td>
+                            <button class="delete-button">Delete</button>
+                        </td>
+                    `;
 
-                row.querySelector('.image-upload').addEventListener('change', (event) => uploadImage(event, category, component, timestampKey));
-                row.querySelector('.delete-button').addEventListener('click', () => deleteEntry(category, component, timestampKey));
-                row.querySelector('.view-image').addEventListener('click', (event) => showImageModal(event.target.dataset.imageurl));
+                    row.querySelectorAll('input, textarea').forEach(input => {
+                        input.addEventListener('blur', (event) => updateInventoryField(event, category, component, timestampKey));
+                    });
 
-                tbody.appendChild(row);
+                    row.querySelector('.image-upload').addEventListener('change', (event) => uploadImage(event, category, component, timestampKey));
+
+                    row.querySelector('.delete-button').addEventListener('click', () => deleteEntry(category, component, timestampKey));
+
+                    row.querySelector('.view-image').addEventListener('click', (event) => showImageModal(event.target.dataset.imageurl));
+
+                    tbody.appendChild(row);
+                });
             });
         });
-    });
 
-    filterEntries();
-}
+        filterEntries();
+    }
 
     function filterEntries() {
         const selectedCategory = document.getElementById('category-filter').value;
@@ -257,33 +263,27 @@
     }
 
     function uploadImage(event, category, component, timestampKey) {
-    const file = event.target.files[0];
-    if (!file) return;
+        const file = event.target.files[0];
+        if (!file) return;
 
-    console.log(`Uploading image for existing entry: ${category} / ${component} / ${timestampKey}`);
+        const imagePath = `${DATABASE_BASE_PATH}/images/${category}/${component}/${file.name}`;
+        const fileRef = storageRef(storage, imagePath);
 
-    const imagePath = `${DATABASE_BASE_PATH}/images/${category}/${component}/${file.name}`;
-    const fileRef = storageRef(storage, imagePath);
+        const uploadTask = uploadBytesResumable(fileRef, file);
 
-    const uploadTask = uploadBytesResumable(fileRef, file);
-
-    uploadTask.on(
-        "state_changed",
-        null,
-        (error) => console.error("Upload failed:", error),
-        async () => {
-            try {
-                const imageUrl = await getDownloadURL(uploadTask.snapshot.ref);
-                console.log("File uploaded:", imageUrl);
-                const entryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${timestampKey}`);
-                await update(entryRef, { imageUrl });
-                loadDatabaseEntries(); // Refresh list
-            } catch (error) {
-                console.error("Error getting image URL:", error);
+        uploadTask.on(
+            "state_changed",
+            null,
+            (error) => console.error("Upload failed:", error),
+            () => {
+                getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
+                    console.log("File uploaded:", downloadURL);
+                    const entryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${timestampKey}`);
+                    update(entryRef, { imageUrl: downloadURL });
+                });
             }
-        }
-    );
-}
+        );
+    }
 
     function deleteEntry(category, component, partName) {
         if (confirm(`Are you sure you want to delete ${partName}?`)) {
@@ -304,74 +304,39 @@
 
     document.getElementById('save-data-button').addEventListener('click', saveData);
 
-function saveData() {
-    const category = document.getElementById('category').value.trim();
-    const component = document.getElementById('component').value.trim();
-    const partName = document.getElementById('partName').value.trim();
-    const price = parseFloat(document.getElementById('price').value) || 0;
-    const actualPrice = parseFloat(document.getElementById('actualPrice').value) || 0;
-    const quantity = parseInt(document.getElementById('quantity').value) || 0;
-    const description = document.getElementById('description').value.trim();
-    const fileInput = document.getElementById('imageInput');
-    const file = fileInput.files[0];
-    const timestampKey = Date.now().toString();
+    function saveData() {
+        const category = document.getElementById('category').value.trim();
+        const component = document.getElementById('component').value.trim();
+        const partName = document.getElementById('partName').value.trim();
+        const price = parseFloat(document.getElementById('price').value) || 0;
+        const actualPrice = parseFloat(document.getElementById('actualPrice').value) || 0;
+        const quantity = parseInt(document.getElementById('quantity').value) || 0;
+        const description = document.getElementById('description').value.trim();
+        const timestampKey = Date.now().toString();
 
-    if (!category || !component || !partName) {
-        alert("Category, Sub-Category, and Item fields are required.");
-        return;
-    }
+        if (!category || !component || !partName) {
+            alert("Category, Sub-Category, and Item fields are required.");
+            return;
+        }
 
-    let imageUrl = "./assets/img/default.png";
+        const newEntry = {
+            partName,
+            price,
+            actualPrice,
+            quantity,
+            description,
+            imageUrl: "./assets/img/default.png"
+        };
 
-    if (file) {
-        const imagePath = `${DATABASE_BASE_PATH}/images/${category}/${component}/${file.name}`;
-        const fileRef = storageRef(storage, imagePath);
-        const uploadTask = uploadBytesResumable(fileRef, file);
-
-        uploadTask.on(
-            "state_changed",
-            null,
-            (error) => {
-                console.error("Upload failed:", error);
-                alert("Image upload failed.");
-            },
-            async () => {
-                try {
-                    imageUrl = await getDownloadURL(uploadTask.snapshot.ref);
-                    console.log("File uploaded:", imageUrl);
-                    saveEntryToDatabase(timestampKey, category, component, partName, price, actualPrice, quantity, description, imageUrl);
-                } catch (error) {
-                    console.error("Error getting image URL:", error);
-                }
-            }
-        );
-    } else {
-        saveEntryToDatabase(timestampKey, category, component, partName, price, actualPrice, quantity, description, imageUrl);
-    }
-}
-
-function saveEntryToDatabase(timestampKey, category, component, partName, price, actualPrice, quantity, description, imageUrl) {
-    const newEntry = {
-        partName,
-        price,
-        actualPrice,
-        quantity,
-        description,
-        imageUrl // Ensure image URL is included in the database entry
-    };
-
-    const entryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${timestampKey}`);
-    set(entryRef, newEntry)
-        .then(() => {
+        const entryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${timestampKey}`);
+        set(entryRef, newEntry).then(() => {
             alert("Entry saved successfully!");
             document.querySelector('form').reset();
             loadDatabaseEntries();
-        })
-        .catch(error => {
+        }).catch(error => {
             console.error("Error saving entry:", error);
         });
-}
-
+    }
 </script>
 
 </html>
