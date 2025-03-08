@@ -648,67 +648,58 @@
             }
 
             const invoiceType = document.getElementById('invoice-type').value;
-            const amountPaid = document.getElementById('amount-paid').value;
+            const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
 
             const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => {
                 return {
+                    timestampKey: row.dataset.timestampKey || '',
+                    partName: row.cells[0].textContent || '',
+                    quantity: parseInt(row.querySelector('input[name="part-quantity"]').value) || 0,
+                    price: parseFloat(row.querySelector('input[name="part-price"]').value) || 0,
+                    actualPrice: parseFloat(row.querySelector('input[name="part-actual-price"]').value) || 0,
+                    total: parseFloat(row.querySelector('input[name="part-total"]').value) || 0,
                     category: row.dataset.category || '',
                     component: row.dataset.component || '',
-                    timestampKey: row.dataset.timestampKey || '', // Store the timestamp key for lookup
-                    partName: row.cells[0].textContent || '', // Use part name from table
-                    quantity: row.querySelector('input[name="part-quantity"]').value || 0,
-                    price: row.querySelector('input[name="part-price"]').value || 0,
-                    actualPrice: row.querySelector('input[name="part-actual-price"]').value || 0,
-                    total: row.querySelector('input[name="part-total"]').value || 0,
                 };
             });
 
-            const laborData = Array.from(laborTableBody.querySelectorAll('tr')).map(row => {
-                return {
-                    description: row.querySelector('input[name="labor-description"]').value.trim() || '',
-                    hours: row.querySelector('input[name="labor-hours"]').value || 0,
-                    rate: row.querySelector('input[name="labor-rate"]').value || 0,
-                    total: row.querySelector('input[name="labor-total"]').value || 0,
-                };
-            });
+            if (partsData.some(part => !part.timestampKey)) {
+                console.error(`❌ Error: Some parts are missing timestampKeys`);
+                return;
+            }
 
-            const startTime = document.getElementById('invoice-date').value;
-
-            const newInvoiceData = {
+            const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${invoiceId}`);
+            await set(invoiceRef, {
                 id: invoiceId,
                 invoiceType,
                 invoiceTitle: document.getElementById('title-input').value,
-                customerName: document.getElementById('customer-name').value,
-                customerPhone: document.getElementById('customer-phone').value,
-                customerEmail: document.getElementById('customer-email').value,
-                customerAddress: document.getElementById('customer-address').value,
-                project: document.getElementById('invoice-number').value,
-                notes: document.getElementById('notes').value,
-                startTime: startTime,
-                parts: partsData, // Now includes `partName`
-                labor: laborData,
-                subtotal: subtotalInput.value,
-                taxPercent: taxPercentInput.value,
-                tax: taxInput.value,
-                total: totalInput.value,
+                parts: partsData,
                 amountPaid: amountPaid,
-            };
+            });
 
-            const invoiceRef = ref(database, DATABASE_BASE_PATH + "/tasks/" + invoiceId);
+            console.log('✅ Invoice saved successfully:', invoiceId);
 
             try {
-                const snapshot = await get(invoiceRef);
-                const existingInvoiceData = snapshot.exists() ? snapshot.val() : {};
+                for (const part of partsData) {
+                    const partRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${part.category}/${part.component}/${part.timestampKey}`);
 
-                const mergedInvoiceData = { ...existingInvoiceData, ...newInvoiceData };
-
-                await set(invoiceRef, mergedInvoiceData);
-                console.log('Invoice saved successfully with ID:', invoiceId);
-                clearInvoice();
-                populateInvoiceDropdown();
-                return;
+                    await runTransaction(partRef, (currentPart) => {
+                        if (!currentPart) {
+                            console.warn(`⚠️ Part "${part.partName}" does not exist in inventory. Aborting update.`);
+                            return;
+                        } else {
+                            console.log(`🔄 Updating quantity for: ${part.partName} (${part.timestampKey})`);
+                            return {
+                                ...currentPart,
+                                quantity: (parseInt(currentPart.quantity) || 0) - part.quantity,
+                            };
+                        }
+                    }).catch(error => {
+                        console.error(`❌ Error updating inventory for ${part.partName}:`, error);
+                    });
+                }
             } catch (error) {
-                console.error('Error saving invoice to Realtime Database:', error);
+                console.error('❌ Error saving invoice:', error);
             }
         }
 
@@ -738,65 +729,89 @@
             }
         }
 
-        async function addPartRow(timestampKey) {
-            if (!timestampKey) {
-                console.error("No part selected.");
-                return;
-            }
+        async function addPartRow(partData = null) {
+            let partName, price, actualPrice, category, component, quantity, timestampKey;
 
-            const selectedOption = partSelector.querySelector(`option[value="${timestampKey}"]`);
+            if (partData) {
+                partName = partData.partName;
+                price = parseFloat(partData.price) || 0;
+                actualPrice = parseFloat(partData.actualPrice) || 0;
+                category = partData.category;
+                component = partData.component;
+                quantity = parseInt(partData.quantity) || 1;
+                timestampKey = partData.timestampKey;
+            } else {
+                const selectedOption = partSelector.options[partSelector.selectedIndex];
 
-            if (!selectedOption) {
-                console.warn(`Part with timestamp '${timestampKey}' not found in dropdown.`);
-                return;
-            }
-
-            const category = selectedOption.dataset.category;
-            const component = selectedOption.dataset.component;
-            const partRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${timestampKey}`);
-
-            try {
-                const snapshot = await get(partRef);
-                if (!snapshot.exists()) {
-                    console.error(`Error: Part with timestamp ${timestampKey} not found in Firebase.`);
+                if (!selectedOption || !selectedOption.value) {
+                    console.warn("⚠️ No part selected.");
                     return;
                 }
 
-                const partData = snapshot.val();
-                const partName = partData.partName || "Unnamed Part";
-                const price = parseFloat(partData.price) || 0;
-                const actualPrice = parseFloat(partData.actualPrice) || 0;
-                const quantity = 1;
-
-                const newRow = document.createElement('tr');
-                newRow.dataset.timestampKey = timestampKey;
-                newRow.dataset.category = category;
-                newRow.dataset.component = component;
-
-                newRow.innerHTML = `
-            <td>${partName}</td>
-            <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
-            <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
-            <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
-            <td><input type="number" name="part-total" min="0" value="${(price * quantity).toFixed(2)}" readonly></td>
-        `;
-
-                partsTableBody.appendChild(newRow);
-
-                const priceInput = newRow.querySelector('input[name="part-price"]');
-                const quantityInput = newRow.querySelector('input[name="part-quantity"]');
-
-                priceInput.addEventListener('input', () => updatePartRowTotal(newRow));
-                quantityInput.addEventListener('input', () => updatePartRowTotal(newRow));
-
-                updateTotals();
-                updatePriceDifference();
-                updateRemainingBalance();
-
-            } catch (error) {
-                console.error("Error fetching part details:", error);
+                partName = selectedOption.textContent;
+                price = parseFloat(selectedOption.dataset.price) || 0;
+                actualPrice = parseFloat(selectedOption.dataset.actualPrice) || 0;
+                category = selectedOption.dataset.category;
+                component = selectedOption.dataset.component;
+                timestampKey = selectedOption.value;
+                quantity = 1;
             }
+
+            let existingRow = Array.from(partsTableBody.querySelectorAll('tr')).find(row => {
+                return row.dataset.timestampKey === timestampKey;
+            });
+
+            if (existingRow) {
+                let quantityInput = existingRow.querySelector('input[name="part-quantity"]');
+                let currentQuantity = parseInt(quantityInput.value) || 0;
+                quantityInput.value = currentQuantity + quantity;
+                updatePartRowTotal(existingRow);
+                return;
+            }
+
+            const newRow = document.createElement('tr');
+            newRow.dataset.partName = partName;
+            newRow.dataset.category = category;
+            newRow.dataset.component = component;
+            newRow.dataset.timestampKey = timestampKey;
+
+            newRow.innerHTML = `
+                <td>${partName}</td>
+                <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
+                <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
+                <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
+                <td><input type="number" name="part-total" min="0" value="${(price * quantity).toFixed(2)}" readonly></td>
+            `;
+
+            partsTableBody.appendChild(newRow);
+
+            const priceInput = newRow.querySelector('input[name="part-price"]');
+            const quantityInput = newRow.querySelector('input[name="part-quantity"]');
+
+            priceInput.addEventListener('input', () => updatePartRowTotal(newRow));
+            quantityInput.addEventListener('input', () => updatePartRowTotal(newRow));
+
+            updateTotals();
+            updatePriceDifference();
+            updateRemainingBalance();
         }
+
+        addPartRowButton.addEventListener('click', () => {
+            const selectedOption = partSelector.options[partSelector.selectedIndex];
+            if (selectedOption && selectedOption.value) {
+                const partData = {
+                    partName: selectedOption.textContent,
+                    price: selectedOption.dataset.price,
+                    actualPrice: selectedOption.dataset.actualPrice,
+                    category: selectedOption.dataset.category,
+                    component: selectedOption.dataset.component,
+                    quantity: 1
+                };
+                addPartRow(partData);
+            } else {
+                alert("Please select a part first.");
+            }
+        });
 
         function handleQuantityChange(event, partName, category, component) {
             const newQuantity = parseInt(event.target.value, 10);
@@ -813,15 +828,7 @@
             const lastRow = partsTableBody.querySelector('tr:last-child');
 
             if (lastRow) {
-                const partName = lastRow.dataset.part;
-                const category = lastRow.dataset.category;
-                const component = lastRow.dataset.component;
-                const quantity = parseInt(lastRow.querySelector('input[name="part-quantity"]').value, 10);
-
                 partsTableBody.removeChild(lastRow);
-
-                updatePartQuantityInDatabase(category, component, partName, -quantity);
-
                 updateTotals();
                 updatePriceDifference();
                 updateRemainingBalance();
@@ -1032,15 +1039,6 @@
             }
         });
 
-        addPartRowButton.addEventListener('click', () => {
-            const selectedPart = partSelector.value;
-            if (selectedPart) {
-                addPartRow(selectedPart);
-            } else {
-                alert("Please select a part first.");
-            }
-        });
-
         delPartRowButton.addEventListener('click', delPartRow);
 
         addLaborRowButton.addEventListener('click', addLaborRow);
@@ -1114,14 +1112,7 @@
 
                     if (invoiceData.parts && Array.isArray(invoiceData.parts)) {
                         invoiceData.parts.forEach(part => {
-                            addPartRow(part.part, part.category, part.component);
-                            const newRow = document.querySelector(`[data-part="${part.part}"]`);
-                            if (newRow) {
-                                newRow.querySelector('input[name="part-quantity"]').value = part.quantity || 1;
-                                newRow.querySelector('input[name="part-price"]').value = part.price || 0;
-                                newRow.querySelector('input[name="part-actual-price"]').value = part.actualPrice || 0;
-                                updatePartRowTotal(newRow);
-                            }
+                            addPartRow(part);
                         });
                     }
 
@@ -1200,7 +1191,6 @@
     </script>
 
     <script>
-        // Hiding Fields
         const hideParentCheckboxes = document.querySelectorAll('.hide-parent-checkbox');
 
         hideParentCheckboxes.forEach(checkbox => {
