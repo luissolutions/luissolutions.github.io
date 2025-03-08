@@ -28,17 +28,6 @@
             align-items: center;
         }
 
-        .modal-content {
-            display: contents;
-            background: white;
-            padding: 20px;
-            border-radius: 5px;
-            text-align: center;
-            position: relative;
-            max-width: 600px;
-            text-align: center;
-        }
-
         .modal-content img {
             max-width: 100%;
             border-radius: 5px;
@@ -70,10 +59,8 @@
         <h1>Inventory & Database</h1>
         <section id="login-section">
             <form id="login-form">
-                <label for="username">Email:</label>
-                <input type="email" id="username" required>
-                <label for="password">Password:</label>
-                <input type="password" id="password" required>
+                <label>Email:</label><input type="email" id="username" required>
+                <label>Password:</label><input type="password" id="password" required>
                 <button type="submit">Login</button>
             </form>
             <button id="logout" style="display: none;">Logout</button>
@@ -91,22 +78,19 @@
                     <label>Cost: </label><input type="number" id="actualPrice" step="0.01">
                     <label>Quantity: </label><input type="number" id="quantity">
                     <label>Description: </label><textarea id="description"></textarea>
-                    <label>Upload Image: <input type="file" id="imageInput" accept="image/*"></label>
+                    <label>Upload Image: </label><input type="file" id="imageInput" accept="image/*">
                     <button id="save-data-button">Save</button>
                 </form>
-                <br>
             </div>
 
-            <div">
-                <label>Filter by Category:
-                    <select id="category-filter">
-                        <option value="">All</option>
-                    </select>
-                </label>
-                <input type="text" id="search-input" placeholder="Search Items">
-                </div>
+            <label>Filter by Category:
+                <select id="category-filter">
+                    <option value="">All</option>
+                </select>
+            </label>
+            <input type="text" id="search-input" placeholder="Search Items">
 
-                <div id="entries-container" class="table"></div>
+            <div id="entries-container"></div>
         </section>
 
         <section id="modal" class="modal">
@@ -118,7 +102,7 @@
 </body>
 
 <script type="module">
-    import { storageRef, getStorage, ref, uploadBytesResumable, getDownloadURL, auth, database, storage, set, remove, update, get, onValue, onAuthStateChanged } from "./assets/js/firebase-init.js";
+    import { storageRef, getStorage, ref, uploadBytesResumable, getDownloadURL, auth, database, storage, set, remove, update, get, onValue, onAuthStateChanged, push } from "./assets/js/firebase-init.js";
 
     let DATABASE_BASE_PATH = 'public';
 
@@ -147,80 +131,193 @@
         });
     }
 
-    document.getElementById('category-filter').addEventListener('change', filterEntries);
-    document.getElementById('search-input').addEventListener('input', filterEntries);
-
     function displayEntries(entries) {
         const container = document.getElementById('entries-container');
-        container.innerHTML = `
-            <table id="task-log">
-                <thead>
-                    <tr>
-                        <th>Category</th>
-                        <th>Sub-Category</th>
-                        <th>Item Name</th> <!-- Show partName -->
-                        <th>Price</th>
-                        <th>Cost</th>
-                        <th>Quantity</th>
-                        <th>Description</th>
-                        <th>Image</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="inventory-body"></tbody>
-            </table>
-        `;
+        container.innerHTML = `<table id="inventory-table">
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th>Sub-Category</th>
+                    <th>Item Name</th>
+                    <th>Price</th>
+                    <th>Cost</th>
+                    <th>Quantity</th>
+                    <th>Description</th>
+                    <th>Image</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="inventory-body"></tbody>
+        </table>`;
 
         const tbody = document.getElementById('inventory-body');
         Object.entries(entries).forEach(([category, components]) => {
             Object.entries(components).forEach(([component, items]) => {
-                Object.entries(items).forEach(([timestampKey, data]) => {
+                Object.entries(items).forEach(([uniqueKey, data]) => {
                     const imageUrl = data.imageUrl || './assets/img/default.png';
-                    const partName = data.partName || "Unnamed Item";
 
                     const row = document.createElement('tr');
+                    row.dataset.uniqueKey = uniqueKey;
+                    row.dataset.category = category;
+                    row.dataset.component = component;
+
                     row.innerHTML = `
-                        <td><input type="text" value="${category}" data-key="category"></td>
-                        <td><input type="text" value="${component}" data-key="component"></td>
-                        <td><input type="text" value="${partName}" data-key="partName"></td> <!-- Editable -->
-                        <td><input type="number" value="${data.price}" data-key="price"></td>
-                        <td><input type="number" value="${data.actualPrice}" data-key="actualPrice"></td>
-                        <td><input type="number" value="${data.quantity}" data-key="quantity"></td>
-                        <td><textarea data-key="description">${data.description || ''}</textarea></td>
+                        <td>${category}</td>
+                        <td>${component}</td>
+                        <td contenteditable="true" data-key="partName">${data.partName || "Unnamed Item"}</td>
+                        <td contenteditable="true" data-key="price">${data.price || 0}</td>
+                        <td contenteditable="true" data-key="actualPrice">${data.actualPrice || 0}</td>
+                        <td contenteditable="true" data-key="quantity">${data.quantity || 0}</td>
+                        <td contenteditable="true" data-key="description">${data.description || ''}</td>
                         <td>
-                            <img src="${imageUrl}" width="50" height="50" class="view-image" data-imageurl="${imageUrl}">
-                            <input type="file" class="image-upload" data-category="${category}" data-component="${component}" data-timestampKey="${timestampKey}">
+                            <img src="${imageUrl}" width="50" height="50">
+                            <input type="file" class="image-upload" accept="image/*">
                         </td>
                         <td>
                             <button class="delete-button">Delete</button>
                         </td>
                     `;
 
-                    row.querySelectorAll('input, textarea').forEach(input => {
-                        input.addEventListener('blur', (event) => updateInventoryField(event, category, component, timestampKey));
-                    });
-
-                    row.querySelector('.image-upload').addEventListener('change', (event) => uploadImage(event, category, component, timestampKey));
-
-                    row.querySelector('.delete-button').addEventListener('click', () => deleteEntry(category, component, timestampKey));
-
-                    row.querySelector('.view-image').addEventListener('click', (event) => showImageModal(event.target.dataset.imageurl));
-
                     tbody.appendChild(row);
                 });
             });
         });
 
-        filterEntries();
+        attachEventListeners();
     }
+
+    function attachEventListeners() {
+        document.querySelectorAll('[contenteditable="true"]').forEach(cell => {
+            cell.addEventListener('blur', (event) => {
+                const row = event.target.closest("tr");
+                updateInventoryField(event, row);
+            });
+        });
+
+        document.querySelectorAll('.delete-button').forEach(button => {
+            button.addEventListener('click', (event) => {
+                const row = event.target.closest("tr");
+                deleteEntry(row);
+            });
+        });
+
+        document.querySelectorAll('.image-upload').forEach(input => {
+            input.addEventListener('change', uploadImage);
+        });
+    }
+
+    function updateInventoryField(event, row) {
+        const key = event.target.dataset.key;
+        const value = event.target.innerText.trim();
+        const category = row.dataset.category;
+        const component = row.dataset.component;
+        const uniqueKey = row.dataset.uniqueKey;
+
+        update(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`), { [key]: value });
+    }
+
+    function deleteEntry(row) {
+        const category = row.dataset.category;
+        const component = row.dataset.component;
+        const uniqueKey = row.dataset.uniqueKey;
+
+        remove(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`))
+            .then(() => row.remove());
+    }
+
+    function uploadImage(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const row = event.target.closest("tr");
+        const category = row.dataset.category;
+        const component = row.dataset.component;
+        const uniqueKey = row.dataset.uniqueKey;
+
+        if (!category || !component || !uniqueKey) {
+            alert("Error: Missing entry information for image upload.");
+            console.error("Upload Error: Missing category, component, or uniqueKey.");
+            return;
+        }
+
+        console.log(`Uploading image for ${category} -> ${component} -> ${uniqueKey}`);
+
+        const fileExtension = file.name.split('.').pop();
+        const storagePath = `${DATABASE_BASE_PATH}/images/${category}/${component}/${uniqueKey}.${fileExtension}`;
+        const fileReference = storageRef(storage, storagePath);
+
+        uploadBytesResumable(fileReference, file)
+            .then(snapshot => getDownloadURL(snapshot.ref))
+            .then(downloadURL => {
+                const entryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`);
+                return update(entryRef, { imageUrl: downloadURL });
+            })
+            .then(() => {
+                loadDatabaseEntries();
+            })
+            .catch(error => console.error("Error uploading image:", error));
+    }
+
+    document.getElementById('save-data-button').addEventListener('click', async (event) => {
+        event.preventDefault();
+
+        const category = document.getElementById('category').value.trim();
+        const component = document.getElementById('component').value.trim();
+        const partName = document.getElementById('partName').value.trim();
+        const price = parseFloat(document.getElementById('price').value) || 0;
+        const actualPrice = parseFloat(document.getElementById('actualPrice').value) || 0;
+        const quantity = parseInt(document.getElementById('quantity').value) || 0;
+        const description = document.getElementById('description').value.trim();
+        const imageFile = document.getElementById('imageInput').files[0];
+
+        if (!category || !component || !partName) {
+            alert("Category, Sub-Category, and Item Name are required.");
+            return;
+        }
+
+        const uniqueKey = Date.now().toString();
+        const inventoryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`);
+        let imageUrl = "./assets/img/default.png";
+
+        if (imageFile) {
+            const fileExtension = imageFile.name.split('.').pop();
+            const imageName = `${uniqueKey}.${fileExtension}`;
+            const storagePath = `${DATABASE_BASE_PATH}/images/${category}/${component}/${imageName}`;
+            const storageReference = storageRef(storage, storagePath);
+
+            try {
+                const snapshot = await uploadBytesResumable(storageReference, imageFile);
+                imageUrl = await getDownloadURL(snapshot.ref);
+            } catch (error) {
+                console.error("Error uploading image:", error);
+                alert("Failed to upload image. Saving item without an image.");
+            }
+        }
+
+        const newEntry = { partName, price, actualPrice, quantity, description, imageUrl };
+
+        set(inventoryRef, newEntry)
+            .then(() => {
+                document.getElementById('category').value = "";
+                document.getElementById('component').value = "";
+                document.getElementById('partName').value = "";
+                document.getElementById('price').value = "";
+                document.getElementById('actualPrice').value = "";
+                document.getElementById('quantity').value = "";
+                document.getElementById('description').value = "";
+                document.getElementById('imageInput').value = "";
+                loadDatabaseEntries();
+            })
+            .catch((error) => console.error("Error saving item:", error));
+    });
 
     function filterEntries() {
         const selectedCategory = document.getElementById('category-filter').value;
         const searchTerm = document.getElementById('search-input').value.toLowerCase();
 
         document.querySelectorAll('#inventory-body tr').forEach(row => {
-            const category = row.children[0].querySelector('input').value;
-            const partName = row.children[2].querySelector('input').value.toLowerCase();
+            const category = row.children[0].innerText;
+            const partName = row.children[2].innerText.toLowerCase();
 
             const matchesCategory = selectedCategory === '' || category === selectedCategory;
             const matchesSearch = searchTerm === '' || partName.includes(searchTerm);
@@ -229,114 +326,9 @@
         });
     }
 
-    function updateInventoryField(event, oldCategory, oldComponent, oldPartName) {
-        const input = event.target;
-        const key = input.dataset.key;
-        const newValue = input.value.trim();
+    document.getElementById('category-filter').addEventListener('change', filterEntries);
+    document.getElementById('search-input').addEventListener('input', filterEntries);
 
-        if (!newValue) return;
-
-        const newCategory = input.closest('tr').querySelector('[data-key="category"]').value.trim();
-        const newComponent = input.closest('tr').querySelector('[data-key="component"]').value.trim();
-        const newPartName = input.closest('tr').querySelector('[data-key="partName"]').value.trim();
-
-        const oldRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${oldCategory}/${oldComponent}/${oldPartName}`);
-
-        get(oldRef).then((snapshot) => {
-            if (!snapshot.exists()) return;
-
-            const existingData = snapshot.val();
-
-            existingData[key] = newValue;
-
-            const newRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${newCategory}/${newComponent}/${newPartName}`);
-            set(newRef, existingData).then(() => {
-                if (newCategory !== oldCategory || newComponent !== oldComponent || newPartName !== oldPartName) {
-                    remove(oldRef);
-                }
-            }).catch((error) => {
-                console.error("Error updating entry:", error);
-            });
-        }).catch((error) => {
-            console.error("Error retrieving existing data:", error);
-        });
-    }
-
-    function uploadImage(event, category, component, timestampKey) {
-        const file = event.target.files[0];
-        if (!file) return;
-
-        const imagePath = `${DATABASE_BASE_PATH}/images/${category}/${component}/${file.name}`;
-        const fileRef = storageRef(storage, imagePath);
-
-        const uploadTask = uploadBytesResumable(fileRef, file);
-
-        uploadTask.on(
-            "state_changed",
-            null,
-            (error) => console.error("Upload failed:", error),
-            () => {
-                getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
-                    console.log("File uploaded:", downloadURL);
-                    const entryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${timestampKey}`);
-                    update(entryRef, { imageUrl: downloadURL });
-                });
-            }
-        );
-    }
-
-    function deleteEntry(category, component, partName) {
-        if (confirm(`Are you sure you want to delete ${partName}?`)) {
-            remove(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${partName}`))
-                .then(() => loadDatabaseEntries());
-        }
-    }
-
-    function showImageModal(imageUrl) {
-        const modal = document.getElementById('modal');
-        document.getElementById('part-image').src = imageUrl;
-        modal.style.display = 'block';
-    }
-
-    document.getElementById('modal').addEventListener('click', () => {
-        document.getElementById('modal').style.display = 'none';
-    });
-
-    document.getElementById('save-data-button').addEventListener('click', saveData);
-
-    function saveData() {
-        const category = document.getElementById('category').value.trim();
-        const component = document.getElementById('component').value.trim();
-        const partName = document.getElementById('partName').value.trim();
-        const price = parseFloat(document.getElementById('price').value) || 0;
-        const actualPrice = parseFloat(document.getElementById('actualPrice').value) || 0;
-        const quantity = parseInt(document.getElementById('quantity').value) || 0;
-        const description = document.getElementById('description').value.trim();
-        const timestampKey = Date.now().toString();
-
-        if (!category || !component || !partName) {
-            alert("Category, Sub-Category, and Item fields are required.");
-            return;
-        }
-
-        const newEntry = {
-            partName,
-            price,
-            actualPrice,
-            quantity,
-            description,
-            imageUrl: "./assets/img/default.png"
-        };
-
-        const entryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${timestampKey}`);
-        set(entryRef, newEntry).then(() => {
-            alert("Entry saved successfully!");
-            document.querySelector('form').reset();
-            loadDatabaseEntries();
-        }).catch(error => {
-            console.error("Error saving entry:", error);
-        });
-    }
 </script>
 
 </html>
