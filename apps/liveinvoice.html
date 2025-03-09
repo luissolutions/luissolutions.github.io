@@ -477,11 +477,8 @@
         let DATABASE_BASE_PATH = 'public';
 
         auth.onAuthStateChanged(user => {
-            if (user) {
-                DATABASE_BASE_PATH = `${user.uid}`;
-            } else {
-                DATABASE_BASE_PATH = 'public';
-            }
+            DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
+            loadDatabase();
             populateInvoiceDropdown();
         });
 
@@ -574,6 +571,8 @@
         });
 
         function loadParts(category, subcategory) {
+            partSelector.innerHTML = '<option value="">Select Part</option>';
+
             if (!category || !subcategory) {
                 partSelector.innerHTML = '<option value="">No Parts Available</option>';
                 return;
@@ -593,10 +592,10 @@
                 partSelector.innerHTML = '<option value="">Select Part</option>';
 
                 Object.entries(parts).forEach(([timestampKey, partData]) => {
-                    if (partData.partName) {
+                    if (partData.part) {
                         const option = document.createElement('option');
                         option.value = timestampKey;
-                        option.textContent = partData.partName;
+                        option.textContent = partData.part;
                         option.dataset.price = partData.price || 0;
                         option.dataset.actualPrice = partData.actualPrice || 0;
                         option.dataset.category = category;
@@ -651,8 +650,7 @@
 
             const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => {
                 return {
-                    timestampKey: row.dataset.timestampKey || '',
-                    partName: row.cells[0].textContent || '',
+                    part: row.dataset.partName || '',
                     quantity: parseInt(row.querySelector('input[name="part-quantity"]').value) || 0,
                     price: parseFloat(row.querySelector('input[name="part-price"]').value) || 0,
                     actualPrice: parseFloat(row.querySelector('input[name="part-actual-price"]').value) || 0,
@@ -703,16 +701,15 @@
         }
 
         async function addPartRow(partData = null) {
-            let partName, price, actualPrice, category, component, quantity, timestampKey;
+            let part, price, actualPrice, category, component, quantity;
 
             if (partData) {
-                partName = partData.partName;
+                part = partData.part; // 🔹 Use "part" instead of "partName"
                 price = parseFloat(partData.price) || 0;
                 actualPrice = parseFloat(partData.actualPrice) || 0;
                 category = partData.category;
                 component = partData.component;
                 quantity = parseInt(partData.quantity) || 1;
-                timestampKey = partData.timestampKey;
             } else {
                 const selectedOption = partSelector.options[partSelector.selectedIndex];
 
@@ -721,17 +718,16 @@
                     return;
                 }
 
-                partName = selectedOption.textContent;
+                part = selectedOption.textContent;
                 price = parseFloat(selectedOption.dataset.price) || 0;
                 actualPrice = parseFloat(selectedOption.dataset.actualPrice) || 0;
                 category = selectedOption.dataset.category;
                 component = selectedOption.dataset.component;
-                timestampKey = selectedOption.value;
                 quantity = 1;
             }
 
             let existingRow = Array.from(partsTableBody.querySelectorAll('tr')).find(row => {
-                return row.dataset.partName === partName;
+                return row.dataset.part === part;
             });
 
             if (existingRow) {
@@ -743,18 +739,17 @@
             }
 
             const newRow = document.createElement('tr');
-            newRow.dataset.partName = partName;
+            newRow.dataset.part = part;
             newRow.dataset.category = category;
             newRow.dataset.component = component;
-            newRow.dataset.timestampKey = timestampKey;
 
             newRow.innerHTML = `
-        <td>${partName}</td>
-        <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
-        <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
-        <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
-        <td><input type="number" name="part-total" min="0" value="${(price * quantity).toFixed(2)}" readonly></td>
-    `;
+                <td>${part}</td>
+                <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
+                <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
+                <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
+                <td><input type="number" name="part-total" min="0" value="${(price * quantity).toFixed(2)}" readonly></td>
+            `;
 
             partsTableBody.appendChild(newRow);
 
@@ -773,7 +768,7 @@
             const selectedOption = partSelector.options[partSelector.selectedIndex];
             if (selectedOption && selectedOption.value) {
                 const partData = {
-                    partName: selectedOption.textContent,
+                    part: selectedOption.textContent,
                     price: selectedOption.dataset.price,
                     actualPrice: selectedOption.dataset.actualPrice,
                     category: selectedOption.dataset.category,
