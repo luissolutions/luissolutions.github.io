@@ -28,11 +28,34 @@
 
   <main>
     <main>
+
       <input style="display: none;" type="file" id="load-data" accept=".json">
+
       <div>
         <label for="yearSelect">Select Year: </label>
         <select id="yearSelect"></select>
       </div>
+
+      <section id="all-transactions">
+        <div>
+          <input type="text" id="global-search" placeholder="Search Transactions:" value="Search Transactions:"
+            oninput="filterGlobalEntries()">
+        </div>
+        <table id="transactions-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Transactions will be dynamically inserted here -->
+          </tbody>
+        </table>
+      </section>
+
       <section id="yearly-budget-calculator">
         <h2>Totals For Months</h2>
         <div class="table">
@@ -53,6 +76,7 @@
           </table>
         </div>
       </section>
+
       <section>
         <h2>Totals For Year:</h2>
         <table id="yearly-totals-table">
@@ -90,8 +114,8 @@
           </tbody>
         </table>
       </section>
+
       <section>
-        <h2>Daily Financial Tracker:</h2>
         <div id="detailsModal">
           <div class="modal">
             <span id="closeModal">&times;</span>
@@ -100,11 +124,15 @@
           </div>
         </div>
       </section>
+
       <section id="daily-tracker">
+        <h2>Daily Financial Tracker:</h2>
         <div id="year-grid" class="year-grid"></div>
       </section>
+
       <button id="export-details">Export Data</button>
       <button style="display: none;" class="clear-button" id="clear-details">Delete Data</button>
+
     </main>
 
     <script type="module">
@@ -129,6 +157,7 @@
           populateMonths();
           calculateYearlyTotals();
           generateYearGrid();
+          displayAllTransactions();
           handleYearChange();
         });
       }
@@ -160,6 +189,7 @@
           populateMonths();
           calculateYearlyTotals();
           generateYearGrid();
+          displayAllTransactions();
         });
       }
 
@@ -295,31 +325,46 @@
         const startOfYear = new Date(currentYear, 0, 1);
         const endOfYear = new Date(currentYear, 11, 31);
 
-        for (let day = startOfYear; day <= endOfYear; day.setDate(day.getDate() + 1)) {
-          const dayFormatted = day.toISOString().split('T')[0];
-          const monthName = months[day.getMonth()];
-          const dayOfMonth = day.getDate();
-          const dateKey = `${monthName}-${dayOfMonth}`;
-          const details = yearlyDetails[monthName]?.details.filter(detail => detail.date.includes(dayFormatted)) || [];
+        fetchSavedData().then(savedData => {
+          for (let day = startOfYear; day <= endOfYear; day.setDate(day.getDate() + 1)) {
+            const dayFormatted = day.toISOString().split('T')[0];
+            const monthName = months[day.getMonth()];
+            const dayOfMonth = day.getDate();
+            const dateKey = `${monthName}-${dayOfMonth}`;
 
-          if (day.getDate() === 1) {
-            const monthLabel = document.createElement('div');
-            monthLabel.textContent = monthName;
-            monthLabel.style.gridColumn = "1 / -1";
-            yearGrid.appendChild(monthLabel);
+            const details = (savedData[dateKey]?.details || []).filter(entry =>
+              new Date(entry.date).getFullYear() === currentYear
+            );
+
+            let income = calculateTotal(details, 'Income');
+            let expenses = calculateTotal(details, 'Expenses');
+
+            if (day.getDate() === 1) {
+              const monthLabel = document.createElement('div');
+              monthLabel.textContent = monthName;
+              monthLabel.style.gridColumn = "1 / -1";
+              yearGrid.appendChild(monthLabel);
+            }
+
+            const dayBlock = document.createElement('div');
+            dayBlock.className = 'day-block';
+            dayBlock.textContent = dayOfMonth;
+            dayBlock.setAttribute('data-date', dateKey);
+
+            if (day.toDateString() === today.toDateString()) dayBlock.classList.add('today');
+
+            if (details.length > 0) {
+              if (expenses > income) {
+                dayBlock.classList.add('expenses-higher');
+              } else {
+                dayBlock.classList.add('has-data');
+              }
+            }
+
+            dayBlock.addEventListener('click', () => displayDayDetails(dateKey));
+            yearGrid.appendChild(dayBlock);
           }
-
-          const dayBlock = document.createElement('div');
-          dayBlock.className = 'day-block';
-          dayBlock.textContent = dayOfMonth;
-          dayBlock.setAttribute('data-date', dateKey);
-          if (day.toDateString() === today.toDateString()) dayBlock.classList.add('today');
-          dayBlock.classList.add('clickable');
-          if (details.length > 0) dayBlock.classList.add('has-data');
-
-          dayBlock.addEventListener('click', () => displayDayDetails(dateKey));
-          yearGrid.appendChild(dayBlock);
-        }
+        });
       }
 
       function displayDayDetails(dateKey) {
@@ -526,6 +571,101 @@
       function closeModal() {
         document.getElementById('detailsModal').style.display = "none";
       }
+
+      function displayAllTransactions() {
+        fetchSavedData().then(savedData => {
+          const transactionsTable = document.querySelector('#transactions-table tbody');
+          transactionsTable.innerHTML = '';
+
+          const searchBox = document.getElementById('global-search');
+          const searchValue = searchBox ? searchBox.value.toLowerCase() : "";
+
+          let filteredTransactions = [];
+
+          Object.entries(savedData).forEach(([dateKey, data]) => {
+            const details = (data.details || []).filter(detail =>
+              new Date(detail.date).getFullYear() === currentYear
+            );
+
+            details.forEach((detail, index) => {
+              const [monthName, day] = dateKey.split('-');
+              const monthIndex = months.indexOf(monthName);
+              const dateObject = new Date(currentYear, monthIndex, parseInt(day, 10));
+
+              const name = detail.name ? detail.name.toLowerCase() : "";
+              const type = detail.type ? detail.type.toLowerCase() : "";
+              const amount = detail.amount !== undefined ? detail.amount.toString().toLowerCase() : "";
+
+              if (
+                dateKey.toLowerCase().includes(searchValue) ||
+                name.includes(searchValue) ||
+                type.includes(searchValue) ||
+                amount.includes(searchValue)
+              ) {
+                filteredTransactions.push({
+                  dateKey,
+                  dateObject,
+                  index,
+                  name: detail.name || "Unknown",
+                  type: detail.type || "Unknown",
+                  amount: detail.amount !== undefined ? detail.amount.toFixed(2) : "0.00",
+                });
+              }
+            });
+          });
+
+          filteredTransactions.sort((a, b) => a.dateObject - b.dateObject);
+
+          filteredTransactions.forEach(transaction => {
+            const row = document.createElement('tr');
+            row.classList.add("transaction-row");
+
+            row.innerHTML = `
+              <td>${transaction.dateKey}</td>
+              <td contenteditable="true" data-key="name">${transaction.name}</td>
+              <td>${transaction.type}</td>
+              <td contenteditable="true" data-key="amount">${transaction.amount}</td>
+            `;
+
+            row.querySelectorAll('[contenteditable="true"]').forEach(cell => {
+              cell.addEventListener('blur', (event) => {
+                updateTransactionEntry(transaction.dateKey, transaction.index, event.target.dataset.key, event.target.innerText);
+              });
+            });
+
+            transactionsTable.appendChild(row);
+          });
+        });
+      }
+
+      window.filterGlobalEntries = function filterGlobalEntries() {
+        displayAllTransactions();
+      };
+
+      async function updateTransactionEntry(dateKey, entryIndex, field, newValue) {
+        let savedData = await fetchSavedData();
+
+        if (savedData[dateKey] && savedData[dateKey].details.length > entryIndex) {
+          const filteredEntries = savedData[dateKey].details.filter(detail =>
+            new Date(detail.date).getFullYear() === currentYear
+          );
+
+          if (filteredEntries.length > entryIndex) {
+            const globalIndex = savedData[dateKey].details.indexOf(filteredEntries[entryIndex]);
+            if (globalIndex !== -1) {
+              if (field === "amount") {
+                newValue = parseFloat(newValue);
+                if (isNaN(newValue)) return;
+              }
+
+              savedData[dateKey].details[globalIndex][field] = newValue;
+
+              await saveData(savedData);
+            }
+          }
+        }
+      }
+
     </script>
 </body>
 
