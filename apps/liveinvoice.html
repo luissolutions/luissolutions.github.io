@@ -645,33 +645,55 @@
                 projectInput.dataset.id = invoiceId;
             }
 
-            const invoiceType = document.getElementById('invoice-type').value;
-            const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
-
-            const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => {
-                return {
-                    part: row.dataset.partName || '',
-                    quantity: parseInt(row.querySelector('input[name="part-quantity"]').value) || 0,
-                    price: parseFloat(row.querySelector('input[name="part-price"]').value) || 0,
-                    actualPrice: parseFloat(row.querySelector('input[name="part-actual-price"]').value) || 0,
-                    total: parseFloat(row.querySelector('input[name="part-total"]').value) || 0,
-                    category: row.dataset.category || '',
-                    component: row.dataset.component || '',
-                };
-            });
-
-            console.log("Saving invoice data:", partsData);
-
             const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${invoiceId}`);
-            await set(invoiceRef, {
-                id: invoiceId,
-                invoiceType,
-                invoiceTitle: document.getElementById('title-input').value,
-                parts: partsData,
-                amountPaid: amountPaid,
-            });
 
-            console.log('✅ Invoice saved successfully:', invoiceId);
+            const updates = {
+                invoiceTitle: document.getElementById('title-input').value,
+                invoiceType: document.getElementById('invoice-type').value,
+                customerName: document.getElementById('customer-name').value,
+                customerPhone: document.getElementById('customer-phone').value,
+                customerEmail: document.getElementById('customer-email').value,
+                customerAddress: document.getElementById('customer-address').value,
+                invoiceDate: document.getElementById('invoice-date').value,
+                project: document.getElementById('invoice-number').value,
+                notes: document.getElementById('notes').value,
+                amountPaid: parseFloat(document.getElementById('amount-paid').value) || 0,
+                taxPercent: parseFloat(document.getElementById('tax-percent').value) || 0,
+                subtotal: parseFloat(document.getElementById('subtotal').value) || 0,
+                taxAmount: parseFloat(document.getElementById('tax').value) || 0,
+                total: parseFloat(document.getElementById('total').value) || 0,
+                startTime: document.getElementById('invoice-date').value || "",
+            };
+
+            const partsData = Array.from(document.querySelectorAll('.parts-table tbody tr')).map(row => ({
+                part: row.cells[0].textContent.trim(),
+                quantity: parseInt(row.cells[1].querySelector('input').value) || 0,
+                price: parseFloat(row.cells[2].querySelector('input').value) || 0,
+                actualPrice: parseFloat(row.cells[3].querySelector('input').value) || 0,
+                total: parseFloat(row.cells[4].querySelector('input').value) || 0
+            }));
+
+            if (partsData.length > 0) {
+                updates.parts = partsData;
+            }
+
+            const laborData = Array.from(document.querySelectorAll('.labor-table tbody tr')).map(row => ({
+                description: row.cells[0].querySelector('input').value,
+                hours: parseFloat(row.cells[1].querySelector('input').value) || 0,
+                rate: parseFloat(row.cells[2].querySelector('input').value) || 0,
+                total: parseFloat(row.cells[3].querySelector('input').value) || 0
+            }));
+
+            if (laborData.length > 0) {
+                updates.labor = laborData;
+            }
+
+            try {
+                await update(invoiceRef, updates);
+                console.log('✅ Invoice updated successfully:', invoiceId);
+            } catch (error) {
+                console.error('❌ Error updating invoice:', error);
+            }
         }
 
         function createOptionElement(value, text) {
@@ -784,14 +806,43 @@
         function delPartRow() {
             const lastRow = partsTableBody.querySelector('tr:last-child');
 
-            if (lastRow) {
-                partsTableBody.removeChild(lastRow);
-                updateTotals();
-                updatePriceDifference();
-                updateRemainingBalance();
-            } else {
-                console.error('No parts available to undo.');
+            if (!lastRow) {
+                console.warn('⚠️ No parts available to undo.');
+                return;
             }
+
+            const partName = lastRow.cells[0].textContent.trim();
+            const category = lastRow.dataset.category;
+            const component = lastRow.dataset.component;
+
+            if (!category || !component || !partName) {
+                console.error('❌ Missing category, component, or part name.');
+                return;
+            }
+
+            lastRow.remove();
+            updateTotals();
+            updatePriceDifference();
+            updateRemainingBalance();
+
+            const invoiceId = document.getElementById('invoice-number').dataset.id;
+            if (!invoiceId) {
+                console.warn('⚠️ No invoice ID found.');
+                return;
+            }
+
+            const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${invoiceId}/parts`);
+
+            get(invoiceRef).then((snapshot) => {
+                if (snapshot.exists()) {
+                    let parts = snapshot.val();
+                    const updatedParts = parts.filter(part => part.part !== partName);
+
+                    update(ref(database, `${DATABASE_BASE_PATH}/tasks/${invoiceId}`), { parts: updatedParts })
+                        .then(() => console.log(`✅ Removed part: ${partName} from Firebase.`))
+                        .catch(error => console.error('❌ Error updating parts in Firebase:', error));
+                }
+            }).catch(error => console.error('❌ Error fetching parts:', error));
         }
 
         function addLaborRow() {
