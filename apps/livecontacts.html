@@ -93,7 +93,7 @@
         <div>
             <input type="text" id="searchContacts" placeholder="Search Contacts">
         </div>
-        <section style="display: none;" id="login-section">
+        <section id="login-section">
             <form id="login-form">
                 <label for="username">Email:</label>
                 <input type="email" id="username" required>
@@ -134,7 +134,7 @@
     </main>
 
     <script type="module">
-        import { database, ref, get, set, push, remove, update } from './assets/js/firebase-init.js';
+        import { auth, onAuthStateChanged, database, ref, get, set, push, remove, update } from './assets/js/firebase-init.js';
 
         const contactsList = document.getElementById('contacts-list');
         const contactDetails = document.getElementById('contact-details');
@@ -149,9 +149,15 @@
         const newContactEmailInput = document.getElementById('new-contact-email');
         const newContactAddressInput = document.getElementById('new-contact-address');
         let selectedContactId = null;
+        let DATABASE_BASE_PATH = 'public';
+
+        onAuthStateChanged(auth, (user) => {
+            DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
+            fetchContacts();
+        });
 
         async function fetchContacts() {
-            const tasksRef = ref(database, 'share/tasks');
+            const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
             const snapshot = await get(tasksRef);
             if (snapshot.exists()) {
                 renderContacts(snapshot.val());
@@ -201,10 +207,10 @@
             customerTasks.forEach(({ task }) => {
                 const projectDiv = document.createElement('div');
                 projectDiv.innerHTML = `
-            <strong>Project:</strong> ${task.project}<br>
-            <strong>Start Time:</strong> ${new Date(task.startTime).toLocaleString()}<br>
-            <strong>End Time:</strong> ${task.endTime ? new Date(task.endTime).toLocaleString() : 'N/A'}
-        `;
+                    <strong>Project:</strong> ${task.project}<br>
+                    <strong>Start Time:</strong> ${new Date(task.startTime).toLocaleString()}<br>
+                    <strong>End Time:</strong> ${task.endTime ? new Date(task.endTime).toLocaleString() : 'N/A'}
+                `;
                 projectsList.appendChild(projectDiv);
             });
         }
@@ -217,13 +223,13 @@
                     customerAddress: contactAddressInput.value,
                 };
 
-                const tasksRef = ref(database, 'share/tasks');
+                const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
                 const snapshot = await get(tasksRef);
                 if (snapshot.exists()) {
                     const tasks = snapshot.val();
                     for (const taskId in tasks) {
                         if (tasks[taskId].customerName === contactNameElem.textContent) {
-                            const contactRef = ref(database, `share/tasks/${taskId}`);
+                            const contactRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${taskId}`);
                             update(contactRef, updatedFields)
                                 .catch(error => console.error('Error updating contact:', error));
                         }
@@ -236,7 +242,7 @@
 
         document.getElementById('delete-contact-button').addEventListener('click', () => {
             if (selectedContactId) {
-                const contactRef = ref(database, `share/tasks/${selectedContactId}`);
+                const contactRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${selectedContactId}`);
                 remove(contactRef)
                     .then(() => {
                         alert('Contact deleted successfully!');
@@ -256,7 +262,7 @@
             const address = newContactAddressInput.value;
 
             if (contactName) {
-                const tasksRef = ref(database, 'share/tasks');
+                const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
                 const newContactRef = push(tasksRef);
                 set(newContactRef, {
                     customerName: contactName,
@@ -301,8 +307,6 @@
                 li.style.display = contactName.includes(searchValue) ? 'block' : 'none';
             });
         });
-
-        document.addEventListener('DOMContentLoaded', fetchContacts);
     </script>
 </body>
 

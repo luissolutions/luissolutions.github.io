@@ -6,12 +6,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" href="./assets/img/financial_logo.png">
   <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
+  <script type="module" src="./assets/js/login.js" defer></script>
 </head>
 
 <body>
 
   <header>
     <h1>Online Financial Tracker</h1>
+    <section id="login-section">
+      <form id="login-form">
+        <label for="username">Email:</label>
+        <input type="email" id="username" required>
+        <br>
+        <label for="password">Password:</label>
+        <input type="password" id="password" required>
+        <br>
+        <button type="submit">Login</button>
+      </form>
+      <button id="logout" style="display: none;">Logout</button>
+    </section>
   </header>
 
   <main>
@@ -71,13 +84,17 @@
   </main>
 
   <script type="module">
-    import { database, ref, onValue, set, get, update } from './assets/js/firebase-init.js';
+    import { auth, onAuthStateChanged, database, ref, onValue, set, get, update } from './assets/js/firebase-init.js';
 
     const months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
     let currentYear = new Date().getFullYear();
     let yearlyDetails = initializeYearlyDetails();
+    let DATABASE_BASE_PATH = 'public';
 
-    document.addEventListener('DOMContentLoaded', initApp);
+    onAuthStateChanged(auth, (user) => {
+      DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
+      initApp();
+    });
 
     function initApp() {
       setupEventListeners();
@@ -172,13 +189,13 @@
 
         const row = monthsContainer.insertRow();
         row.innerHTML = `
-      <td>${month}</td>
-      <td>${income.toFixed(2)}</td>
-      <td>${expenses.toFixed(2)}</td>
-      <td>${balance.toFixed(2)}</td>
-      <td></td>
-      <td></td>
-    `;
+          <td>${month}</td>
+          <td>${income.toFixed(2)}</td>
+          <td>${expenses.toFixed(2)}</td>
+          <td>${balance.toFixed(2)}</td>
+          <td></td>
+          <td></td>
+        `;
 
         row.cells[4].appendChild(createButton('add-income', 'Add Income', month, () => addEntry('Income', month)));
         row.cells[5].appendChild(createButton('add-expense', 'Add Expense', month, () => addEntry('Expenses', month)));
@@ -190,6 +207,9 @@
     }
 
     function addEntry(type, selectedMonth) {
+      const name = prompt(`Enter a name for this ${type}:`);
+      if (!name) return;
+
       const amount = parseFloat(prompt(`Enter ${type} amount:`));
       if (isNaN(amount)) return;
 
@@ -198,7 +218,7 @@
       if (isNaN(day) || day < 1 || day > 31) day = new Date().getDate();
 
       const dateKey = `${selectedMonth}-${day}`;
-      const newEntry = { type, amount, date: new Date(currentYear, months.indexOf(selectedMonth), day).toISOString() };
+      const newEntry = { name, type, amount, date: new Date(currentYear, months.indexOf(selectedMonth), day).toISOString() };
 
       if (!yearlyDetails[selectedMonth]) yearlyDetails[selectedMonth] = { details: [] };
       yearlyDetails[selectedMonth].details.push(newEntry);
@@ -290,7 +310,7 @@
             entryDiv.classList.add('detail-entry');
 
             const entryText = document.createElement('p');
-            entryText.textContent = `${detail.type}: $${detail.amount}`;
+            entryText.textContent = `${detail.name} - ${detail.type}: $${detail.amount}`;
             entryDiv.appendChild(entryText);
 
             const deleteButton = document.createElement('button');
@@ -315,11 +335,14 @@
     }
 
     function addEntryFromModal(dateKey, type) {
+      const name = prompt(`Enter a name for this ${type}:`);
+      if (!name) return;
+
       const amount = parseFloat(prompt(`Enter ${type} amount:`));
       if (isNaN(amount)) return;
 
       const [month, day] = dateKey.split('-');
-      const newEntry = { type, amount, date: new Date(currentYear, months.indexOf(month), day).toISOString() };
+      const newEntry = { name, type, amount, date: new Date(currentYear, months.indexOf(month), day).toISOString() };
 
       fetchSavedData().then(savedData => {
         if (!savedData[dateKey]) savedData[dateKey] = { details: [] };
@@ -385,19 +408,19 @@
 
     function clearDetails() {
       if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
-        set(ref(database, 'share/budget'), {});
+        set(ref(database, `${DATABASE_BASE_PATH}/budget`), {});
         alert("All data has been cleared.");
         initApp();
       }
     }
 
     async function fetchSavedData() {
-      const snapshot = await get(ref(database, 'share/budget'));
+      const snapshot = await get(ref(database, `${DATABASE_BASE_PATH}/budget`));
       return snapshot.exists() ? snapshot.val() : {};
     }
 
     function saveData(data) {
-      set(ref(database, 'share/budget'), data);
+      set(ref(database, `${DATABASE_BASE_PATH}/budget`), data);
     }
 
     function closeModal() {
