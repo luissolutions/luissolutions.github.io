@@ -52,6 +52,10 @@
             <input type="radio" id="hashDecoder" name="conversionType" value="hashDecoder">
             <label for="hashDecoder">Hash Decoder</label>
         </div>
+        <div>
+            <input type="radio" id="bank" name="conversionType" value="bank">
+            <label for="bank">Bank Transactions</label>
+        </div>
         <br>
         <input type="checkbox" id="removeForbiddenChars" name="">
         <label for="removeForbiddenChars">Remove Forbidden Characters</label>
@@ -102,6 +106,9 @@
                 case 'hashDecoder':
                     convertedText = convertHashDecoder(text);
                     break;
+                case 'bank':
+                    convertedText = convertToBankJSON(text);
+                    break;
                 default:
                     convertedText = "Unsupported conversion type selected.";
                     break;
@@ -116,7 +123,6 @@
             autoResizeTextarea('standardText');
             autoResizeTextarea('shorthandText');
         }
-
 
         function setupEventListeners() {
             document.getElementById('financial').addEventListener('change', handleStandardInput);
@@ -359,6 +365,40 @@
             });
 
             return JSON.stringify(jsonOutput, null, 2);
+        }
+
+        function convertToBankJSON(text) {
+            const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+            const jsonData = {};
+            const monthNames = ["Jan", "Feb", "March", "April", "May", "June", "July", "Aug", "Sept", "Oct", "Nov", "Dec"];
+
+            lines.forEach(line => {
+                const match = line.match(/^(\d{2})\/(\d{2})\s+(.+?)\s+(-?\$[\d,.]+)\s+(\$[\d,.]+)?$/);
+                if (!match) {
+                    console.warn(`⚠️ Skipping invalid line: ${line}`);
+                    return;
+                }
+
+                const [_, month, day, description, amountStr] = match;
+                const formattedDate = `2024-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+                const amount = parseFloat(amountStr.replace(/[$,]/g, ''));
+                const transactionType = amount < 0 ? "Expenses" : "Income";
+                const monthName = monthNames[parseInt(month, 10) - 1];
+                const key = `${monthName}-${day}`;
+
+                if (!jsonData[key]) {
+                    jsonData[key] = { details: [] };
+                }
+
+                jsonData[key].details.push({
+                    amount: Math.abs(amount),
+                    date: formattedDate,
+                    type: transactionType,
+                    name: description
+                });
+            });
+
+            return JSON.stringify(jsonData, null, 2);
         }
 
         function handleShorthandInput() {

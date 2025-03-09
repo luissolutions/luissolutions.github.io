@@ -353,18 +353,41 @@
       });
     }
 
-    function deleteEntry(dateKey, entryIndex) {
+    async function deleteEntry(dateKey, entryIndex) {
       if (!confirm("Are you sure you want to delete this entry?")) return;
 
-      fetchSavedData().then(savedData => {
-        const details = savedData[dateKey];
-        if (details && details.details.length > entryIndex) {
-          details.details.splice(entryIndex, 1);
-          saveData(savedData);
+      try {
+        let savedData = await fetchSavedData();
+
+        if (savedData[dateKey] && savedData[dateKey].details.length > entryIndex) {
+          const filteredEntries = savedData[dateKey].details.filter(detail =>
+            new Date(detail.date).getFullYear() === currentYear
+          );
+
+          if (filteredEntries.length > entryIndex) {
+            const globalIndex = savedData[dateKey].details.indexOf(filteredEntries[entryIndex]);
+            if (globalIndex !== -1) {
+              savedData[dateKey].details.splice(globalIndex, 1);
+            }
+
+            if (savedData[dateKey].details.length === 0) {
+              delete savedData[dateKey];
+            }
+
+            await saveData(savedData);
+            console.log(`✅ Successfully deleted entry from ${dateKey} (${currentYear})`);
+
+            initApp();
+            displayDayDetails(dateKey);
+          } else {
+            console.warn("⚠️ No entry found for deletion in the current year.");
+          }
+        } else {
+          console.warn("⚠️ No entry found for deletion or index out of bounds.");
         }
-        initApp();
-        displayDayDetails(dateKey);
-      });
+      } catch (error) {
+        console.error("❌ Error fetching or updating saved data:", error);
+      }
     }
 
     function exportDetailsToJSON() {
@@ -415,8 +438,13 @@
     }
 
     async function fetchSavedData() {
-      const snapshot = await get(ref(database, `${DATABASE_BASE_PATH}/budget`));
-      return snapshot.exists() ? snapshot.val() : {};
+      try {
+        const snapshot = await get(ref(database, `${DATABASE_BASE_PATH}/budget`));
+        return snapshot.exists() ? snapshot.val() : {};
+      } catch (error) {
+        console.error("❌ Error fetching saved data:", error);
+        return {};
+      }
     }
 
     function saveData(data) {
