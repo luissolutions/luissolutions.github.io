@@ -472,7 +472,7 @@
     </footer>
 
     <script type="module">
-        import { auth, database, ref, onValue, set, remove, get, runTransaction } from './assets/js/firebase-init.js';
+        import { auth, database, ref, onValue, set, remove, get, runTransaction, update } from './assets/js/firebase-init.js';
 
         let DATABASE_BASE_PATH = 'public';
 
@@ -505,7 +505,6 @@
         const invoiceDropdown = document.getElementById('invoice-dropdown');
         const deleteButton = document.getElementById('deleteButton');
         const searchInput = document.getElementById('invoice-search');
-        const invoiceParts = {};
 
         function loadDatabase() {
             const partsRef = ref(database, `${DATABASE_BASE_PATH}/inventory`);
@@ -663,10 +662,7 @@
                 };
             });
 
-            if (partsData.some(part => !part.timestampKey)) {
-                console.error(`❌ Error: Some parts are missing timestampKeys`);
-                return;
-            }
+            console.log("Saving invoice data:", partsData);
 
             const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${invoiceId}`);
             await set(invoiceRef, {
@@ -678,29 +674,6 @@
             });
 
             console.log('✅ Invoice saved successfully:', invoiceId);
-
-            try {
-                for (const part of partsData) {
-                    const partRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${part.category}/${part.component}/${part.timestampKey}`);
-
-                    await runTransaction(partRef, (currentPart) => {
-                        if (!currentPart) {
-                            console.warn(`⚠️ Part "${part.partName}" does not exist in inventory. Aborting update.`);
-                            return;
-                        } else {
-                            console.log(`🔄 Updating quantity for: ${part.partName} (${part.timestampKey})`);
-                            return {
-                                ...currentPart,
-                                quantity: (parseInt(currentPart.quantity) || 0) - part.quantity,
-                            };
-                        }
-                    }).catch(error => {
-                        console.error(`❌ Error updating inventory for ${part.partName}:`, error);
-                    });
-                }
-            } catch (error) {
-                console.error('❌ Error saving invoice:', error);
-            }
         }
 
         function createOptionElement(value, text) {
@@ -758,7 +731,7 @@
             }
 
             let existingRow = Array.from(partsTableBody.querySelectorAll('tr')).find(row => {
-                return row.dataset.timestampKey === timestampKey;
+                return row.dataset.partName === partName;
             });
 
             if (existingRow) {
@@ -776,12 +749,12 @@
             newRow.dataset.timestampKey = timestampKey;
 
             newRow.innerHTML = `
-                <td>${partName}</td>
-                <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
-                <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
-                <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
-                <td><input type="number" name="part-total" min="0" value="${(price * quantity).toFixed(2)}" readonly></td>
-            `;
+        <td>${partName}</td>
+        <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
+        <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
+        <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
+        <td><input type="number" name="part-total" min="0" value="${(price * quantity).toFixed(2)}" readonly></td>
+    `;
 
             partsTableBody.appendChild(newRow);
 
@@ -812,17 +785,6 @@
                 alert("Please select a part first.");
             }
         });
-
-        function handleQuantityChange(event, partName, category, component) {
-            const newQuantity = parseInt(event.target.value, 10);
-            const oldQuantity = parseInt(event.target.defaultValue, 10);
-
-            const quantityChange = newQuantity - oldQuantity;
-
-            event.target.defaultValue = newQuantity;
-
-            updatePartQuantityInDatabase(category, component, partName, quantityChange);
-        }
 
         function delPartRow() {
             const lastRow = partsTableBody.querySelector('tr:last-child');
@@ -935,39 +897,6 @@
             subtotalInput.value = subtotal.toFixed(2);
             taxInput.value = tax.toFixed(2);
             totalInput.value = total.toFixed(2);
-        }
-
-        async function updatePartQuantityInDatabase(category, component, partName, quantityChange) {
-            if (!category || !component || !partName || quantityChange === undefined) {
-                console.error('Missing parameters to update the database.');
-                throw new Error('Missing parameters to update database.');
-            }
-
-            const partRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${partName}/quantity`);
-
-            try {
-                const partSnapshot = await get(partRef);
-                if (!partSnapshot.exists()) {
-                    console.error(`Error: Part "${partName}" does not exist in database.`);
-                    throw new Error(`Part "${partName}" does not exist in database.`);
-                }
-
-                await runTransaction(partRef, (currentQuantity) => {
-                    if (currentQuantity === null) {
-                        throw new Error('Part does not exist in database.');
-                    } else {
-                        const currentQuantityNumber = parseInt(currentQuantity, 10);
-                        const updatedQuantity = currentQuantityNumber - quantityChange;
-                        if (updatedQuantity < 0) {
-                            throw new Error('Not enough stock.');
-                        }
-                        return updatedQuantity;
-                    }
-                });
-            } catch (error) {
-                console.error("Transaction failed: ", error);
-                throw error;
-            }
         }
 
         function populateInvoiceDropdown() {
@@ -1083,7 +1012,7 @@
             get(invoiceRef).then((snapshot) => {
                 if (snapshot.exists()) {
                     const invoiceData = snapshot.val();
-                    console.log("Loaded Invoice Data:", invoiceData);
+                    console.log(`Loaded Invoice: ${invoiceData.id}`);
 
                     document.getElementById('invoice-number').dataset.id = invoiceData.id || '';
                     document.getElementById('invoice-type').value = invoiceData.invoiceType || 'invoice';
@@ -1228,7 +1157,7 @@
                 document.getElementById('customer-address').value = inputData.customerAddress || '';
                 document.getElementById('invoice-date').value = inputData.startTime || '';
                 document.getElementById('invoice-number').value = inputData.project || '';
-                document.getElementById('notes').value = (invoiceData.notes || '').replace(/\r?\n/g, " ");
+                document.getElementById('notes').value = (inputData.notes || '').replace(/\r?\n/g, " ");
             }
         }
 
@@ -1242,44 +1171,24 @@
         document.getElementById('notes').addEventListener('input', saveDataToLocalStorage);
 
         document.addEventListener('DOMContentLoaded', loadDataFromLocalStorage);
+
         function clearInvoice() {
-            const inputElements = [
-                'title-input',
-                'customer-name',
-                'customer-phone',
-                'customer-email',
-                'customer-address',
-                'invoice-date',
-                'invoice-number',
-                'notes',
-            ];
+            ['title-input', 'customer-name', 'customer-phone', 'customer-email',
+                'customer-address', 'invoice-date', 'invoice-number', 'notes']
+                .forEach(id => document.getElementById(id).value = '');
 
-            inputElements.forEach((elementId) => {
-                document.getElementById(elementId).value = '';
+            document.querySelector('.parts-table tbody').innerHTML = '';
+            document.querySelector('.labor-table tbody').innerHTML = '';
+
+            ['subtotal', 'tax-percent', 'tax', 'total', 'amount-paid'].forEach(id => {
+                document.getElementById(id).value = '';
             });
-
-            const partsTableBody = document.querySelector('.parts-table tbody');
-            partsTableBody.innerHTML = '';
-
-            const laborTableBody = document.querySelector('.labor-table tbody');
-            laborTableBody.innerHTML = '';
-
-            document.getElementById('subtotal').value = '';
-            document.getElementById('tax-percent').value = '';
-            document.getElementById('tax').value = '';
-            document.getElementById('total').value = '';
-            document.getElementById('amount-paid').value = '';
 
             document.getElementById('remaining').checked = false;
             document.querySelector('.remaining').style.display = 'none';
 
-            document.getElementById('price-difference').innerText = '';
-            document.getElementById('remaining-balance').innerText = '';
-
             localStorage.removeItem('inputData');
         }
-
-        document.getElementById('clear-button').addEventListener('click', clearInvoice);
     </script>
 </body>
 
