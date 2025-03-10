@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-Time Converter</title>
+    <title>Information Converter</title>
     <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
     <style>
         textarea {
@@ -20,7 +20,7 @@
 
 <body>
     <header>
-        <h1>Real-Time Converter</h1>
+        <h1>Information Converter</h1>
     </header>
     <main>
         <h2>Select Conversion Type</h2>
@@ -54,7 +54,7 @@
         </div>
         <div>
             <input type="radio" id="bank" name="conversionType" value="bank">
-            <label for="bank">Bank Transactions</label>
+            <label for="bank">Bank Credit</label>
         </div>
         <br>
         <input type="checkbox" id="removeForbiddenChars" name="">
@@ -373,28 +373,36 @@
             const monthNames = ["Jan", "Feb", "March", "April", "May", "June", "July", "Aug", "Sept", "Oct", "Nov", "Dec"];
 
             lines.forEach(line => {
-                const match = line.match(/^(\d{2})\/(\d{2})\s+(.+?)\s+(-?\$[\d,.]+)\s+(\$[\d,.]+)?$/);
+                const match = line.match(/^(\d{2})\/(\d{2})\s+(\d{2})\/(\d{2})\s+(.+?)\s+([\d.-]+)$/);
                 if (!match) {
                     console.warn(`⚠️ Skipping invalid line: ${line}`);
                     return;
                 }
 
-                const [_, month, day, description, amountStr] = match;
-                const formattedDate = `2024-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-                const amount = parseFloat(amountStr.replace(/[$,]/g, ''));
-                const transactionType = amount < 0 ? "Expenses" : "Income";
-                const monthName = monthNames[parseInt(month, 10) - 1];
-                const key = `${monthName}-${day}`;
+                const [_, transMonth, transDay, postMonth, postDay, description, amountStr] = match;
+                const amount = parseFloat(amountStr);
+
+                if (isNaN(amount)) {
+                    console.error(`🚨 Invalid amount detected: "${amountStr}" in line: ${line}`);
+                    return;
+                }
+
+                const postingDate = new Date(2024, postMonth - 1, postDay).toISOString();
+                const transactionType = amount < 0 ? "Income" : "Expenses";
+                const monthName = monthNames[parseInt(postMonth, 10) - 1];
+                const formattedDay = parseInt(postDay, 10);
+
+                const key = `${monthName}-${formattedDay}`;
 
                 if (!jsonData[key]) {
                     jsonData[key] = { details: [] };
                 }
 
                 jsonData[key].details.push({
+                    name: description,
                     amount: Math.abs(amount),
-                    date: formattedDate,
-                    type: transactionType,
-                    name: description
+                    date: postingDate,
+                    type: transactionType
                 });
             });
 
