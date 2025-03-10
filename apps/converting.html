@@ -56,6 +56,10 @@
             <input type="radio" id="bank" name="conversionType" value="bank">
             <label for="bank">Bank Credit</label>
         </div>
+        <div>
+            <input type="radio" id="bank2" name="conversionType" value="bank2">
+            <label for="bank2">Bank Debit</label>
+        </div>
         <br>
         <input type="checkbox" id="removeForbiddenChars" name="">
         <label for="removeForbiddenChars">Remove Forbidden Characters</label>
@@ -109,6 +113,10 @@
                 case 'bank':
                     convertedText = convertToBankJSON(text);
                     break;
+                case 'bank2':
+                    convertedText = convertToBankDebitJSON(text);
+                    break;
+
                 default:
                     convertedText = "Unsupported conversion type selected.";
                     break;
@@ -403,6 +411,40 @@
                     amount: Math.abs(amount),
                     date: postingDate,
                     type: transactionType
+                });
+            });
+
+            return JSON.stringify(jsonData, null, 2);
+        }
+
+        function convertToBankDebitJSON(text) {
+            const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+            const jsonData = {};
+            const monthNames = ["Jan", "Feb", "March", "April", "May", "June", "July", "Aug", "Sept", "Oct", "Nov", "Dec"];
+
+            lines.forEach(line => {
+                const match = line.match(/^(\d{2})\/(\d{2})\s+(.+?)\s+(-?\$[\d,.]+)\s+(\$[\d,.]+)?$/);
+                if (!match) {
+                    console.warn(`⚠️ Skipping invalid line: ${line}`);
+                    return;
+                }
+
+                const [_, month, day, description, amountStr] = match;
+                const formattedDate = `2024-${month}-${parseInt(day, 10)}`; // Remove leading zero from day
+                const amount = parseFloat(amountStr.replace(/[$,]/g, ''));
+                const transactionType = amount < 0 ? "Expenses" : "Income";
+                const monthName = monthNames[parseInt(month, 10) - 1]; // Use the month number for month name
+                const key = `${monthName}-${parseInt(day, 10)}`; // Remove leading zero from day in key
+
+                if (!jsonData[key]) {
+                    jsonData[key] = { details: [] };
+                }
+
+                jsonData[key].details.push({
+                    amount: Math.abs(amount),
+                    date: formattedDate,
+                    type: transactionType,
+                    name: description
                 });
             });
 
