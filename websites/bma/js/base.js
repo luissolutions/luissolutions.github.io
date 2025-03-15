@@ -64,7 +64,7 @@ const appNamesMap = {
   "Favorites/Bookmarks": { filename: "livelinks", tags: ["bookmarks", "links", "favorites", "web"] },
   "Contacts": { filename: "livecontacts", tags: ["contacts", "phone", "address", "people"] },
   "Analytics": { filename: "liveanalytics", tags: ["analytics", "stats", "charts", "data"] },
-  "Quiz/Testing": { filename: "livelearn", tags: ["quiz", "test", "study", "exam"] },
+  "Quiz/Testing": { filename: "livelearn", tags: ["quiz", "test", "study", "exam", "learn"] },
   "Job Info": { filename: "livejob", tags: ["job", "info", "work", "tasks"] },
   "Jobs Gallery": { filename: "livegallery", tags: ["gallery", "photos", "images"] },
   "Mileage Logging": { filename: "livemileage", tags: ["mileage", "miles", "trip"] },
