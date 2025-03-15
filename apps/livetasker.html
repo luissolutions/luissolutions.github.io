@@ -513,23 +513,57 @@
             });
         }
 
+        let allTasks = [];
+        let initialLoadCount = 50;
+
         function loadTasks() {
             const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
-            onValue(taskRef, snapshot => {
-                taskLogTable.innerHTML = '';
-                let taskCount = 0;
-
+            get(taskRef).then(snapshot => {
+                allTasks = [];
                 snapshot.forEach(taskSnapshot => {
-                    const task = taskSnapshot.val();
-                    addTaskToTable(task);
-                    taskCount++;
+                    allTasks.push(taskSnapshot.val());
                 });
-                document.getElementById('totalTasks').innerText = taskCount;
-                checkForOngoingTask();
-                sortTableByColumn(7);
+
+
+                allTasks.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+
+                const initialTasks = allTasks.slice(0, initialLoadCount);
+                initialTasks.forEach(task => addTaskToTable(task));
+
+                if (allTasks.length > initialLoadCount) {
+                    addLoadAllButton();
+                }
+                document.getElementById('totalTasks').innerText = allTasks.length;
+
                 processTasksForDailyTimeSpent();
                 updateTotalHours();
-                applyColumnVisibility();
+            });
+        }
+
+        function addLoadAllButton() {
+            const buttonContainer = document.getElementById("buttons");
+            const loadAllBtn = document.createElement("button");
+            loadAllBtn.id = "loadAllBtn";
+            loadAllBtn.innerText = "Show All";
+            loadAllBtn.addEventListener("click", loadAllTasks);
+
+            buttonContainer.appendChild(loadAllBtn);
+        }
+
+        function loadAllTasks() {
+            const remainingTasks = allTasks.slice(initialLoadCount);
+            remainingTasks.forEach(task => addTaskToTable(task));
+
+            document.getElementById("loadAllBtn").remove();
+            document.getElementById('totalTasks').innerText = allTasks.length;
+
+            processTasksForDailyTimeSpent();
+            updateTotalHours();
+            applySearchFilter();
+
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
             });
         }
 
