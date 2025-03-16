@@ -195,9 +195,16 @@
         attachImageClickEvent();
     }
 
+    const imageCache = {};
+
     async function fetchImageForPart(category, component, partName, row) {
         const sanitizedPartName = partName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
         const storagePathBase = `share/inventory-files/${category}/${component}/${sanitizedPartName}`;
+
+        if (imageCache[storagePathBase]) {
+            row.querySelector('img').src = imageCache[storagePathBase];
+            return;
+        }
 
         const possibleExtensions = ['png', 'jpg', 'jpeg', 'webp'];
 
@@ -207,6 +214,7 @@
 
             try {
                 const downloadURL = await getDownloadURL(fileReference);
+                imageCache[storagePathBase] = downloadURL; // Cache the image URL
                 row.querySelector('img').src = downloadURL;
                 return;
             } catch (error) {
@@ -216,6 +224,7 @@
             }
         }
 
+        imageCache[storagePathBase] = "./assets/img/default.png";
         row.querySelector('img').src = "./assets/img/default.png";
     }
 
@@ -299,7 +308,7 @@
     }
 
     async function convertToPng(file) {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.readAsDataURL(file);
             reader.onload = function (event) {
@@ -313,10 +322,15 @@
                     ctx.drawImage(img, 0, 0);
 
                     canvas.toBlob((blob) => {
-                        resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".png"), { type: "image/png" }));
+                        if (blob) {
+                            resolve(new File([blob], "converted.png", { type: "image/png" }));
+                        } else {
+                            reject(new Error("Failed to convert image to PNG"));
+                        }
                     }, "image/png");
                 };
             };
+            reader.onerror = reject;
         });
     }
 
@@ -381,14 +395,19 @@
     });
 
     async function uploadImageForNewEntry(file, category, component, partName) {
-        const fileExtension = file.name.split('.').pop();
         const sanitizedPartName = partName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
-        const storagePath = `share/inventory-files/${category}/${component}/${sanitizedPartName}.${fileExtension}`;
+        const storagePath = `share/inventory-files/${category}/${component}/${sanitizedPartName}.png`;
         const fileReference = storageRef(storage, storagePath);
 
+        await deletePreviousImage(category, component, sanitizedPartName);
+        delete imageCache[`share/inventory-files/${category}/${component}/${sanitizedPartName}`];
+
         try {
-            await uploadBytesResumable(fileReference, file);
-            console.log(`Image uploaded for ${sanitizedPartName}`);
+            const convertedFile = await convertToPng(file);
+            await uploadBytesResumable(fileReference, convertedFile);
+            console.log(`Image uploaded successfully: ${storagePath}`);
+
+            imageCache[`share/inventory-files/${category}/${component}/${sanitizedPartName}`] = await getDownloadURL(fileReference);
         } catch (error) {
             console.error("Error uploading image:", error);
         }
