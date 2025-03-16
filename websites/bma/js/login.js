@@ -1,6 +1,5 @@
 import { auth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "../../../assets/js/firebase-init.js";
 
-// Login form handling
 document.getElementById("login-form").addEventListener("submit", function (event) {
     event.preventDefault();
     const email = document.getElementById('login-username').value;
@@ -8,7 +7,7 @@ document.getElementById("login-form").addEventListener("submit", function (event
 
     signInWithEmailAndPassword(auth, email, password)
         .then((credentials) => {
-            window.location.href = 'base.html'; // Redirect on successful login
+            window.location.href = 'base.html';
         })
         .catch((error) => {
             console.error('Login error:', error);
@@ -16,7 +15,6 @@ document.getElementById("login-form").addEventListener("submit", function (event
         });
 });
 
-// Registration form handling
 document.getElementById("registration-form").addEventListener("submit", function (event) {
     event.preventDefault();
     const email = document.getElementById('reg-email').value;
@@ -32,7 +30,6 @@ document.getElementById("registration-form").addEventListener("submit", function
         .then((userCredential) => {
             console.log('User registered:', userCredential.user);
             alert("Registration Success");
-            // Additional user data can be saved to the database here
         })
         .catch((error) => {
             console.error('Error registering user:', error);
@@ -42,7 +39,6 @@ document.getElementById("registration-form").addEventListener("submit", function
     document.getElementById("registration-form").reset();
 });
 
-// Toggling between login and registration forms
 const toggleToRegister = (e) => {
     e.preventDefault();
     const loginContainer = document.querySelector('.login-container');

@@ -6,7 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   signOutButton.addEventListener("click", () => {
     signOut(auth).then(() => {
-      window.location.href = "login.html";
+      window.location.href = "base.html";
     }).catch((error) => {
       console.error("Error signing out:", error);
     });
