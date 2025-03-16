@@ -17,8 +17,10 @@
             <form id="mileage-form">
                 <label for="vehicle">Vehicle:</label>
                 <input type="text" id="vehicle" name="vehicle" required>
+
                 <label for="client">Client:</label>
                 <input type="text" id="client" name="client" required>
+
                 <div>
                     <label for="trip-type-start">Start Trip</label>
                     <input type="radio" id="trip-type-start" name="trip-type" value="start" checked>
@@ -26,6 +28,7 @@
                     <label for="trip-type-end">End Trip</label>
                     <input type="radio" id="trip-type-end" name="trip-type" value="end">
                 </div>
+
                 <div id="start-trip-fields">
                     <label for="start-date">Start Date:</label>
                     <input type="date" id="start-date" name="start-date" required>
@@ -40,306 +43,283 @@
                     <input type="text" id="start-location" name="start-location" required>
                     <br>
                 </div>
+
                 <div id="end-trip-fields" style="display: none;">
                     <label for="end-date">End Date:</label>
-                    <input type="date" id="end-date" name="end-date" required>
+                    <input type="date" id="end-date" name="end-date">
                     <br>
                     <label for="end-time">End Time:</label>
-                    <input type="time" id="end-time" name="end-time" required>
+                    <input type="time" id="end-time" name="end-time">
                     <br>
                     <label for="end-odometer">End Odometer Reading:</label>
-                    <input type="number" id="end-odometer" name="end-odometer" min="0" step="1" required>
+                    <input type="number" id="end-odometer" name="end-odometer" min="0" step="1">
                     <br>
                     <label for="end-location">End Location:</label>
-                    <input type="text" id="end-location" name="end-location" required>
+                    <input type="text" id="end-location" name="end-location">
                     <br>
                 </div>
-                <label for="distance-unit" style="display: none;">Distance Unit:</label>
-                <select id="distance-unit" name="distance-unit" style="display: none;">
-                    <option value="miles">Miles</option>
-                    <option value="kilometers">Kilometers</option>
-                </select>
-                <br>
+
                 <button type="submit" id="add-mileage-button">Add Mileage</button>
             </form>
             <br>
+            <label for="year-selection">Select Year:</label>
+            <select id="year-selection">
+                <!-- Options will be dynamically populated -->
+            </select>
+
             <div class="table">
                 <table id="mileage-table">
-                    <tr>
-                        <th>Vehicle</th>
-                        <th>Client</th>
-                        <th>Start Date</th>
-                        <th>Start Time</th>
-                        <th>Start Odometer Reading</th>
-                        <th>Start Location</th>
-                        <th>End Date</th>
-                        <th>End Time</th>
-                        <th>End Odometer Reading</th>
-                        <th>End Location</th>
-                        <th>Distance Unit</th>
-                        <th>Distance</th>
-                        <th>Duration</th>
-                        <th>Type</th>
-                        <th>Actions</th>
-                    </tr>
+                    <thead>
+                        <tr>
+                            <th>Vehicle</th>
+                            <th>Client</th>
+                            <th>Start Date</th>
+                            <th>Start Time</th>
+                            <th>Start Odometer</th>
+                            <th>Start Location</th>
+                            <th>End Date</th>
+                            <th>End Time</th>
+                            <th>End Odometer</th>
+                            <th>End Location</th>
+                            <th>Distance</th>
+                            <th>Duration</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
                 </table>
             </div>
-            <button type="button" id="export-data-button">Export Data</button>
-            <br>
+            <h2>Total Trips: <span id="total-trips">0</span></h2>
         </section>
-        <h2>Total Trips: <span id="total-trips">0</span></h2>
     </main>
-    <script type="module">
-        import { auth, onAuthStateChanged, database, ref, set, get, push, onValue, remove, update, uploadBytesResumable, getDownloadURL, deleteObject, listAll, getStorage, storageRef, storage } from './assets/js/firebase-init.js';
 
-        let DATABASE_BASE_PATH = 'public';
+    <script type="module">
+        import { auth, onAuthStateChanged, database, ref, set, get, push, onValue, remove, update, storageRef, uploadBytesResumable, uploadBytes, getDownloadURL, deleteObject, getStorage } from './assets/js/firebase-init.js';
+
+        let DATABASE_BASE_PATH = 'public/mileage';
 
         onAuthStateChanged(auth, (user) => {
-            DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
-            new MileageApp();
+            DATABASE_BASE_PATH = user ? `${user.uid}/mileage` : 'public/mileage';
+            mileageTracker.updateDatabasePath();
         });
 
-        class MileageApp {
+        class MileageTracker {
             constructor() {
+                this.dbRef = ref(database, DATABASE_BASE_PATH);
+                this.storageRef = getStorage();
                 this.mileageData = [];
-                this.totalTrips = 0;
-                this.dbRef = ref(database, `${DATABASE_BASE_PATH}/miles`);
-                this.setEventListeners();
-                this.updateTripFieldsVisibility();
-                this.listenForDataChanges();
+                this.sortOrder = 'desc';
+
+                this.setupEventListeners();
+                this.initialize();
             }
 
-            setEventListeners() {
-                document.getElementById('mileage-form').addEventListener('submit', this.addMileage.bind(this));
-                document.getElementById('export-data-button').addEventListener('click', this.exportData.bind(this));
-                document.querySelectorAll('input[name="trip-type"]').forEach(element => {
-                    element.addEventListener('change', this.updateTripFieldsVisibility.bind(this));
+            updateDatabasePath() {
+                this.dbRef = ref(database, DATABASE_BASE_PATH);
+                this.initialize();
+            }
+
+            setupEventListeners() {
+                document.getElementById('mileage-form').addEventListener('submit', (event) => {
+                    event.preventDefault();
+                    this.addMileageData();
+                });
+
+                document.querySelectorAll('input[name="trip-type"]').forEach((radio) => {
+                    radio.addEventListener('change', this.toggleTripFields);
                 });
             }
 
-            updateTripFieldsVisibility() {
-                const tripType = document.querySelector('input[name="trip-type"]:checked').value;
-                const startTripFields = document.getElementById('start-trip-fields');
-                const endTripFields = document.getElementById('end-trip-fields');
+            toggleTripFields() {
+                const startFields = document.getElementById('start-trip-fields');
+                const endFields = document.getElementById('end-trip-fields');
+                const isStartTrip = document.getElementById('trip-type-start').checked;
 
-                if (tripType === 'start') {
-                    startTripFields.style.display = 'block';
-                    endTripFields.style.display = 'none';
-                    this.toggleRequiredFields(startTripFields, true);
-                    this.toggleRequiredFields(endTripFields, false);
+                if (isStartTrip) {
+                    startFields.style.display = 'block';
+                    endFields.style.display = 'none';
+
+                    document.getElementById('start-date').setAttribute('required', 'true');
+                    document.getElementById('start-time').setAttribute('required', 'true');
+                    document.getElementById('start-odometer').setAttribute('required', 'true');
+                    document.getElementById('start-location').setAttribute('required', 'true');
+
+                    document.getElementById('end-date').removeAttribute('required');
+                    document.getElementById('end-time').removeAttribute('required');
+                    document.getElementById('end-odometer').removeAttribute('required');
+                    document.getElementById('end-location').removeAttribute('required');
                 } else {
-                    startTripFields.style.display = 'none';
-                    endTripFields.style.display = 'block';
-                    this.toggleRequiredFields(startTripFields, false);
-                    this.toggleRequiredFields(endTripFields, true);
+                    startFields.style.display = 'none';
+                    endFields.style.display = 'block';
+
+                    document.getElementById('start-date').removeAttribute('required');
+                    document.getElementById('start-time').removeAttribute('required');
+                    document.getElementById('start-odometer').removeAttribute('required');
+                    document.getElementById('start-location').removeAttribute('required');
+
+                    document.getElementById('end-date').setAttribute('required', 'true');
+                    document.getElementById('end-time').setAttribute('required', 'true');
+                    document.getElementById('end-odometer').setAttribute('required', 'true');
+                    document.getElementById('end-location').setAttribute('required', 'true');
                 }
             }
 
-            toggleRequiredFields(container, isRequired) {
-                const inputs = container.querySelectorAll('input');
-                inputs.forEach(input => {
-                    if (isRequired) {
-                        input.setAttribute('required', 'required');
-                    } else {
-                        input.removeAttribute('required');
-                    }
-                });
-            }
-
-            listenForDataChanges() {
-                if (!this.dbRef) return;
-                onValue(this.dbRef, snapshot => {
+            async initialize() {
+                onValue(this.dbRef, (snapshot) => {
                     const data = snapshot.val();
-                    if (data) {
-                        this.mileageData = Object.entries(data).map(([key, value]) => ({ key, ...value }));
-                        this.totalTrips = this.mileageData.length;
-                    } else {
-                        this.mileageData = [];
-                        this.totalTrips = 0;
+                    if (data !== null) {
+                        this.mileageData = Object.keys(data).map(key => ({ ...data[key], key }));
+                        this.populateYearDropdown();
+                        this.updateMileageTable();
                     }
-                    document.getElementById('total-trips').textContent = this.totalTrips;
-                    this.updateMileageTable();
                 });
             }
 
-            updateMileageTable() {
+            async addMileageData() {
+                const vehicle = document.getElementById('vehicle').value;
+                const client = document.getElementById('client').value;
+                const tripType = document.querySelector('input[name="trip-type"]:checked').value;
+
+                let startDate = document.getElementById('start-date').value;
+                let startTime = document.getElementById('start-time').value;
+                let startOdometer = parseFloat(document.getElementById('start-odometer').value) || 0;
+                let startLocation = document.getElementById('start-location').value;
+
+                let endDate = document.getElementById('end-date').value;
+                let endTime = document.getElementById('end-time').value;
+                let endOdometer = parseFloat(document.getElementById('end-odometer').value) || 0;
+                let endLocation = document.getElementById('end-location').value;
+
+                console.log("Trip Type Selected:", tripType);
+
+                if (tripType === 'end') {
+                    const lastStartEntry = this.mileageData.filter(entry =>
+                        entry.vehicle === vehicle &&
+                        entry.client === client &&
+                        entry.tripType === 'start' &&
+                        (!entry.endDate || entry.endDate === '')
+                    ).pop();
+
+                    if (lastStartEntry) {
+                        console.log("Matching Start Trip Found:", lastStartEntry);
+
+                        const updatedEntry = {
+                            ...lastStartEntry,
+                            endDate: endDate || lastStartEntry.endDate,
+                            endTime: endTime || lastStartEntry.endTime,
+                            endOdometer: endOdometer || lastStartEntry.endOdometer,
+                            endLocation: endLocation || lastStartEntry.endLocation,
+                            distance: Math.max(0, endOdometer - lastStartEntry.startOdometer),
+                            duration: this.calculateDuration(lastStartEntry.startDate, lastStartEntry.startTime, endDate, endTime)
+                        };
+
+                        console.log("Updating Firebase with:", updatedEntry);
+
+                        await update(ref(database, `${DATABASE_BASE_PATH}/${lastStartEntry.key}`), updatedEntry)
+                            .then(() => {
+                                console.log("Firebase Update Successful");
+                            })
+                            .catch((error) => {
+                                console.error("Firebase Update Error:", error);
+                            });
+
+                        this.initialize();
+                    } else {
+                        alert('No matching start trip found for this vehicle and client. Please start a trip first.');
+                        return;
+                    }
+                } else {
+                    const newEntry = {
+                        vehicle, client, tripType,
+                        startDate, startTime, startOdometer, startLocation,
+                        endDate: '', endTime: '', endOdometer: '', endLocation: '',
+                        distance: 0, duration: 0
+                    };
+                    const timestamp = Date.now().toString();
+
+                    console.log("Creating new start trip:", newEntry);
+
+                    await set(ref(database, `${DATABASE_BASE_PATH}/${timestamp}`), newEntry)
+                        .then(() => {
+                            console.log("New Start Trip Saved in Firebase");
+                        })
+                        .catch((error) => {
+                            console.error("Firebase Save Error:", error);
+                        });
+                }
+
+                this.updateMileageTable();
+                document.getElementById('mileage-form').reset();
+            }
+
+            calculateDuration(startDate, startTime, endDate, endTime) {
+                if (!startDate || !startTime || !endDate || !endTime) {
+                    return 0;
+                }
+
+                const start = new Date(`${startDate}T${startTime}`);
+                const end = new Date(`${endDate}T${endTime}`);
+
+                if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+                    return 0;
+                }
+
+                return Math.max(0, Math.round((end - start) / (1000 * 60)));
+            }
+
+            updateMileageTable(filteredYear = null) {
                 const table = document.getElementById('mileage-table');
+                const dataToDisplay = filteredYear
+                    ? this.mileageData.filter(entry => new Date(entry.startDate).getFullYear().toString() === filteredYear)
+                    : this.mileageData;
+
+                dataToDisplay.sort((a, b) => this.sortOrder === 'asc' ? new Date(a.startDate) - new Date(b.startDate) : new Date(b.startDate) - new Date(a.startDate));
+
                 while (table.rows.length > 1) {
                     table.deleteRow(1);
                 }
 
-                this.mileageData.forEach((entry, index) => {
-                    const row = table.insertRow();
-                    row.insertCell().textContent = entry.vehicle;
-                    row.insertCell().textContent = entry.client;
-                    row.insertCell().textContent = entry.startDate || "";
-                    row.insertCell().textContent = entry.startTime || "";
-                    row.insertCell().textContent = entry.startOdometer || "";
-                    row.insertCell().textContent = entry.startLocation || "";
-                    row.insertCell().textContent = entry.endDate || "";
-                    row.insertCell().textContent = entry.endTime || "";
-                    row.insertCell().textContent = entry.endOdometer || "";
-                    row.insertCell().textContent = entry.endLocation || "";
-                    row.insertCell().textContent = entry.distanceUnit || "";
-                    row.insertCell().textContent = this.calculateDistance(entry) || "";
-                    row.insertCell().textContent = this.calculateDuration(entry) || "";
-                    row.insertCell().textContent = entry.tripType;
+                dataToDisplay.forEach((data) => {
+                    const row = table.insertRow(-1);
+                    row.insertCell(-1).innerText = data.vehicle;
+                    row.insertCell(-1).innerText = data.client;
+                    row.insertCell(-1).innerText = data.startDate;
+                    row.insertCell(-1).innerText = data.startTime;
+                    row.insertCell(-1).innerText = data.startOdometer;
+                    row.insertCell(-1).innerText = data.startLocation;
+                    row.insertCell(-1).innerText = data.endDate || 'N/A';
+                    row.insertCell(-1).innerText = data.endTime || 'N/A';
+                    row.insertCell(-1).innerText = data.endOdometer || 'N/A';
+                    row.insertCell(-1).innerText = data.endLocation || 'N/A';
+                    row.insertCell(-1).innerText = data.distance ? `${data.distance} miles` : 'N/A';
+                    row.insertCell(-1).innerText = data.duration ? `${data.duration} mins` : 'N/A';
 
+                    const actionsCell = row.insertCell(-1);
                     const deleteButton = document.createElement('button');
-                    deleteButton.classList.add('clear-button');
-                    deleteButton.textContent = 'Delete';
-                    deleteButton.addEventListener('click', this.deleteMileage.bind(this, index));
-                    row.insertCell().appendChild(deleteButton);
+                    deleteButton.innerText = 'Delete';
+                    deleteButton.addEventListener('click', () => this.deleteMileageData(data.key));
+                    actionsCell.appendChild(deleteButton);
                 });
             }
 
-            addMileage(event) {
-                event.preventDefault();
+            async deleteMileageData(key) {
+                const confirmDelete = confirm('Are you sure you want to delete this entry?');
+                if (!confirmDelete) return;
 
-                const tripType = document.querySelector('input[name="trip-type"]:checked').value;
-
-                const mileageEntry = {
-                    vehicle: document.getElementById('vehicle').value,
-                    client: document.getElementById('client').value,
-                    tripType: tripType,
-                    distanceUnit: document.getElementById('distance-unit').value,
-                };
-
-                if (tripType === 'start') {
-                    mileageEntry.startDate = document.getElementById('start-date').value;
-                    mileageEntry.startTime = document.getElementById('start-time').value;
-                    mileageEntry.startOdometer = document.getElementById('start-odometer').value;
-                    mileageEntry.startLocation = document.getElementById('start-location').value;
-
-                    push(this.dbRef, mileageEntry);
-                } else if (tripType === 'end') {
-                    mileageEntry.endDate = document.getElementById('end-date').value;
-                    mileageEntry.endTime = document.getElementById('end-time').value;
-                    mileageEntry.endOdometer = document.getElementById('end-odometer').value;
-                    mileageEntry.endLocation = document.getElementById('end-location').value;
-
-                    const lastStartEntryIndex = this.mileageData.slice().reverse().findIndex(entry =>
-                        entry.client === mileageEntry.client &&
-                        entry.vehicle === mileageEntry.vehicle &&
-                        entry.tripType === 'start' &&
-                        !entry.endDate
-                    );
-
-                    const actualLastIndex = this.mileageData.length - 1;
-                    const lastEntry = this.mileageData[actualLastIndex];
-
-                    if (
-                        lastStartEntryIndex !== -1 &&
-                        this.mileageData.length - 1 - lastStartEntryIndex === actualLastIndex &&
-                        lastEntry.client === mileageEntry.client &&
-                        lastEntry.vehicle === mileageEntry.vehicle &&
-                        lastEntry.tripType === 'start' &&
-                        !lastEntry.endDate
-                    ) {
-                        const keyToUpdate = lastEntry.key;
-                        const updates = {
-                            endDate: mileageEntry.endDate,
-                            endTime: mileageEntry.endTime,
-                            endOdometer: mileageEntry.endOdometer,
-                            endLocation: mileageEntry.endLocation,
-                            tripType: 'completed'
-                        };
-                        set(ref(database, `${DATABASE_BASE_PATH}/miles/${keyToUpdate}`), {
-                            ...lastEntry,
-                            ...updates
-                        });
-                    } else {
-                        mileageEntry.startDate = "";
-                        mileageEntry.startTime = "";
-                        mileageEntry.startOdometer = "";
-                        mileageEntry.startLocation = "";
-                        push(this.dbRef, mileageEntry);
-                    }
-                }
-
-                this.clearFormFields();
+                await remove(ref(database, `${DATABASE_BASE_PATH}/${key}`));
+                this.updateMileageTable();
             }
 
-            deleteMileage(index) {
-                const confirmation = confirm('Are you sure you want to delete this entry?');
-                if (confirmation) {
-                    const keyToDelete = this.mileageData[index].key;
-                    remove(ref(database, `${DATABASE_BASE_PATH}/miles/${keyToDelete}`));
-                }
-            }
-
-            exportData() {
-                const csvHeaders = ['Vehicle', 'Client', 'Start Date', 'Start Time', 'Start Odometer Reading', 'Start Location', 'End Date', 'End Time', 'End Odometer Reading', 'End Location', 'Distance Unit', 'Distance', 'Duration', 'Type'];
-                const csvRows = this.mileageData.map(entry => [
-                    entry.vehicle,
-                    entry.client,
-                    entry.startDate || '',
-                    entry.startTime || '',
-                    entry.startOdometer || '',
-                    entry.startLocation || '',
-                    entry.endDate || '',
-                    entry.endTime || '',
-                    entry.endOdometer || '',
-                    entry.endLocation || '',
-                    entry.distanceUnit || '',
-                    this.calculateDistance(entry) || '',
-                    this.calculateDuration(entry) || '',
-                    entry.tripType
-                ]);
-
-                let csvContent = 'data:text/csv;charset=utf-8,' + csvHeaders.join(',') + '\n' + csvRows.map(e => e.join(',')).join('\n');
-                const encodedUri = encodeURI(csvContent);
-                const link = document.createElement('a');
-                link.setAttribute('href', encodedUri);
-                link.setAttribute('download', 'mileage_data.csv');
-                document.body.appendChild(link);
-
-                link.click();
-            }
-
-            calculateDistance(entry) {
-                if (entry.startOdometer && entry.endOdometer) {
-                    return Math.abs(entry.endOdometer - entry.startOdometer);
-                }
-                return '';
-            }
-
-            calculateDuration(entry) {
-                if (entry.startDate && entry.startTime && entry.endDate && entry.endTime) {
-                    const startDateTime = new Date(`${entry.startDate}T${entry.startTime}`);
-                    const endDateTime = new Date(`${entry.endDate}T${entry.endTime}`);
-                    const durationMs = endDateTime - startDateTime;
-                    const durationMinutes = Math.floor(durationMs / 60000);
-                    const hours = Math.floor(durationMinutes / 60);
-                    const minutes = durationMinutes % 60;
-                    return `${hours}h ${minutes}m`;
-                }
-                return '';
-            }
-
-            clearFormFields() {
-                document.getElementById('start-date').value = '';
-                document.getElementById('start-time').value = '';
-                document.getElementById('start-odometer').value = '';
-                document.getElementById('start-location').value = '';
-                document.getElementById('end-date').value = '';
-                document.getElementById('end-time').value = '';
-                document.getElementById('end-odometer').value = '';
-                document.getElementById('end-location').value = '';
-                document.getElementById('distance-unit').value = 'miles';
-            }
-
-            updateOnlineStatus() {
-                this.online = navigator.onLine;
-                if (this.online) {
-                    this.syncData();
-                }
+            populateYearDropdown() {
+                const yearSet = new Set(this.mileageData.map(entry => new Date(entry.startDate).getFullYear()));
+                const yearSelect = document.getElementById('year-selection');
+                yearSelect.innerHTML = '';
+                Array.from(yearSet).sort((a, b) => b - a).forEach(year => yearSelect.add(new Option(year, year)));
             }
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            new MileageApp();
-        });
+        const mileageTracker = new MileageTracker();
+        window.mileageTracker = mileageTracker;    
     </script>
 </body>
 
