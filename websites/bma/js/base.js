@@ -202,3 +202,46 @@ function handleSearch(event) {
     localStorage.setItem("lastUsedApp", searchValue);
   }
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+  const dropdown = document.getElementById("myDropdown");
+  const sidebar = document.getElementById("sidebar");
+  const toggleSidebarBtn = document.getElementById("toggleSidebar");
+
+  let closeDropdownTimer;
+  let closeSidebarTimer;
+
+  function closeDropdown() {
+    if (dropdown.classList.contains("show")) {
+      dropdown.classList.remove("show");
+    }
+  }
+
+  function closeSidebar() {
+    if (!sidebar.classList.contains("hidden")) {
+      sidebar.classList.add("hidden");
+      toggleSidebarBtn.classList.remove("xbutton");
+      toggleSidebarBtn.innerText = "Menu";
+    }
+  }
+
+  dropdown.addEventListener("mouseleave", () => {
+    closeDropdownTimer = setTimeout(() => {
+      closeDropdown();
+    }, 2000);
+  });
+
+  dropdown.addEventListener("mouseenter", () => {
+    clearTimeout(closeDropdownTimer);
+  });
+
+  sidebar.addEventListener("mouseleave", () => {
+    closeSidebarTimer = setTimeout(() => {
+      closeSidebar();
+    }, 2000);
+  });
+
+  sidebar.addEventListener("mouseenter", () => {
+    clearTimeout(closeSidebarTimer);
+  });
+});
