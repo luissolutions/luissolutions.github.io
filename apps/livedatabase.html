@@ -106,7 +106,7 @@
 </body>
 
 <script type="module">
-    import { auth, onAuthStateChanged, storage, storageRef, getStorage, ref, uploadBytesResumable, getDownloadURL, database, set, remove, update, get, onValue, push } from "./assets/js/firebase-init.js";
+    import { auth, onAuthStateChanged, storage, storageRef, getStorage, ref, uploadBytesResumable, deleteObject, getDownloadURL, database, set, remove, update, get, onValue, push } from "./assets/js/firebase-init.js";
 
     let DATABASE_BASE_PATH = 'public';
 
@@ -155,15 +155,17 @@
     </table>`;
 
         const tbody = document.getElementById('inventory-body');
+
         Object.entries(entries).forEach(([category, components]) => {
             Object.entries(components).forEach(([component, items]) => {
                 Object.entries(items).forEach(([uniqueKey, data]) => {
-                    const imageUrl = data.imageUrl || './assets/img/default.png';
+                    const partName = data.part ? data.part.replace(/[^a-zA-Z0-9_-]/g, "_") : "Unnamed_Item";
 
                     const row = document.createElement('tr');
                     row.dataset.uniqueKey = uniqueKey;
                     row.dataset.category = category;
                     row.dataset.component = component;
+                    row.dataset.part = partName;
 
                     row.innerHTML = `
                     <td>${category}</td>
@@ -174,7 +176,7 @@
                     <td contenteditable="true" data-key="quantity">${data.quantity || 0}</td>
                     <td contenteditable="true" data-key="description">${data.description || ''}</td>
                     <td>
-                        <img src="${imageUrl}" width="50" height="50" style="cursor: pointer;">
+                        <img src="./assets/img/default.png" width="50" height="50" style="cursor: pointer;" data-part="${partName}">
                         <input type="file" class="image-upload" accept="image/*">
                     </td>
                     <td>
@@ -183,12 +185,38 @@
                 `;
 
                     tbody.appendChild(row);
+
+                    fetchImageForPart(category, component, partName, row);
                 });
             });
         });
 
         attachEventListeners();
         attachImageClickEvent();
+    }
+
+    async function fetchImageForPart(category, component, partName, row) {
+        const sanitizedPartName = partName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+        const storagePathBase = `share/inventory-files/${category}/${component}/${sanitizedPartName}`;
+
+        const possibleExtensions = ['png', 'jpg', 'jpeg', 'webp'];
+
+        for (let ext of possibleExtensions) {
+            const storagePath = `${storagePathBase}.${ext}`;
+            const fileReference = storageRef(storage, storagePath);
+
+            try {
+                const downloadURL = await getDownloadURL(fileReference);
+                row.querySelector('img').src = downloadURL;
+                return;
+            } catch (error) {
+                if (error.code !== 'storage/object-not-found') {
+                    console.error(`Error fetching image for ${sanitizedPartName}:`, error);
+                }
+            }
+        }
+
+        row.querySelector('img').src = "./assets/img/default.png";
     }
 
     function attachEventListeners() {
@@ -221,46 +249,97 @@
         update(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`), { [key]: value });
     }
 
-    function deleteEntry(row) {
+    async function deleteEntry(row) {
         const category = row.dataset.category;
         const component = row.dataset.component;
         const uniqueKey = row.dataset.uniqueKey;
+        const partName = row.dataset.part;
+
+        await deletePreviousImage(category, component, partName);
 
         remove(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`))
-            .then(() => row.remove());
+            .then(() => {
+                console.log(`Deleted entry: ${category} -> ${component} -> ${partName}`);
+                row.remove();
+            })
+            .catch(error => console.error("Error deleting entry:", error));
     }
 
-    function uploadImage(event) {
+    async function uploadImage(event) {
         const file = event.target.files[0];
         if (!file) return;
 
         const row = event.target.closest("tr");
         const category = row.dataset.category;
         const component = row.dataset.component;
-        const uniqueKey = row.dataset.uniqueKey;
+        const partName = row.dataset.part.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
 
-        if (!category || !component || !uniqueKey) {
+        if (!category || !component || !partName) {
             alert("Error: Missing entry information for image upload.");
-            console.error("Upload Error: Missing category, component, or uniqueKey.");
             return;
         }
 
-        console.log(`Uploading image for ${category} -> ${component} -> ${uniqueKey}`);
+        console.log(`Uploading new image for ${category} -> ${component} -> ${partName}`);
 
-        const fileExtension = file.name.split('.').pop();
-        const storagePath = `${DATABASE_BASE_PATH}/images/${category}/${component}/${uniqueKey}.${fileExtension}`;
+        const convertedFile = await convertToPng(file);
+
+        const storagePath = `share/inventory-files/${category}/${component}/${partName}.png`;
         const fileReference = storageRef(storage, storagePath);
 
-        uploadBytesResumable(fileReference, file)
-            .then(snapshot => getDownloadURL(snapshot.ref))
-            .then(downloadURL => {
-                const entryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`);
-                return update(entryRef, { imageUrl: downloadURL });
-            })
-            .then(() => {
-                loadDatabaseEntries();
-            })
-            .catch(error => console.error("Error uploading image:", error));
+        await deletePreviousImage(category, component, partName);
+
+        try {
+            await uploadBytesResumable(fileReference, convertedFile);
+            console.log(`Image uploaded successfully: ${storagePath}`);
+
+            fetchImageForPart(category, component, partName, row);
+        } catch (error) {
+            console.error("Error uploading image:", error);
+        }
+    }
+
+    async function convertToPng(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = function (event) {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = function () {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0);
+
+                    canvas.toBlob((blob) => {
+                        resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".png"), { type: "image/png" }));
+                    }, "image/png");
+                };
+            };
+        });
+    }
+
+    async function deletePreviousImage(category, component, partName) {
+        const storagePathBase = `share/inventory-files/${category}/${component}/${partName}`;
+        const possibleExtensions = ['png', 'jpg', 'jpeg', 'webp'];
+
+        for (let ext of possibleExtensions) {
+            const storagePath = `${storagePathBase}.${ext}`;
+            const fileReference = storageRef(storage, storagePath);
+
+            try {
+                await deleteObject(fileReference);
+                console.log(`Deleted old image: ${storagePath}`);
+                return;
+            } catch (error) {
+                if (error.code === 'storage/object-not-found') {
+                    console.warn(`Image not found for deletion: ${storagePath}`);
+                } else {
+                    console.error(`Error deleting previous image: ${error}`);
+                }
+            }
+        }
     }
 
     document.getElementById('save-data-button').addEventListener('click', async (event) => {
@@ -268,41 +347,26 @@
 
         const category = document.getElementById('category').value.trim();
         const component = document.getElementById('component').value.trim();
-        const part = document.getElementById('part').value.trim();
+        const partName = document.getElementById('part').value.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
         const price = parseFloat(document.getElementById('price').value) || 0;
         const actualPrice = parseFloat(document.getElementById('actualPrice').value) || 0;
         const quantity = parseInt(document.getElementById('quantity').value) || 0;
         const description = document.getElementById('description').value.trim();
         const imageFile = document.getElementById('imageInput').files[0];
 
-        if (!category || !component || !part) {
+        if (!category || !component || !partName) {
             alert("Category, Sub-Category, and Item Name are required.");
             return;
         }
 
         const uniqueKey = Date.now().toString();
         const inventoryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`);
-        let imageUrl = "./assets/img/default.png";
 
-        if (imageFile) {
-            const fileExtension = imageFile.name.split('.').pop();
-            const imageName = `${uniqueKey}.${fileExtension}`;
-            const storagePath = `${DATABASE_BASE_PATH}/images/${category}/${component}/${imageName}`;
-            const storageReference = storageRef(storage, storagePath);
-
-            try {
-                const snapshot = await uploadBytesResumable(storageReference, imageFile);
-                imageUrl = await getDownloadURL(snapshot.ref);
-            } catch (error) {
-                console.error("Error uploading image:", error);
-                alert("Failed to upload image. Saving item without an image.");
-            }
-        }
-
-        const newEntry = { part, price, actualPrice, quantity, description, imageUrl };
-
-        set(inventoryRef, newEntry)
-            .then(() => {
+        set(inventoryRef, { part: partName, price, actualPrice, quantity, description })
+            .then(async () => {
+                if (imageFile) {
+                    await uploadImageForNewEntry(imageFile, category, component, partName);
+                }
                 document.getElementById('category').value = "";
                 document.getElementById('component').value = "";
                 document.getElementById('part').value = "";
@@ -315,6 +379,20 @@
             })
             .catch((error) => console.error("Error saving item:", error));
     });
+
+    async function uploadImageForNewEntry(file, category, component, partName) {
+        const fileExtension = file.name.split('.').pop();
+        const sanitizedPartName = partName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+        const storagePath = `share/inventory-files/${category}/${component}/${sanitizedPartName}.${fileExtension}`;
+        const fileReference = storageRef(storage, storagePath);
+
+        try {
+            await uploadBytesResumable(fileReference, file);
+            console.log(`Image uploaded for ${sanitizedPartName}`);
+        } catch (error) {
+            console.error("Error uploading image:", error);
+        }
+    }
 
     function filterEntries() {
         const selectedCategory = document.getElementById('category-filter').value;
