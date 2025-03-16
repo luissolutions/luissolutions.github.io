@@ -167,26 +167,26 @@
                     row.dataset.component = component;
                     row.dataset.part = partName;
 
+                    const imageUrl = data.imageUrl ? data.imageUrl : "./assets/img/default.png";
+
                     row.innerHTML = `
-                    <td>${category}</td>
-                    <td>${component}</td>
-                    <td contenteditable="true" data-key="part">${data.part || "Unnamed Item"}</td>
-                    <td contenteditable="true" data-key="price">${data.price || 0}</td>
-                    <td contenteditable="true" data-key="actualPrice">${data.actualPrice || 0}</td>
-                    <td contenteditable="true" data-key="quantity">${data.quantity || 0}</td>
-                    <td contenteditable="true" data-key="description">${data.description || ''}</td>
-                    <td>
-                        <img src="./assets/img/default.png" width="50" height="50" style="cursor: pointer;" data-part="${partName}">
-                        <input type="file" class="image-upload" accept="image/*">
-                    </td>
-                    <td>
-                        <button class="delete-button">Delete</button>
-                    </td>
-                `;
+                <td>${category}</td>
+                <td>${component}</td>
+                <td contenteditable="true" data-key="part">${data.part || "Unnamed Item"}</td>
+                <td contenteditable="true" data-key="price">${data.price || 0}</td>
+                <td contenteditable="true" data-key="actualPrice">${data.actualPrice || 0}</td>
+                <td contenteditable="true" data-key="quantity">${data.quantity || 0}</td>
+                <td contenteditable="true" data-key="description">${data.description || ''}</td>
+                <td>
+                    <img src="${imageUrl}" width="50" height="50" style="cursor: pointer;" data-part="${partName}">
+                    <input type="file" class="image-upload" accept="image/*">
+                </td>
+                <td>
+                    <button class="delete-button">Delete</button>
+                </td>
+            `;
 
                     tbody.appendChild(row);
-
-                    fetchImageForPart(category, component, partName, row);
                 });
             });
         });
@@ -199,7 +199,7 @@
 
     async function fetchImageForPart(category, component, partName, row) {
         const sanitizedPartName = partName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
-        const storagePathBase = `share/inventory-files/${category}/${component}/${sanitizedPartName}`;
+        const storagePathBase = `share/inventory/${category}/${component}/${sanitizedPartName}`;
 
         if (imageCache[storagePathBase]) {
             row.querySelector('img').src = imageCache[storagePathBase];
@@ -214,7 +214,7 @@
 
             try {
                 const downloadURL = await getDownloadURL(fileReference);
-                imageCache[storagePathBase] = downloadURL; // Cache the image URL
+                imageCache[storagePathBase] = downloadURL;
                 row.querySelector('img').src = downloadURL;
                 return;
             } catch (error) {
@@ -255,7 +255,20 @@
         const component = row.dataset.component;
         const uniqueKey = row.dataset.uniqueKey;
 
-        update(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`), { [key]: value });
+        const selectedCategory = document.getElementById('category-filter').value;
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+
+        update(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`), { [key]: value })
+            .then(() => {
+                console.log(`Updated ${key} to "${value}" for ${category} -> ${component}`);
+
+                setTimeout(() => {
+                    document.getElementById('category-filter').value = selectedCategory;
+                    document.getElementById('search-input').value = searchTerm;
+                    filterEntries();
+                }, 100);
+            })
+            .catch(error => console.error("Error updating entry:", error));
     }
 
     async function deleteEntry(row) {
@@ -281,6 +294,21 @@
             .catch(error => console.error("Error deleting entry:", error));
     }
 
+    function filterEntries() {
+        const selectedCategory = document.getElementById('category-filter').value;
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+
+        document.querySelectorAll('#inventory-body tr').forEach(row => {
+            const category = row.children[0].innerText.trim();
+            const part = row.children[2].innerText.toLowerCase().trim();
+
+            const matchesCategory = selectedCategory === '' || category === selectedCategory;
+            const matchesSearch = searchTerm === '' || part.includes(searchTerm);
+
+            row.style.display = matchesCategory && matchesSearch ? '' : 'none';
+        });
+    }
+
     async function uploadImage(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -288,6 +316,7 @@
         const row = event.target.closest("tr");
         const category = row.dataset.category;
         const component = row.dataset.component;
+        const uniqueKey = row.dataset.uniqueKey;
         const partName = row.dataset.part.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
 
         if (!category || !component || !partName) {
@@ -297,18 +326,21 @@
 
         console.log(`Uploading new image for ${category} -> ${component} -> ${partName}`);
 
-        const convertedFile = await convertToPng(file);
-
-        const storagePath = `share/inventory-files/${category}/${component}/${partName}.png`;
+        const storagePath = `share/inventory/${category}/${component}/${partName}.png`;
         const fileReference = storageRef(storage, storagePath);
 
-        await deletePreviousImage(category, component, partName);
-
         try {
-            await uploadBytesResumable(fileReference, convertedFile);
-            console.log(`Image uploaded successfully: ${storagePath}`);
+            await deletePreviousImage(category, component, partName);
 
-            fetchImageForPart(category, component, partName, row);
+            const uploadTask = await uploadBytesResumable(fileReference, file);
+            const imageUrl = await getDownloadURL(uploadTask.ref);
+
+            await update(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`), {
+                imageUrl: imageUrl
+            });
+
+            row.querySelector("img").src = imageUrl;
+            console.log(`Image uploaded and URL saved: ${imageUrl}`);
         } catch (error) {
             console.error("Error uploading image:", error);
         }
@@ -342,7 +374,7 @@
     }
 
     async function deletePreviousImage(category, component, partName) {
-        const storagePathBase = `share/inventory-files/${category}/${component}/${partName}`;
+        const storagePathBase = `share/inventory/${category}/${component}/${partName}`;
         const possibleExtensions = ['png', 'jpg', 'jpeg', 'webp'];
 
         for (let ext of possibleExtensions) {
@@ -383,56 +415,63 @@
         const uniqueKey = Date.now().toString();
         const inventoryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`);
 
-        set(inventoryRef, { part: partName, price, actualPrice, quantity, description })
-            .then(async () => {
-                if (imageFile) {
-                    await uploadImageForNewEntry(imageFile, category, component, partName);
-                }
-                document.getElementById('category').value = "";
-                document.getElementById('component').value = "";
-                document.getElementById('part').value = "";
-                document.getElementById('price').value = "";
-                document.getElementById('actualPrice').value = "";
-                document.getElementById('quantity').value = "";
-                document.getElementById('description').value = "";
-                document.getElementById('imageInput').value = "";
+        let imageUrl = null;
+
+        if (imageFile) {
+            try {
+                imageUrl = await uploadImageForNewEntry(imageFile, category, component, partName);
+            } catch (error) {
+                console.error("Image upload failed:", error);
+                alert("Failed to upload image. Try again.");
+                return;
+            }
+        }
+
+        const itemData = {
+            part: partName,
+            price,
+            actualPrice,
+            quantity,
+            description,
+            imageUrl
+        };
+
+        set(inventoryRef, itemData)
+            .then(() => {
+                console.log("Item saved successfully:", itemData);
+                resetForm();
                 loadDatabaseEntries();
             })
-            .catch((error) => console.error("Error saving item:", error));
+            .catch(error => console.error("Error saving item:", error));
     });
+
+    function resetForm() {
+        document.getElementById('category').value = "";
+        document.getElementById('component').value = "";
+        document.getElementById('part').value = "";
+        document.getElementById('price').value = "";
+        document.getElementById('actualPrice').value = "";
+        document.getElementById('quantity').value = "";
+        document.getElementById('description').value = "";
+        document.getElementById('imageInput').value = "";
+    }
 
     async function uploadImageForNewEntry(file, category, component, partName) {
         const sanitizedPartName = partName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
-        const storagePath = `share/inventory-files/${category}/${component}/${sanitizedPartName}.png`;
+        const storagePath = `share/inventory/${category}/${component}/${sanitizedPartName}.png`;
         const fileReference = storageRef(storage, storagePath);
 
         await deletePreviousImage(category, component, sanitizedPartName);
-        delete imageCache[`share/inventory-files/${category}/${component}/${sanitizedPartName}`];
 
         try {
-            const convertedFile = await convertToPng(file);
-            await uploadBytesResumable(fileReference, convertedFile);
-            console.log(`Image uploaded successfully: ${storagePath}`);
-
-            imageCache[`share/inventory-files/${category}/${component}/${sanitizedPartName}`] = await getDownloadURL(fileReference);
+            const uploadTask = await uploadBytesResumable(fileReference, file);
+            const imageUrl = await getDownloadURL(uploadTask.ref);
+            console.log(`Image uploaded successfully: ${imageUrl}`);
+            return imageUrl;
         } catch (error) {
             console.error("Error uploading image:", error);
+            throw error;
         }
-    }
-
-    function filterEntries() {
-        const selectedCategory = document.getElementById('category-filter').value;
-        const searchTerm = document.getElementById('search-input').value.toLowerCase();
-
-        document.querySelectorAll('#inventory-body tr').forEach(row => {
-            const category = row.children[0].innerText;
-            const part = row.children[2].innerText.toLowerCase();
-
-            const matchesCategory = selectedCategory === '' || category === selectedCategory;
-            const matchesSearch = searchTerm === '' || part.includes(searchTerm);
-
-            row.style.display = matchesCategory && matchesSearch ? '' : 'none';
-        });
     }
 
     function attachImageClickEvent() {
@@ -454,7 +493,6 @@
 
     document.getElementById('category-filter').addEventListener('change', filterEntries);
     document.getElementById('search-input').addEventListener('input', filterEntries);
-
 </script>
 
 </html>

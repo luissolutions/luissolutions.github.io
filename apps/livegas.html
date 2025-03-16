@@ -115,7 +115,7 @@
         let DATABASE_BASE_PATH = 'public/gas';
 
         onAuthStateChanged(auth, (user) => {
-        DATABASE_BASE_PATH = user ? `${user.uid}/gas` : 'public/gas';
+            DATABASE_BASE_PATH = user ? `${user.uid}/gas` : 'public/gas';
             gasTracker.updateDatabasePath();
         });
 
@@ -170,15 +170,24 @@
             }
 
             async addGasData() {
-                const vehicle = document.getElementById('vehicle').value;
+                const vehicle = document.getElementById('vehicle').value.trim();
                 const date = document.getElementById('date').value;
                 const odometer = parseFloat(document.getElementById('odometer').value);
                 const volume = parseFloat(document.getElementById('volume').value);
                 const volumeUnit = document.getElementById('volume-unit').value;
                 const costPerUnit = parseFloat(document.getElementById('cost').value);
-                const location = document.getElementById('location').value;
-                const notes = document.getElementById('notes').value;
+                const location = document.getElementById('location').value.trim();
+                const notes = document.getElementById('notes').value.trim();
                 const imageFile = document.getElementById('image').files[0];
+
+                if (!vehicle || !date) {
+                    alert("Vehicle and Date are required.");
+                    return;
+                }
+
+                const sanitizedVehicle = vehicle.replace(/[^a-zA-Z0-9]/g, "_");
+                const sanitizedDate = date.replace(/[^0-9-]/g, "_");
+                const imageFileName = `${sanitizedVehicle}_${sanitizedDate}.jpg`;
 
                 const newEntry = {
                     vehicle,
@@ -197,12 +206,15 @@
 
                 if (imageFile) {
                     const resizedImageBlob = await this.resizeImage(imageFile, 1024);
+                    const imageRef = storageRef(this.storageRef, `share/gas/${imageFileName}`);
 
-                    const imageRef = storageRef(this.storageRef, `gasImages/${timestamp}`);
-                    await uploadBytes(imageRef, resizedImageBlob);
-                    const imageUrl = await getDownloadURL(imageRef);
-
-                    newEntry.imageUrl = imageUrl;
+                    try {
+                        await uploadBytes(imageRef, resizedImageBlob);
+                        const imageUrl = await getDownloadURL(imageRef);
+                        newEntry.imageUrl = imageUrl;
+                    } catch (error) {
+                        console.error("Error uploading image:", error);
+                    }
                 }
 
                 await set(ref(database, entryKey), newEntry);
@@ -334,6 +346,11 @@
 
             async handleImageAction(index) {
                 const data = this.gasData[index];
+
+                const sanitizedVehicle = data.vehicle.replace(/[^a-zA-Z0-9]/g, "_");
+                const sanitizedDate = data.date.replace(/[^0-9-]/g, "_");
+                const imageFileName = `${sanitizedVehicle}_${sanitizedDate}.jpg`;
+
                 const imageFile = document.createElement('input');
                 imageFile.type = 'file';
                 imageFile.accept = 'image/*';
@@ -341,7 +358,8 @@
                 imageFile.addEventListener('change', async () => {
                     const file = imageFile.files[0];
                     if (file) {
-                        const imageRef = storageRef(this.storageRef, `${data.key}`);
+                        const imageRef = storageRef(this.storageRef, `share/gas/${imageFileName}`);
+
                         await uploadBytes(imageRef, file);
                         const imageUrl = await getDownloadURL(imageRef);
 
@@ -378,24 +396,31 @@
                     return;
                 }
 
-                const keyToDelete = this.gasData[index].key;
-                const imageUrl = this.gasData[index].imageUrl;
+                const entryToDelete = this.gasData[index];
+                const keyToDelete = entryToDelete.key;
+                const imageUrl = entryToDelete.imageUrl;
 
                 if (imageUrl) {
                     try {
-                        const imageRef = storageRef(this.storageRef, `${keyToDelete}`);
+                        const imagePath = imageUrl.split('/o/')[1].split('?')[0];
+                        const decodedImagePath = decodeURIComponent(imagePath);
+                        const imageRef = storageRef(this.storageRef, decodedImagePath);
+
                         await deleteObject(imageRef);
-                        console.log('Image deleted successfully.');
+                        console.log('Image deleted successfully:', decodedImagePath);
                     } catch (error) {
                         console.error('Error deleting image:', error);
-                        alert('Failed to delete the associated image. Please try again.');
+                        if (error.code === 'storage/object-not-found') {
+                            console.warn('Image does not exist, skipping deletion.');
+                        } else {
+                            alert('Failed to delete the associated image. Please try again.');
+                            return;
+                        }
                     }
                 }
 
                 await remove(ref(database, `${DATABASE_BASE_PATH}/${keyToDelete}`));
-
                 this.gasData.splice(index, 1);
-
                 this.updateDisplayedData();
                 this.updateGasTable();
             }
