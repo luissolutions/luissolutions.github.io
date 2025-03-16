@@ -139,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function toggleSidebar() {
     sidebar.classList.toggle('hidden');
     toggleButton.classList.toggle('xbutton');
-    toggleButton.innerText = sidebar.classList.contains('hidden') ? "Sidebar" : "Close";
+    toggleButton.innerText = sidebar.classList.contains('hidden') ? "Menu" : "Close";
     contentItems.forEach(item => item.classList.toggle('visible', !sidebar.classList.contains('hidden')));
   }
 
