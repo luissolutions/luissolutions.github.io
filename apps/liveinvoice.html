@@ -637,60 +637,63 @@
 
         async function saveInvoice() {
             const projectInput = document.getElementById('invoice-number');
-            let invoiceId = projectInput.dataset.id;
+            let invoiceId = projectInput.dataset.id || projectInput.value.trim(); // Use ID if exists, otherwise project input
 
-            if (!invoiceId || invoiceId === "undefined") {
-                invoiceId = Date.now().toString();
-                projectInput.dataset.id = invoiceId;
+            if (!invoiceId) {
+                alert("Invoice ID is required.");
+                return;
             }
 
-            const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${invoiceId}`);
+            const invoiceType = document.getElementById('invoice-type').value;
+            const amountPaid = document.getElementById('amount-paid').value;
+            const startTime = document.getElementById('invoice-date').value;
 
-            const updates = {
+            const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => ({
+                category: row.dataset.category || '',
+                component: row.dataset.component || '',
+                part: row.dataset.part || '',
+                quantity: row.querySelector('input[name="part-quantity"]').value || 0,
+                price: row.querySelector('input[name="part-price"]').value || 0,
+                actualPrice: row.querySelector('input[name="part-actual-price"]').value || 0,
+                total: row.querySelector('input[name="part-total"]').value || 0,
+            }));
+
+            const laborData = Array.from(laborTableBody.querySelectorAll('tr')).map(row => ({
+                description: row.querySelector('input[name="labor-description"]').value.trim() || '',
+                hours: row.querySelector('input[name="labor-hours"]').value || 0,
+                rate: row.querySelector('input[name="labor-rate"]').value || 0,
+                total: row.querySelector('input[name="labor-total"]').value || 0,
+            }));
+
+            const newInvoiceData = {
+                id: invoiceId,
+                invoiceType,
                 invoiceTitle: document.getElementById('title-input').value,
-                invoiceType: document.getElementById('invoice-type').value,
                 customerName: document.getElementById('customer-name').value,
                 customerPhone: document.getElementById('customer-phone').value,
                 customerEmail: document.getElementById('customer-email').value,
                 customerAddress: document.getElementById('customer-address').value,
-                project: document.getElementById('invoice-number').value,
+                project: invoiceId,
                 notes: document.getElementById('notes').value,
-                amountPaid: parseFloat(document.getElementById('amount-paid').value) || 0,
-                taxPercent: parseFloat(document.getElementById('tax-percent').value) || 0,
-                subtotal: parseFloat(document.getElementById('subtotal').value) || 0,
-                taxAmount: parseFloat(document.getElementById('tax').value) || 0,
-                total: parseFloat(document.getElementById('total').value) || 0,
-                startTime: document.getElementById('invoice-date').value || "",
+                startTime,
+                parts: partsData,
+                labor: laborData,
+                subtotal: subtotalInput.value,
+                taxPercent: taxPercentInput.value,
+                taxAmount: taxInput.value,
+                total: totalInput.value,
+                amountPaid,
             };
 
-            const partsData = Array.from(document.querySelectorAll('.parts-table tbody tr')).map(row => ({
-                part: row.cells[0].textContent.trim(),
-                quantity: parseInt(row.cells[1].querySelector('input').value) || 0,
-                price: parseFloat(row.cells[2].querySelector('input').value) || 0,
-                actualPrice: parseFloat(row.cells[3].querySelector('input').value) || 0,
-                total: parseFloat(row.cells[4].querySelector('input').value) || 0
-            }));
-
-            if (partsData.length > 0) {
-                updates.parts = partsData;
-            }
-
-            const laborData = Array.from(document.querySelectorAll('.labor-table tbody tr')).map(row => ({
-                description: row.cells[0].querySelector('input').value,
-                hours: parseFloat(row.cells[1].querySelector('input').value) || 0,
-                rate: parseFloat(row.cells[2].querySelector('input').value) || 0,
-                total: parseFloat(row.cells[3].querySelector('input').value) || 0
-            }));
-
-            if (laborData.length > 0) {
-                updates.labor = laborData;
-            }
+            const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${invoiceId}`);
 
             try {
-                await update(invoiceRef, updates);
-                console.log('✅ Invoice updated successfully:', invoiceId);
+                await set(invoiceRef, newInvoiceData);
+                console.log(`Invoice ${invoiceId} saved/updated successfully.`);
+                clearInvoice();
+                populateInvoiceDropdown();
             } catch (error) {
-                console.error('❌ Error updating invoice:', error);
+                console.error("Error saving/updating invoice:", error);
             }
         }
 
@@ -724,7 +727,7 @@
             let part, price, actualPrice, category, component, quantity;
 
             if (partData) {
-                part = partData.part; // 🔹 Use "part" instead of "partName"
+                part = partData.part;
                 price = parseFloat(partData.price) || 0;
                 actualPrice = parseFloat(partData.actualPrice) || 0;
                 category = partData.category;
