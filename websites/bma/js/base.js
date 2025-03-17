@@ -54,20 +54,21 @@ function generateAppList(filterText = "") {
 }
 
 const appNamesMap = {
-  "Job Task Logging": { filename: "livetasker", tags: ["tasks", "log", "work"] },
   "Notes App": { filename: "livenotes", tags: ["notes", "writing", "journal"] },
+  "Job Task Logging": { filename: "livetasker", tags: ["tasks", "log", "work"] },
   "Gas Logging": { filename: "livegas", tags: ["fuel", "mileage", "gas", "log"] },
+  "Mileage Logging": { filename: "livemileage", tags: ["mileage", "miles", "trip"] },
   "Quote/Invoice Maker": { filename: "liveinvoice", tags: ["invoice", "billing", "quote", "finance"] },
   "Jobs Calendar": { filename: "liveschedule", tags: ["calendar", "appointments", "schedule"] },
   "Financial Logging": { filename: "livebudget", tags: ["budget", "money", "expenses", "finance"] },
   "View/Edit Database": { filename: "livedatabase", tags: ["database", "data", "records"] },
   "Favorites/Bookmarks": { filename: "livelinks", tags: ["bookmarks", "links", "favorites", "web"] },
+  "Quiz/Testing": { filename: "livelearn", tags: ["quiz", "test", "study", "exam", "learn"] },
   "Contacts": { filename: "livecontacts", tags: ["contacts", "phone", "address", "people"] },
   "Analytics": { filename: "liveanalytics", tags: ["analytics", "stats", "charts", "data"] },
-  "Quiz/Testing": { filename: "livelearn", tags: ["quiz", "test", "study", "exam", "learn"] },
   "Job Info": { filename: "livejob", tags: ["job", "info", "work", "tasks"] },
   "Jobs Gallery": { filename: "livegallery", tags: ["gallery", "photos", "images"] },
-  "Mileage Logging": { filename: "livemileage", tags: ["mileage", "miles", "trip"] },
+  "Job Task Viewer": { filename: "livejobviewer", tags: ["viewer", "tasks", "job", "log"] },
   "View/Edit Inventory": { filename: "liveinventory", tags: ["inventory", "stock", "items"] },
   "Password Generator": { filename: "password", tags: ["password", "security", "generator"] },
   "Conversion Calculator": { filename: "conversion", tags: ["conversion", "convert", "math"] },
@@ -75,7 +76,6 @@ const appNamesMap = {
   "Calculator": { filename: "calc", tags: ["calculator", "math", "numbers"] },
   "Wire Counter": { filename: "count", tags: ["count", "wires", "electrical"] },
   "Timer": { filename: "livetimer", tags: ["timer", "clock", "stopwatch"] },
-  "Job Task Viewer": { filename: "livejobviewer", tags: ["viewer", "tasks", "job", "log"] }
 };
 
 const appDisplayNames = Object.keys(appNamesMap);
