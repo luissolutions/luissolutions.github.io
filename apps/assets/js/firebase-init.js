@@ -1,7 +1,7 @@
 import { firebaseConfig } from "../../../assets/js/firebase-config.js";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
-import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, EmailAuthProvider, reauthenticateWithCredential, updatePassword, updateProfile, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+import { getAuth, onAuthStateChanged, initializeAuth, signOut, createUserWithEmailAndPassword, EmailAuthProvider, reauthenticateWithCredential, updatePassword, updateProfile, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 import {
   getDatabase, ref, onValue, set, get, off, remove, runTransaction, push, update, limitToLast, query
 } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
@@ -21,5 +21,5 @@ export {
   runTransaction, update, signOut, createUserWithEmailAndPassword, limitToLast, query,
   EmailAuthProvider, reauthenticateWithCredential, updatePassword, updateProfile,
   getStorage, storageRef, uploadBytes, getDownloadURL, listAll, signInWithEmailAndPassword,
-  uploadBytesResumable, deleteObject, getFunctions, httpsCallable
+  uploadBytesResumable, deleteObject, getFunctions, httpsCallable, initializeAuth
 };
