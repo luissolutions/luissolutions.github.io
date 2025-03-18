@@ -460,16 +460,24 @@
                 console.error('Error removing task:', error);
             });
         }
-
         function calculateTaskLength(task) {
             const startTime = new Date(task.startTime);
-            const endTime = new Date(task.endTime);
-            const lengthInSeconds = (endTime - startTime) / 1000;
+            const endTime = task.endTime ? new Date(task.endTime) : new Date();
+
+            const maxAllowedSeconds = 60 * 60 * 24 * 365 * 10;
+            let lengthInSeconds = (endTime - startTime) / 1000;
+
+            if (lengthInSeconds < 0) {
+                console.warn("⚠️ Future start time detected. Setting duration to 0.");
+                return "00:00:00 (0.00)";
+            } else if (lengthInSeconds > maxAllowedSeconds) {
+                console.warn("⚠️ Excessive time detected. Returning safe value.");
+                return "Too Long (10+ years)";
+            }
 
             const hours = Math.floor(lengthInSeconds / 3600);
             const minutes = Math.floor((lengthInSeconds % 3600) / 60);
             const seconds = Math.floor(lengthInSeconds % 60);
-
             const decimalHours = (lengthInSeconds / 3600).toFixed(2);
 
             return `${hours}:${minutes}:${seconds} (${decimalHours})`;
@@ -486,13 +494,26 @@
         }
 
         function updateCurrentTaskTime() {
-            if (currentTask) {
-                const length = calculateTaskLength({
-                    startTime: currentTask.startTime,
-                    endTime: new Date().toISOString()
-                });
-                currentTaskTimeDisplay.innerText = length;
+            if (!currentTask || !currentTask.startTime) return;
+
+            const startTime = new Date(currentTask.startTime);
+            const now = new Date();
+
+            const timeDifference = (now - startTime) / 1000;
+            const maxAllowedSeconds = 60 * 60 * 24 * 365 * 10;
+
+            if (timeDifference > maxAllowedSeconds) {
+                console.warn("⚠️ Skipping update due to excessive time difference.");
+                currentTaskTimeDisplay.innerText = "Too Long (10+ years)";
+                return;
             }
+
+            const taskLength = calculateTaskLength({
+                startTime: currentTask.startTime,
+                endTime: now.toISOString()
+            });
+
+            currentTaskTimeDisplay.innerText = taskLength;
         }
 
         function updateTotalHours() {

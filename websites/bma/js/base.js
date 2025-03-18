@@ -88,6 +88,20 @@ function setIframeSrc(appName) {
   if (app) {
     document.getElementById("myIframe").src = `../../apps/${app.filename}.html`;
     localStorage.setItem("lastUsedApp", appName);
+
+    const sidebar = document.getElementById("sidebar");
+    const toggleSidebarBtn = document.getElementById("toggleSidebar");
+
+    if (sidebar && !sidebar.classList.contains("hidden")) {
+      sidebar.classList.add("hidden");
+      toggleSidebarBtn.classList.remove("xbutton");
+      toggleSidebarBtn.innerText = "Menu";
+    }
+
+    const dropdown = document.getElementById("myDropdown");
+    if (dropdown && dropdown.classList.contains("show")) {
+      dropdown.classList.remove("show");
+    }
   }
 }
 
