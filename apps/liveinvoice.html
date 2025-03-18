@@ -263,6 +263,7 @@
 
             header {
                 height: auto;
+                z-index: 2;
             }
 
             body {
@@ -315,6 +316,39 @@
             flex-direction: column;
             padding: 10px;
         }
+
+        #sidebar {
+            position: fixed;
+            top: 0;
+            right: -300px;
+            width: 300px;
+            height: 100%;
+            background: white;
+            box-shadow: -2px 0 5px rgba(0, 0, 0, 0.5);
+            transition: right 0.3s ease-in-out;
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+        }
+
+        .sidebar-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #sidebar.open {
+            right: 0;
+        }
+
+        iframe {
+            height: 99vh;
+        }
+
+        header {
+            position: relative;
+            z-index: 100;
+        }
     </style>
     <script type="module" src="./assets/js/login.js" defer></script>
 </head>
@@ -340,6 +374,8 @@
             </form>
             <button id="logout" style="display: none;">Logout</button>
         </section>
+        <button id="menu-toggle" class="menu-button">Menu</button>
+
     </header>
     <main>
         <section>
@@ -460,6 +496,15 @@
                 <br>
             </form>
         </section>
+
+        <aside id="sidebar">
+            <div class="sidebar-content">
+                <iframe id="linkAppIframe" src="./livecontacts.html"></iframe>
+                <br>
+                <iframe id="chatAppIframe" src="./livedatabase.html"></iframe>
+            </div>
+        </aside>
+
     </main>
 
     <footer>
@@ -467,7 +512,7 @@
         <button id="deleteButton">Delete Data</button>
         <button id="exportButton">Export Data</button>
         <button type="button" id="print-button" class="action-btn" onClick="window.print();">Print Invoice</button>
-        <button id="reset-button" class="action-btn" onClick="window.location.reload();">Reset Layout</button>
+        <button id="reset-button" class="action-btn" onClick="clearInvoice();">Reset Layout</button>
     </footer>
 
     <script type="module">
@@ -551,6 +596,7 @@
                 }
 
                 partSubcategory.innerHTML = '<option value="">Select Subcategory</option>';
+                partSelector.innerHTML = '';
 
                 Object.keys(subcategories).forEach(subcategory => {
                     const option = document.createElement('option');
@@ -678,10 +724,7 @@
                 startTime,
                 parts: partsData,
                 labor: laborData,
-                subtotal: subtotalInput.value,
                 taxPercent: taxPercentInput.value,
-                taxAmount: taxInput.value,
-                total: totalInput.value,
                 amountPaid,
             };
 
@@ -958,14 +1001,21 @@
                     const invoices = snapshot.val();
 
                     Object.keys(invoices).forEach((project) => {
-                        const invoice = invoices[project];
-                        const customerName = invoice.customerName || 'Unknown';
-                        const startTime = invoice.startTime ? new Date(invoice.startTime).toLocaleDateString() : 'No Date';
+                        const sortedInvoices = Object.entries(invoices).sort((a, b) => {
+                            const dateA = new Date(a[1].startTime || 0);
+                            const dateB = new Date(b[1].startTime || 0);
+                            return dateB - dateA;
+                        });
 
-                        const option = document.createElement('option');
-                        option.value = project;
-                        option.textContent = `${customerName} - ${startTime}`;
-                        dropdown.appendChild(option);
+                        sortedInvoices.forEach(([project, invoice]) => {
+                            const customerName = invoice.customerName || 'Unknown';
+                            const startTime = invoice.startTime ? new Date(invoice.startTime).toLocaleDateString() : 'No Date';
+
+                            const option = document.createElement('option');
+                            option.value = project;
+                            option.textContent = `${customerName} - ${startTime}`;
+                            dropdown.appendChild(option);
+                        });
                     });
 
                     if (dropdown.options.length === 0) {
@@ -1059,9 +1109,14 @@
             get(invoiceRef).then((snapshot) => {
                 if (snapshot.exists()) {
                     const invoiceData = snapshot.val();
-                    console.log(`Loaded Invoice: ${invoiceData.id}`);
+                    console.log("Loaded Invoice Data:", invoiceData);
 
-                    document.getElementById('invoice-number').dataset.id = invoiceData.id || '';
+                    if (!invoiceData) {
+                        console.warn("Invoice data is empty.");
+                        return;
+                    }
+
+                    document.getElementById('invoice-number').dataset.id = invoiceData.id || selectedInvoiceNumber;
                     document.getElementById('invoice-type').value = invoiceData.invoiceType || 'invoice';
                     document.getElementById('title-input').value = invoiceData.invoiceTitle || '';
                     document.getElementById('customer-name').value = invoiceData.customerName || '';
@@ -1224,6 +1279,7 @@
                 'customer-address', 'invoice-date', 'invoice-number', 'notes']
                 .forEach(id => document.getElementById(id).value = '');
 
+            document.getElementById('invoice-number').dataset.id = '';
             document.querySelector('.parts-table tbody').innerHTML = '';
             document.querySelector('.labor-table tbody').innerHTML = '';
 
@@ -1236,6 +1292,10 @@
 
             localStorage.removeItem('inputData');
         }
+
+        document.getElementById('menu-toggle').addEventListener('click', function () {
+            document.getElementById('sidebar').classList.toggle('open');
+        });
     </script>
 </body>
 
