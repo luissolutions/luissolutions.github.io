@@ -1,11 +1,32 @@
 import { firebaseConfig } from "../../../assets/js/firebase-config.js";
-
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-auth.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-app.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 let currentUserUID = null;
+
+if (!window.authListenerAttached) {
+    window.authListenerAttached = true;
+
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            currentUserUID = user.uid;
+            localStorage.setItem("currentUserUID", currentUserUID);
+            document.getElementById('login-form').style.display = 'none';
+            document.getElementById('logout').style.display = 'flex';
+
+            console.log("Logged in as user:", user.email);
+        } else {
+            currentUserUID = null;
+            localStorage.removeItem("currentUserUID");
+            document.getElementById('login-form').style.display = 'flex';
+            document.getElementById('logout').style.display = 'none';
+
+            console.log("No user is logged in.");
+        }
+    });
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('login-form');
@@ -44,22 +65,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .catch((error) => {
                 console.log(`Error [${error.code}]: ${error.message}`);
             });
-    });
-
-    onAuthStateChanged(auth, (user) => {
-        if (user) {
-            currentUserUID = user.uid;
-            localStorage.setItem("currentUserUID", currentUserUID);
-            loginForm.style.display = 'none';
-            logoutButton.style.display = 'flex';
-            console.log("Logged in as user:", user.email);
-        } else {
-            currentUserUID = null;
-            localStorage.removeItem("currentUserUID");
-            loginForm.style.display = 'flex';
-            logoutButton.style.display = 'none';
-            console.log("No user is logged in.");
-        }
     });
 });
 
