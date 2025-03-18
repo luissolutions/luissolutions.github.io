@@ -90,21 +90,24 @@
     </main>
 
     <script type="module">
-        import { auth, onAuthStateChanged, database, ref, onValue, set, remove, get, runTransaction, update } from './assets/js/firebase-init.js';
+        import { auth, onAuthStateChanged, database, ref, onValue } from './assets/js/firebase-init.js';
 
         let DATABASE_BASE_PATH = 'public';
 
         onAuthStateChanged(auth, (user) => {
             DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
-            analyzeInvoiceData();
-            populateCustomerDropdown();
-            analyzeInventoryData();
+            setupRealTimeListeners();
         });
 
-        async function analyzeInventoryData() {
+        function setupRealTimeListeners() {
+            analyzeInvoiceData(); 
+            analyzeInventoryData();
+            populateCustomerDropdown();
+        }
+
+        function analyzeInventoryData() {
             const inventoryRef = ref(database, `${DATABASE_BASE_PATH}/inventory`);
-            try {
-                const snapshot = await get(inventoryRef);
+            onValue(inventoryRef, (snapshot) => {
                 if (snapshot.exists()) {
                     const inventory = snapshot.val();
                     let totalInventoryItems = 0;
@@ -121,18 +124,15 @@
 
                     document.getElementById('total-inventory-items').textContent = totalInventoryItems;
                     document.getElementById('total-items-in-stock').textContent = totalItemsInStock;
-                } else {
-                    console.error('No inventory data found.');
                 }
-            } catch (error) {
+            }, (error) => {
                 console.error('Error fetching inventory:', error);
-            }
+            });
         }
 
-        async function analyzeInvoiceData() {
-            const invoicesRef = ref(database, `${DATABASE_BASE_PATH}/tasks`); // Fixed
-            try {
-                const snapshot = await get(invoicesRef);
+        function analyzeInvoiceData() {
+            const invoicesRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+            onValue(invoicesRef, (snapshot) => {
                 if (snapshot.exists()) {
                     const invoices = snapshot.val();
                     let totalAmountPaid = 0;
@@ -185,18 +185,15 @@
                         li.textContent = `${partName}: ${partsSold[partName]} units`;
                         partsSoldList.appendChild(li);
                     });
-                } else {
-                    console.error('No invoice data found.');
                 }
-            } catch (error) {
+            }, (error) => {
                 console.error('Error fetching invoices:', error);
-            }
+            });
         }
 
-        async function populateCustomerDropdown() {
-            const invoicesRef = ref(database, `${DATABASE_BASE_PATH}/tasks`); // Fixed
-            try {
-                const snapshot = await get(invoicesRef);
+        function populateCustomerDropdown() {
+            const invoicesRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+            onValue(invoicesRef, (snapshot) => {
                 if (snapshot.exists()) {
                     const invoices = snapshot.val();
                     const customers = {};
@@ -239,12 +236,10 @@
 
                     window.customers = customers;
                     window.sortedCustomerNames = sortedCustomerNames;
-                } else {
-                    console.error('No invoice data found.');
                 }
-            } catch (error) {
+            }, (error) => {
                 console.error('Error fetching invoices:', error);
-            }
+            });
         }
 
         function updateCustomerDetails(customerName) {
@@ -294,26 +289,16 @@
         }
 
         document.getElementById('customer-search').addEventListener('input', function () {
-            const searchTerm = this.value;
-            filterCustomerList(searchTerm);
+            filterCustomerList(this.value);
         });
 
         document.getElementById('customer-dropdown').addEventListener('change', function () {
             const selectedCustomer = this.value;
-            if (selectedCustomer) {
-                updateCustomerDetails(selectedCustomer);
-            } else {
-                document.getElementById('customer-phone-numbers').innerHTML = '';
-                document.getElementById('customer-addresses').innerHTML = '';
-                document.getElementById('customer-emails').innerHTML = '';
-            }
+            updateCustomerDetails(selectedCustomer);
         });
 
-        document.addEventListener('DOMContentLoaded', () => {
-            analyzeInvoiceData();
-            populateCustomerDropdown();
-            analyzeInventoryData();
-        });
+        document.addEventListener('DOMContentLoaded', setupRealTimeListeners);
+
     </script>
 </body>
 
