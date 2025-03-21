@@ -6,7 +6,7 @@ import {
   getDatabase, ref, onValue, set, get, off, remove, runTransaction, push, update, limitToLast, query
 } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
 import {
-  getStorage, ref as storageRef, uploadBytes, getDownloadURL, listAll, uploadBytesResumable, deleteObject
+  getStorage, ref as storageRef, uploadBytes, getDownloadURL, listAll, uploadBytesResumable, deleteObject, updateMetadata
 } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-functions.js";
 
@@ -19,7 +19,7 @@ export {
   app, database, auth, storage,
   getAuth, onAuthStateChanged, getDatabase, ref, onValue, set, push, get, off, remove,
   runTransaction, update, signOut, createUserWithEmailAndPassword, limitToLast, query,
-  EmailAuthProvider, reauthenticateWithCredential, updatePassword, updateProfile,
+  EmailAuthProvider, reauthenticateWithCredential, updatePassword, updateProfile, updateMetadata,
   getStorage, storageRef, uploadBytes, getDownloadURL, listAll, signInWithEmailAndPassword,
   uploadBytesResumable, deleteObject, getFunctions, httpsCallable, initializeAuth
 };

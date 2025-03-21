@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Photo Upload & Show</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
+    <script type="module" src="./assets/js/login.js"></script>
+    <style>
+        input,
+        select,
+        button {
+            margin: 5px 0;
+        }
+
+        .thumbnail {
+            max-width: 150px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: transform 0.2s;
+            border-radius: 15px;
+
+        }
+
+        .thumbnail:hover {
+            transform: scale(1.1);
+            border-color: #555;
+        }
+
+        #gallery {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        #modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+        }
+
+        #modalContent {
+            position: relative;
+            background: #fff;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        #modalImage {
+            max-width: 90vw;
+            max-height: 80vh;
+            display: block;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Photo Labeler</h1>
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+            <button id="logout" style="display: none;">Logout</button>
+            <div class="ms" style="display: none;">
+                <button id="loginButton">Login to Microsoft</button>
+                <button id="logoutButton">Logout of Microsoft</button>
+            </div>
+        </section>
+    </header>
+
+    <h1>Photo Upload</h1>
+    <div id="uploadSection">
+        <input type="file" id="fileUploader" accept="image/*"><br>
+        <label for="imageNameInput">Image Name (optional):</label>
+        <input type="text" id="imageNameInput" placeholder="Enter image name"><br>
+        <label for="imageLabel">Folder Label (optional):</label>
+        <input type="text" id="imageLabel" placeholder="Enter folder label"><br>
+        <label for="markupTextInput">Markup Text (optional):</label>
+        <input type="text" id="markupTextInput" placeholder="Enter markup text"><br>
+        <button id="uploadButton">Upload Image</button>
+        <button id="clearFields">clear</button>
+
+    </div>
+
+    <hr>
+
+    <h1>Show Images</h1>
+    <div id="showSection">
+        <label for="folderDropdown">Select Folder:</label>
+        <select id="folderDropdown">
+            <option value="">-- Select a Folder --</option>
+        </select>
+        <div id="gallery"></div>
+    </div>
+
+    <!-- Modal for viewing, downloading & deleting an image -->
+    <div id="modal">
+        <div id="modalContent">
+            <img id="modalImage" src="" alt="Large View">
+            <br>
+            <button id="downloadButton">Download</button>
+            <button id="deleteButton">Delete</button>
+            <button id="closeModalButton">Close</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import {
+            storage,
+            storageRef,
+            uploadBytesResumable,
+            getDownloadURL,
+            listAll,
+            deleteObject,
+            onAuthStateChanged,
+            auth
+        } from './assets/js/firebase-init.js';
+
+        let DATABASE_BASE_PATH = 'public';
+        onAuthStateChanged(auth, (user) => {
+            DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
+            loadFolderOptions();
+        });
+
+        const fileUploader = document.getElementById('fileUploader');
+        const imageLabel = document.getElementById('imageLabel');
+        const imageNameInput = document.getElementById('imageNameInput');
+        const markupTextInput = document.getElementById('markupTextInput');
+        const uploadButton = document.getElementById('uploadButton');
+
+        uploadButton.addEventListener('click', async () => {
+            try {
+                const files = fileUploader.files;
+                if (!files.length) {
+                    alert('Please select an image.');
+                    return;
+                }
+                const file = files[0];
+                const folder = imageLabel.value.trim() || "default";
+                let imageName = imageNameInput.value.trim() || file.name.split('.').slice(0, -1).join('.');
+                const fileExtension = file.name.split('.').pop();
+                const markupText = markupTextInput.value.trim();
+                const finalFileName = markupText ? `${imageName}_markup.${fileExtension}` : `${imageName}.${fileExtension}`;
+
+                let imageBlob = await resizeImage(file, 1024);
+                if (markupText) {
+                    imageBlob = await addTextToImage(imageBlob, markupText);
+                }
+
+                const storagePath = `${DATABASE_BASE_PATH}/images/${folder}/${finalFileName}`;
+                await uploadToFirebase(imageBlob, storagePath);
+                localStorage.setItem('lastUploadedFolder', folder);
+
+                alert("Image uploaded successfully!");
+                loadFolderOptions();
+
+            } catch (error) {
+                console.error("Error uploading image:", error);
+                alert("Failed to upload image. Please try again.");
+            }
+            clearUploadFields();
+        });
+
+        async function loadFolderOptions() {
+            folderDropdown.innerHTML = '<option value="">-- Select a Folder --</option>';
+
+            const baseRef = storageRef(storage, `${DATABASE_BASE_PATH}/images`);
+            try {
+                const snapshot = await listAll(baseRef);
+                const folderNames = new Set();
+
+                for (const folder of snapshot.prefixes) {
+                    folderNames.add(folder.name);
+                }
+
+                folderNames.forEach(folderName => {
+                    const option = document.createElement('option');
+                    option.value = folderName;
+                    option.textContent = folderName;
+                    folderDropdown.appendChild(option);
+                });
+
+                const lastUploadedFolder = localStorage.getItem('lastUploadedFolder');
+                if (lastUploadedFolder && folderNames.has(lastUploadedFolder)) {
+                    folderDropdown.value = lastUploadedFolder;
+                    await loadImages(lastUploadedFolder);
+                }
+            } catch (error) {
+                console.error("Error loading folders:", error);
+            }
+        }
+
+        function resizeImage(file, maxWidth) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const img = new Image();
+                    img.src = reader.result;
+                    img.onload = () => {
+                        let width = img.width;
+                        let height = img.height;
+                        if (width > maxWidth) {
+                            height = height * (maxWidth / width);
+                            width = maxWidth;
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        canvas.toBlob(resolve, file.type);
+                    };
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function addTextToImage(blob, text) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const img = new Image();
+                    img.src = reader.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = img.width;
+                        canvas.height = img.height + 50;
+                        ctx.drawImage(img, 0, 0);
+                        ctx.fillStyle = 'white';
+                        ctx.font = '20px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(text, canvas.width / 2, canvas.height - 20);
+                        canvas.toBlob(resolve, 'image/jpeg');
+                    };
+                };
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        async function uploadToFirebase(blob, storagePath) {
+            const imageRef = storageRef(storage, storagePath);
+            const uploadTask = uploadBytesResumable(imageRef, blob);
+            return new Promise((resolve, reject) => {
+                uploadTask.on('state_changed', null, reject, async () => {
+                    resolve(await getDownloadURL(imageRef));
+                });
+            });
+        }
+
+        const folderDropdown = document.getElementById('folderDropdown');
+        const gallery = document.getElementById('gallery');
+
+        folderDropdown.addEventListener('change', async () => {
+            const folder = folderDropdown.value;
+            if (folder) {
+                await loadImages(folder);
+            } else {
+                gallery.innerHTML = '';
+            }
+        });
+
+        async function loadImages(folder) {
+            gallery.innerHTML = '';
+            const folderRef = storageRef(storage, `${DATABASE_BASE_PATH}/images/${folder}`);
+            try {
+                const folderSnapshot = await listAll(folderRef);
+                for (const item of folderSnapshot.items) {
+                    const imageUrl = await getDownloadURL(item);
+                    const img = document.createElement('img');
+                    img.src = imageUrl;
+                    img.className = 'thumbnail';
+                    img.dataset.fullPath = item.fullPath;
+                    img.addEventListener('click', () => openModal(imageUrl, item.fullPath));
+                    gallery.appendChild(img);
+                }
+            } catch (error) {
+                console.error("Error loading images:", error);
+                alert("Failed to load images.");
+            }
+        }
+
+        const modal = document.getElementById('modal');
+        const modalImage = document.getElementById('modalImage');
+        const downloadButton = document.getElementById('downloadButton');
+        const deleteButton = document.getElementById('deleteButton');
+        const closeModalButton = document.getElementById('closeModalButton');
+
+        function openModal(imageUrl, fullPath) {
+            modal.style.display = 'flex';
+            modalImage.src = imageUrl;
+            modal.dataset.fullPath = fullPath;
+            downloadButton.onclick = () => downloadImage(imageUrl);
+        }
+
+        closeModalButton.addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+
+        deleteButton.addEventListener('click', async () => {
+            const confirmDelete = confirm("Are you sure you want to delete this image?");
+            if (!confirmDelete) return;
+            const fullPath = modal.dataset.fullPath;
+            if (!fullPath) {
+                alert("Error: Image path not available.");
+                return;
+            }
+            try {
+                const imageRef = storageRef(storage, fullPath);
+                await deleteObject(imageRef);
+                modal.style.display = 'none';
+                const folder = folderDropdown.value;
+                if (folder) {
+                    await loadImages(folder);
+                }
+            } catch (error) {
+                console.error("Error deleting image:", error);
+                alert("Failed to delete image.");
+            }
+        });
+
+        function downloadImage(url) {
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = url.substring(url.lastIndexOf('/') + 1);
+            link.click();
+        }
+
+        function clearUploadFields() {
+            document.getElementById('fileUploader').value = "";
+            document.getElementById('imageLabel').value = "";
+            document.getElementById('imageNameInput').value = "";
+            document.getElementById('markupTextInput').value = "";
+        }
+
+        document.getElementById('clearFields').addEventListener('click', clearUploadFields);
+
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+
+    </script>
+</body>
+
+</html>
