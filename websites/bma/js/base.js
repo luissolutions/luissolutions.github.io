@@ -67,7 +67,7 @@ const appNamesMap = {
   "Contacts": { filename: "livecontacts", tags: ["contacts", "phone", "address", "people"] },
   "Analytics": { filename: "liveanalytics", tags: ["analytics", "stats", "charts", "data"] },
   "Job Info": { filename: "livejob", tags: ["job", "info", "work", "tasks"] },
-  "Jobs Gallery": { filename: "livegallery", tags: ["gallery", "photos", "images"] },
+  "Jobs Gallery": { filename: "liveimagegallery", tags: ["gallery", "photos", "images"] },
   "Job Task Viewer": { filename: "livejobviewer", tags: ["viewer", "tasks", "job", "log"] },
   "View/Edit Inventory": { filename: "liveinventory", tags: ["inventory", "stock", "items"] },
   "Password Generator": { filename: "password", tags: ["password", "security", "generator"] },
