@@ -8,24 +8,21 @@
     <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
     <script type="module" src="./assets/js/login.js"></script>
     <style>
-        input,
-        select,
-        button {
-            margin: 5px 0;
-        }
-
         .thumbnail {
             max-width: 150px;
-            margin: 5px;
             cursor: pointer;
-            border-radius: 5px;
-            transition: transform 0.2s;
             border-radius: 15px;
-
+            transition: transform 0.2s;
+            width: 100%;
         }
 
         .thumbnail:hover {
             transform: scale(1.1);
+        }
+
+        .thumbnailItem {
+            text-align: center;
+            margin: 5px;
         }
 
         #gallery {
@@ -33,7 +30,7 @@
             flex-wrap: wrap;
             gap: 10px;
             margin-top: 10px;
-            justify-content: center
+            justify-content: center;
         }
 
         #modal {
@@ -61,6 +58,13 @@
             display: block;
             margin-bottom: 10px;
         }
+
+        #modalFileName {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        }
     </style>
 </head>
 
@@ -84,40 +88,48 @@
             </div>
         </section>
     </header>
+    <main>
+        <h1>Photo Upload</h1>
+        <div id="uploadSection">
+            <input type="file" id="fileUploader" accept="image/*"><br>
+            <label for="imageNameInput">Image Name:</label>
+            <input type="text" id="imageNameInput" placeholder="Enter image name"><br>
+            <label for="imageLabel">Folder Name:</label>
+            <input type="text" id="imageLabel" placeholder="Enter folder label"><br>
+            <label for="markupTextInput">Markup Text:</label>
+            <input type="text" id="markupTextInput" placeholder="Enter markup text"><br>
+            <button id="uploadButton">Upload Image</button>
+            <button id="clearFields" style="display: none;">clear</button>
+        </div>
 
-    <h1>Photo Upload</h1>
-    <div id="uploadSection">
-        <input type="file" id="fileUploader" accept="image/*"><br>
-        <label for="imageNameInput">Image Name (optional):</label>
-        <input type="text" id="imageNameInput" placeholder="Enter image name"><br>
-        <label for="imageLabel">Folder Label (optional):</label>
-        <input type="text" id="imageLabel" placeholder="Enter folder label"><br>
-        <label for="markupTextInput">Markup Text (optional):</label>
-        <input type="text" id="markupTextInput" placeholder="Enter markup text"><br>
-        <button id="uploadButton">Upload Image</button>
-        <button id="clearFields">clear</button>
+        <hr>
 
-    </div>
+        <h1>Show Images</h1>
+        <div id="showSection">
+            <label for="folderDropdown">Select a Folder:</label>
+            <select id="folderDropdown">
+                <option value="">-- Select a Folder --</option>
+            </select>
+            <label for="imageDropdown">Select an Image:</label>
+            <select id="imageDropdown">
+                <option value="">-- Select an Image --</option>
+            </select>
 
-    <hr>
+            <div id="gallery"></div>
+        </div>
+    </main>
 
-    <h1>Show Images</h1>
-    <div id="showSection">
-        <label for="folderDropdown">Select Folder:</label>
-        <select id="folderDropdown">
-            <option value="">-- Select a Folder --</option>
-        </select>
-        <div id="gallery"></div>
-    </div>
-
-    <!-- Modal for viewing, downloading & deleting an image -->
     <div id="modal">
         <div id="modalContent">
             <img id="modalImage" src="" alt="Large View">
-            <br>
+            <p id="modalFileName"></p>
             <button id="downloadButton">Download</button>
             <button id="deleteButton">Delete</button>
             <button id="closeModalButton">Close</button>
+            <button id="moveButton">Move Photo</button>
+            <br>
+            <label for="moveToFolder">To Folder:</label>
+            <select id="moveToFolder"></select>
         </div>
     </div>
 
@@ -130,7 +142,7 @@
             listAll,
             deleteObject,
             onAuthStateChanged,
-            auth
+            auth, getBlob, uploadBytes
         } from './assets/js/firebase-init.js';
 
         let DATABASE_BASE_PATH = 'public';
@@ -144,6 +156,8 @@
         const imageNameInput = document.getElementById('imageNameInput');
         const markupTextInput = document.getElementById('markupTextInput');
         const uploadButton = document.getElementById('uploadButton');
+        const folderDropdown = document.getElementById('folderDropdown');
+        const gallery = document.getElementById('gallery');
 
         function sanitizeInput(input) {
             return input
@@ -187,6 +201,7 @@
 
         async function loadFolderOptions() {
             folderDropdown.innerHTML = '<option value="">-- Select a Folder --</option>';
+            moveToFolder.innerHTML = '<option value="">-- Select Destination --</option>';
 
             const baseRef = storageRef(storage, `${DATABASE_BASE_PATH}/images`);
             try {
@@ -202,6 +217,9 @@
                     option.value = folderName;
                     option.textContent = folderName;
                     folderDropdown.appendChild(option);
+
+                    const moveOption = option.cloneNode(true);
+                    moveToFolder.appendChild(moveOption);
                 });
 
                 const lastUploadedFolder = localStorage.getItem('lastUploadedFolder');
@@ -272,9 +290,6 @@
             });
         }
 
-        const folderDropdown = document.getElementById('folderDropdown');
-        const gallery = document.getElementById('gallery');
-
         folderDropdown.addEventListener('change', async () => {
             const folder = folderDropdown.value;
             if (folder) {
@@ -287,16 +302,37 @@
         async function loadImages(folder) {
             gallery.innerHTML = '';
             const folderRef = storageRef(storage, `${DATABASE_BASE_PATH}/images/${folder}`);
+            const imageDropdown = document.getElementById('imageDropdown');
+            imageDropdown.innerHTML = '<option value="">-- Select an Image --</option>'; // Clear previous items
+
             try {
                 const folderSnapshot = await listAll(folderRef);
                 for (const item of folderSnapshot.items) {
                     const imageUrl = await getDownloadURL(item);
+                    const container = document.createElement('div');
+                    container.className = 'thumbnailItem';
+
                     const img = document.createElement('img');
                     img.src = imageUrl;
                     img.className = 'thumbnail';
                     img.dataset.fullPath = item.fullPath;
-                    img.addEventListener('click', () => openModal(imageUrl, item.fullPath));
-                    gallery.appendChild(img);
+                    img.addEventListener('click', () => openModal(imageUrl, item.fullPath, item.name));
+
+                    const caption = document.createElement('p');
+                    caption.textContent = item.name;
+                    caption.style.fontSize = '14px';
+                    caption.style.margin = '0';
+
+                    container.appendChild(img);
+                    container.appendChild(caption);
+                    gallery.appendChild(container);
+
+                    const option = document.createElement('option');
+                    option.value = imageUrl;
+                    option.textContent = item.name;
+                    option.dataset.fullPath = item.fullPath;
+                    imageDropdown.appendChild(option);
+
                 }
             } catch (error) {
                 console.error("Error loading images:", error);
@@ -304,16 +340,30 @@
             }
         }
 
+        imageDropdown.addEventListener('change', () => {
+            const selectedOption = imageDropdown.options[imageDropdown.selectedIndex];
+            const imageUrl = selectedOption.value;
+            const fileName = selectedOption.textContent;
+            const fullPath = selectedOption.dataset.fullPath;
+            if (imageUrl && fullPath && fileName) {
+                openModal(imageUrl, fullPath, fileName);
+            }
+        });
+
         const modal = document.getElementById('modal');
         const modalImage = document.getElementById('modalImage');
         const downloadButton = document.getElementById('downloadButton');
         const deleteButton = document.getElementById('deleteButton');
         const closeModalButton = document.getElementById('closeModalButton');
+        const modalFileName = document.createElement('p');
+        modalFileName.id = 'modalFileName';
+        document.getElementById('modalContent').insertBefore(modalFileName, downloadButton);
 
-        function openModal(imageUrl, fullPath) {
+        function openModal(imageUrl, fullPath, fileName) {
             modal.style.display = 'flex';
             modalImage.src = imageUrl;
             modal.dataset.fullPath = fullPath;
+            modalFileName.textContent = fileName;
             downloadButton.onclick = () => downloadImage(imageUrl);
         }
 
@@ -365,6 +415,54 @@
                 modal.style.display = 'none';
             }
         });
+
+        const moveButton = document.getElementById('moveButton');
+        const moveToFolder = document.getElementById('moveToFolder');
+
+        moveButton.addEventListener('click', async () => {
+            const fullPath = modal.dataset.fullPath;
+            const fileName = modalFileName.textContent;
+            const toFolder = moveToFolder.value;
+
+            if (!fullPath || !fileName || !toFolder) {
+                alert("Missing image or destination folder.");
+                return;
+            }
+
+            const fromRef = storageRef(storage, fullPath);
+            const toPath = `${DATABASE_BASE_PATH}/images/${toFolder}/${fileName}`;
+            const toRef = storageRef(storage, toPath);
+
+            try {
+                const blob = await getBlob(fromRef);
+                await uploadBytes(toRef, blob);
+                await deleteObject(fromRef);
+                alert(`Moved "${fileName}" to "${toFolder}"`);
+                modal.style.display = 'none';
+                await loadImages(folderDropdown.value);
+            } catch (error) {
+                console.error("Error moving file:", error);
+                alert("Failed to move image.");
+            }
+        });
+
+
+        function populateSubfolders(subfolders, selectedFolder) {
+            elements.folderSelect.innerHTML = '';
+            moveToFolder.innerHTML = '<option value="">-- Select Destination --</option>';
+
+            subfolders.forEach(folder => {
+                const option1 = document.createElement('option');
+                const option2 = document.createElement('option');
+                option1.value = option2.value = folder.folderName;
+                option1.textContent = option2.textContent = folder.displayText;
+                elements.folderSelect.appendChild(option1);
+                moveToFolder.appendChild(option2);
+            });
+
+            elements.folderSelect.value = selectedFolder;
+            loadImagesFromSubfolder(selectedFolder);
+        }
 
     </script>
 </body>
