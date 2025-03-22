@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Firebase Database Viewer</title>
     <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
+    <script type="module" src="./assets/js/login.js"></script>
 
     <style>
         section {
@@ -65,7 +66,7 @@
 <body>
     <header>
         <h1>Firebase Data</h1>
-        <section style="display: none;" id="login-section">
+        <section id="login-section">
             <form id="login-form">
                 <label for="username">Email:</label>
                 <input type="email" id="username" required>
@@ -101,15 +102,25 @@
 
     </main>
     <script type="module">
-        import {
-            auth, getAuth, onAuthStateChanged, getDatabase, ref, onValue, update, storage,
-            storageRef, listAll, getBlob, uploadBytes, deleteObject, getBytes
-        } from './assets/js/firebase-init.js';
+        import { auth, onAuthStateChanged, database, getDatabase, ref, set, get, push, onValue, remove, update, uploadBytesResumable, getDownloadURL, deleteObject, listAll, getStorage, storageRef, storage } from './assets/js/firebase-init.js';
 
         const outputTable = document.getElementById('output');
         const fromDropdown = document.getElementById('fromFolderDropdown');
         const toDropdown = document.getElementById('toFolderDropdown');
         const moveButton = document.getElementById('moveImageButton');
+
+        let DATABASE_BASE_PATH = 'public';
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                DATABASE_BASE_PATH = user.uid;
+            } else {
+                DATABASE_BASE_PATH = 'public';
+            }
+
+            tryLoadPath('/', () => { });
+            tryLoadPath(`/${DATABASE_BASE_PATH}`, () => { });
+        });
 
         async function getAllFolders(startRef, base = '') {
             const folders = [];
@@ -307,26 +318,6 @@
                     if (nestedContent) {
                         nestedContent.classList.toggle('collapsed');
                     }
-                }
-            });
-
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    console.log(`Signed in: ${user.email}`);
-
-                    let dataLoaded = false;
-
-                    tryLoadPath('/', () => dataLoaded = true);
-                    tryLoadPath('/share', () => dataLoaded = true);
-                    tryLoadPath(`/${user.uid}`, () => dataLoaded = true);
-
-                    setTimeout(() => {
-                        if (!dataLoaded) {
-                            outputTable.innerHTML = '<p>No accessible data available.</p>';
-                        }
-                    }, 1000);
-                } else {
-                    console.log('No user is signed in.');
                 }
             });
         });
