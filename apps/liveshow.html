@@ -74,14 +74,122 @@
             <button id="logout" style="display: none;">Logout</button>
         </section>
     </header>
-    <section>
-        <table id="output"></table>
-    </section>
+    <main>
+        <section>
+            <table id="output"></table>
+        </section>
+
+        <section id="move-image-section">
+            <h3>Move Image</h3>
+            <label>From Folder:</label>
+            <select id="fromFolderDropdown">
+                <option value="">-- Select a folder --</option>
+            </select>
+
+            <label>To Folder:</label>
+            <select id="toFolderDropdown">
+                <option value="">-- Select a folder --</option>
+            </select>
+
+            <button id="moveImageButton">Move Image</button>
+        </section>
+
+
+    </main>
     <script type="module">
-        import { auth, getAuth, onAuthStateChanged, getDatabase, ref, onValue, update } from './assets/js/firebase-init.js';
+        import {
+            auth, getAuth, onAuthStateChanged, getDatabase, ref, onValue, update, storage,
+            storageRef, listAll, getBlob, uploadBytes, deleteObject, getBytes 
+        } from './assets/js/firebase-init.js';
 
         const outputTable = document.getElementById('output');
-        const auth = getAuth();
+        const fromDropdown = document.getElementById('fromFolderDropdown');
+        const toDropdown = document.getElementById('toFolderDropdown');
+        const moveButton = document.getElementById('moveImageButton');
+
+        async function getAllFolders(startRef, base = '') {
+            const folders = [];
+
+            async function recurse(currentRef, pathSoFar) {
+                const result = await listAll(currentRef);
+                for (const prefix of result.prefixes) {
+                    const folderPath = pathSoFar ? `${pathSoFar}/${prefix.name}` : prefix.name;
+                    folders.push(folderPath);
+                    await recurse(prefix, folderPath);
+                }
+            }
+
+            await recurse(startRef, base);
+            return folders;
+        }
+
+        async function populateFolderDropdowns() {
+            const startRef = storageRef(storage, '');
+
+            try {
+                const folders = await getAllFolders(startRef, '');
+
+                fromDropdown.innerHTML = '<option value="">-- Select a folder --</option>';
+                toDropdown.innerHTML = '<option value="">-- Select a folder --</option>';
+
+                folders.forEach(folder => {
+                    const option1 = document.createElement('option');
+                    option1.value = folder;
+                    option1.textContent = folder;
+                    fromDropdown.appendChild(option1);
+
+                    const option2 = option1.cloneNode(true);
+                    toDropdown.appendChild(option2);
+                });
+
+            } catch (err) {
+                console.error("Failed to get folders:", err);
+                alert("Unable to load folders.");
+            }
+        }
+
+        moveButton.addEventListener('click', async () => {
+            const fromFolder = fromDropdown.value.trim();
+            const toFolder = toDropdown.value.trim();
+
+            if (!fromFolder || !toFolder) {
+                alert("Both folders must be selected.");
+                return;
+            }
+
+            if (fromFolder === toFolder) {
+                alert("From and To folders cannot be the same.");
+                return;
+            }
+
+            const fromRef = storageRef(storage, fromFolder);
+
+            try {
+                const listResult = await listAll(fromRef);
+                if (listResult.items.length === 0) {
+                    alert("No images found in the selected folder.");
+                    return;
+                }
+
+                let movedCount = 0;
+                for (const item of listResult.items) {
+                    try {
+                        const blob = await getBytes(item);
+                        const toRef = storageRef(storage, `${toFolder}/${item.name}`);
+                        await uploadBytes(toRef, blob);
+                        await deleteObject(item);
+                        movedCount++;
+                    } catch (moveError) {
+                        console.warn(`Failed to move ${item.name}:`, moveError);
+                    }
+                }
+
+                alert(`Successfully moved ${movedCount} image(s) from "${fromFolder}" to "${toFolder}".`);
+            } catch (err) {
+                console.error("Error listing or moving images:", err);
+                alert("Failed to move images. Check console for more details.");
+            }
+        });
 
         function displayData(data, table, path = '/') {
             if (typeof data !== 'object' || data === null) {
@@ -150,7 +258,7 @@
                     deleteButton.addEventListener('click', () => {
                         if (confirm(`Are you sure you want to delete ${key}?`)) {
                             const updates = {};
-                            updates[currentPath] = null; // Setting the value to null deletes the key
+                            updates[currentPath] = null;
                             update(ref(getDatabase()), updates);
                         }
                     });
@@ -163,7 +271,27 @@
             });
         }
 
+        function tryLoadPath(path, onDataLoaded) {
+            const databaseRef = ref(getDatabase(), path);
+            onValue(databaseRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    outputTable.innerHTML = '';
+                    displayData(data, outputTable, path);
+                    onDataLoaded();
+                } else {
+                    console.log(`No data available at path: ${path}`);
+                }
+            }, {
+                onError: (error) => {
+                    console.log(`Error reading path ${path}: ${error.message}`);
+                }
+            });
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            populateFolderDropdowns();
+
             outputTable.addEventListener('click', function (event) {
                 if (event.target.classList.contains('collapsible')) {
                     const nestedContent = event.target.nextElementSibling;
@@ -179,50 +307,21 @@
 
                     let dataLoaded = false;
 
-                    // Attempt to load the root
-                    tryLoadPath('/', () => {
-                        dataLoaded = true;
-                    });
+                    tryLoadPath('/', () => dataLoaded = true);
+                    tryLoadPath('/share', () => dataLoaded = true);
+                    tryLoadPath(`/${user.uid}`, () => dataLoaded = true);
 
-                    // Attempt to load /share
-                    tryLoadPath('/share', () => {
-                        dataLoaded = true;
-                    });
-
-                    // Attempt to load user's own data
-                    tryLoadPath(`/${user.uid}`, () => {
-                        dataLoaded = true;
-                    });
-
-                    // If nothing is loaded, display a message
                     setTimeout(() => {
                         if (!dataLoaded) {
                             outputTable.innerHTML = '<p>No accessible data available.</p>';
                         }
-                    }, 1000); // Adjust delay as needed
+                    }, 1000);
                 } else {
                     console.log('No user is signed in.');
                 }
             });
-
-            function tryLoadPath(path, onDataLoaded) {
-                const databaseRef = ref(getDatabase(), path);
-                onValue(databaseRef, (snapshot) => {
-                    const data = snapshot.val();
-                    if (data) {
-                        outputTable.innerHTML = '';
-                        displayData(data, outputTable, path);
-                        onDataLoaded();
-                    } else {
-                        console.log(`No data available at path: ${path}`);
-                    }
-                }, {
-                    onError: (error) => {
-                        console.log(`Error reading path ${path}: ${error.message}`);
-                    }
-                });
-            }
         });
+
     </script>
 
 </body>
