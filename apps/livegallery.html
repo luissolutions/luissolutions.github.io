@@ -1,80 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Viewer</title>
+    <title>Photo Upload & Show</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="./assets/css/app-styles.css" id="stylesheet">
-    <script type="module" src="./assets/js/login.js" defer></script>
+    <script type="module" src="./assets/js/login.js"></script>
     <style>
-        .photoGrid {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        #photoWrapper {
-            display: flex;
-            width: 100%;
-            max-width: 800px;
-            margin: 0 auto;
-            align-items: center;
-            margin-bottom: 10px;
-            justify-content: center;
-        }
-
-        #photoContainer {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-
-        .photo {
-            width: 95%;
-            height: auto;
-            margin: 5px;
-            cursor: pointer;
-        }
-
-        #loadingIndicator {
-            display: none;
-            font-size: 18px;
-            margin-top: 20px;
-        }
-
-        #rememberCheckbox {
-            display: none;
-        }
-
-        .star {
-            font-size: 40px;
-            color: lightgray;
-            cursor: pointer;
-            transition: color 0.2s ease-in-out;
-            text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
-        }
-
-        #rememberCheckbox:checked+.star {
-            color: yellow;
-        }
-
         .thumbnail {
-            width: 100px;
-            height: auto;
-            margin: 5px;
+            max-width: 150px;
             cursor: pointer;
-            border: 2px solid transparent;
-            transition: border 0.3s ease;
+            border-radius: 15px;
+            transition: transform 0.2s;
+            width: 100%;
         }
 
         .thumbnail:hover {
-            border: 2px solid #000;
+            transform: scale(1.1);
+        }
+
+        .thumbnailItem {
+            text-align: center;
+            margin: 5px;
+        }
+
+        #gallery {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+            justify-content: center;
+        }
+
+        #modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+        }
+
+        #modalContent {
+            position: relative;
+            background: #fff;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        #modalImage {
+            max-width: 90vw;
+            max-height: 80vh;
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        #modalFileName {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
         }
     </style>
 </head>
 
 <body>
     <header>
-        <h1>Jobs Gallery</h1>
-        <section style="display: none;" id="login-section">
+        <h1>Photo Gallery</h1>
+        <section id="login-section">
             <form id="login-form">
                 <label for="username">Email:</label>
                 <input type="email" id="username" required>
@@ -85,342 +82,395 @@
                 <button type="submit">Login</button>
             </form>
             <button id="logout" style="display: none;">Logout</button>
+            <div class="ms" style="display: none;">
+                <button id="loginButton">Login to Microsoft</button>
+                <button id="logoutButton">Logout of Microsoft</button>
+            </div>
         </section>
     </header>
     <main>
-        <section>
-            <label>Select a Job:
-                <select id="folderSelect"></select>
-            </label>
-            <div>
-                <label for="newSubfolderInput">Create folder:</label>
-                <input type="text" id="newSubfolderInput" placeholder="Folder Name">
-                <button id="createSubfolderButton">Create Folder</button>
-                <div id="subfolderStatus"></div>
-            </div>
-            <input type="file" id="fileUploader" accept="image/*">
-            <input type="text" id="customFileName" placeholder="File Name">
+        <h1>Photo Upload</h1>
+        <div id="uploadSection">
+            <input type="file" id="fileUploader" accept="image/*"><br>
+            <label for="imageNameInput">Image Name:</label>
+            <input type="text" id="imageNameInput" placeholder="Enter image name"><br>
+            <label for="imageLabel">Folder Name:</label>
+            <input type="text" id="imageLabel" placeholder="Enter folder label"><br>
+            <label for="markupTextInput">Markup Text:</label>
+            <input type="text" id="markupTextInput" placeholder="Enter markup text"><br>
             <button id="uploadButton">Upload Image</button>
-            <div id="uploadStatus"></div>
+            <button id="clearFields" style="display: none;">clear</button>
+        </div>
 
-            <div class="photoGrid">
-                <div id="photoWrapper">
-                    <button id="prevButton">Previous</button>
-                    <button id="nextButton">Next</button>
-                    <label>
-                        <input type="checkbox" id="rememberCheckbox">
-                        <span class="star">&#9733;</span>
-                    </label>
-                </div>
-                <div id="loadingIndicator">Loading...</div>
-                <p id="fileName" style="display: none;"></p>
-                <label for="fileSelect">Select Image:</label>
-                <select id="fileSelect"></select>
+        <hr>
 
-                <div class="gridContainer" id="photoContainer"></div>
-                <div>
-                    <button id="downloadButton">Download Photo</button>
-                    <button id="deleteButton">Delete Photo</button>
-                </div>
-                <div id="thumbnailContainer" class="thumbnailGrid"></div>
-            </div>
-            <button style="display: none;" id="downloadAllButton">Download All</button>
-        </section>
+        <h1>Show Images</h1>
+        <div id="showSection">
+            <label for="folderDropdown">Select a Folder:</label>
+            <select id="folderDropdown">
+                <option value="">-- Select a Folder --</option>
+            </select>
+            <label for="imageDropdown">Select an Image:</label>
+            <select id="imageDropdown">
+                <option value="">-- Select an Image --</option>
+            </select>
+
+            <div id="gallery"></div>
+        </div>
     </main>
 
+    <div id="modal">
+        <div id="modalContent">
+            <img id="modalImage" src="" alt="Large View">
+            <p id="modalFileName"></p>
+            <button id="downloadButton">Download</button>
+            <button id="deleteButton">Delete</button>
+            <button id="closeModalButton">Close</button>
+            <button id="moveButton">Move Photo</button>
+            <br>
+            <label for="moveToFolder">To Folder:</label>
+            <select id="moveToFolder"></select>
+        </div>
+    </div>
+
     <script type="module">
-        import { ref, app, get, database, storage, getStorage, storageRef, getDownloadURL, listAll, uploadBytesResumable, deleteObject, getFunctions, httpsCallable } from './assets/js/firebase-init.js';
+        import {
+            storage,
+            storageRef,
+            uploadBytesResumable,
+            getDownloadURL,
+            listAll,
+            deleteObject,
+            onAuthStateChanged,
+            auth, getBlob, uploadBytes
+        } from './assets/js/firebase-init.js';
 
-        const elements = {
-            photoContainer: document.getElementById('photoContainer'),
-            prevButton: document.getElementById('prevButton'),
-            nextButton: document.getElementById('nextButton'),
-            downloadButton: document.getElementById('downloadButton'),
-            deleteButton: document.getElementById('deleteButton'),
-            rememberCheckbox: document.getElementById('rememberCheckbox'),
-            folderSelect: document.getElementById('folderSelect'),
-            loadingIndicator: document.getElementById('loadingIndicator'),
-            fileUploader: document.getElementById('fileUploader'),
-            customFileNameInput: document.getElementById('customFileName'),
-            uploadButton: document.getElementById('uploadButton'),
-            uploadStatus: document.getElementById('uploadStatus'),
-            createSubfolderButton: document.getElementById('createSubfolderButton'),
-            newSubfolderInput: document.getElementById('newSubfolderInput'),
-            subfolderStatus: document.getElementById('subfolderStatus'),
-            fileSelect: document.getElementById('fileSelect'),
-            downloadAllButton: document.getElementById('downloadAllButton'),
-            thumbnailContainer: document.getElementById('thumbnailContainer')
-        };
+        let DATABASE_BASE_PATH = 'public';
+        onAuthStateChanged(auth, (user) => {
+            DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
+            loadFolderOptions();
+        });
 
-        let currentPhotoIndex = 0;
-        let photoUrls = [];
-        let photoNames = [];
+        let currentFolderLoadToken = 0;
 
-        document.addEventListener('DOMContentLoaded', initializeGallery);
+        const fileUploader = document.getElementById('fileUploader');
+        const imageLabel = document.getElementById('imageLabel');
+        const imageNameInput = document.getElementById('imageNameInput');
+        const markupTextInput = document.getElementById('markupTextInput');
+        const uploadButton = document.getElementById('uploadButton');
+        const folderDropdown = document.getElementById('folderDropdown');
+        const gallery = document.getElementById('gallery');
 
-        function initializeGallery() {
-            elements.loadingIndicator.style.display = 'block';
-
-            get(ref(database, '/share/tasks')).then(snapshot => {
-                const taskData = snapshot.val();
-
-                const latestTasks = Object.values(taskData || {}).reduce((acc, task) => {
-                    const { project, startTime } = task;
-                    if (!acc[project] || new Date(task.startTime).getTime() > new Date(acc[project].startTime).getTime()) {
-                        acc[project] = task;
-                    }
-                    return acc;
-                }, {});
-
-                return listAll(storageRef(storage, '/share/images'))
-                    .then(result => {
-                        const subfolders = result.prefixes.map(folderRef => {
-                            const folderName = folderRef.name;
-                            const matchingTask = latestTasks[folderName];
-
-                            const displayText = matchingTask
-                                ? `${folderName} (${matchingTask.customerName || 'Unknown'} - ${new Date(matchingTask.startTime).toLocaleDateString() || 'Unknown Date'})`
-                                : folderName;
-
-                            return { folderName, displayText, startTime: matchingTask ? new Date(matchingTask.startTime).getTime() : 0 };
-                        });
-
-                        subfolders.sort((a, b) => b.startTime - a.startTime);
-
-                        const lastSelectedFolder = localStorage.getItem('lastSelectedFolder') || subfolders[0].folderName;
-                        populateSubfolders(subfolders, lastSelectedFolder);
-                    });
-            }).catch(console.error)
-                .finally(() => elements.loadingIndicator.style.display = 'none');
+        function sanitizeInput(input) {
+            return input
+                .trim()
+                .replace(/\s+/g, "_")
+                .replace(/[^\w-]/gi, "");
         }
 
-        function populateSubfolders(subfolders, selectedFolder) {
-            elements.folderSelect.innerHTML = subfolders.map(folder => {
-                return `<option value="${folder.folderName}">${folder.displayText}</option>`;
-            }).join('');
-            elements.folderSelect.value = selectedFolder;
-            loadImagesFromSubfolder(selectedFolder);
-        }
+        uploadButton.addEventListener('click', async () => {
+            try {
+                const files = fileUploader.files;
+                if (!files.length) {
+                    alert('Please select an image.');
+                    return;
+                }
+                const file = files[0];
+                const folder = sanitizeInput(document.getElementById('imageLabel').value) || "default";
+                const imageName = sanitizeInput(document.getElementById('imageNameInput').value) || file.name.split('.').slice(0, -1).join('_');
+                const fileExtension = file.name.split('.').pop();
+                const markupText = sanitizeInput(document.getElementById('markupTextInput').value);
+                const finalFileName = markupText ? `${imageName}_markup.${fileExtension}` : `${imageName}.${fileExtension}`;
 
-        function loadImagesFromSubfolder(subfolder) {
-            const folderRef = storageRef(storage, `/share/images/${subfolder}`);
-            photoUrls = [];
-            photoNames = [];
+                let imageBlob = await resizeImage(file, 1024);
+                if (markupText) {
+                    imageBlob = await addTextToImage(imageBlob, markupText);
+                }
 
-            listAll(folderRef)
-                .then(result => {
-                    const promises = result.items.map(itemRef => {
-                        photoNames.push(itemRef.name);
-                        return getDownloadURL(itemRef);
-                    });
-                    return Promise.all(promises);
-                })
-                .then(urls => {
-                    photoUrls = urls;
-                    currentPhotoIndex = 0;
-                    populateFileDropdown();
-                    displayCurrentPhoto();
-                })
-                .catch(console.error);
-        }
+                const storagePath = `${DATABASE_BASE_PATH}/tasks/images/${folder}/${finalFileName}`;
+                await uploadToFirebase(imageBlob, storagePath);
+                localStorage.setItem('lastUploadedFolder', folder);
 
-        function populateFileDropdown() {
-            elements.fileSelect.innerHTML = photoNames.map((name, index) => {
-                const baseName = name.split('.').slice(0, -1).join('.');
-                return `<option value="${index}">${baseName}</option>`;
-            }).join('');
-            elements.fileSelect.value = currentPhotoIndex;
-        }
+                alert("Image uploaded successfully!");
+                loadFolderOptions();
 
-        function displayCurrentPhoto() {
-            elements.photoContainer.innerHTML = '';
-            elements.thumbnailContainer.innerHTML = '';
+            } catch (error) {
+                console.error("Error uploading image:", error);
+                alert("Failed to upload image. Please try again.");
+            }
+            clearUploadFields();
+        });
 
-            if (photoUrls[currentPhotoIndex]) {
-                const img = createPhotoElement(photoUrls[currentPhotoIndex]);
-                elements.photoContainer.appendChild(img);
-                elements.fileSelect.value = currentPhotoIndex;
-                elements.rememberCheckbox.checked = localStorage.getItem(photoUrls[currentPhotoIndex]) === 'true';
+        async function loadFolderOptions() {
+            folderDropdown.innerHTML = '<option value="">-- Select a Folder --</option>';
+            moveToFolder.innerHTML = '<option value="">-- Select Destination --</option>';
 
-                photoUrls.forEach((url, index) => {
-                    const thumbnail = createThumbnailElement(url, index);
-                    elements.thumbnailContainer.appendChild(thumbnail);
+            const baseRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images`);
+            try {
+                const snapshot = await listAll(baseRef);
+                const folderNames = new Set();
+
+                for (const folder of snapshot.prefixes) {
+                    folderNames.add(folder.name);
+                }
+
+                folderNames.forEach(folderName => {
+                    const option = document.createElement('option');
+                    option.value = folderName;
+                    option.textContent = folderName;
+                    folderDropdown.appendChild(option);
+
+                    const moveOption = option.cloneNode(true);
+                    moveToFolder.appendChild(moveOption);
                 });
-            } else {
-                elements.photoContainer.innerHTML = '<p>No photos available for this subfolder.</p>';
+
+                const lastUploadedFolder = localStorage.getItem('lastUploadedFolder');
+                if (lastUploadedFolder && folderNames.has(lastUploadedFolder)) {
+                    folderDropdown.value = lastUploadedFolder;
+                    await loadImages(lastUploadedFolder);
+                }
+            } catch (error) {
+                console.error("Error loading folders:", error);
             }
         }
 
-        function createPhotoElement(src) {
-            const img = document.createElement('img');
-            img.src = src;
-            img.className = 'photo';
-            img.onclick = () => (event.clientX < img.offsetWidth / 2 ? loadPreviousImage() : loadNextImage());
-            img.onerror = () => img.src = './assets/img/default.png';
-            return img;
-        }
-
-        function createThumbnailElement(src, index) {
-            const thumbnail = document.createElement('img');
-            thumbnail.src = src;
-            thumbnail.className = 'thumbnail';
-            thumbnail.onclick = () => {
-                currentPhotoIndex = index;
-                displayCurrentPhoto();
-            };
-            return thumbnail;
-        }
-
-        function loadNextImage() {
-            currentPhotoIndex = (currentPhotoIndex + 1) % photoUrls.length;
-            displayCurrentPhoto();
-        }
-
-        function loadPreviousImage() {
-            currentPhotoIndex = (currentPhotoIndex - 1 + photoUrls.length) % photoUrls.length;
-            displayCurrentPhoto();
-        }
-
-        function resizeImage(file, maxWidth = 1024) {
-            return new Promise((resolve, reject) => {
-                const img = new Image();
-                const canvas = document.createElement('canvas');
+        function resizeImage(file, maxWidth) {
+            return new Promise((resolve) => {
                 const reader = new FileReader();
-
-                reader.onload = (e) => (img.src = e.target.result);
-
-                img.onload = () => {
-                    if (img.width > maxWidth) {
-                        const scaleFactor = maxWidth / img.width;
-                        canvas.width = maxWidth;
-                        canvas.height = img.height * scaleFactor;
+                reader.onload = () => {
+                    const img = new Image();
+                    img.src = reader.result;
+                    img.onload = () => {
+                        let width = img.width;
+                        let height = img.height;
+                        if (width > maxWidth) {
+                            height = height * (maxWidth / width);
+                            width = maxWidth;
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
                         const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        canvas.toBlob(blob => resolve(blob), file.type, 0.95);
-                    } else {
-                        resolve(file);
-                    }
+                        ctx.drawImage(img, 0, 0, width, height);
+                        canvas.toBlob(resolve, file.type);
+                    };
                 };
-
-                img.onerror = reject;
                 reader.readAsDataURL(file);
             });
         }
 
-        function uploadImage() {
-            const file = elements.fileUploader.files[0];
-            const folder = elements.folderSelect.value;
-
-            if (!file || !folder) {
-                elements.uploadStatus.textContent = 'Please select an image and a subfolder.';
-                return;
-            }
-
-            resizeImage(file).then(resizedFile => {
-                const uniqueFileName = generateUniqueFileName(file);
-                const fileRef = storageRef(storage, `/share/images/${folder}/${uniqueFileName}`);
-                const uploadTask = uploadBytesResumable(fileRef, resizedFile);
-
-                uploadTask.on('state_changed', snapshot => {
-                    elements.uploadStatus.textContent = `Upload is ${(snapshot.bytesTransferred / snapshot.totalBytes) * 100}% done`;
-                }, error => console.error('Upload failed:', error), () => {
-                    getDownloadURL(fileRef).then(downloadURL => {
-                        photoUrls.push(downloadURL);
-                        photoNames.push(uniqueFileName);
-                        elements.uploadStatus.textContent = 'Upload successful!';
-                        populateFileDropdown();
-                        displayCurrentPhoto();
-                        deleteKeepFileIfPresent(folder);
-                    });
-                });
-            }).catch(error => {
-                console.error('Error resizing the image:', error);
-                elements.uploadStatus.textContent = 'Image resize failed.';
+        function addTextToImage(blob, text) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const img = new Image();
+                    img.src = reader.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = img.width;
+                        canvas.height = img.height + 50;
+                        ctx.drawImage(img, 0, 0);
+                        ctx.fillStyle = 'white';
+                        ctx.font = '20px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(text, canvas.width / 2, canvas.height - 20);
+                        canvas.toBlob(resolve, 'image/jpeg');
+                    };
+                };
+                reader.readAsDataURL(blob);
             });
         }
 
-        function generateUniqueFileName(file) {
-            return elements.customFileNameInput.value
-                ? `${elements.customFileNameInput.value}.${file.name.split('.').pop()}`
-                : `${file.name.split('.').slice(0, -1).join('_')}_${Date.now()}.${file.name.split('.').pop()}`;
-        }
-
-        function deleteKeepFileIfPresent(folder) {
-            const keepFileRef = storageRef(storage, `/share/images/${folder}/.keep`);
-            deleteObject(keepFileRef).catch(console.error);
-        }
-
-        function deletePhoto() {
-            if (!confirm('Are you sure you want to delete this photo?')) return;
-
-            const fileRef = storageRef(storage, `/share/images/${elements.folderSelect.value}/${photoNames[currentPhotoIndex]}`);
-            deleteObject(fileRef)
-                .then(() => {
-                    photoUrls.splice(currentPhotoIndex, 1);
-                    photoNames.splice(currentPhotoIndex, 1);
-                    elements.uploadStatus.textContent = 'Photo deleted successfully!';
-                    if (photoUrls.length > 0) {
-                        displayCurrentPhoto();
-                    } else {
-                        elements.photoContainer.innerHTML = '<p>No photos available for this subfolder.</p>';
-                    }
-                    populateFileDropdown();
-                })
-                .catch(console.error);
-        }
-
-        function downloadPhoto() {
-            const link = document.createElement('a');
-            link.href = photoUrls[currentPhotoIndex];
-            link.target = '_blank';
-            link.click();
-        }
-
-        function downloadAllImages() {
-            photoUrls.forEach((url, index) => {
-                setTimeout(() => {
-                    window.open(url, '_blank');
-                }, index * 500);
+        async function uploadToFirebase(blob, storagePath) {
+            const imageRef = storageRef(storage, storagePath);
+            const uploadTask = uploadBytesResumable(imageRef, blob);
+            return new Promise((resolve, reject) => {
+                uploadTask.on('state_changed', null, reject, async () => {
+                    resolve(await getDownloadURL(imageRef));
+                });
             });
         }
 
-        elements.prevButton.addEventListener('click', loadPreviousImage);
-        elements.nextButton.addEventListener('click', loadNextImage);
-        elements.uploadButton.addEventListener('click', uploadImage);
-        elements.deleteButton.addEventListener('click', deletePhoto);
-        elements.downloadButton.addEventListener('click', downloadPhoto);
-        elements.downloadAllButton.addEventListener('click', downloadAllImages);
-        elements.fileSelect.addEventListener('change', () => {
-            currentPhotoIndex = parseInt(elements.fileSelect.value, 10);
-            displayCurrentPhoto();
+        folderDropdown.addEventListener('change', async () => {
+            const folder = folderDropdown.value;
+            imageLabel.value = folder;
+            if (folder) {
+                await loadImages(folder);
+            } else {
+                gallery.innerHTML = '';
+            }
         });
-        elements.folderSelect.addEventListener('change', () => {
-            localStorage.setItem('lastSelectedFolder', elements.folderSelect.value);
-            loadImagesFromSubfolder(elements.folderSelect.value);
-        });
-        elements.rememberCheckbox.addEventListener('change', () => {
-            localStorage.setItem(photoUrls[currentPhotoIndex], elements.rememberCheckbox.checked);
-        });
-        elements.createSubfolderButton.addEventListener('click', createSubfolder);
 
-        function createSubfolder() {
-            const newSubfolder = elements.newSubfolderInput.value.trim();
-            if (!newSubfolder) {
-                elements.subfolderStatus.textContent = 'Please enter a subfolder name.';
+        async function loadImages(folder) {
+            const thisLoadToken = ++currentFolderLoadToken;
+            gallery.innerHTML = '';
+            const folderRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images/${folder}`);
+            const imageDropdown = document.getElementById('imageDropdown');
+            imageDropdown.innerHTML = '<option value="">-- Select an Image --</option>';
+
+            try {
+                const folderSnapshot = await listAll(folderRef);
+
+                if (thisLoadToken !== currentFolderLoadToken) return;
+
+                for (const item of folderSnapshot.items) {
+                    const imageUrl = await getDownloadURL(item);
+
+                    if (thisLoadToken !== currentFolderLoadToken) return;
+
+                    const container = document.createElement('div');
+                    container.className = 'thumbnailItem';
+
+                    const img = document.createElement('img');
+                    img.src = imageUrl;
+                    img.className = 'thumbnail';
+                    img.dataset.fullPath = item.fullPath;
+                    img.addEventListener('click', () => openModal(imageUrl, item.fullPath, item.name));
+
+                    const caption = document.createElement('p');
+                    caption.textContent = item.name;
+                    caption.style.fontSize = '14px';
+                    caption.style.margin = '0';
+
+                    container.appendChild(img);
+                    container.appendChild(caption);
+                    gallery.appendChild(container);
+
+                    const option = document.createElement('option');
+                    option.value = imageUrl;
+                    option.textContent = item.name;
+                    option.dataset.fullPath = item.fullPath;
+                    imageDropdown.appendChild(option);
+                }
+            } catch (error) {
+                console.error("Error loading images:", error);
+                alert("Failed to load images.");
+            }
+        }
+
+        imageDropdown.addEventListener('change', () => {
+            const selectedOption = imageDropdown.options[imageDropdown.selectedIndex];
+            const imageUrl = selectedOption.value;
+            const fileName = selectedOption.textContent;
+            const fullPath = selectedOption.dataset.fullPath;
+            if (imageUrl && fullPath && fileName) {
+                openModal(imageUrl, fullPath, fileName);
+            }
+        });
+
+        const modal = document.getElementById('modal');
+        const modalImage = document.getElementById('modalImage');
+        const downloadButton = document.getElementById('downloadButton');
+        const deleteButton = document.getElementById('deleteButton');
+        const closeModalButton = document.getElementById('closeModalButton');
+        const modalFileName = document.createElement('p');
+        modalFileName.id = 'modalFileName';
+        document.getElementById('modalContent').insertBefore(modalFileName, downloadButton);
+
+        function openModal(imageUrl, fullPath, fileName) {
+            modal.style.display = 'flex';
+            modalImage.src = imageUrl;
+            modal.dataset.fullPath = fullPath;
+            modalFileName.textContent = fileName;
+            downloadButton.onclick = () => downloadImage(imageUrl);
+        }
+
+        closeModalButton.addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+
+        deleteButton.addEventListener('click', async () => {
+            const confirmDelete = confirm("Are you sure you want to delete this image?");
+            if (!confirmDelete) return;
+            const fullPath = modal.dataset.fullPath;
+            if (!fullPath) {
+                alert("Error: Image path not available.");
+                return;
+            }
+            try {
+                const imageRef = storageRef(storage, fullPath);
+                await deleteObject(imageRef);
+                modal.style.display = 'none';
+                const folder = folderDropdown.value;
+                if (folder) {
+                    await loadImages(folder);
+                }
+            } catch (error) {
+                console.error("Error deleting image:", error);
+                alert("Failed to delete image.");
+            }
+            loadFolderOptions();
+        });
+
+        function downloadImage(url) {
+            window.open(url, '_blank');
+        }
+
+        function clearUploadFields() {
+            document.getElementById('fileUploader').value = "";
+            document.getElementById('imageLabel').value = "";
+            document.getElementById('imageNameInput').value = "";
+            document.getElementById('markupTextInput').value = "";
+        }
+
+        document.getElementById('clearFields').addEventListener('click', clearUploadFields);
+
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+
+        const moveButton = document.getElementById('moveButton');
+        const moveToFolder = document.getElementById('moveToFolder');
+
+        moveButton.addEventListener('click', async () => {
+            const fullPath = modal.dataset.fullPath;
+            const fileName = modalFileName.textContent;
+            const toFolder = moveToFolder.value;
+
+            if (!fullPath || !fileName || !toFolder) {
+                alert("Missing image or destination folder.");
                 return;
             }
 
-            const folderRef = storageRef(storage, `/share/images/${newSubfolder}/.keep`);
-            uploadBytesResumable(folderRef, new Blob())
-                .then(() => {
-                    elements.subfolderStatus.textContent = `Subfolder "${newSubfolder}" created!`;
-                    initializeGallery();
-                })
-                .catch(error => {
-                    console.error('Error creating subfolder:', error);
-                    elements.subfolderStatus.textContent = 'Failed to create subfolder.';
-                });
+            const fromRef = storageRef(storage, fullPath);
+            const toPath = `${DATABASE_BASE_PATH}/tasks/images/${toFolder}/${fileName}`;
+            const toRef = storageRef(storage, toPath);
+
+            try {
+                const blob = await getBlob(fromRef);
+                await uploadBytes(toRef, blob);
+                await deleteObject(fromRef);
+                alert(`Moved "${fileName}" to "${toFolder}"`);
+                modal.style.display = 'none';
+                await loadImages(folderDropdown.value);
+            } catch (error) {
+                console.error("Error moving file:", error);
+                alert("Failed to move image.");
+            }
+        });
+
+
+        function populateSubfolders(subfolders, selectedFolder) {
+            elements.folderSelect.innerHTML = '';
+            moveToFolder.innerHTML = '<option value="">-- Select Destination --</option>';
+
+            subfolders.forEach(folder => {
+                const option1 = document.createElement('option');
+                const option2 = document.createElement('option');
+                option1.value = option2.value = folder.folderName;
+                option1.textContent = option2.textContent = folder.displayText;
+                elements.folderSelect.appendChild(option1);
+                moveToFolder.appendChild(option2);
+            });
+
+            elements.folderSelect.value = selectedFolder;
+            loadImagesFromSubfolder(selectedFolder);
         }
+
     </script>
-
 </body>
+
+</html>
