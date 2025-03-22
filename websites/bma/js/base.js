@@ -61,7 +61,7 @@ const appNamesMap = {
   "Quote/Invoice Maker": { filename: "liveinvoice", tags: ["invoice", "billing", "quote", "finance"] },
   "Jobs Calendar": { filename: "liveschedule", tags: ["calendar", "appointments", "schedule"] },
   "Financial Logging": { filename: "livebudget", tags: ["budget", "money", "expenses", "finance"] },
-  "View/Edit Database": { filename: "livedatabase", tags: ["database", "data", "records"] },
+  "View/Edit Inventory": { filename: "livedatabase", tags: ["database", "data", "records", "inventory"] },
   "Favorites/Bookmarks": { filename: "livelinks", tags: ["bookmarks", "links", "favorites", "web"] },
   "Quiz/Testing": { filename: "livelearn", tags: ["quiz", "test", "study", "exam", "learn"] },
   "Contacts": { filename: "livecontacts", tags: ["contacts", "phone", "address", "people"] },
@@ -69,13 +69,13 @@ const appNamesMap = {
   "Job Info": { filename: "livejob", tags: ["job", "info", "work", "tasks"] },
   "Jobs Gallery": { filename: "liveimagegallery", tags: ["gallery", "photos", "images"] },
   "Job Task Viewer": { filename: "livejobviewer", tags: ["viewer", "tasks", "job", "log"] },
-  "View/Edit Inventory": { filename: "liveinventory", tags: ["inventory", "stock", "items"] },
   "Password Generator": { filename: "password", tags: ["password", "security", "generator"] },
   "Conversion Calculator": { filename: "conversion", tags: ["conversion", "convert", "math"] },
   "Percentage Calculator": { filename: "percent", tags: ["percentage", "math", "calculator"] },
   "Calculator": { filename: "calc", tags: ["calculator", "math", "numbers"] },
   "Wire Counter": { filename: "count", tags: ["count", "wires", "electrical"] },
   "Timer": { filename: "livetimer", tags: ["timer", "clock", "stopwatch"] },
+  "Database": { filename: "liveshow", tags: ["admin", "firebase", "database"] },
 };
 
 const appDisplayNames = Object.keys(appNamesMap);
