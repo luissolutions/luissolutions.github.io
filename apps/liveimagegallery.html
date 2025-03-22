@@ -70,8 +70,8 @@
 
 <body>
     <header>
-        <h1>Photo Labeler</h1>
-        <section id="login-section">
+        <h1>Photo Gallery</h1>
+        <section id="login-section" style="display: block;">
             <form id="login-form">
                 <label for="username">Email:</label>
                 <input type="email" id="username" required>
@@ -150,6 +150,8 @@
             DATABASE_BASE_PATH = user ? `share` : 'public';
             loadFolderOptions();
         });
+
+        let currentFolderLoadToken = 0;
 
         const fileUploader = document.getElementById('fileUploader');
         const imageLabel = document.getElementById('imageLabel');
@@ -292,6 +294,7 @@
 
         folderDropdown.addEventListener('change', async () => {
             const folder = folderDropdown.value;
+            imageLabel.value = folder;
             if (folder) {
                 await loadImages(folder);
             } else {
@@ -300,15 +303,22 @@
         });
 
         async function loadImages(folder) {
+            const thisLoadToken = ++currentFolderLoadToken;
             gallery.innerHTML = '';
             const folderRef = storageRef(storage, `${DATABASE_BASE_PATH}/images/${folder}`);
             const imageDropdown = document.getElementById('imageDropdown');
-            imageDropdown.innerHTML = '<option value="">-- Select an Image --</option>'; // Clear previous items
+            imageDropdown.innerHTML = '<option value="">-- Select an Image --</option>';
 
             try {
                 const folderSnapshot = await listAll(folderRef);
+
+                if (thisLoadToken !== currentFolderLoadToken) return;
+
                 for (const item of folderSnapshot.items) {
                     const imageUrl = await getDownloadURL(item);
+
+                    if (thisLoadToken !== currentFolderLoadToken) return;
+
                     const container = document.createElement('div');
                     container.className = 'thumbnailItem';
 
@@ -332,7 +342,6 @@
                     option.textContent = item.name;
                     option.dataset.fullPath = item.fullPath;
                     imageDropdown.appendChild(option);
-
                 }
             } catch (error) {
                 console.error("Error loading images:", error);
@@ -395,10 +404,7 @@
         });
 
         function downloadImage(url) {
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = url.substring(url.lastIndexOf('/') + 1);
-            link.click();
+            window.open(url, '_blank');
         }
 
         function clearUploadFields() {
