@@ -103,7 +103,7 @@
     <script type="module">
         import {
             auth, getAuth, onAuthStateChanged, getDatabase, ref, onValue, update, storage,
-            storageRef, listAll, getBlob, uploadBytes, deleteObject, getBytes 
+            storageRef, listAll, getBlob, uploadBytes, deleteObject, getBytes
         } from './assets/js/firebase-init.js';
 
         const outputTable = document.getElementById('output');
@@ -165,32 +165,38 @@
                 return;
             }
 
-            const fromRef = storageRef(storage, fromFolder);
+            async function moveAllFilesRecursively(folderRef, currentFromPath) {
+                const listResult = await listAll(folderRef);
 
-            try {
-                const listResult = await listAll(fromRef);
-                if (listResult.items.length === 0) {
-                    alert("No images found in the selected folder.");
-                    return;
-                }
-
-                let movedCount = 0;
                 for (const item of listResult.items) {
                     try {
-                        const blob = await getBytes(item);
-                        const toRef = storageRef(storage, `${toFolder}/${item.name}`);
-                        await uploadBytes(toRef, blob);
+                        const arrayBuffer = await getBytes(item);
+                        const relativePath = item.fullPath.replace(fromFolder, '').replace(/^\/+/, '');
+                        const newPath = `${toFolder}/${relativePath}`;
+                        const toRef = storageRef(storage, newPath);
+                        await uploadBytes(toRef, arrayBuffer);
                         await deleteObject(item);
+                        console.log(`Moved: ${item.fullPath} ➝ ${newPath}`);
                         movedCount++;
                     } catch (moveError) {
-                        console.warn(`Failed to move ${item.name}:`, moveError);
+                        console.warn(`Failed to move ${item.fullPath}:`, moveError);
                     }
                 }
 
-                alert(`Successfully moved ${movedCount} image(s) from "${fromFolder}" to "${toFolder}".`);
+                for (const prefix of listResult.prefixes) {
+                    await moveAllFilesRecursively(prefix, `${currentFromPath}/${prefix.name}`);
+                }
+            }
+
+            let movedCount = 0;
+            try {
+                const baseRef = storageRef(storage, fromFolder);
+                await moveAllFilesRecursively(baseRef, fromFolder);
+
+                alert(`Successfully moved ${movedCount} file(s) from "${fromFolder}" to "${toFolder}".`);
             } catch (err) {
-                console.error("Error listing or moving images:", err);
-                alert("Failed to move images. Check console for more details.");
+                console.error("Error moving files:", err);
+                alert("Failed to move some files. See console for details.");
             }
         });
 
