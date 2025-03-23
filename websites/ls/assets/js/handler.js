@@ -245,19 +245,17 @@ const handlers = {
   'apps.html': function () {
     var appNames = [
       "password",
-      "localtimer",
-      "localmileage",
-      "localgas",
       "count",
       "invoice",
       "calc",
-      "localbudget",
       "conversion",
       "percent",
       "blackjack",
       "mousegame",
       "livemathgame",
       "chess",
+      "cheatsheet",
+      "notes",
     ];
 
     var pages = appNames.map(function (name) {

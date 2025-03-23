@@ -108,6 +108,7 @@
         const fromDropdown = document.getElementById('fromFolderDropdown');
         const toDropdown = document.getElementById('toFolderDropdown');
         const moveButton = document.getElementById('moveImageButton');
+        const activeListeners = {};
 
         let DATABASE_BASE_PATH = 'public';
 
@@ -205,6 +206,8 @@
                 await moveAllFilesRecursively(baseRef, fromFolder);
 
                 alert(`Successfully moved ${movedCount} file(s) from "${fromFolder}" to "${toFolder}".`);
+
+                await populateFolderDropdowns();
             } catch (err) {
                 console.error("Error moving files:", err);
                 alert("Failed to move some files. See console for details.");
@@ -292,8 +295,12 @@
         }
 
         function tryLoadPath(path, onDataLoaded) {
+            if (activeListeners[path]) {
+                return;
+            }
+
             const databaseRef = ref(getDatabase(), path);
-            onValue(databaseRef, (snapshot) => {
+            activeListeners[path] = onValue(databaseRef, (snapshot) => {
                 const data = snapshot.val();
                 if (data) {
                     outputTable.innerHTML = '';
@@ -301,6 +308,7 @@
                     onDataLoaded();
                 } else {
                     console.log(`No data available at path: ${path}`);
+                    outputTable.innerHTML = '<tr><td>No data available</td></tr>';
                 }
             }, {
                 onError: (error) => {
