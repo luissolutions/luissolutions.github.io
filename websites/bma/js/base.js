@@ -245,14 +245,4 @@ document.addEventListener("DOMContentLoaded", () => {
   dropdown.addEventListener("mouseenter", () => {
     clearTimeout(closeDropdownTimer);
   });
-
-  sidebar.addEventListener("mouseleave", () => {
-    closeSidebarTimer = setTimeout(() => {
-      closeSidebar();
-    }, 2000);
-  });
-
-  sidebar.addEventListener("mouseenter", () => {
-    clearTimeout(closeSidebarTimer);
-  });
 });

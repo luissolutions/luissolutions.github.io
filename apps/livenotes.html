@@ -50,10 +50,10 @@
     const noteList = document.getElementById('note-list');
     let deletedNotes = [];
     let autoSaveInterval;
-    let DATABASE_BASE_PATH = 'public/notes';
+    let DATABASE_BASE_PATH = 'public';
 
     onAuthStateChanged(auth, (user) => {
-      DATABASE_BASE_PATH = user ? `${user.uid}/notes` : 'public/notes';
+      DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
       populateNoteList();
     });
 
@@ -86,17 +86,30 @@
       const saveBtn = document.getElementById('save-btn');
       const timestamp = new Date().toISOString();
 
-      if (nameToSave && noteToSave) {
-        const notesRef = ref(database, `${DATABASE_BASE_PATH}/${nameToSave}`);
-        try {
-          await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
-          console.log('Note saved successfully');
-          updateSaveButton(saveBtn);
-        } catch (error) {
-          console.error('Failed to save the note:', error);
-        }
-      } else {
+      if (!nameToSave || !noteToSave) {
         console.log('Please enter both the name and note before saving');
+        return;
+      }
+
+      const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/${nameToSave}`);
+      const snapshot = await get(notesRef);
+      const existingNote = snapshot.val();
+
+      if (!existingNote || new Date(timestamp) > new Date(existingNote.timestamp)) {
+        await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
+        console.log('Note saved successfully');
+        updateSaveButton(saveBtn);
+      } else {
+        const userChoice = confirm(
+          `⚠️ A newer version of "${nameToSave}" already exists.\nDo you want to overwrite it with your current changes?`
+        );
+        if (userChoice) {
+          await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
+          console.log('Note overwritten by user choice');
+          updateSaveButton(saveBtn);
+        } else {
+          console.log('Save cancelled. Newer note preserved.');
+        }
       }
     };
 
@@ -119,7 +132,7 @@
           return;
         }
 
-        const notesRef = ref(database, DATABASE_BASE_PATH);
+        const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes`);
         const snapshot = await get(notesRef);
         const notes = snapshot.val();
 
@@ -128,7 +141,7 @@
           if (noteId) {
             const deletedNote = notes[noteId];
             storeDeletedNote(deletedNote.name, deletedNote.note);
-            await set(ref(database, `${DATABASE_BASE_PATH}/${noteId}`), null);
+            await set(ref(database, `${DATABASE_BASE_PATH}/notes/${noteId}`), null);
             clearNoteInputs();
             console.log(`Deleted the note with name: ${nameToDelete}`);
           } else {
@@ -146,7 +159,7 @@
       const nameToLoad = nameInput.value.trim();
 
       if (nameToLoad) {
-        const notesRef = ref(database, '${DATABASE_BASE_PATH}');
+        const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/`);
         onValue(notesRef, snapshot => {
           const notes = snapshot.val();
           if (notes) {
@@ -173,7 +186,7 @@
     };
 
     const populateNoteList = () => {
-      const notesRef = ref(database, DATABASE_BASE_PATH);
+      const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes`);
       onValue(notesRef, snapshot => {
         const notes = snapshot.val();
         noteList.innerHTML = '';
@@ -219,7 +232,7 @@
         const lastDeletedNote = deletedNotes.pop();
         const { name, note } = lastDeletedNote;
 
-        const notesRef = ref(database, `${DATABASE_BASE_PATH}/${name}`);
+        const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/${name}`);
         try {
           await set(notesRef, { name, note, timestamp: new Date().toISOString() });
           console.log(`Undone the deletion of the note with name: ${name}`);
