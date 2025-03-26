@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>App Launcher</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../apps/assets/css/app-styles.css">
+  <style>
+    .hidden {
+      display: none;
+    }
+
+    .dropdown-apps.show {
+      display: block;
+    }
+
+    #myIframe {
+      width: 100%;
+      height: 90vh;
+      border: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="authScreen">
+    <h2>Please enter code to view:</h2>
+    <input type="password" id="accessCode" placeholder="Enter code...">
+    <button onclick="validateCode()">Submit</button>
+  </div>
+
+  <div id="mainApp" class="hidden">
+    <header>
+      <nav>
+        <div class="dropdownapps">
+          <button onclick="toggleDropdown()" class="dropbtn">Apps</button>
+          <div id="myDropdown" class="dropdown-apps"></div>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <iframe id="myIframe" src=""></iframe>
+    </main>
+  </div>
+
+  <script>
+    const VALID_CODES = ["3988"];
+
+    document.getElementById("accessCode").addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        validateCode();
+      }
+    });
+
+    function validateCode() {
+      const inputCode = document.getElementById("accessCode").value;
+      if (VALID_CODES.includes(inputCode)) {
+        document.getElementById("authScreen").remove();
+        document.getElementById("mainApp").classList.remove("hidden");
+      } else {
+        alert("Invalid code");
+      }
+    }
+
+    function toggleDropdown() {
+      const dropdown = document.getElementById("myDropdown");
+      dropdown.classList.toggle("show");
+      if (!dropdown.classList.contains("show")) return;
+
+      dropdown.innerHTML = `
+        <input type="text" id="appSearch" placeholder="Search for an app..." 
+               oninput="filterApps()">
+        <div id="appList"></div>
+      `;
+      generateAppList();
+      document.getElementById("appSearch").focus();
+      document.addEventListener("click", closeDropdownOutside);
+    }
+
+    function closeDropdownOutside(event) {
+      const dropdown = document.getElementById("myDropdown");
+      const button = document.querySelector(".dropbtn");
+
+      if (!dropdown.contains(event.target) && !button.contains(event.target)) {
+        dropdown.classList.remove("show");
+        document.removeEventListener("click", closeDropdownOutside);
+      }
+    }
+
+    const appNamesMap = {
+      "Login/Register": { filename: "livereg", tags: ["Registration", "Login"] },
+      "Notes App": { filename: "livenotes", tags: ["notes", "writing"] },
+      "Jobs Gallery": { filename: "livegallery", tags: ["gallery", "photos"] },
+      "Bookmarks": { filename: "livelinks", tags: ["links", "favorites"] },
+      "Task Tracking": { filename: "livetasker", tags: ["tasks"] },
+    };
+
+    const appDisplayNames = Object.keys(appNamesMap);
+    const iframe = document.getElementById('myIframe');
+
+    function generateAppList(filterText = "") {
+      const appListDiv = document.getElementById("appList");
+      appListDiv.innerHTML = "";
+
+      let matchFound = false;
+      const filterLower = filterText.toLowerCase();
+
+      appDisplayNames.forEach(displayName => {
+        const app = appNamesMap[displayName];
+        const appTags = app.tags.join(" ").toLowerCase();
+
+        if (displayName.toLowerCase().includes(filterLower) || appTags.includes(filterLower)) {
+          const appLink = document.createElement("a");
+          appLink.textContent = displayName;
+          appLink.style.display = "block";
+          appLink.style.padding = "8px";
+          appLink.style.cursor = "pointer";
+          appLink.onclick = () => setIframeSrc(displayName);
+          appListDiv.appendChild(appLink);
+          matchFound = true;
+        }
+      });
+
+      if (!matchFound) {
+        appListDiv.innerHTML = `<p style="text-align:center; padding:10px;">No matching apps</p>`;
+      }
+    }
+
+    function filterApps() {
+      const searchInput = document.getElementById("appSearch").value.trim().toLowerCase();
+      generateAppList(searchInput);
+    }
+
+    function setIframeSrc(appName) {
+      const app = appNamesMap[appName];
+      if (app) {
+        iframe.src = `../apps/${app.filename}.html`;
+        localStorage.setItem("lastUsedApp", appName);
+        document.getElementById("myDropdown").classList.remove("show");
+      }
+    }
+
+    window.onload = () => {
+      const lastUsedApp = localStorage.getItem("lastUsedApp");
+      if (lastUsedApp && appNamesMap[lastUsedApp]) {
+        setIframeSrc(lastUsedApp);
+      }
+    };
+  </script>
+</body>
+
+</html>
