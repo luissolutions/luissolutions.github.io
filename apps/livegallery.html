@@ -131,8 +131,8 @@
             <label for="moveToFolder">To Folder:</label>
             <select id="moveToFolder"></select>
 
-            <div id="modalNavLeft" style="position:absolute;top:0;left:0;width:40%;height:85%;cursor:pointer;"></div>
-            <div id="modalNavRight" style="position:absolute;top:0;right:0;width:40%;height:85%;cursor:pointer;"></div>
+            <div id="modalNavLeft" style="position:absolute;top:0;left:0;width:40%;height:80%;cursor:pointer;"></div>
+            <div id="modalNavRight" style="position:absolute;top:0;right:0;width:40%;height:80%;cursor:pointer;"></div>
 
         </div>
     </div>
@@ -175,10 +175,29 @@
                 }
                 const file = files[0];
                 const folder = sanitizeInput(document.getElementById('imageLabel').value) || "default";
-                const imageName = sanitizeInput(document.getElementById('imageNameInput').value) || file.name.split('.').slice(0, -1).join('_');
+                const rawNameInput = document.getElementById('imageNameInput').value;
+                const rawMarkupInput = document.getElementById('markupTextInput').value;
+
+                const markupText = sanitizeInput(rawMarkupInput);
+                let imageName = sanitizeInput(rawNameInput);
+
+                if (!imageName && markupText) {
+                    imageName = markupText;
+                } else if (!imageName) {
+                    imageName = file.name.split('.').slice(0, -1).join('_');
+                }
                 const fileExtension = file.name.split('.').pop();
-                const markupText = sanitizeInput(document.getElementById('markupTextInput').value);
-                const finalFileName = markupText ? `${imageName}_markup.${fileExtension}` : `${imageName}.${fileExtension}`;
+                let baseFileName = markupText ? `${imageName}_markup` : imageName;
+                let finalFileName = `${baseFileName}.${fileExtension}`;
+                const folderPath = `${DATABASE_BASE_PATH}/tasks/images/${folder}`;
+                const existingFiles = await listAll(storageRef(storage, folderPath));
+
+                const existingNames = new Set(existingFiles.items.map(item => item.name));
+
+                let counter = 1;
+                while (existingNames.has(finalFileName)) {
+                    finalFileName = `${baseFileName}_${counter++}.${fileExtension}`;
+                }
 
                 let imageBlob = await resizeImage(file, 1024);
                 if (markupText) {
