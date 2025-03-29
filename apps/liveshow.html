@@ -102,6 +102,12 @@
             </label>
 
             <button id="moveImageButton">Move Image</button>
+
+            <div id="progress-container" style="display: none;">
+                <label>Progress:</label>
+                <progress id="progress-bar" value="0" max="100" style="width: 100%;"></progress>
+                <span id="progress-text">0%</span>
+            </div>
         </section>
 
 
@@ -186,6 +192,14 @@
             async function moveAllFilesRecursively(folderRef, currentFromPath) {
                 const listResult = await listAll(folderRef);
 
+                const totalFiles = listResult.items.length;
+                let movedCount = 0;
+
+                document.getElementById('progress-container').style.display = 'block';
+
+                const progressBar = document.getElementById('progress-bar');
+                const progressText = document.getElementById('progress-text');
+
                 for (const item of listResult.items) {
                     try {
                         const arrayBuffer = await getBytes(item);
@@ -196,8 +210,14 @@
                         if (!copyInstead) {
                             await deleteObject(item);
                         }
-                        console.log(`${copyInstead ? 'Copied' : 'Moved'}: ${item.fullPath} ➝ ${newPath}`);
+
                         movedCount++;
+
+                        const progress = Math.round((movedCount / totalFiles) * 100);
+                        progressBar.value = progress;
+                        progressText.textContent = `${progress}%`;
+
+                        console.log(`${copyInstead ? 'Copied' : 'Moved'}: ${item.fullPath} ➝ ${newPath}`);
                     } catch (moveError) {
                         console.warn(`Failed to ${copyInstead ? 'copy' : 'move'} ${item.fullPath}:`, moveError);
                     }
@@ -208,18 +228,19 @@
                 }
             }
 
-            let movedCount = 0;
             try {
                 const baseRef = storageRef(storage, fromFolder);
                 await moveAllFilesRecursively(baseRef, fromFolder);
 
-                alert(`Successfully ${copyInstead ? 'copied' : 'moved'} ${movedCount} file(s) from "${fromFolder}" to "${toFolder}".`);
+                alert(`Successfully ${copyInstead ? 'copied' : 'moved'} files from "${fromFolder}" to "${toFolder}".`);
 
                 await populateFolderDropdowns();
             } catch (err) {
                 console.error(`Error ${copyInstead ? 'copying' : 'moving'} files:`, err);
                 alert(`Failed to ${copyInstead ? 'copy' : 'move'} some files. See console for details.`);
             }
+
+            document.getElementById('progress-container').style.display = 'none';
         });
 
         function displayData(data, table, path = '/') {
