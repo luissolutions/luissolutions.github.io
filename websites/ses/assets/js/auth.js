@@ -1,4 +1,4 @@
-import { auth, onAuthStateChanged, signOut } from './firebase-init.js';
+import { auth, onAuthStateChanged, signOut } from '../../../../apps/assets/js/firebase-init.js';
 
 // Check authentication state
 onAuthStateChanged(auth, (user) => {
