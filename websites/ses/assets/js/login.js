@@ -1,6 +1,6 @@
 import {
     database, auth, signInWithEmailAndPassword, createUserWithEmailAndPassword, ref, set
-} from './firebase-init.js';
+} from '../../../../apps/assets/js/firebase-init.js';
 
 const mainForm = document.getElementById('loginForm');
 const emailInp = document.getElementById('loginEmail');

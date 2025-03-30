@@ -1,168 +1,244 @@
-import {
-    database, ref, onValue, set, get, remove, runTransaction
-} from './firebase-init.js';
+import { auth, onAuthStateChanged, initializeAuth , database, ref, onValue, set, get, off, app, update, remove, storage, storageRef, 
+    getStorage, uploadBytesResumable, deleteObject, getDownloadURL, push } from '../../../../apps/assets/js/firebase-init.js';
+
+let DATABASE_BASE_PATH = 'public';
+
+onAuthStateChanged(auth, (user) => {
+    DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
+    populateNoteList();
+    populateInvoiceDropdown();
+    setupRealTimeListeners();
+    loadDatabaseEntries();
+    loadDatabase();
+});
+
+// Notes Section
 
 const nameInput = document.getElementById('input-name');
-const notesTextarea = document.getElementById('notes');
-
-function copyNote() {
-    notesTextarea.select();
-    document.execCommand('copy');
-    console.log('Copied to clipboard');
-}
-
-async function pasteNote() {
-    const clipboardData = await navigator.clipboard.readText();
-    notesTextarea.value += clipboardData;
-}
-
-async function saveNote() {
-    const nameToSave = nameInput.value.trim();
-    const noteToSave = notesTextarea.value.trim();
-
-    if (nameToSave && noteToSave) {
-        const notesRef = ref(database, `notes/${nameToSave}`);
-        set(notesRef, { name: nameToSave, note: noteToSave })
-            .then(() => {
-                console.log('Note saved successfully');
-            })
-            .catch(error => {
-                console.error('Failed to save the note:', error);
-            });
-    } else {
-        console.log('Please enter both the name and note before saving');
-    }
-}
-
-async function deleteNote() {
-    const nameToDelete = nameInput.value.trim();
-
-    if (nameToDelete) {
-        const notesRef = ref(database, 'notes');
-        const snapshot = await get(notesRef);
-        const notes = snapshot.val();
-        if (notes) {
-            const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
-            if (noteId) {
-                const deletedNote = notes[noteId];
-                storeDeletedNote(deletedNote.name, deletedNote.note);
-                set(ref(database, `notes/${noteId}`), null)
-                    .then(() => {
-                        nameInput.value = '';
-                        notesTextarea.value = '';
-                        console.log(`Deleted the note with name: ${nameToDelete}`);
-                    })
-                    .catch(error => {
-                        console.error('Failed to delete the note:', error);
-                    });
-            }
-        }
-    } else {
-        console.log('Please enter the name of the note to delete');
-    }
-}
-
-function exportNotes() {
-    const notesRef = ref(database, 'notes');
-    onValue(notesRef, snapshot => {
-        const notes = snapshot.val();
-
-        if (notes) {
-            const notesData = Object.values(notes);
-            const dataBlob = new Blob([JSON.stringify(notesData, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(dataBlob);
-
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = 'notes.json';
-            link.click();
-        } else {
-            console.log('No notes found to export');
-        }
-    });
-}
-
-function clearNoteInputs() {
-    nameInput.value = '';
-    notesTextarea.value = '';
-}
-
-function populateNoteList() {
-    const notesRef = ref(database, 'notes');
-    const noteList = document.getElementById('note-list');
-
-    onValue(notesRef, snapshot => {
-        const notes = snapshot.val();
-        noteList.innerHTML = '';
-
-        if (notes) {
-            Object.values(notes).forEach(note => {
-                const listItem = document.createElement('li');
-                listItem.textContent = note.name;
-                listItem.addEventListener('click', () => {
-                    nameInput.value = note.name;
-                    notesTextarea.value = note.note;
-                });
-
-                noteList.appendChild(listItem);
-            });
-        } else {
-            noteList.innerHTML = '<li>No notes found</li>';
-        }
-    });
-}
-
+const notesTextarea = document.getElementById('note');
+const noteList = document.getElementById('note-list');
 let deletedNotes = [];
-
-function storeDeletedNote(name, note) {
-    deletedNotes.push({ name, note });
-}
-
-function undoDelete() {
-    if (deletedNotes.length > 0) {
-        const lastDeletedNote = deletedNotes.pop();
-        const { name, note } = lastDeletedNote;
-
-        const notesRef = ref(database, `notes/${name}`);
-        set(notesRef, { name, note })
-            .then(() => {
-                console.log(`Undone the deletion of the note with name: ${name}`);
-                populateNoteList();
-            })
-            .catch(error => {
-                console.error('Failed to undo the deletion:', error);
-            });
-    } else {
-        console.log('No deleted notes to undo');
-    }
-}
+let autoSaveInterval;
 
 const setupEventListeners = () => {
     document.getElementById('copy-btn').addEventListener('click', copyNote);
     document.getElementById('paste-btn').addEventListener('click', pasteNote);
     document.getElementById('save-btn').addEventListener('click', saveNote);
     document.getElementById('delete-btn').addEventListener('click', deleteNote);
-    document.getElementById('export-btn').addEventListener('click', exportNotes);
     document.getElementById('clear-btn').addEventListener('click', clearNoteInputs);
-}
+    document.getElementById('undo-btn').addEventListener('click', undoDelete);
+    document.getElementById('autosave-checkbox').addEventListener('change', toggleAutoSave);
+    document.addEventListener("keydown", handleKeyboardShortcuts);
+    notesTextarea.addEventListener('input', () => autoResizeTextarea('note'));
+};
+
+const copyNote = () => {
+    notesTextarea.select();
+    document.execCommand('copy');
+    console.log('Copied to clipboard');
+};
+
+const pasteNote = async () => {
+    const clipboardData = await navigator.clipboard.readText();
+    notesTextarea.value += clipboardData;
+};
+
+const saveNote = async () => {
+    const nameToSave = nameInput.value.trim();
+    const noteToSave = notesTextarea.value.trim();
+    const saveBtn = document.getElementById('save-btn');
+    const timestamp = new Date().toISOString();
+
+    if (!nameToSave || !noteToSave) {
+        console.log('Please enter both the name and note before saving');
+        return;
+    }
+
+    const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/${nameToSave}`);
+    const snapshot = await get(notesRef);
+    const existingNote = snapshot.val();
+
+    if (!existingNote || new Date(timestamp) > new Date(existingNote.timestamp)) {
+        await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
+        console.log('Note saved successfully');
+        updateSaveButton(saveBtn);
+    } else {
+        const userChoice = confirm(
+            `⚠️ A newer version of "${nameToSave}" already exists.\nDo you want to overwrite it with your current changes?`
+        );
+        if (userChoice) {
+            await set(notesRef, { name: nameToSave, note: noteToSave, timestamp });
+            console.log('Note overwritten by user choice');
+            updateSaveButton(saveBtn);
+        } else {
+            console.log('Save cancelled. Newer note preserved.');
+        }
+    }
+};
+
+const updateSaveButton = (button) => {
+    button.textContent = 'Saved';
+    button.style.backgroundColor = 'lightblue';
+    setTimeout(() => {
+        button.textContent = '💾';
+        button.style.backgroundColor = '';
+    }, 2000);
+};
+
+const deleteNote = async () => {
+    const nameToDelete = nameInput.value.trim();
+
+    if (nameToDelete) {
+        const userConfirmed = confirm(`Are you sure you want to delete the note with name: ${nameToDelete}?`);
+        if (!userConfirmed) {
+            console.log('Note deletion cancelled.');
+            return;
+        }
+
+        const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes`);
+        const snapshot = await get(notesRef);
+        const notes = snapshot.val();
+
+        if (notes) {
+            const noteId = Object.keys(notes).find(id => notes[id].name === nameToDelete);
+            if (noteId) {
+                const deletedNote = notes[noteId];
+                storeDeletedNote(deletedNote.name, deletedNote.note);
+                await set(ref(database, `${DATABASE_BASE_PATH}/notes/${noteId}`), null);
+                clearNoteInputs();
+                console.log(`Deleted the note with name: ${nameToDelete}`);
+            } else {
+                console.log('Note not found.');
+            }
+        } else {
+            console.log('No notes available.');
+        }
+    } else {
+        console.log('Please enter the name of the note to delete.');
+    }
+};
+
+const loadNote = async () => {
+    const nameToLoad = nameInput.value.trim();
+
+    if (nameToLoad) {
+        const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/`);
+        onValue(notesRef, snapshot => {
+            const notes = snapshot.val();
+            if (notes) {
+                const noteId = Object.keys(notes).find(id => notes[id].name === nameToLoad);
+                if (noteId) {
+                    const selectedNote = notes[noteId];
+                    notesTextarea.value = selectedNote.note;
+                    console.log(`Loaded the note with name: ${nameToLoad}`);
+                } else {
+                    console.log(`No note found with the name: ${nameToLoad}`);
+                }
+            } else {
+                console.log('No notes found');
+            }
+        });
+    } else {
+        console.log('Please enter the name of the note to load');
+    }
+};
+
+const clearNoteInputs = () => {
+    nameInput.value = '';
+    notesTextarea.value = '';
+};
+
+const populateNoteList = () => {
+    const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes`);
+    onValue(notesRef, snapshot => {
+        const notes = snapshot.val();
+        noteList.innerHTML = '';
+
+        if (notes) {
+            const sortedNotes = Object.values(notes).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            sortedNotes.forEach(note => createNoteListItem(note));
+        } else {
+            noteList.innerHTML = '<li>No notes found</li>';
+        }
+    });
+};
+
+const createNoteListItem = (note) => {
+    const listItem = document.createElement('li');
+
+    const nameSpan = document.createElement('span');
+    nameSpan.style.fontWeight = 'bold';
+    nameSpan.textContent = note.name;
+
+    const timestampSpan = document.createElement('span');
+    timestampSpan.style.fontWeight = 'normal';
+    timestampSpan.style.marginLeft = '10px';
+    timestampSpan.textContent = ` (${new Date(note.timestamp).toLocaleString()})`;
+
+    listItem.appendChild(nameSpan);
+    listItem.appendChild(timestampSpan);
+
+    listItem.addEventListener('click', () => {
+        nameInput.value = note.name;
+        notesTextarea.value = note.note;
+    });
+
+    noteList.appendChild(listItem);
+};
+
+const storeDeletedNote = (name, note) => {
+    deletedNotes.push({ name, note });
+};
+
+const undoDelete = async () => {
+    if (deletedNotes.length > 0) {
+        const lastDeletedNote = deletedNotes.pop();
+        const { name, note } = lastDeletedNote;
+
+        const notesRef = ref(database, `${DATABASE_BASE_PATH}/notes/${name}`);
+        try {
+            await set(notesRef, { name, note, timestamp: new Date().toISOString() });
+            console.log(`Undone the deletion of the note with name: ${name}`);
+            populateNoteList();
+        } catch (error) {
+            console.error('Failed to undo the deletion:', error);
+        }
+    } else {
+        console.log('No deleted notes to undo');
+    }
+};
+
+const autoResizeTextarea = (id) => {
+    const textarea = document.getElementById(id);
+    textarea.style.height = textarea.scrollHeight + 'px';
+};
+
+const toggleAutoSave = (event) => {
+    if (event.target.checked) {
+        autoSaveInterval = setInterval(saveNote, 40000);
+    } else {
+        clearInterval(autoSaveInterval);
+    }
+};
+
+const handleKeyboardShortcuts = (event) => {
+    if (event.ctrlKey && event.key === "s") {
+        event.preventDefault();
+        document.getElementById("save-btn").click();
+    }
+};
 
 document.addEventListener("DOMContentLoaded", () => {
     setupEventListeners();
-    populateNoteList();
+    autoSaveInterval = setInterval(saveNote, 40000);
 });
 
-document.getElementById('undo-btn').addEventListener('click', undoDelete);
-
-document.addEventListener("keydown", event => {
-    if (event.ctrlKey && event.key === "s") {
-        event.preventDefault();
-
-        const saveBtn = document.getElementById("save-btn");
-        if (saveBtn) {
-            saveBtn.click();
-        }
-    }
+document.getElementById('resizeTextareaBtn').addEventListener('click', () => {
+    autoResizeTextarea('notes');
 });
+
+
+// Invoice Section
 
 const partsTableBody = document.querySelector('.parts-table tbody');
 const subtotalInput = document.getElementById('subtotal');
@@ -172,6 +248,7 @@ const totalInput = document.getElementById('total');
 const addPartRowButton = document.getElementById('add-part-row');
 const delPartRowButton = document.getElementById('del-part-row');
 const partCategory = document.getElementById('part-category');
+const partSubcategory = document.getElementById('part-subcategory');
 const partSelector = document.getElementById('part-selector');
 const addLaborRowButton = document.getElementById('add-labor-row');
 const laborTableBody = document.querySelector('.labor-table tbody');
@@ -183,35 +260,116 @@ const saveButton = document.getElementById('save-button');
 const invoiceDropdown = document.getElementById('invoice-dropdown');
 const deleteButton = document.getElementById('deleteButton');
 const searchInput = document.getElementById('invoice-search');
-const invoiceParts = {};
 
 function loadDatabase() {
-    const partsRef = ref(database, 'inventory');
+    const partsRef = ref(database, `${DATABASE_BASE_PATH}/inventory`);
 
     onValue(partsRef, (snapshot) => {
         const items = snapshot.val();
-        const categories = Object.keys(items);
 
-        partCategory.innerHTML = '';
+        if (!items || typeof items !== 'object') {
+            partCategory.innerHTML = '<option value="">No Categories Available</option>';
+            return;
+        }
 
-        categories.forEach(category => {
-            const option = createOptionElement(category, category);
+        partCategory.innerHTML = '<option value="">Select Category</option>';
+
+        Object.keys(items).forEach(category => {
+            const option = document.createElement('option');
+            option.value = category;
+            option.textContent = category;
             partCategory.appendChild(option);
         });
 
-        updatePartSelector(partCategory.value, items[partCategory.value]);
+    }, (error) => {
+        console.error("Error loading inventory data:", error);
+    });
+}
 
-        partCategory.addEventListener('change', (event) => {
-            updatePartSelector(event.target.value, items[event.target.value]);
+partCategory.addEventListener('change', () => {
+    const selectedCategory = partCategory.value;
+    loadSubcategories(selectedCategory);
+});
+
+function loadSubcategories(category) {
+    if (!category) {
+        partSubcategory.innerHTML = '<option value="">No Subcategories Available</option>';
+        return;
+    }
+
+    const subcategoriesRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}`);
+
+    onValue(subcategoriesRef, (snapshot) => {
+        const subcategories = snapshot.val();
+
+        if (!subcategories) {
+            console.warn(`No subcategories found for category: ${category}`);
+            partSubcategory.innerHTML = '<option value="">No Subcategories Available</option>';
+            return;
+        }
+
+        partSubcategory.innerHTML = '<option value="">Select Subcategory</option>';
+        partSelector.innerHTML = '';
+
+        Object.keys(subcategories).forEach(subcategory => {
+            const option = document.createElement('option');
+            option.value = subcategory;
+            option.textContent = subcategory;
+            partSubcategory.appendChild(option);
+        });
+    }, (error) => {
+        console.error("Error loading subcategories:", error);
+    });
+}
+
+partSubcategory.addEventListener('change', () => {
+    const selectedCategory = partCategory.value;
+    const selectedSubcategory = partSubcategory.value;
+    loadParts(selectedCategory, selectedSubcategory);
+});
+
+function loadParts(category, subcategory) {
+    partSelector.innerHTML = '<option value="">Select Part</option>';
+
+    if (!category || !subcategory) {
+        partSelector.innerHTML = '<option value="">No Parts Available</option>';
+        return;
+    }
+
+    const partsRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${subcategory}`);
+
+    onValue(partsRef, (snapshot) => {
+        const parts = snapshot.val();
+
+        if (!parts || typeof parts !== 'object') {
+            console.warn(`No parts found for ${category} > ${subcategory}`);
+            partSelector.innerHTML = '<option value="">No Parts Available</option>';
+            return;
+        }
+
+        partSelector.innerHTML = '<option value="">Select Part</option>';
+
+        Object.entries(parts).forEach(([timestampKey, partData]) => {
+            if (partData.part) {
+                const option = document.createElement('option');
+                option.value = timestampKey;
+                option.textContent = partData.part;
+                option.dataset.price = partData.price || 0;
+                option.dataset.actualPrice = partData.actualPrice || 0;
+                option.dataset.category = category;
+                option.dataset.component = subcategory;
+                partSelector.appendChild(option);
+            }
         });
 
+        console.log(`Loaded parts for ${category} > ${subcategory}`);
     }, (error) => {
-        console.error("Error loading parts database:", error);
+        console.error("Error loading parts:", error);
     });
 }
 
 function updateInvoiceDropdown(searchQuery) {
-    const invoicesRef = ref(database, 'invoices');
+    const invoicesRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
     get(invoicesRef).then((snapshot) => {
         if (snapshot.exists()) {
             const invoices = snapshot.val();
@@ -224,12 +382,12 @@ function updateInvoiceDropdown(searchQuery) {
 
 function updateDropdownOptions(invoices, filterText) {
 
-    for (const invoiceNumber in invoices) {
-        if (invoices.hasOwnProperty(invoiceNumber)) {
-            if (filterText === '' || invoiceNumber.toLowerCase().includes(filterText)) {
+    for (const project in invoices) {
+        if (invoices.hasOwnProperty(project)) {
+            if (filterText === '' || project.toLowerCase().includes(filterText)) {
                 const option = document.createElement('option');
-                option.value = invoiceNumber;
-                option.textContent = invoiceNumber;
+                option.value = project;
+                option.textContent = project;
                 invoiceDropdown.appendChild(option);
             }
         }
@@ -237,70 +395,67 @@ function updateDropdownOptions(invoices, filterText) {
 }
 
 async function saveInvoice() {
-    const invoiceNumberInput = document.getElementById('invoice-number');
-    const invoiceNumber = invoiceNumberInput.value.trim();
-    const invoiceType = document.getElementById('invoice-type').value;
+    const projectInput = document.getElementById('invoice-number');
+    let invoiceId = projectInput.dataset.id || projectInput.value.trim();
 
-    if (invoiceNumber.length === 0) {
-        console.error('Invoice number is required.');
+    if (!invoiceId) {
+        alert("Invoice ID is required.");
         return;
     }
 
+    const invoiceType = document.getElementById('invoice-type').value;
     const amountPaid = document.getElementById('amount-paid').value;
-    const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => {
-        return {
-            category: row.dataset.category,
-            component: row.dataset.component,
-            part: row.querySelector('td#populated-part').textContent,
-            quantity: row.querySelector('input[name="part-quantity"]').value,
-            price: row.querySelector('input[name="part-price"]').value,
-            actualPrice: row.querySelector('input[name="part-actual-price"]').value, // Include actualPrice
-            total: row.querySelector('input[name="part-total"]').value,
-        };
-    });
-    const invoiceData = {
+    const startTime = document.getElementById('invoice-date').value;
+
+    const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => ({
+        part: row.dataset.part || '',
+        quantity: row.querySelector('input[name="part-quantity"]').value || 0,
+        price: row.querySelector('input[name="part-price"]').value || 0,
+        actualPrice: row.querySelector('input[name="part-actual-price"]').value || 0,
+        total: row.querySelector('input[name="part-total"]').value || 0,
+    }));
+
+    const laborData = Array.from(laborTableBody.querySelectorAll('tr')).map(row => ({
+        description: row.querySelector('input[name="labor-description"]').value.trim() || '',
+        hours: row.querySelector('input[name="labor-hours"]').value || 0,
+        rate: row.querySelector('input[name="labor-rate"]').value || 0,
+        total: row.querySelector('input[name="labor-total"]').value || 0,
+    }));
+
+    const newInvoiceData = {
+        id: invoiceId,
         invoiceType,
         invoiceTitle: document.getElementById('title-input').value,
         customerName: document.getElementById('customer-name').value,
         customerPhone: document.getElementById('customer-phone').value,
         customerEmail: document.getElementById('customer-email').value,
         customerAddress: document.getElementById('customer-address').value,
-        invoiceNumber: document.getElementById('invoice-number').value,
-        notes: document.getElementById('invoice-notes').value,
-        invoiceDate: document.getElementById('invoice-date').value,
+        project: invoiceId,
+        notes: document.getElementById('notes').value,
+        startTime,
         parts: partsData,
-        labor: [...laborTableBody.querySelectorAll('tr')].map(row => ({
-            description: row.querySelector('input[name="labor-description"]').value.trim(),
-            hours: row.querySelector('input[name="labor-hours"]').value,
-            rate: row.querySelector('input[name="labor-rate"]').value,
-            cost: row.querySelector('input[name="labor-total"]').value,
-        })),
-        subtotal: subtotalInput.value,
+        labor: laborData,
         taxPercent: taxPercentInput.value,
-        tax: taxInput.value,
-        total: totalInput.value,
-        amountPaid: amountPaid,
+        amountPaid,
     };
 
-    for (const part of invoiceData.parts) {
-        try {
-            await updatePartQuantityInDatabase(part.category, part.component, part.part, part.quantity);
-        } catch (error) {
-            console.error(`Error updating part ${part.part}:`, error);
-        }
-    }
-
-    const invoiceRef = ref(database, 'invoices/' + invoiceNumber);
+    const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${invoiceId}`);
 
     try {
-        await set(invoiceRef, invoiceData);
+        const snapshot = await get(invoiceRef);
+        let existingData = snapshot.exists() ? snapshot.val() : {};
 
-        console.log('Invoice saved successfully');
+        const updatedInvoiceData = {
+            ...existingData,
+            ...newInvoiceData
+        };
+
+        await update(invoiceRef, updatedInvoiceData);
+        console.log(`Invoice ${invoiceId} saved/updated successfully.`);
         clearInvoice();
         populateInvoiceDropdown();
-        return;
     } catch (error) {
-        console.error('Error saving invoice to Realtime Database:', error);
+        console.error("Error saving/updating invoice:", error);
     }
 }
 
@@ -330,60 +485,127 @@ function updatePartSelector(selectedCategory, components) {
     }
 }
 
-function addPartRow(partName, category = null, component = null, quantity = 1, price = 0, actualPrice = 0) {
-    if (!category || !component) {
-        const selectedOption = partSelector.querySelector(`option[value="${partName}"]`);
-        if (!selectedOption) return;
+async function addPartRow(partData = null) {
+    let part, price, actualPrice, category, component, quantity;
 
+    if (partData) {
+        part = partData.part;
+        price = parseFloat(partData.price) || 0;
+        actualPrice = parseFloat(partData.actualPrice) || 0;
+        category = partData.category;
+        component = partData.component;
+        quantity = parseInt(partData.quantity) || 1;
+    } else {
+        const selectedOption = partSelector.options[partSelector.selectedIndex];
+
+        if (!selectedOption || !selectedOption.value) {
+            console.warn("⚠️ No part selected.");
+            return;
+        }
+
+        part = selectedOption.textContent;
         price = parseFloat(selectedOption.dataset.price) || 0;
         actualPrice = parseFloat(selectedOption.dataset.actualPrice) || 0;
         category = selectedOption.dataset.category;
         component = selectedOption.dataset.component;
+        quantity = 1;
     }
 
-    const existingRow = partsTableBody.querySelector(`tr[data-part="${partName}"][data-category="${category}"][data-component="${component}"]`);
+    let existingRow = Array.from(partsTableBody.querySelectorAll('tr')).find(row => {
+        return row.dataset.part === part;
+    });
+
     if (existingRow) {
-        const quantityInput = existingRow.querySelector('input[name="part-quantity"]');
-        quantityInput.value = parseInt(quantityInput.value, 10) + quantity;
+        let quantityInput = existingRow.querySelector('input[name="part-quantity"]');
+        let currentQuantity = parseInt(quantityInput.value) || 0;
+        quantityInput.value = currentQuantity + quantity;
         updatePartRowTotal(existingRow);
-    } else {
-        const newRow = document.createElement('tr');
-        newRow.dataset.part = partName;
-        newRow.dataset.category = category;
-        newRow.dataset.component = component;
-
-        newRow.innerHTML = `
-            <td id="populated-part">${partName}</td>
-            <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
-            <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
-            <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
-            <td><input type="number" name="part-total" min="0" value="${price * quantity}" readonly></td>
-        `;
-
-        partsTableBody.appendChild(newRow);
-
-        const priceInput = newRow.querySelector('input[name="part-price"]');
-        const quantityInput = newRow.querySelector('input[name="part-quantity"]');
-
-        priceInput.addEventListener('input', () => updatePartRowTotal(newRow));
-        quantityInput.addEventListener('input', () => updatePartRowTotal(newRow));
+        return;
     }
+
+    const newRow = document.createElement('tr');
+    newRow.dataset.part = part;
+    newRow.dataset.category = category;
+    newRow.dataset.component = component;
+
+    newRow.innerHTML = `
+        <td>${part}</td>
+        <td><input type="number" name="part-quantity" min="1" value="${quantity}"></td>
+        <td><input type="number" name="part-price" min="0" value="${price}" class="part-price-input"></td>
+        <td class="actual-price-hide"><input type="number" name="part-actual-price" min="0" value="${actualPrice}" class="actual-price-input"></td>
+        <td><input type="number" name="part-total" min="0" value="${(price * quantity).toFixed(2)}" readonly></td>
+    `;
+
+    partsTableBody.appendChild(newRow);
+
+    const priceInput = newRow.querySelector('input[name="part-price"]');
+    const quantityInput = newRow.querySelector('input[name="part-quantity"]');
+
+    priceInput.addEventListener('input', () => updatePartRowTotal(newRow));
+    quantityInput.addEventListener('input', () => updatePartRowTotal(newRow));
 
     updateTotals();
     updatePriceDifference();
     updateRemainingBalance();
 }
 
+addPartRowButton.addEventListener('click', () => {
+    const selectedOption = partSelector.options[partSelector.selectedIndex];
+    if (selectedOption && selectedOption.value) {
+        const partData = {
+            part: selectedOption.textContent,
+            price: selectedOption.dataset.price,
+            actualPrice: selectedOption.dataset.actualPrice,
+            category: selectedOption.dataset.category,
+            component: selectedOption.dataset.component,
+            quantity: 1
+        };
+        addPartRow(partData);
+    } else {
+        alert("Please select a part first.");
+    }
+});
+
 function delPartRow() {
     const lastRow = partsTableBody.querySelector('tr:last-child');
 
-    if (lastRow) {
-        partsTableBody.removeChild(lastRow);
+    if (!lastRow) {
+        console.warn('⚠️ No parts available to undo.');
+        return;
     }
 
+    const partName = lastRow.cells[0].textContent.trim();
+    const category = lastRow.dataset.category;
+    const component = lastRow.dataset.component;
+
+    if (!category || !component || !partName) {
+        console.error('❌ Missing category, component, or part name.');
+        return;
+    }
+
+    lastRow.remove();
     updateTotals();
     updatePriceDifference();
     updateRemainingBalance();
+
+    const invoiceId = document.getElementById('invoice-number').dataset.id;
+    if (!invoiceId) {
+        console.warn('⚠️ No invoice ID found.');
+        return;
+    }
+
+    const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${invoiceId}/parts`);
+
+    get(invoiceRef).then((snapshot) => {
+        if (snapshot.exists()) {
+            let parts = snapshot.val();
+            const updatedParts = parts.filter(part => part.part !== partName);
+
+            update(ref(database, `${DATABASE_BASE_PATH}/tasks/${invoiceId}`), { parts: updatedParts })
+                .then(() => console.log(`✅ Removed part: ${partName} from Firebase.`))
+                .catch(error => console.error('❌ Error updating parts in Firebase:', error));
+        }
+    }).catch(error => console.error('❌ Error fetching parts:', error));
 }
 
 function addLaborRow() {
@@ -486,61 +708,48 @@ function updateTotals() {
     totalInput.value = total.toFixed(2);
 }
 
-async function updatePartQuantityInDatabase(category, component, partName, quantity) {
-    if (!category || !component || !partName || quantity === undefined) {
-        throw new Error('Missing parameters to update database.');
-    }
-
-    const partRef = ref(database, `inventory/${category}/${component}/${partName}/quantity`);
-
-    try {
-        await runTransaction(partRef, (currentQuantity) => {
-            if (currentQuantity === null) {
-                throw new Error('Part does not exist in database.');
-            } else {
-                const updatedQuantity = currentQuantity - parseInt(quantity, 10);
-                if (updatedQuantity < 0) {
-                    throw new Error('Not enough stock.');
-                }
-                return updatedQuantity;
-            }
-        });
-    } catch (error) {
-        console.error("Transaction failed: ", error);
-        throw error;
-    }
-}
-
-function populateInvoiceDropdown(searchQuery = '', selectedInvoiceNumber = '') {
+function populateInvoiceDropdown() {
     const dropdown = document.getElementById('invoice-dropdown');
     dropdown.innerHTML = '';
 
-    const invoicesRef = ref(database, 'invoices');
-    get(invoicesRef).then((snapshot) => {
+    const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+
+    onValue(invoiceRef, (snapshot) => {
+        dropdown.innerHTML = '';
         if (snapshot.exists()) {
             const invoices = snapshot.val();
-            for (const invoiceNumber in invoices) {
-                if (invoices.hasOwnProperty(invoiceNumber)) {
-                    const invoice = invoices[invoiceNumber];
-                    if (searchQuery === '' ||
-                        invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        invoice.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        invoice.customerAddress.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        invoice.customerEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        invoice.customerPhone.toLowerCase().includes(searchQuery.toLowerCase())) {
-                        const option = document.createElement('option');
-                        option.value = invoiceNumber;
-                        option.textContent = invoiceNumber;
-                        if (invoiceNumber === selectedInvoiceNumber) {
-                            option.selected = true;
-                        }
-                        dropdown.appendChild(option);
-                    }
-                }
+            const fragment = document.createDocumentFragment();
+
+            const sortedInvoices = Object.entries(invoices).sort((a, b) => {
+                const dateA = new Date(a[1].startTime || 0);
+                const dateB = new Date(b[1].startTime || 0);
+                return dateB - dateA;
+            });
+
+            sortedInvoices.forEach(([project, invoice]) => {
+                const customerName = invoice.customerName || 'Unknown';
+                const startTime = invoice.startTime ? new Date(invoice.startTime).toLocaleDateString() : 'No Date';
+
+                const option = document.createElement('option');
+                option.value = project;
+                option.textContent = `${customerName} - ${startTime}`;
+                fragment.appendChild(option);
+            });
+
+            dropdown.appendChild(fragment);
+
+            if (dropdown.options.length === 0) {
+                const noResultsOption = document.createElement('option');
+                noResultsOption.textContent = 'No invoices found';
+                dropdown.appendChild(noResultsOption);
             }
+        } else {
+            const noResultsOption = document.createElement('option');
+            noResultsOption.textContent = 'No invoices found';
+            dropdown.appendChild(noResultsOption);
         }
-    }).catch((error) => {
-        console.error('Error fetching invoices:', error);
+    }, (error) => {
+        console.error("Error fetching invoices:", error);
     });
 }
 
@@ -556,24 +765,23 @@ deleteButton.addEventListener('click', async () => {
     const selectedInvoiceNumber = invoiceDropdown.value;
 
     if (selectedInvoiceNumber) {
-        const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
+        const isConfirmed = confirm(`Are you sure you want to delete invoice ${selectedInvoiceNumber}? This action cannot be undone.`);
 
-        try {
-            await remove(invoiceRef);
-            console.log(`Invoice ${selectedInvoiceNumber} deleted successfully`);
-            populateInvoiceDropdown();
-        } catch (error) {
-            console.error(`Error deleting invoice ${selectedInvoiceNumber}:`, error);
+        if (isConfirmed) {
+            const invoiceRef = ref(database, DATABASE_BASE_PATH + "/tasks/" + selectedInvoiceNumber);
+
+            try {
+                await remove(invoiceRef);
+                console.log(`Invoice ${selectedInvoiceNumber} deleted successfully`);
+                populateInvoiceDropdown();
+            } catch (error) {
+                console.error(`Error deleting invoice ${selectedInvoiceNumber}:`, error);
+            }
+        } else {
+            console.log('Invoice deletion canceled.');
         }
     } else {
         console.error('No invoice selected for deletion.');
-    }
-});
-
-addPartRowButton.addEventListener('click', () => {
-    const selectedPart = partSelector.value;
-    if (selectedPart) {
-        addPartRow(selectedPart);
     }
 });
 
@@ -608,76 +816,96 @@ taxPercentInput.addEventListener('input', () => {
 
 document.getElementById('load-invoice-button').addEventListener('click', function () {
     const selectedInvoiceNumber = invoiceDropdown.value;
-    if (selectedInvoiceNumber) {
-        clearInvoice();
-        const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
-        get(invoiceRef).then((snapshot) => {
-            if (snapshot.exists()) {
-                const invoiceData = snapshot.val();
 
-                document.getElementById('invoice-type').value = invoiceData.invoiceType;
-                document.getElementById('title-input').value = invoiceData.invoiceTitle;
-                document.getElementById('invoice-type').value = invoiceData.invoiceType;
-                document.getElementById('customer-name').value = invoiceData.customerName;
-                document.getElementById('customer-phone').value = invoiceData.customerPhone;
-                document.getElementById('customer-email').value = invoiceData.customerEmail;
-                document.getElementById('customer-address').value = invoiceData.customerAddress;
-                document.getElementById('invoice-number').value = invoiceData.invoiceNumber;
-                document.getElementById('invoice-notes').value = invoiceData.notes;
-                document.getElementById('invoice-date').value = invoiceData.invoiceDate;
-                document.getElementById('amount-paid').value = invoiceData.amountPaid;
-                document.getElementById('tax-percent').value = invoiceData.taxPercent;
+    if (!selectedInvoiceNumber) {
+        alert('Please select an invoice to load.');
+        return;
+    }
 
-                if (invoiceData.parts && invoiceData.parts.length > 0) {
-                    invoiceData.parts.forEach(part => {
-                        addPartRow(part.part, part.category, part.component);
-                        const newRow = document.querySelector(`[data-part="${part.part}"]`);
-                        newRow.querySelector('input[name="part-quantity"]').value = part.quantity;
-                        newRow.querySelector('input[name="part-price"]').value = part.price;
-                        newRow.querySelector('input[name="part-actual-price"]').value = part.actualPrice;
-                        updatePartRowTotal(newRow);
-                    });
+    clearInvoice();
+
+    const invoiceRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${selectedInvoiceNumber}`);
+
+    get(invoiceRef).then((snapshot) => {
+        if (snapshot.exists()) {
+            const invoiceData = snapshot.val();
+
+            if (!invoiceData) {
+                console.warn("Invoice data is empty.");
+                return;
+            }
+
+            document.getElementById('invoice-number').dataset.id = invoiceData.id || selectedInvoiceNumber;
+            document.getElementById('invoice-type').value = invoiceData.invoiceType || 'invoice';
+            document.getElementById('title-input').value = invoiceData.invoiceTitle || '';
+            document.getElementById('customer-name').value = invoiceData.customerName || '';
+            document.getElementById('customer-phone').value = invoiceData.customerPhone || '';
+            document.getElementById('customer-email').value = invoiceData.customerEmail || '';
+            document.getElementById('customer-address').value = invoiceData.customerAddress || '';
+            document.getElementById('invoice-number').value = invoiceData.project || '';
+            document.getElementById('notes').value = invoiceData.notes || '';
+
+            if (invoiceData.startTime) {
+                try {
+                    const startTime = new Date(invoiceData.startTime);
+                    const localStartTime = new Date(startTime.getTime() - startTime.getTimezoneOffset() * 60000)
+                        .toISOString()
+                        .slice(0, 16);
+                    document.getElementById('invoice-date').value = localStartTime;
+                } catch (error) {
+                    console.error("Error parsing startTime:", error);
                 }
+            }
 
-                if (invoiceData.labor && invoiceData.labor.length > 0) {
-                    invoiceData.labor.forEach((labor) => {
-                        addLaborRow(labor.description, labor.hours, labor.rate);
-                        const newRow = laborTableBody.querySelector('tr:last-child');
+            document.getElementById('amount-paid').value = invoiceData.amountPaid || '';
+            document.getElementById('tax-percent').value = invoiceData.taxPercent || '';
 
-                        newRow.querySelector('input[name="labor-description"]').value = labor.description;
-                        newRow.querySelector('input[name="labor-hours"]').value = labor.hours;
-                        newRow.querySelector('input[name="labor-rate"]').value = labor.rate;
+            if (invoiceData.parts && Array.isArray(invoiceData.parts)) {
+                invoiceData.parts.forEach(part => {
+                    addPartRow(part);
+                });
+            }
+
+            if (invoiceData.labor && Array.isArray(invoiceData.labor)) {
+                invoiceData.labor.forEach((labor) => {
+                    addLaborRow(labor.description, labor.hours, labor.rate);
+                    const newRow = laborTableBody.querySelector('tr:last-child');
+
+                    if (newRow) {
+                        newRow.querySelector('input[name="labor-description"]').value = labor.description || '';
+                        newRow.querySelector('input[name="labor-hours"]').value = labor.hours || 0;
+                        newRow.querySelector('input[name="labor-rate"]').value = labor.rate || 0;
 
                         const hoursInput = newRow.querySelector('input[name="labor-hours"]');
                         const rateInput = newRow.querySelector('input[name="labor-rate"]');
                         const totalInput = newRow.querySelector('input[name="labor-total"]');
 
                         updateLaborTotal(hoursInput, rateInput, totalInput);
-                    });
-                }
-
-                updateTotals();
-                updateRemainingBalance();
+                    }
+                });
             }
-        }).catch((error) => {
-            console.error('Error fetching selected invoice:', error);
-        });
-    } else {
-        alert('Please select an invoice to load.');
-    }
+
+            updateTotals();
+            updateRemainingBalance();
+        } else {
+            console.warn("Invoice not found:", selectedInvoiceNumber);
+            alert('Invoice not found.');
+        }
+    }).catch((error) => {
+        console.error('Error fetching selected invoice:', error);
+    });
 });
 
 document.getElementById('exportButton').addEventListener('click', function () {
     const selectedInvoiceNumber = document.getElementById('invoice-dropdown').value;
 
     if (selectedInvoiceNumber) {
-        const invoiceRef = ref(database, 'invoices/' + selectedInvoiceNumber);
+        const invoiceRef = ref(database, DATABASE_BASE_PATH + "/tasks/" + selectedInvoiceNumber);
 
         get(invoiceRef).then((snapshot) => {
             if (snapshot.exists()) {
                 const invoiceData = snapshot.val();
 
-                // Convert invoice data to JSON string
                 const jsonString = JSON.stringify(invoiceData, null, 2);
 
                 const blob = new Blob([jsonString], { type: 'application/json' });
@@ -700,296 +928,16 @@ document.getElementById('exportButton').addEventListener('click', function () {
     }
 });
 
-populateInvoiceDropdown();
+document.addEventListener('DOMContentLoaded', function () {
+    const textarea = document.getElementById('notes');
+    textarea.addEventListener('input', autoResize, false);
 
-const categoryFilter = document.getElementById('category-filter');
-const entriesContainer = document.getElementById('entries-container');
-const categoryInput = document.getElementById('category');
-const componentInput = document.getElementById('component');
-const partNameInput = document.getElementById('partName');
-const priceInput = document.getElementById('price');
-const actualPriceInput = document.getElementById('actualPrice');
-const quantityInput = document.getElementById('quantity');
-const descriptionInput = document.getElementById('description');
-const inventoryRef = ref(database, 'inventory');
-
-function loadDatabaseEntries() {
-    onValue(inventoryRef, (snapshot) => {
-        const entries = snapshot.val();
-        updateCategoryFilter(entries);
-        displayEntries(entries);
-    }, handleError);
-}
-
-function updateCategoryFilter(entries) {
-    const categorySet = new Set(Object.keys(entries));
-    categoryFilter.innerHTML = '';
-    categorySet.forEach(category => {
-        const option = document.createElement('option');
-        option.value = category;
-        option.innerText = category;
-        categoryFilter.appendChild(option);
-    });
-}
-
-function displayEntries(entries, filterCategory = '') {
-    const container = document.getElementById('entries-container');
-    container.innerHTML = '';
-
-    for (const category in entries) {
-        if (filterCategory && category !== filterCategory) continue;
-        for (const component in entries[category]) {
-            for (const partName in entries[category][component]) {
-                const entry = entries[category][component][partName];
-                const entryDiv = document.createElement('div');
-                entryDiv.classList.add('data');
-
-                entryDiv.innerHTML = `
-                <label>Category:<input type="text" class="category" value="${category || ''}"></label>
-                <label>Sub-Category:<input type="text" class="component" value="${component || ''}"></label>
-                <label>Part Info:<input type="text" class="partName" value="${partName || ''}"></label>
-                <label>Price: $<input type="number" class="price" value="${entry.price || 0}"></label>
-                <label>Cost: $<input type="number" class="actualPrice" value="${entry.actualPrice || 0}"></label>
-                <label>Quantity:<input type="number" class="quantity" value="${entry.quantity || 0}"></label>
-                <label>Description:<textarea class="description">${entry.description || ''}</textarea></label>                        <button class="view-image-btn" data-partname="${partName}">View Image</button>
-                <button class="save-button">Update</button>
-                <button class="delete-button">Delete</button>
-                `;
-
-                const saveButton = entryDiv.querySelector('.save-button');
-                saveButton.addEventListener('click', () => saveEntry(entryDiv, category, component, partName));
-
-                const deleteButton = entryDiv.querySelector('.delete-button');
-                deleteButton.addEventListener('click', () => deleteEntry(category, component, partName, entryDiv));
-
-                const viewImageButton = entryDiv.querySelector('.view-image-btn');
-                viewImageButton.addEventListener('click', function () {
-                    showPartImage(this.dataset.partname);
-                });
-
-                container.appendChild(entryDiv);
-            }
-        }
+    function autoResize() {
+        this.style.height = 'auto';
+        this.style.height = this.scrollHeight + 'px';
     }
-}
-
-function handleError(error) {
-    console.error("Database operation failed:", error);
-}
-
-function showPartImage(partName) {
-    const modal = document.getElementById('modal');
-    const img = document.getElementById('part-image');
-    const imgSrc = `img/database/${partName}.png`;
-
-    const imageExists = new Promise((resolve) => {
-        const testImage = new Image();
-        testImage.src = imgSrc;
-        testImage.onload = () => resolve(true);
-        testImage.onerror = () => resolve(false);
-    });
-
-    imageExists.then((exists) => {
-        img.src = exists ? imgSrc : 'img/database/default.png';
-        modal.style.display = 'block';
-
-        img.addEventListener('click', function () {
-            modal.style.display = 'none';
-        });
-    });
-}
-
-
-function loadAndDisplayEntries(filterCategory) {
-    const entriesRef = ref(database, 'inventory');
-    onValue(entriesRef, (snapshot) => {
-        const entries = snapshot.val();
-        displayEntries(entries, filterCategory);
-    }, (error) => {
-        console.error("Error loading database entries:", error);
-    });
-}
-
-function loadAndDisplayEntriesBySearch(searchText) {
-    const entriesRef = ref(database, 'inventory');
-    onValue(entriesRef, (snapshot) => {
-        const entries = snapshot.val();
-        const filteredEntries = filterEntries(entries, searchText);
-        displayEntries(filteredEntries);
-    }, (error) => {
-        console.error("Error loading database entries:", error);
-    });
-}
-
-function filterEntries(entries, searchText) {
-    const filteredEntries = {};
-
-    for (const category in entries) {
-        for (const component in entries[category]) {
-            for (const partName in entries[category][component]) {
-                const entry = entries[category][component][partName];
-                const entryText = `${category} ${component} ${partName} ${entry.description}`.toLowerCase();
-                if (entryText.includes(searchText)) {
-                    if (!filteredEntries[category]) {
-                        filteredEntries[category] = {};
-                    }
-                    if (!filteredEntries[category][component]) {
-                        filteredEntries[category][component] = {};
-                    }
-                    filteredEntries[category][component][partName] = entry;
-                }
-            }
-        }
-    }
-
-    return filteredEntries;
-}
-
-function sanitizeInput(input) {
-    return input.replace(/\//g, '_');
-}
-
-function saveEntry(entryDiv, oldCategory, oldComponent, oldPartName) {
-    const categoryInput = entryDiv.querySelector('.category');
-    const componentInput = entryDiv.querySelector('.component');
-    const partNameInput = entryDiv.querySelector('.partName');
-    const price = entryDiv.querySelector('.price').value;
-    const actualPrice = entryDiv.querySelector('.actualPrice').value;
-    const quantity = entryDiv.querySelector('.quantity').value;
-    const description = entryDiv.querySelector('.description').value;
-
-    const sanitizedCategory = sanitizeInput(categoryInput.value);
-    const sanitizedComponent = sanitizeInput(componentInput.value);
-    const sanitizedPartName = sanitizeInput(partNameInput.value);
-
-    if (!sanitizedCategory || !sanitizedComponent || !sanitizedPartName) {
-        console.error('Please fill in all required fields.', error);
-        return;
-    }
-
-    const entryRef = ref(database, `inventory/${sanitizedCategory}/${sanitizedComponent}/${sanitizedPartName}`);
-    const dataToSave = {
-        price: price,
-        actualPrice: actualPrice,
-        quantity: quantity,
-        description: description
-    };
-
-    set(entryRef, dataToSave)
-        .then(() => {
-            console.log('Entry saved successfully');
-            if (
-                sanitizedCategory !== oldCategory ||
-                sanitizedComponent !== oldComponent ||
-                sanitizedPartName !== oldPartName
-            ) {
-                const oldEntryRef = ref(database, `inventory/${oldCategory}/${oldComponent}/${oldPartName}`);
-                remove(oldEntryRef).catch((error) => {
-                    console.error('Error deleting old entry:', error);
-                });
-            }
-        })
-        .catch((error) => {
-            console.error('Error saving entry:', error);
-        });
-}
-
-function deleteEntry(category, component, partName, entryDiv) {
-    const entryRef = ref(database, `inventory/${category}/${component}/${partName}`);
-    remove(entryRef)
-        .then(() => {
-            console.log('Entry deleted successfully');
-            entryDiv.remove();
-        })
-        .catch((error) => {
-            console.error('Error deleting entry:', error);
-        });
-}
-
-function convertToCSV(objArray) {
-    const array = typeof objArray !== 'object' ? JSON.parse(objArray) : objArray;
-    let str = 'Category,Component,Part Name,Price,Actual Price,Quantity,Description\n';
-
-    for (let category in array) {
-        for (let component in array[category]) {
-            for (let partName in array[category][component]) {
-                const entry = array[category][component][partName];
-                str += `${category},${component},${partName},${entry.price},${entry.actualPrice},${entry.quantity},"${entry.description}"\n`;
-            }
-        }
-    }
-    return str;
-}
-
-function downloadCSV(csvData) {
-    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'database_entries.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-}
-
-document.getElementById('save-data-button').addEventListener('click', (event) => {
-    event.preventDefault();
-
-    const category = sanitizeInput(document.getElementById('category').value);
-    const component = sanitizeInput(document.getElementById('component').value);
-    const partName = sanitizeInput(document.getElementById('partName').value);
-    const price = document.getElementById('price').value;
-    const actualPrice = document.getElementById('actualPrice').value;
-    const quantity = document.getElementById('quantity').value;
-    const description = document.getElementById('description').value;
-
-    if (!category || !component || !partName) {
-        console.error('Please fill in all required fields.', error);
-        return;
-    }
-
-    const entryRef = ref(database, `inventory/${category}/${component}/${partName}`);
-    const dataToSave = {
-        price: price,
-        actualPrice: actualPrice,
-        quantity: quantity,
-        description: description
-    };
-
-    set(entryRef, dataToSave)
-        .then(() => {
-            console.log('Data saved successfully');
-        })
-        .catch((error) => {
-            console.error('Error saving data:', error);
-        });
 });
 
-document.getElementById('category-filter').addEventListener('change', (event) => {
-    const selectedCategory = event.target.value;
-    loadAndDisplayEntries(selectedCategory);
-});
-
-document.getElementById('search-input').addEventListener('input', (event) => {
-    const searchText = event.target.value.toLowerCase();
-    loadAndDisplayEntriesBySearch(searchText);
-});
-
-document.getElementById('download-csv-button').addEventListener('click', () => {
-    const entriesRef = ref(database, 'inventory');
-    onValue(entriesRef, (snapshot) => {
-        const entries = snapshot.val();
-        const csvData = convertToCSV(entries);
-        downloadCSV(csvData);
-    }, (error) => {
-        console.error("Error fetching data for CSV:", error);
-    });
-});
-
-loadDatabaseEntries();
-
-// Hiding Fields
 const hideParentCheckboxes = document.querySelectorAll('.hide-parent-checkbox');
 
 hideParentCheckboxes.forEach(checkbox => {
@@ -1000,8 +948,6 @@ hideParentCheckboxes.forEach(checkbox => {
         }
     });
 });
-
-// Local Storage Save/Load State
 function saveDataToLocalStorage() {
     const inputData = {
         invoiceTitle: document.getElementById('title-input').value,
@@ -1009,9 +955,9 @@ function saveDataToLocalStorage() {
         customerPhone: document.getElementById('customer-phone').value,
         customerEmail: document.getElementById('customer-email').value,
         customerAddress: document.getElementById('customer-address').value,
-        invoiceDate: document.getElementById('invoice-date').value,
-        invoiceNumber: document.getElementById('invoice-number').value,
-        notes: document.getElementById('invoice-notes').value,
+        startTime: document.getElementById('invoice-date').value,
+        project: document.getElementById('invoice-number').value,
+        notes: document.getElementById('notes').value,
     };
 
     localStorage.setItem('inputData', JSON.stringify(inputData));
@@ -1027,9 +973,9 @@ function loadDataFromLocalStorage() {
         document.getElementById('customer-phone').value = inputData.customerPhone || '';
         document.getElementById('customer-email').value = inputData.customerEmail || '';
         document.getElementById('customer-address').value = inputData.customerAddress || '';
-        document.getElementById('invoice-date').value = inputData.invoiceDate || '';
-        document.getElementById('invoice-number').value = inputData.invoiceNumber || '';
-        document.getElementById('invoice-notes').value = inputData.notes || '';
+        document.getElementById('invoice-date').value = inputData.startTime || '';
+        document.getElementById('invoice-number').value = inputData.project || '';
+        document.getElementById('notes').value = (inputData.notes || '').replace(/\r?\n/g, " ");
     }
 }
 
@@ -1040,116 +986,484 @@ document.getElementById('customer-email').addEventListener('input', saveDataToLo
 document.getElementById('customer-address').addEventListener('input', saveDataToLocalStorage);
 document.getElementById('invoice-date').addEventListener('input', saveDataToLocalStorage);
 document.getElementById('invoice-number').addEventListener('input', saveDataToLocalStorage);
-document.getElementById('invoice-notes').addEventListener('input', saveDataToLocalStorage);
+document.getElementById('notes').addEventListener('input', saveDataToLocalStorage);
 
 document.addEventListener('DOMContentLoaded', loadDataFromLocalStorage);
-// Clear Invoice Fields
+
 function clearInvoice() {
-    const inputElements = [
-        'title-input',
-        'customer-name',
-        'customer-phone',
-        'customer-email',
-        'customer-address',
-        'invoice-date',
-        'invoice-number',
-        'invoice-notes',
-    ];
+    ['title-input', 'customer-name', 'customer-phone', 'customer-email',
+        'customer-address', 'invoice-date', 'invoice-number', 'notes']
+        .forEach(id => document.getElementById(id).value = '');
 
-    inputElements.forEach((elementId) => {
-        document.getElementById(elementId).value = '';
+    document.getElementById('invoice-number').dataset.id = '';
+    document.querySelector('.parts-table tbody').innerHTML = '';
+    document.querySelector('.labor-table tbody').innerHTML = '';
+
+    ['subtotal', 'tax-percent', 'tax', 'total', 'amount-paid'].forEach(id => {
+        document.getElementById(id).value = '';
     });
-
-    const partsTableBody = document.querySelector('.parts-table tbody');
-    partsTableBody.innerHTML = '';
-
-    const laborTableBody = document.querySelector('.labor-table tbody');
-    laborTableBody.innerHTML = '';
-
-    document.getElementById('subtotal').value = '';
-    document.getElementById('tax-percent').value = '';
-    document.getElementById('tax').value = '';
-    document.getElementById('total').value = '';
-    document.getElementById('amount-paid').value = '';
 
     document.getElementById('remaining').checked = false;
     document.querySelector('.remaining').style.display = 'none';
 
-    document.getElementById('price-difference').innerText = '';
-    document.getElementById('remaining-balance').innerText = '';
-
     localStorage.removeItem('inputData');
 }
 
-document.getElementById('clear-button').addEventListener('click', clearInvoice);
 
-function updateTime() {
-    let now = new Date();
-    let hours = now.getHours();
-    let minutes = now.getMinutes();
-    let ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12;
-    hours = hours ? hours : 12;
-    minutes = minutes < 10 ? '0' + minutes : minutes;
-    let strTime = hours + ':' + minutes + ' ' + ampm;
-    document.getElementById('clock').innerText = strTime;
-    setTimeout(updateTime, 1000);
+// Inventory Section
+
+function loadDatabaseEntries() {
+    const inventoryRef = ref(database, `${DATABASE_BASE_PATH}/inventory`);
+    onValue(inventoryRef, (snapshot) => {
+        const entries = snapshot.val() || {};
+        updateCategoryFilter(entries);
+        displayEntries(entries);
+        loadColumnVisibility();
+        applyColumnVisibility();
+    });
 }
 
-updateTime();
+function updateCategoryFilter(entries) {
+    const categoryFilter = document.getElementById('category-filter');
+    categoryFilter.innerHTML = '<option value="">All</option>';
+    Object.keys(entries).forEach(category => {
+        const option = document.createElement('option');
+        option.value = category;
+        option.innerText = category;
+        categoryFilter.appendChild(option);
+    });
+}
 
-const clocks = document.getElementsByClassName("clock");
+function displayEntries(entries) {
+    const container = document.getElementById('entries-container');
+    container.innerHTML = `<table id="inventory-table">
+        <thead>
+            <tr>
+                <th class="category-column">Category</th>
+                <th class="component-column">Sub-Category</th>
+                <th class="item-column">Item Name</th>
+                <th class="price-column">Price</th>
+                <th class="cost-column">Cost</th>
+                <th class="quantity-column">Quantity</th>
+                <th class="description-column">Description</th>
+                <th class="image-column">Image</th>
+                <th class="actions-column">Actions</th>
+            </tr>
+        </thead>
+        <tbody id="inventory-body"></tbody>
+    </table>`;
 
-for (const clock of clocks) {
-    clock.addEventListener("dblclick", function () {
-        clock.style.display = "none";
+    const tbody = document.getElementById('inventory-body');
+
+    Object.entries(entries).forEach(([category, components]) => {
+        Object.entries(components).forEach(([component, items]) => {
+            Object.entries(items).forEach(([uniqueKey, data]) => {
+                const partName = data.part ? data.part.replace(/[^a-zA-Z0-9_-]/g, "_") : "Unnamed_Item";
+
+                const row = document.createElement('tr');
+                row.dataset.uniqueKey = uniqueKey;
+                row.dataset.category = category;
+                row.dataset.component = component;
+                row.dataset.part = partName;
+
+                const imageUrl = data.imageUrl ? data.imageUrl : "./assets/img/default.png";
+
+                row.innerHTML = `
+                    <td class="category-column">${category}</td>
+                    <td class="component-column">${component}</td>
+                    <td class="item-column" contenteditable="true" data-key="part">${data.part || "Unnamed Item"}</td>
+                    <td class="price-column" contenteditable="true" data-key="price">${data.price || 0}</td>
+                    <td class="cost-column" contenteditable="true" data-key="actualPrice">${data.actualPrice || 0}</td>
+                    <td class="quantity-column" contenteditable="true" data-key="quantity">${data.quantity || 0}</td>
+                    <td class="description-column" contenteditable="true" data-key="description">${data.description || ''}</td>
+                    <td class="image-column">
+                    <img src="${imageUrl}" width="50" height="50" style="cursor: pointer;" data-part="${partName}">
+                        <input type="file" class="image-upload" accept="image/*">
+                    </td>
+                    <td class="actions-column">
+                        <button class="delete-button">Delete</button>
+                    </td>
+                `;
+
+                tbody.appendChild(row);
+            });
+        });
+    });
+
+    attachEventListeners();
+    attachImageClickEvent();
+}
+
+const imageCache = {};
+
+async function fetchImageForPart(category, component, partName, row) {
+    const sanitizedPartName = partName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+    const storagePathBase = `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${sanitizedPartName}`;
+
+    if (imageCache[storagePathBase]) {
+        row.querySelector('img').src = imageCache[storagePathBase];
+        return;
+    }
+
+    const possibleExtensions = ['png', 'jpg', 'jpeg', 'webp'];
+
+    for (let ext of possibleExtensions) {
+        const storagePath = `${storagePathBase}.${ext}`;
+        const fileReference = storageRef(storage, storagePath);
+
+        try {
+            const downloadURL = await getDownloadURL(fileReference);
+            imageCache[storagePathBase] = downloadURL;
+            row.querySelector('img').src = downloadURL;
+            return;
+        } catch (error) {
+            if (error.code !== 'storage/object-not-found') {
+                console.error(`Error fetching image for ${sanitizedPartName}:`, error);
+            }
+        }
+    }
+
+    imageCache[storagePathBase] = "./assets/img/default.png";
+    row.querySelector('img').src = "./assets/img/default.png";
+}
+
+function attachEventListeners() {
+    document.querySelectorAll('[contenteditable="true"]').forEach(cell => {
+        cell.addEventListener('blur', (event) => {
+            const row = event.target.closest("tr");
+            updateInventoryField(event, row);
+        });
+    });
+
+    document.querySelectorAll('.delete-button').forEach(button => {
+        button.addEventListener('click', (event) => {
+            const row = event.target.closest("tr");
+            deleteEntry(row);
+        });
+    });
+
+    document.querySelectorAll('.image-upload').forEach(input => {
+        input.addEventListener('change', uploadImage);
+    });
+}
+
+function updateInventoryField(event, row) {
+    const key = event.target.dataset.key;
+    const value = event.target.innerText.trim();
+    const category = row.dataset.category;
+    const component = row.dataset.component;
+    const uniqueKey = row.dataset.uniqueKey;
+
+    const selectedCategory = document.getElementById('category-filter').value;
+    const searchTerm = document.getElementById('search-input').value.toLowerCase();
+
+    update(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`), { [key]: value })
+        .then(() => {
+            console.log(`Updated ${key} to "${value}" for ${category} -> ${component}`);
+
+            setTimeout(() => {
+                document.getElementById('category-filter').value = selectedCategory;
+                document.getElementById('search-input').value = searchTerm;
+                filterEntries();
+            }, 100);
+        })
+        .catch(error => console.error("Error updating entry:", error));
+}
+
+async function deleteEntry(row) {
+    const category = row.dataset.category;
+    const component = row.dataset.component;
+    const uniqueKey = row.dataset.uniqueKey;
+    const partName = row.dataset.part;
+
+    const confirmation = confirm(`Are you sure you want to delete "${partName}"? This action cannot be undone.`);
+
+    if (!confirmation) {
+        console.log("Deletion canceled.");
+        return;
+    }
+
+    await deletePreviousImage(category, component, partName);
+
+    remove(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`))
+        .then(() => {
+            console.log(`Deleted entry: ${category} -> ${component} -> ${partName}`);
+            row.remove();
+        })
+        .catch(error => console.error("Error deleting entry:", error));
+}
+
+function filterEntries() {
+    const selectedCategory = document.getElementById('category-filter').value;
+    const searchTerm = document.getElementById('search-input').value.toLowerCase();
+
+    document.querySelectorAll('#inventory-body tr').forEach(row => {
+        const category = row.children[0].innerText.trim();
+        const part = row.children[2].innerText.toLowerCase().trim();
+
+        const matchesCategory = selectedCategory === '' || category === selectedCategory;
+        const matchesSearch = searchTerm === '' || part.includes(searchTerm);
+
+        row.style.display = matchesCategory && matchesSearch ? '' : 'none';
+    });
+}
+
+async function uploadImage(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const row = event.target.closest("tr");
+    const category = row.dataset.category;
+    const component = row.dataset.component;
+    const uniqueKey = row.dataset.uniqueKey;
+    const partName = row.dataset.part.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    if (!category || !component || !partName) {
+        alert("Error: Missing entry information for image upload.");
+        return;
+    }
+
+    console.log(`Uploading new image for ${category} -> ${component} -> ${partName}`);
+
+    const storagePath = `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${partName}.png`;
+    const fileReference = storageRef(storage, storagePath);
+
+    try {
+        await deletePreviousImage(category, component, partName);
+
+        const uploadTask = await uploadBytesResumable(fileReference, file);
+        const imageUrl = await getDownloadURL(uploadTask.ref);
+
+        await update(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`), {
+            imageUrl: imageUrl
+        });
+
+        row.querySelector("img").src = imageUrl;
+        console.log(`Image uploaded and URL saved: ${imageUrl}`);
+    } catch (error) {
+        console.error("Error uploading image:", error);
+    }
+    filterEntries();
+}
+
+async function convertToPng(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = function (event) {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = function () {
+                const canvas = document.createElement("canvas");
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0);
+
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        resolve(new File([blob], "converted.png", { type: "image/png" }));
+                    } else {
+                        reject(new Error("Failed to convert image to PNG"));
+                    }
+                }, "image/png");
+            };
+        };
+        reader.onerror = reject;
+    });
+}
+
+async function deletePreviousImage(category, component, partName) {
+    const storagePathBase = `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${partName}`;
+    const possibleExtensions = ['png', 'jpg', 'jpeg', 'webp'];
+
+    for (let ext of possibleExtensions) {
+        const storagePath = `${storagePathBase}.${ext}`;
+        const fileReference = storageRef(storage, storagePath);
+
+        try {
+            await deleteObject(fileReference);
+            console.log(`Deleted old image: ${storagePath}`);
+            return;
+        } catch (error) {
+            if (error.code === 'storage/object-not-found') {
+                console.warn(`Image not found for deletion: ${storagePath}`);
+            } else {
+                console.error(`Error deleting previous image: ${error}`);
+            }
+        }
+    }
+}
+
+document.getElementById('save-data-button').addEventListener('click', async (event) => {
+    event.preventDefault();
+
+    const category = document.getElementById('category').value.trim();
+    const component = document.getElementById('component').value.trim();
+    const partName = document.getElementById('part').value.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+    const price = parseFloat(document.getElementById('price').value) || 0;
+    const actualPrice = parseFloat(document.getElementById('actualPrice').value) || 0;
+    const quantity = parseInt(document.getElementById('quantity').value) || 0;
+    const description = document.getElementById('description').value.trim();
+    const imageFile = document.getElementById('imageInput').files[0];
+
+    if (!category || !component || !partName) {
+        alert("Category, Sub-Category, and Item Name are required.");
+        return;
+    }
+
+    const uniqueKey = Date.now().toString();
+    const inventoryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`);
+
+    let imageUrl = null;
+
+    if (imageFile) {
+        try {
+            imageUrl = await uploadImageForNewEntry(imageFile, category, component, partName);
+        } catch (error) {
+            console.error("Image upload failed:", error);
+            alert("Failed to upload image. Try again.");
+            return;
+        }
+    }
+
+    const itemData = {
+        part: partName,
+        price,
+        actualPrice,
+        quantity,
+        description,
+        imageUrl
+    };
+
+    set(inventoryRef, itemData)
+        .then(() => {
+            console.log("Item saved successfully:", itemData);
+            resetForm();
+            loadDatabaseEntries();
+        })
+        .catch(error => console.error("Error saving item:", error));
+});
+
+function resetForm() {
+    document.getElementById('category').value = "";
+    document.getElementById('component').value = "";
+    document.getElementById('part').value = "";
+    document.getElementById('price').value = "";
+    document.getElementById('actualPrice').value = "";
+    document.getElementById('quantity').value = "";
+    document.getElementById('description').value = "";
+    document.getElementById('imageInput').value = "";
+}
+
+async function uploadImageForNewEntry(file, category, component, partName) {
+    const sanitizedPartName = partName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+    const storagePath = `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${sanitizedPartName}.png`;
+    const fileReference = storageRef(storage, storagePath);
+
+    await deletePreviousImage(category, component, sanitizedPartName);
+
+    try {
+        const uploadTask = await uploadBytesResumable(fileReference, file);
+        const imageUrl = await getDownloadURL(uploadTask.ref);
+        console.log(`Image uploaded successfully: ${imageUrl}`);
+        return imageUrl;
+    } catch (error) {
+        console.error("Error uploading image:", error);
+        throw error;
+    }
+}
+
+function attachImageClickEvent() {
+    document.querySelectorAll("#inventory-body img").forEach(img => {
+        img.addEventListener("click", function () {
+            const modal = document.getElementById("modal");
+            const modalImg = document.getElementById("part-image");
+            modal.style.display = "flex";
+            modalImg.src = this.src;
+        });
+    });
+
+    document.getElementById("modal").addEventListener("click", function (event) {
+        if (event.target === this) {
+            this.style.display = "none";
+        }
+    });
+}
+
+document.getElementById('category-filter').addEventListener('change', filterEntries);
+document.getElementById('search-input').addEventListener('input', filterEntries);
+
+document.querySelectorAll('.toggle-column').forEach(checkbox => {
+    checkbox.addEventListener('change', () => {
+        saveColumnVisibility();
+        applyColumnVisibility();
+    });
+});
+
+function saveColumnVisibility() {
+    const checkboxStates = {};
+    document.querySelectorAll('.toggle-column').forEach(checkbox => {
+        checkboxStates[checkbox.value] = checkbox.checked;
+    });
+    localStorage.setItem('inventoryColumnVisibility', JSON.stringify(checkboxStates));
+}
+
+function loadColumnVisibility() {
+    const savedStates = JSON.parse(localStorage.getItem('inventoryColumnVisibility'));
+    if (savedStates) {
+        document.querySelectorAll('.toggle-column').forEach(checkbox => {
+            checkbox.checked = savedStates[checkbox.value] !== undefined ? savedStates[checkbox.value] : checkbox.checked;
+        });
+    }
+}
+
+function applyColumnVisibility() {
+    document.querySelectorAll('.toggle-column').forEach(checkbox => {
+        const columnClass = checkbox.value;
+        document.querySelectorAll(`.${columnClass}`).forEach(cell => {
+            cell.style.display = checkbox.checked ? '' : 'none';
+        });
     });
 }
 
 
-async function populateYearDropdown() {
-    const invoicesRef = ref(database, 'invoices');
-    const years = new Set();
-    try {
-        const snapshot = await get(invoicesRef);
-        if (snapshot.exists()) {
-            const invoices = snapshot.val();
-            for (const invoiceId in invoices) {
-                const invoiceDate = invoices[invoiceId].invoiceDate;
-                if (invoiceDate) {
-                    const year = invoiceDate.split('-')[0];
-                    years.add(year);
-                }
-            }
-            const yearDropdown = document.getElementById('year-dropdown');
-            years.forEach(year => {
-                const option = document.createElement('option');
-                option.value = year;
-                option.textContent = year;
-                yearDropdown.appendChild(option);
-            });
-        }
-    } catch (error) {
-        console.error('Error populating year dropdown:', error);
-    }
+// Analytics Section
+
+function setupRealTimeListeners() {
+    analyzeInvoiceData();
+    analyzeInventoryData();
+    populateCustomerDropdown();
 }
 
-document.getElementById('year-dropdown').addEventListener('change', function () {
-    analyzeInvoiceData(this.value); // Call analyzeInvoiceData with the selected year
-});
+function analyzeInventoryData() {
+    const inventoryRef = ref(database, `${DATABASE_BASE_PATH}/inventory`);
+    onValue(inventoryRef, (snapshot) => {
+        if (snapshot.exists()) {
+            const inventory = snapshot.val();
+            let totalInventoryItems = 0;
+            let totalItemsInStock = 0;
 
-document.addEventListener('DOMContentLoaded', () => {
-    populateYearDropdown(); // Populate the year dropdown on page load
-    analyzeInvoiceData(); // You can either call this without a year to show all data or not call it until a year is selected
+            Object.values(inventory).forEach(category => {
+                Object.values(category).forEach(item => {
+                    Object.values(item).forEach(detail => {
+                        totalInventoryItems++;
+                        totalItemsInStock += parseInt(detail.quantity, 10);
+                    });
+                });
+            });
 
-    document.getElementById('export-analytics-btn').addEventListener('click', exportAnalyticsToCSV);
-});
+            document.getElementById('total-inventory-items').textContent = totalInventoryItems;
+            document.getElementById('total-items-in-stock').textContent = totalItemsInStock;
+        }
+    }, (error) => {
+        console.error('Error fetching inventory:', error);
+    });
+}
 
-
-async function analyzeInvoiceData(selectedYear = '') {
-    const invoicesRef = ref(database, 'invoices');
-    try {
-        const snapshot = await get(invoicesRef);
+function analyzeInvoiceData() {
+    const invoicesRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+    onValue(invoicesRef, (snapshot) => {
         if (snapshot.exists()) {
             const invoices = snapshot.val();
             let totalAmountPaid = 0;
@@ -1164,13 +1478,6 @@ async function analyzeInvoiceData(selectedYear = '') {
             for (const invoiceId in invoices) {
                 const invoice = invoices[invoiceId];
 
-                // Filter by selectedYear if it's provided
-                const invoiceYear = invoice.invoiceDate ? invoice.invoiceDate.split('-')[0] : '';
-                if (selectedYear && invoiceYear !== selectedYear) {
-                    continue; // Skip this invoice if it's not from the selected year
-                }
-
-                // Check if the entry is an invoice, not a quote
                 if (invoice.invoiceType === "invoice") {
                     totalAmountPaid += parseFloat(invoice.amountPaid) || 0;
                     totalSales += parseFloat(invoice.total) || 0;
@@ -1194,7 +1501,6 @@ async function analyzeInvoiceData(selectedYear = '') {
                 }
             }
 
-            // Update DOM elements with the calculated values
             document.getElementById('total-amount-paid').textContent = `$${totalAmountPaid.toFixed(2)}`;
             document.getElementById('total-sales').textContent = `$${totalSales.toFixed(2)}`;
             document.getElementById('total-labor-cost').textContent = `$${totalLaborCost.toFixed(2)}`;
@@ -1204,165 +1510,146 @@ async function analyzeInvoiceData(selectedYear = '') {
             document.getElementById('total-invoices').textContent = totalInvoices;
 
             const partsSoldList = document.getElementById('parts-sold');
-            partsSoldList.innerHTML = ''; // Clear previous entries
+            partsSoldList.innerHTML = '';
             Object.keys(partsSold).forEach(partName => {
                 const li = document.createElement('li');
                 li.textContent = `${partName}: ${partsSold[partName]} units`;
                 partsSoldList.appendChild(li);
             });
-        } else {
-            console.error('No invoice data found.');
         }
-    } catch (error) {
+    }, (error) => {
         console.error('Error fetching invoices:', error);
-    }
+    });
 }
 
-
-async function populateCustomerDropdown() {
-    const invoicesRef = ref(database, 'invoices');
-    try {
-        const snapshot = await get(invoicesRef);
+function populateCustomerDropdown() {
+    const invoicesRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+    onValue(invoicesRef, (snapshot) => {
         if (snapshot.exists()) {
             const invoices = snapshot.val();
-            const customerNames = new Set();
+            const customers = {};
 
             for (const invoiceId in invoices) {
-                const customerName = invoices[invoiceId].customerName;
-                if (customerName) {
-                    customerNames.add(customerName);
+                const invoice = invoices[invoiceId];
+                const customerName = invoice.customerName;
+
+                if (!customerName) continue;
+
+                if (!customers[customerName]) {
+                    customers[customerName] = {
+                        phones: new Set(),
+                        addresses: new Set(),
+                        emails: new Set()
+                    };
+                }
+
+                if (invoice.customerPhone && invoice.customerPhone !== 'undefined') {
+                    customers[customerName].phones.add(invoice.customerPhone);
+                }
+                if (invoice.customerAddress && invoice.customerAddress !== 'undefined') {
+                    customers[customerName].addresses.add(invoice.customerAddress);
+                }
+                if (invoice.customerEmail && invoice.customerEmail !== 'undefined') {
+                    customers[customerName].emails.add(invoice.customerEmail);
                 }
             }
 
+            const sortedCustomerNames = Object.keys(customers).sort();
+
             const dropdown = document.getElementById('customer-dropdown');
             dropdown.innerHTML = '<option value="">Select a Customer</option>';
-            customerNames.forEach(name => {
+            sortedCustomerNames.forEach(name => {
                 const option = document.createElement('option');
                 option.value = name;
                 option.textContent = name;
                 dropdown.appendChild(option);
             });
-        } else {
-            console.error('No invoice data found.');
+
+            window.customers = customers;
+            window.sortedCustomerNames = sortedCustomerNames;
         }
-    } catch (error) {
-        console.error('Error fetching invoices:', error);
-    }
-}
-
-function updateCustomerDetails(customerName) {
-    const invoicesRef = ref(database, 'invoices');
-    get(invoicesRef).then(snapshot => {
-        if (snapshot.exists()) {
-            const invoices = snapshot.val();
-            const phoneNumbers = new Set();
-            const addresses = new Set();
-
-            for (const invoiceId in invoices) {
-                const invoice = invoices[invoiceId];
-                if (invoice.customerName === customerName) {
-                    phoneNumbers.add(invoice.customerPhone);
-                    addresses.add(invoice.customerAddress);
-                }
-            }
-
-            const phoneNumbersList = document.getElementById('customer-phone-numbers');
-            phoneNumbersList.innerHTML = '';
-            phoneNumbers.forEach(phone => {
-                const li = document.createElement('li');
-                li.textContent = phone;
-                phoneNumbersList.appendChild(li);
-            });
-
-            const addressesList = document.getElementById('customer-addresses');
-            addressesList.innerHTML = '';
-            addresses.forEach(address => {
-                const li = document.createElement('li');
-                li.textContent = address;
-                addressesList.appendChild(li);
-            });
-        }
-    }).catch(error => {
+    }, (error) => {
         console.error('Error fetching invoices:', error);
     });
 }
 
+function updateCustomerDetails(customerName) {
+    if (!window.customers || !window.customers[customerName]) return;
+
+    const customer = window.customers[customerName];
+
+    const phoneNumbersList = document.getElementById('customer-phone-numbers');
+    phoneNumbersList.innerHTML = '';
+    customer.phones.forEach(phone => {
+        const li = document.createElement('li');
+        li.textContent = phone;
+        phoneNumbersList.appendChild(li);
+    });
+
+    const addressesList = document.getElementById('customer-addresses');
+    addressesList.innerHTML = '';
+    customer.addresses.forEach(address => {
+        const li = document.createElement('li');
+        li.textContent = address;
+        addressesList.appendChild(li);
+    });
+
+    const emailsList = document.getElementById('customer-emails');
+    emailsList.innerHTML = '';
+    customer.emails.forEach(email => {
+        const li = document.createElement('li');
+        li.textContent = email;
+        emailsList.appendChild(li);
+    });
+}
+
+function filterCustomerList(searchTerm) {
+    const dropdown = document.getElementById('customer-dropdown');
+    dropdown.innerHTML = '<option value="">Select a Customer</option>';
+
+    const filteredNames = window.sortedCustomerNames.filter(name =>
+        name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    filteredNames.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        dropdown.appendChild(option);
+    });
+}
+
+document.getElementById('customer-search').addEventListener('input', function () {
+    filterCustomerList(this.value);
+});
+
 document.getElementById('customer-dropdown').addEventListener('change', function () {
     const selectedCustomer = this.value;
-    if (selectedCustomer) {
-        updateCustomerDetails(selectedCustomer);
-    } else {
-        document.getElementById('customer-phone-numbers').innerHTML = '';
-        document.getElementById('customer-addresses').innerHTML = '';
-    }
+    updateCustomerDetails(selectedCustomer);
 });
 
-document.addEventListener('DOMContentLoaded', () => {
-    analyzeInvoiceData();
-    populateCustomerDropdown();
-});
+document.addEventListener('DOMContentLoaded', setupRealTimeListeners);
+//Other
 
-document.addEventListener('DOMContentLoaded', analyzeInvoiceData);
+function updateTime() {
+    let now = new Date();
+    let hours = now.getHours();
+    let minutes = now.getMinutes();
+    let ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    minutes = minutes < 10 ? '0' + minutes : minutes;
+    let strTime = hours + ':' + minutes + ' ' + ampm;
+    document.getElementById('clock').innerText = strTime;
+    setTimeout(updateTime, 1000);
+}
 
-document.addEventListener('DOMContentLoaded', function () {
-    const textarea = document.getElementById('invoice-notes');
-    textarea.addEventListener('input', autoResize, false);
+updateTime();
 
-    function autoResize() {
-        this.style.height = 'auto';
-        this.style.height = this.scrollHeight + 'px';
-    }
-});
+const clocks = document.getElementsByClassName("clock");
 
-async function exportAnalyticsToCSV() {
-    const selectedYear = document.getElementById('year-dropdown').value;
-    if (!selectedYear) {
-        alert('Please select a year first.');
-        return;
-    }
-
-    const invoicesRef = ref(database, 'invoices');
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Invoice ID,Invoice Date,Customer Name,Customer Address,Parts Cost,Labor Cost,Paid,Total Sale\n";
-
-    try {
-        const snapshot = await get(invoicesRef);
-        if (snapshot.exists()) {
-            const invoices = snapshot.val();
-            const sortedInvoices = Object.keys(invoices)
-                .map(key => invoices[key])
-                .filter(invoice => invoice.invoiceDate && invoice.invoiceDate.startsWith(selectedYear) && invoice.invoiceType === "invoice")
-                .sort((a, b) => new Date(a.invoiceDate) - new Date(b.invoiceDate));
-
-            for (const invoice of sortedInvoices) {
-                const partsCost = Array.isArray(invoice.parts) ? invoice.parts.reduce((acc, part) => 
-                    acc + (parseFloat(part.price) * parseInt(part.quantity) || 0), 0) : 0;
-
-                const laborCost = Array.isArray(invoice.labor) ? invoice.labor.reduce((acc, labor) => 
-                    acc + (parseFloat(labor.cost) || 0), 0) : 0;
-
-                    const row = [
-                        invoice.invoiceNumber,
-                        invoice.invoiceDate,
-                        invoice.customerName,
-                        invoice.customerAddress.replace(/,/g, ' '), // Replace commas to prevent CSV format issues
-                        partsCost.toFixed(2),
-                        laborCost.toFixed(2),
-                        invoice.amountPaid || '0',
-                        invoice.total || '0',
-                    ].join(',');
-                    csvContent += row + "\r\n";
-                }
-
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `Invoice_Summary_${selectedYear}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-    } catch (error) {
-        console.error('Error exporting invoice summary to CSV:', error);
-    }
+for (const clock of clocks) {
+    clock.addEventListener("dblclick", function () {
+        clock.style.display = "none";
+    });
 }
