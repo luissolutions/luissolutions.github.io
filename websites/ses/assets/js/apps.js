@@ -234,7 +234,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 document.getElementById('resizeTextareaBtn').addEventListener('click', () => {
-    autoResizeTextarea('notes');
+    autoResizeTextarea('note');
 });
 
 
