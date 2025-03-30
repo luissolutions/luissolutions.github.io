@@ -472,5 +472,3 @@ function toggleToLogin(e) {
 // Attach these in the attachEventListeners function
 document.getElementById('toggle-login').addEventListener('click', toggleToLogin);
 document.getElementById('toggle-register').addEventListener('click', toggleToRegister);
-
-
