@@ -21,20 +21,61 @@
             position: fixed;
             top: 0;
             left: 0;
-            width: 100%;
             height: 100%;
+            width: 100%;
             background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            display: flex;
             justify-content: center;
-            align-items: center;
+            overflow: auto;
+            border-radius: 0;
+        }
+
+        .modal-content {
+            background: var(--backgroundColor, #fff);
+            max-height: 95vh;
+            overflow-y: auto;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            position: relative;
         }
 
         .modal-content img {
-            max-width: 100%;
-            border-radius: 5px;
+            width: 100%;
         }
 
         #entries-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .item-card {
+            width: 155px;
+            border: 1px solid #ccc;
+            padding: 8px;
+            border-radius: 8px;
+            background-color: white;
+            transition: transform 0.2s ease;
+            text-align: center;
+        }
+
+        .item-card:hover {
+            transform: scale(1.05);
+        }
+
+        .item-card img {
+            width: 100%;
+            border-radius: 5px;
+        }
+
+        .item-card p {
+            margin: 0;
             overflow: auto;
+            font-weight: bold;
         }
 
         @media (max-width: 768px) {
@@ -51,8 +92,8 @@
                 height: 40px;
             }
 
-            .modal-content {
-                width: 90%;
+            .modal {
+                width: 90vw;
             }
         }
     </style>
@@ -87,7 +128,13 @@
                 </form>
             </div>
 
-            <label>Filter by Category:
+            <label for="viewToggle">Mode:</label>
+            <select id="viewToggle">
+                <option value="view">View Mode</option>
+                <option value="edit">Edit Mode</option>
+            </select>
+
+            <label>Filter Category:
                 <select id="category-filter">
                     <option value="">All</option>
                 </select>
@@ -106,15 +153,25 @@
                 <label><input type="checkbox" class="toggle-column" value="image-column" checked> Image |</label>
                 <label><input type="checkbox" class="toggle-column" value="actions-column"> Actions</label>
             </div>
-
-            <div id="entries-container"></div>
+            <div class="table">
+                <div id="entries-container"></div>
+            </div>
         </section>
 
         <section id="modal" class="modal">
             <div class="modal-content">
+                <button id="closeModal">&times;</button>
                 <img id="part-image" src="" alt="Part Image">
+                <h3 id="modal-title"></h3>
+                <p><strong>Category:</strong> <span id="modal-category"></span></p>
+                <p><strong>Sub-Category:</strong> <span id="modal-component"></span></p>
+                <p><strong>Price:</strong> $<span id="modal-price"></span></p>
+                <p><strong>Cost:</strong> $<span id="modal-cost"></span></p>
+                <p><strong>Quantity:</strong> <span id="modal-quantity"></span></p>
+                <p><strong>Description:</strong> <span id="modal-description"></span></p>
             </div>
         </section>
+
     </main>
 </body>
 
@@ -130,6 +187,9 @@
 
     function loadDatabaseEntries() {
         const inventoryRef = ref(database, `${DATABASE_BASE_PATH}/inventory`);
+        const mode = document.getElementById('viewToggle').value;
+        toggleColumnControlsVisibility(mode);
+
         onValue(inventoryRef, (snapshot) => {
             const entries = snapshot.val() || {};
             updateCategoryFilter(entries);
@@ -152,63 +212,17 @@
 
     function displayEntries(entries) {
         const container = document.getElementById('entries-container');
-        container.innerHTML = `<table id="inventory-table">
-            <thead>
-                <tr>
-                    <th class="category-column">Category</th>
-                    <th class="component-column">Sub-Category</th>
-                    <th class="item-column">Item Name</th>
-                    <th class="price-column">Price</th>
-                    <th class="cost-column">Cost</th>
-                    <th class="quantity-column">Quantity</th>
-                    <th class="description-column">Description</th>
-                    <th class="image-column">Image</th>
-                    <th class="actions-column">Actions</th>
-                </tr>
-            </thead>
-            <tbody id="inventory-body"></tbody>
-        </table>`;
+        const mode = document.getElementById('viewToggle').value;
 
-        const tbody = document.getElementById('inventory-body');
+        container.innerHTML = "";
 
-        Object.entries(entries).forEach(([category, components]) => {
-            Object.entries(components).forEach(([component, items]) => {
-                Object.entries(items).forEach(([uniqueKey, data]) => {
-                    const partName = data.part ? data.part.replace(/[^a-zA-Z0-9_-]/g, "_") : "Unnamed_Item";
-
-                    const row = document.createElement('tr');
-                    row.dataset.uniqueKey = uniqueKey;
-                    row.dataset.category = category;
-                    row.dataset.component = component;
-                    row.dataset.part = partName;
-
-                    const imageUrl = data.imageUrl ? data.imageUrl : "./assets/img/default.png";
-
-                    row.innerHTML = `
-                        <td class="category-column">${category}</td>
-                        <td class="component-column">${component}</td>
-                        <td class="item-column" contenteditable="true" data-key="part">${data.part || "Unnamed Item"}</td>
-                        <td class="price-column" contenteditable="true" data-key="price">${data.price || 0}</td>
-                        <td class="cost-column" contenteditable="true" data-key="actualPrice">${data.actualPrice || 0}</td>
-                        <td class="quantity-column" contenteditable="true" data-key="quantity">${data.quantity || 0}</td>
-                        <td class="description-column" contenteditable="true" data-key="description">${data.description || ''}</td>
-                        <td class="image-column">
-                        <img src="${imageUrl}" width="50" height="50" style="cursor: pointer;" data-part="${partName}">
-                            <input type="file" class="image-upload" accept="image/*">
-                        </td>
-                        <td class="actions-column">
-                            <button class="delete-button clear-button">Delete</button>
-                        </td>
-                    `;
-
-                    tbody.appendChild(row);
-                });
-            });
-        });
-
-        attachEventListeners();
-        attachImageClickEvent();
+        if (mode === 'view') {
+            renderViewMode(entries, container);
+        } else {
+            renderEditMode(entries, container);
+        }
     }
+
 
     const imageCache = {};
 
@@ -265,7 +279,7 @@
 
     function updateInventoryField(event, row) {
         const key = event.target.dataset.key;
-        const value = event.target.innerText.trim();
+        const newValue = event.target.innerText.trim();
         const category = row.dataset.category;
         const component = row.dataset.component;
         const uniqueKey = row.dataset.uniqueKey;
@@ -273,9 +287,17 @@
         const selectedCategory = document.getElementById('category-filter').value;
         const searchTerm = document.getElementById('search-input').value.toLowerCase();
 
-        update(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`), { [key]: value })
+        const originalValue = row.querySelector(`[data-key="${key}"]`).getAttribute("data-original");
+
+        if (newValue === originalValue) {
+            return;
+        }
+
+        update(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`), { [key]: newValue })
             .then(() => {
-                console.log(`Updated ${key} to "${value}" for ${category} -> ${component}`);
+                console.log(`Updated ${key} to "${newValue}" for ${category} -> ${component}`);
+
+                event.target.setAttribute("data-original", newValue);
 
                 setTimeout(() => {
                     document.getElementById('category-filter').value = selectedCategory;
@@ -542,6 +564,145 @@
             });
         });
     }
+
+    function showDetailsModal(data, category, component, partName, imageUrl) {
+        const modal = document.getElementById("modal");
+        modal.style.display = "flex";
+
+        document.getElementById("part-image").src = imageUrl;
+        document.getElementById("modal-title").innerText = data.part || "Unnamed Item";
+        document.getElementById("modal-category").innerText = category;
+        document.getElementById("modal-component").innerText = component;
+        document.getElementById("modal-price").innerText = data.price || "0";
+        document.getElementById("modal-cost").innerText = data.actualPrice || "0";
+        document.getElementById("modal-quantity").innerText = data.quantity || "0";
+        document.getElementById("modal-description").innerText = data.description || "No description available";
+    }
+
+    // Close modal when clicking outside the modal content
+    document.getElementById("modal").addEventListener("click", function (event) {
+        if (event.target === this) {
+            this.style.display = "none";
+        }
+    });
+
+    function renderViewMode(entries, container) {
+        const selectedCategory = document.getElementById('category-filter').value;
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+
+        container.style.display = "flex";
+        container.style.flexWrap = "wrap";
+        container.style.gap = "16px";
+        container.style.justifyContent = "center";
+
+        Object.entries(entries).forEach(([category, components]) => {
+            Object.entries(components).forEach(([component, items]) => {
+                Object.entries(items).forEach(([uniqueKey, data]) => {
+                    const partName = data.part ? data.part.replace(/[^a-zA-Z0-9_-]/g, "_") : "Unnamed_Item";
+                    const displayName = data.part || "Unnamed Item";
+                    const imageUrl = data.imageUrl || "./assets/img/default.png";
+
+                    const matchesCategory = selectedCategory === '' || category === selectedCategory;
+                    const matchesSearch = searchTerm === '' || displayName.toLowerCase().includes(searchTerm);
+
+                    if (!(matchesCategory && matchesSearch)) return;
+
+                    const card = document.createElement('div');
+                    card.className = 'item-card';
+                    card.dataset.category = category;
+                    card.dataset.component = component;
+                    card.dataset.uniqueKey = uniqueKey;
+                    card.dataset.part = partName;
+
+                    card.innerHTML = `
+                    <img src="${imageUrl}" alt="${partName}">
+                    <p>${displayName}</p>
+                `;
+
+                    card.addEventListener('click', () => {
+                        showDetailsModal(data, category, component, partName, imageUrl);
+                    });
+
+                    container.appendChild(card);
+                });
+            });
+        });
+    }
+
+    function renderEditMode(entries, container) {
+        container.style.display = "block";
+        container.innerHTML = `<table id="inventory-table">
+        <thead>
+            <tr>
+                <th class="category-column">Category</th>
+                <th class="component-column">Sub-Category</th>
+                <th class="item-column">Item Name</th>
+                <th class="price-column">Price</th>
+                <th class="cost-column">Cost</th>
+                <th class="quantity-column">Quantity</th>
+                <th class="description-column">Description</th>
+                <th class="image-column">Image</th>
+                <th class="actions-column">Actions</th>
+            </tr>
+        </thead>
+        <tbody id="inventory-body"></tbody>
+    </table>`;
+
+        const tbody = document.getElementById('inventory-body');
+
+        Object.entries(entries).forEach(([category, components]) => {
+            Object.entries(components).forEach(([component, items]) => {
+                Object.entries(items).forEach(([uniqueKey, data]) => {
+                    const partName = data.part ? data.part.replace(/[^a-zA-Z0-9_-]/g, "_") : "Unnamed_Item";
+                    const imageUrl = data.imageUrl ? data.imageUrl : "./assets/img/default.png";
+
+                    const row = document.createElement('tr');
+                    row.dataset.uniqueKey = uniqueKey;
+                    row.dataset.category = category;
+                    row.dataset.component = component;
+                    row.dataset.part = partName;
+
+                    row.innerHTML = `
+                        <td class="category-column">${category}</td>
+                        <td class="component-column">${component}</td>
+                        <td class="item-column" contenteditable="true" data-key="part" data-original="${data.part || "Unnamed Item"}">${data.part || "Unnamed Item"}</td>
+                        <td class="price-column" contenteditable="true" data-key="price" data-original="${data.price || 0}">${data.price || 0}</td>
+                        <td class="cost-column" contenteditable="true" data-key="actualPrice" data-original="${data.actualPrice || 0}">${data.actualPrice || 0}</td>
+                        <td class="quantity-column" contenteditable="true" data-key="quantity" data-original="${data.quantity || 0}">${data.quantity || 0}</td>
+                        <td class="description-column" contenteditable="true" data-key="description" data-original="${data.description || ''}">${data.description || ''}</td>
+                        <td class="image-column">
+                            <img src="${imageUrl}" width="50" height="50" style="cursor: pointer;" data-part="${partName}">
+                            <input type="file" class="image-upload" accept="image/*">
+                        </td>
+                        <td class="actions-column">
+                            <button class="delete-button clear-button">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            });
+        });
+
+        attachEventListeners();
+        attachImageClickEvent();
+    }
+
+    function toggleColumnControlsVisibility(mode) {
+        const columnControls = document.querySelector('.checkbox');
+        columnControls.style.display = (mode === 'edit') ? 'block' : 'none';
+    }
+
+    document.getElementById('viewToggle').addEventListener('change', loadDatabaseEntries);
+
+    document.getElementById("closeModal").addEventListener("click", () => {
+        document.getElementById("modal").style.display = "none";
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            document.getElementById("modal").style.display = "none";
+        }
+    });
 
 </script>
 
