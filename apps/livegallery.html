@@ -21,6 +21,7 @@
         }
 
         .thumbnailItem {
+            position: relative;
             text-align: center;
             margin: 5px;
         }
@@ -64,6 +65,32 @@
             font-weight: bold;
             margin-bottom: 10px;
             text-align: center;
+        }
+
+        .favorite-star {
+            cursor: pointer;
+            font-size: 20px;
+            user-select: none;
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background-color: rgba(255, 255, 255, 0.7);
+            width: 30px;
+            border-radius: 50%;
+        }
+
+        .favorite-star:hover {
+            background-color: lightskyblue;
+        }
+
+        .favorite-star.favorited {
+            color: gold;
+        }
+
+        @media (max-width: 439px) {
+            .thumbnail {
+                max-width: 145px;
+            }
         }
     </style>
 </head>
@@ -343,8 +370,6 @@
                         name: item.name
                     });
 
-                    if (thisLoadToken !== currentFolderLoadToken) return;
-
                     const container = document.createElement('div');
                     container.className = 'thumbnailItem';
 
@@ -354,13 +379,39 @@
                     img.dataset.fullPath = item.fullPath;
                     img.addEventListener('click', () => openModal(imageUrl, item.fullPath, item.name));
 
+                    const favoriteStar = document.createElement('span');
+                    favoriteStar.className = 'favorite-star';
+
+                    const favorites = getFavorites();
+                    if (favorites[item.fullPath]) {
+                        favoriteStar.textContent = "★";
+                        favoriteStar.classList.add('favorited');
+                    } else {
+                        favoriteStar.textContent = "☆";
+                    }
+
+                    favoriteStar.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        toggleFavorite(item.fullPath);
+                        if (getFavorites()[item.fullPath]) {
+                            favoriteStar.textContent = "★";
+                            favoriteStar.classList.add('favorited');
+                        } else {
+                            favoriteStar.textContent = "☆";
+                            favoriteStar.classList.remove('favorited');
+                        }
+                        sortAndRenderImages();
+                    });
+
                     const caption = document.createElement('p');
                     caption.textContent = item.name;
                     caption.style.fontSize = '14px';
                     caption.style.margin = '0';
 
                     container.appendChild(img);
+                    container.appendChild(favoriteStar);
                     container.appendChild(caption);
+
                     gallery.appendChild(container);
 
                     const option = document.createElement('option');
@@ -373,6 +424,7 @@
                 console.error("Error loading images:", error);
                 alert("Failed to load images.");
             }
+            sortAndRenderImages()
         }
 
         imageDropdown.addEventListener('change', () => {
@@ -478,7 +530,6 @@
             }
         });
 
-
         function populateSubfolders(subfolders, selectedFolder) {
             elements.folderSelect.innerHTML = '';
             moveToFolder.innerHTML = '<option value="">-- Select Destination --</option>';
@@ -528,7 +579,82 @@
                 await loadImages(currentFolder);
             }
         }, 300000);
-        
+
+        function getFavorites() {
+            return JSON.parse(localStorage.getItem("favorites")) || {};
+        }
+
+        function setFavorites(favorites) {
+            localStorage.setItem("favorites", JSON.stringify(favorites));
+        }
+
+        function toggleFavorite(fullPath) {
+            let favorites = getFavorites();
+            favorites[fullPath] = !favorites[fullPath];
+            setFavorites(favorites);
+        }
+
+        function sortAndRenderImages() {
+            const favorites = getFavorites();
+
+            currentImages.sort((a, b) => {
+                const aFav = favorites[a.fullPath] ? 1 : 0;
+                const bFav = favorites[b.fullPath] ? 1 : 0;
+                return bFav - aFav;
+            });
+
+            gallery.innerHTML = '';
+            document.getElementById('imageDropdown').innerHTML = '<option value="">-- Select an Image --</option>';
+
+            currentImages.forEach(item => {
+                const container = document.createElement('div');
+                container.className = 'thumbnailItem';
+
+                const img = document.createElement('img');
+                img.src = item.url;
+                img.className = 'thumbnail';
+                img.dataset.fullPath = item.fullPath;
+                img.addEventListener('click', () => openModal(item.url, item.fullPath, item.name));
+
+                const favoriteStar = document.createElement('span');
+                favoriteStar.className = 'favorite-star';
+                if (favorites[item.fullPath]) {
+                    favoriteStar.textContent = "★";
+                    favoriteStar.classList.add('favorited');
+                } else {
+                    favoriteStar.textContent = "☆";
+                }
+                favoriteStar.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    toggleFavorite(item.fullPath);
+                    if (getFavorites()[item.fullPath]) {
+                        favoriteStar.textContent = "★";
+                        favoriteStar.classList.add('favorited');
+                    } else {
+                        favoriteStar.textContent = "☆";
+                        favoriteStar.classList.remove('favorited');
+                    }
+                    sortAndRenderImages();
+                });
+
+                const caption = document.createElement('p');
+                caption.textContent = item.name;
+                caption.style.fontSize = '14px';
+                caption.style.margin = '0';
+
+                container.appendChild(img);
+                container.appendChild(favoriteStar);
+                container.appendChild(caption);
+                gallery.appendChild(container);
+
+                const option = document.createElement('option');
+                option.value = item.url;
+                option.textContent = item.name;
+                option.dataset.fullPath = item.fullPath;
+                document.getElementById('imageDropdown').appendChild(option);
+            });
+        }
+
     </script>
 </body>
 
