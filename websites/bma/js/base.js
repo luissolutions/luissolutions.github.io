@@ -54,25 +54,25 @@ function generateAppList(filterText = "") {
 }
 
 const appNamesMap = {
-  "Notes App": { filename: "livenotes", tags: ["notes", "writing", "journal"] },
   "Job Task Logging": { filename: "livetasker", tags: ["tasks", "log", "work"] },
+  "Jobs Gallery": { filename: "livegallery", tags: ["gallery", "photos", "images"] },
+  "Notes App": { filename: "livenotes", tags: ["notes", "writing", "journal"] },
+  "Jobs Calendar": { filename: "liveschedule", tags: ["calendar", "appointments", "schedule"] },
   "Gas Logging": { filename: "livegas", tags: ["fuel", "mileage", "gas", "log"] },
+  "Favorites/Bookmarks": { filename: "livelinks", tags: ["bookmarks", "links", "favorites", "web"] },
+  "Database": { filename: "liveshow", tags: ["admin", "firebase", "database"] },
+  "Quiz/Testing": { filename: "livelearn", tags: ["quiz", "test", "study", "exam", "learn"] },
+  "View/Edit Inventory": { filename: "liveinventory", tags: ["database", "data", "records", "inventory"] },
+  "Analytics": { filename: "liveanalytics", tags: ["analytics", "stats", "charts", "data"] },
   "Mileage Logging": { filename: "livemileage", tags: ["mileage", "miles", "trip"] },
   "Quote/Invoice Maker": { filename: "liveinvoice", tags: ["invoice", "billing", "quote", "finance"] },
-  "Jobs Calendar": { filename: "liveschedule", tags: ["calendar", "appointments", "schedule"] },
   "Financial Logging": { filename: "livebudget", tags: ["budget", "money", "expenses", "finance"] },
-  "View/Edit Inventory": { filename: "liveinventory", tags: ["database", "data", "records", "inventory"] },
-  "Favorites/Bookmarks": { filename: "livelinks", tags: ["bookmarks", "links", "favorites", "web"] },
-  "Quiz/Testing": { filename: "livelearn", tags: ["quiz", "test", "study", "exam", "learn"] },
   "Contacts": { filename: "livecontacts", tags: ["contacts", "phone", "address", "people"] },
-  "Analytics": { filename: "liveanalytics", tags: ["analytics", "stats", "charts", "data"] },
-  "Jobs Gallery": { filename: "livegallery", tags: ["gallery", "photos", "images"] },
   "Password Generator": { filename: "password", tags: ["password", "security", "generator"] },
   "Conversion Calculator": { filename: "conversion", tags: ["conversion", "convert", "math"] },
   "Percentage Calculator": { filename: "percent", tags: ["percentage", "math", "calculator"] },
   "Calculator": { filename: "calc", tags: ["calculator", "math", "numbers"] },
   "Wire Counter": { filename: "count", tags: ["count", "wires", "electrical"] },
-  "Database": { filename: "liveshow", tags: ["admin", "firebase", "database"] },
 };
 
 const appDisplayNames = Object.keys(appNamesMap);

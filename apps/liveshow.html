@@ -60,6 +60,30 @@
             cursor: pointer;
             color: red;
         }
+
+        #visit-timeline ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        #visit-timeline li {
+            border-bottom: 1px solid #ddd;
+            padding: 8px 0;
+        }
+
+        #timeline-filters {
+            margin-bottom: 10px;
+        }
+
+        #timeline-filters label {
+            margin-right: 5px;
+        }
+
+        #timeline-filters input,
+        #timeline-filters select {
+            margin-right: 10px;
+            padding: 3px 5px;
+        }
     </style>
 </head>
 
@@ -85,7 +109,7 @@
         </section>
 
         <section id="move-image-section">
-            <h3>Move Image</h3>
+            <h3>Image Mover</h3>
             <label>From Folder:</label>
             <select id="fromFolderDropdown">
                 <option value="">-- Select a folder --</option>
@@ -110,6 +134,22 @@
             </div>
         </section>
 
+        <section>
+            <h2>Visit Timeline</h2>
+            <div id="timeline-filters">
+                <label for="ipFilter">Filter by IP:</label>
+                <input type="text" id="ipFilter" placeholder="Enter IP to filter">
+
+                <label for="sortOrder">Sort by:</label>
+                <select id="sortOrder">
+                    <option value="desc" selected>Newest First</option>
+                    <option value="asc">Oldest First</option>
+                </select>
+
+                <button id="applyFiltersBtn">Apply Filters</button>
+            </div>
+            <div id="visit-timeline">Loading visit timeline...</div>
+        </section>
 
     </main>
     <script type="module">
@@ -346,10 +386,77 @@
             });
         }
 
+        let timelineEntriesGlobal = [];
+
+        function loadVisitTimeline() {
+            const db = getDatabase();
+            const visitsRef = ref(db, 'public/log/visits');
+            const timelineContainer = document.getElementById('visit-timeline');
+
+            onValue(visitsRef, (snapshot) => {
+                const visitsData = snapshot.val();
+                timelineEntriesGlobal = [];
+
+                if (visitsData) {
+                    Object.entries(visitsData).forEach(([sanitizedIP, ipData]) => {
+                        const ip = ipData.ip || sanitizedIP.replace(/-/g, '.');
+                        if (ipData.visits && Array.isArray(ipData.visits)) {
+                            ipData.visits.forEach((visit) => {
+                                timelineEntriesGlobal.push({
+                                    time: new Date(visit.time),
+                                    ip: ip,
+                                    url: visit.url
+                                });
+                            });
+                        }
+                    });
+                }
+                applyTimelineFilters();
+            }, {
+                onError: (error) => {
+                    console.error("Error loading visit timeline:", error);
+                    timelineContainer.textContent = "Error loading visit timeline.";
+                }
+            });
+        }
+
+        function applyTimelineFilters() {
+            const ipFilterValue = document.getElementById('ipFilter').value.trim();
+            const sortOrderValue = document.getElementById('sortOrder').value;
+            let filteredEntries = timelineEntriesGlobal;
+
+            if (ipFilterValue !== "") {
+                filteredEntries = filteredEntries.filter(entry => entry.ip.includes(ipFilterValue));
+            }
+
+            if (sortOrderValue === "desc") {
+                filteredEntries.sort((a, b) => b.time - a.time);
+            } else {
+                filteredEntries.sort((a, b) => a.time - b.time);
+            }
+            renderTimelineEntries(filteredEntries);
+        }
+
+        function renderTimelineEntries(entries) {
+            const timelineContainer = document.getElementById('visit-timeline');
+            timelineContainer.innerHTML = '';
+            if (entries.length === 0) {
+                timelineContainer.textContent = "No matching visit logs found.";
+                return;
+            }
+            const ul = document.createElement('ul');
+            entries.forEach(entry => {
+                const li = document.createElement('li');
+                li.textContent = `${entry.time.toLocaleString()} – IP: ${entry.ip} – URL: ${entry.url}`;
+                ul.appendChild(li);
+            });
+            timelineContainer.appendChild(ul);
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             populateFolderDropdowns();
 
-            outputTable.addEventListener('click', function (event) {
+            outputTable.addEventListener('click', (event) => {
                 if (event.target.classList.contains('collapsible')) {
                     const nestedContent = event.target.nextElementSibling;
                     if (nestedContent) {
@@ -357,8 +464,17 @@
                     }
                 }
             });
-        });
 
+            document.getElementById('applyFiltersBtn').addEventListener('click', () => {
+                applyTimelineFilters();
+            });
+
+            document.getElementById('ipFilter').addEventListener('input', () => {
+                applyTimelineFilters();
+            });
+
+            loadVisitTimeline();
+        });
     </script>
 
 </body>
