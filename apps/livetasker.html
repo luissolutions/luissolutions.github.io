@@ -1153,24 +1153,28 @@
 
         uploadButton.addEventListener('click', async () => {
             try {
+                const project = projectInput.value.trim();
                 const files = fileUploader.files;
+
                 if (!files.length) {
                     alert('Please select an image.');
                     return;
                 }
 
                 const file = files[0];
-                const project = projectInput.value.trim();
                 if (!project) {
                     alert('Please select a project before uploading.');
                     return;
                 }
 
-                let fileName = imageNameInput.value.trim().replace(/\s+/g, '_') || file.name.split('.').slice(0, -1).join('.').replace(/\s+/g, '_');
-                const fileExtension = file.name.split('.').pop();
                 const markupText = markupTextInput.value.trim();
+                const imageName = imageNameInput.value.trim();
 
-                const finalFileName = markupText ? `${fileName}_markup.${fileExtension}` : `${fileName}.${fileExtension}`;
+                const fileExtension = file.name.split('.').pop();
+
+                let baseFileName = markupText || imageName || file.name.split('.').slice(0, -1).join('.');
+                baseFileName = baseFileName.replace(/\s+/g, '_');
+                let finalFileName = `${baseFileName}.${fileExtension}`;
 
                 let imageBlob = await resizeImage(file, 1024);
 
@@ -1178,8 +1182,18 @@
                     imageBlob = await addTextToImage(imageBlob, markupText);
                 }
 
-                await uploadToFirebase(imageBlob, `${DATABASE_BASE_PATH}/tasks/images/${project}/${finalFileName}`);
+                const folderPath = `${DATABASE_BASE_PATH}/tasks/images/${project}`;
+                const storageFolderRef = storageRef(storage, folderPath);
+                const existingFiles = await listAll(storageFolderRef);
+                const existingNames = existingFiles.items.map(item => item.name);
 
+                let counter = 1;
+                while (existingNames.includes(finalFileName)) {
+                    finalFileName = `${baseFileName}_${counter}.${fileExtension}`;
+                    counter++;
+                }
+
+                await uploadToFirebase(imageBlob, `${folderPath}/${finalFileName}`);
                 await loadTaskImages(project);
 
             } catch (error) {
