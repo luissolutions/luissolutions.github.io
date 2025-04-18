@@ -200,6 +200,7 @@
     import { auth, onAuthStateChanged, storage, storageRef, getStorage, ref, uploadBytesResumable, deleteObject, getDownloadURL, database, set, remove, update, get, onValue, push } from "./assets/js/firebase-init.js";
 
     let DATABASE_BASE_PATH = 'public';
+    let inventoryEntries = {};
 
     onAuthStateChanged(auth, (user) => {
         DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
@@ -212,9 +213,9 @@
         toggleColumnControlsVisibility(mode);
 
         onValue(inventoryRef, (snapshot) => {
-            const entries = snapshot.val() || {};
-            updateCategoryFilter(entries);
-            displayEntries(entries);
+            inventoryEntries = snapshot.val() || {};
+            updateCategoryFilter(inventoryEntries);
+            filterEntries();
             loadColumnVisibility();
             applyColumnVisibility();
         });
@@ -353,18 +354,28 @@
     }
 
     function filterEntries() {
+        const mode = document.getElementById('viewToggle').value;
         const selectedCategory = document.getElementById('category-filter').value;
         const searchTerm = document.getElementById('search-input').value.toLowerCase();
 
-        document.querySelectorAll('#inventory-body tr').forEach(row => {
-            const category = row.children[0].innerText.trim();
-            const part = row.children[2].innerText.toLowerCase().trim();
+        const filteredEntries = {};
 
-            const matchesCategory = selectedCategory === '' || category === selectedCategory;
-            const matchesSearch = searchTerm === '' || part.includes(searchTerm);
+        Object.entries(inventoryEntries).forEach(([category, components]) => {
+            if (selectedCategory && category !== selectedCategory) return;
 
-            row.style.display = matchesCategory && matchesSearch ? '' : 'none';
+            Object.entries(components).forEach(([component, items]) => {
+                Object.entries(items).forEach(([uniqueKey, data]) => {
+                    const part = data.part?.toLowerCase() || "";
+                    if (searchTerm && !part.includes(searchTerm)) return;
+
+                    if (!filteredEntries[category]) filteredEntries[category] = {};
+                    if (!filteredEntries[category][component]) filteredEntries[category][component] = {};
+                    filteredEntries[category][component][uniqueKey] = data;
+                });
+            });
         });
+
+        displayEntries(filteredEntries);
     }
 
     async function uploadImage(event) {
@@ -619,7 +630,6 @@
         Object.entries(entries).forEach(([category, components]) => {
             Object.entries(components).forEach(([component, items]) => {
                 Object.entries(items).forEach(([uniqueKey, data]) => {
-                    const partName = data.part ? data.part.replace(/[^a-zA-Z0-9_-]/g, "_") : "Unnamed_Item";
                     const displayName = data.part || "Unnamed Item";
                     const imageUrl = data.imageUrl || "./assets/img/default.png";
 
@@ -627,6 +637,8 @@
                     const matchesSearch = searchTerm === '' || displayName.toLowerCase().includes(searchTerm);
 
                     if (!(matchesCategory && matchesSearch)) return;
+
+                    const partName = displayName.replace(/[^a-zA-Z0-9_-]/g, "_");
 
                     const card = document.createElement('div');
                     card.className = 'item-card';
