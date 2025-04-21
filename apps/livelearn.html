@@ -321,19 +321,29 @@
           }
         }
 
-        questions = filterQuestionsList(allQuestions, showIncorrect);
+        let filteredQuestions = filterQuestionsList(allQuestions, showIncorrect);
 
         if (applyFilter) {
-          questions = questions.filter(q => q.description.toLowerCase().includes(filterText));
+          filteredQuestions = filteredQuestions.filter(q =>
+            q.description.toLowerCase().includes(filterText)
+          );
         }
 
         if (shuffleEnabled) {
-          questions = shuffleArray(questions);
+          filteredQuestions = shuffleArray(filteredQuestions);
         }
 
+        questions = [...filteredQuestions];
         currentQuestionIndex = 0;
-        displayQuestion(questions[currentQuestionIndex]);
+
+        if (questions.length > 0) {
+          displayQuestion(questions[currentQuestionIndex]);
+        } else {
+          displayQuestion(null);
+        }
+
         updateQuestionCounter();
+        toggleNavigationButtons();
       });
     }
 
@@ -386,17 +396,28 @@
       document.getElementById('addQuestionButton').textContent = 'Update Question';
     }
 
-
     function displayNextQuestion() {
-      if (currentQuestionIndex < questions.length - 1) {
+      while (currentQuestionIndex < questions.length - 1) {
         currentQuestionIndex++;
+        const question = questions[currentQuestionIndex];
+        if (answeredQuestions[question.id] !== 'answered') {
+          displayQuestion(question);
+          toggleNavigationButtons();
+          updateQuestionCounter();
+          return;
+        }
+      }
+
+      if (
+        currentQuestionIndex === questions.length - 1 &&
+        answeredQuestions[questions[currentQuestionIndex].id] !== 'answered'
+      ) {
         displayQuestion(questions[currentQuestionIndex]);
-        localStorage.setItem('currentQuestionIndex', currentQuestionIndex);
       } else {
-        const quizSection = document.getElementById('quizSection');
-        quizSection.innerHTML = '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
+        document.getElementById('quizSection').innerHTML = '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
         document.getElementById('resetQuiz').addEventListener('click', resetQuiz);
       }
+
       toggleNavigationButtons();
       updateQuestionCounter();
     }
@@ -484,8 +505,9 @@
 
     function filterQuestionsList(questionList, showIncorrect) {
       return questionList.filter(q => {
-        if (answeredQuestions[q.id] === 'answered') return false;
-        if (!showIncorrect && answeredQuestions[q.id] === 'incorrect') return false;
+        const status = answeredQuestions[q.id];
+        if (status === 'answered') return false;
+        if (!showIncorrect && status === 'incorrect') return false;
         return true;
       });
     }
@@ -530,9 +552,8 @@
       saveToFirebase('wrongAnswersCount', wrongAnswersCount);
 
       updateScoreDisplay();
-
-      questions.splice(currentQuestionIndex, 1);
       updateQuestionCounter();
+      answeredQuestions[currentQuestion.id] = 'answered';
       displayNextQuestion();
     }
 
@@ -679,7 +700,10 @@
     }
 
     function updateQuestionCounter() {
-      document.getElementById('questionCounter').textContent = `Questions Remaining: ${questions.length}`;
+      const remaining = questions.filter(q =>
+        answeredQuestions[q.id] !== 'answered'
+      ).length;
+      document.getElementById('questionCounter').textContent = `Questions Remaining: ${remaining}`;
     }
 
     function resetQuiz() {
@@ -783,16 +807,15 @@
 
     hideSidebarBtn.addEventListener('click', () => {
       sidebar.classList.add('hidden');
-      toggleSidebarBtn.style.display = 'block';
+      toggleSidebarBtn.style.display = 'inline';
     });
 
     document.addEventListener('click', (event) => {
       if (!sidebar.contains(event.target) && event.target !== toggleSidebarBtn) {
         sidebar.classList.add('hidden');
-        toggleSidebarBtn.style.display = 'block';
+        toggleSidebarBtn.style.display = 'inline';
       }
     });
-
 
     function populateIndexKey() {
       const indexKeyElement = document.getElementById('indexKey');
@@ -845,10 +868,14 @@
         return;
       }
 
-      questions = shuffleArray(incorrectQuestions);
+      const shuffleEnabled = document.getElementById('shuffleToggle').checked;
+
+      questions = shuffleEnabled ? shuffleArray(incorrectQuestions) : incorrectQuestions;
       currentQuestionIndex = 0;
+
       displayQuestion(questions[currentQuestionIndex]);
       updateQuestionCounter();
+      toggleNavigationButtons();
     }
 
     document.getElementById('shuffleToggle').addEventListener('change', () => {
