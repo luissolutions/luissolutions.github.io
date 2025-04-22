@@ -126,9 +126,9 @@
   </aside>
 
   <script type="module">
-    import { getDatabase, database, ref, onValue, push, set, remove } from './assets/js/firebase-init.js';
-    import { getCurrentUserUID } from "./assets/js/login.js";
+    import { getDatabase, database, ref, onValue, push, set, remove, auth, onAuthStateChanged } from './assets/js/firebase-init.js';
 
+    let DATABASE_BASE_PATH = 'public';
     let currentQuestionIndex = 0;
     let correctAnswersCount = 0;
     let wrongAnswersCount = 0;
@@ -140,27 +140,30 @@
     let timerInterval;
     let timeElapsed = 0;
 
+    onAuthStateChanged(auth, (user) => {
+      DATABASE_BASE_PATH = user ? user.uid : 'public';
+      initializeApp();
+    });
+
     function saveToFirebase(path, value) {
-      const userId = getCurrentUserUID();
-      if (!userId) {
-        console.error("No user ID found. User may not be logged in.");
+      if (!DATABASE_BASE_PATH) {
+        console.error("Database path is not set.");
         return;
       }
 
-      const dataRef = ref(database, `${userId}/quizData/${path}`);
+      const dataRef = ref(database, `${DATABASE_BASE_PATH}/quizData/${path}`);
       set(dataRef, value)
         .then(() => console.log("Data saved successfully"))
         .catch((error) => console.error("Error saving data:", error));
     }
 
     function loadFromFirebase(path, defaultValue, callback) {
-      const userId = getCurrentUserUID();
-      if (!userId) {
-        console.error("No user ID found. User may not be logged in.");
+      if (!DATABASE_BASE_PATH) {
+        console.error("Database path is not set.");
         return;
       }
 
-      const dataRef = ref(database, `${userId}/quizData/${path}`);
+      const dataRef = ref(database, `${DATABASE_BASE_PATH}/quizData/${path}`);
       onValue(dataRef, (snapshot) => {
         const data = snapshot.val();
         callback(data !== null ? data : defaultValue);
@@ -232,28 +235,23 @@
       });
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      const userId = getCurrentUserUID();
+    function initializeApp() {
+      loadFromFirebase('startTime', null, (savedStartTime) => {
+        if (savedStartTime) {
+          updateElapsedTime(savedStartTime);
+        } else {
+          startTimer();
+        }
+      });
 
-      if (userId) {
-        loadFromFirebase('startTime', null, (savedStartTime) => {
-          if (savedStartTime) {
-            updateElapsedTime(savedStartTime);
-          } else {
-            startTimer();
-          }
-        });
+      loadFromFirebase('highScores', [], (highScores) => {
+        displayHighScores(highScores);
+      });
 
-        loadFromFirebase('highScores', [], (highScores) => {
-          displayHighScores(highScores);
-        });
-        loadSavedData();
-        registerEventListeners();
-        fetchQuestions();
-      } else {
-        console.error("User not authenticated. Data loading skipped.");
-      }
-    });
+      loadSavedData();
+      registerEventListeners();
+      fetchQuestions();
+    }
 
     function saveToLocalStorage(key, value) {
       localStorage.setItem(key, JSON.stringify(value));
@@ -636,23 +634,26 @@
     }
 
     function handleSaveQuestion(question) {
-      const userId = getCurrentUserUID();
-      if (!userId) {
-        console.error("No user ID found. User may not be logged in.");
+      const isChecked = document.getElementById('saveQuestionCheckbox').checked;
+
+      if (!DATABASE_BASE_PATH) {
+        console.error("DATABASE_BASE_PATH is not set.");
         return;
       }
 
-      const isChecked = document.getElementById('saveQuestionCheckbox').checked;
+      const path = `${DATABASE_BASE_PATH}/quizData/savedQuestions/${question.id}`;
 
       if (isChecked) {
         saveToFirebase(`savedQuestions/${question.id}`, question);
       } else {
-        const questionRef = ref(database, `${userId}/quizData/savedQuestions/${question.id}`);
-        remove(questionRef).then(() => {
-          console.log(`Saved question: ${question.id} has been removed.`);
-        }).catch((error) => {
-          console.error(`Error removing question: ${error.message}`);
-        });
+        const questionRef = ref(database, path);
+        remove(questionRef)
+          .then(() => {
+            console.log(`Saved question: ${question.id} has been removed.`);
+          })
+          .catch((error) => {
+            console.error(`Error removing question: ${error.message}`);
+          });
       }
     }
 
@@ -709,16 +710,18 @@
     function resetQuiz() {
       stopTimer();
 
-      const currentUserUID = localStorage.getItem("currentUserUID");
-
       correctAnswersCount = 0;
       wrongAnswersCount = 0;
       currentQuestionIndex = 0;
       answeredQuestions = {};
       timeElapsed = 0;
 
-      saveToFirebase('startTime', null);
+      if (!DATABASE_BASE_PATH) {
+        console.error("DATABASE_BASE_PATH is not set.");
+        return;
+      }
 
+      saveToFirebase('startTime', null);
       saveToFirebase('correctAnswersCount', correctAnswersCount);
       saveToFirebase('wrongAnswersCount', wrongAnswersCount);
       saveToFirebase('answeredQuestions', answeredQuestions);
@@ -729,16 +732,13 @@
       localStorage.removeItem("savedQuestions");
       localStorage.removeItem("currentQuestionIndex");
 
-      if (currentUserUID) {
-        localStorage.setItem("currentUserUID", currentUserUID);
-      }
-
       fetchQuestions();
       updateQuestionCounter();
       updateScoreDisplay();
       startTimer();
       location.reload();
     }
+
 
     function downloadQuestions() {
       const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(questions));
