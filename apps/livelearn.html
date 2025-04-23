@@ -269,6 +269,10 @@
       return array;
     }
 
+    function isShuffleEnabled() {
+      return document.getElementById('shuffleToggle')?.checked === true;
+    }
+
     function updateScoreDisplay() {
       const totalAnswers = correctAnswersCount + wrongAnswersCount;
       const scorePercentage = totalAnswers === 0 ? 0 : Math.round((correctAnswersCount / totalAnswers) * 100);
@@ -395,27 +399,30 @@
     }
 
     function displayNextQuestion() {
-      while (currentQuestionIndex < questions.length - 1) {
-        currentQuestionIndex++;
-        const question = questions[currentQuestionIndex];
-        if (answeredQuestions[question.id] !== 'answered') {
-          displayQuestion(question);
+      const total = questions.length;
+
+      for (let i = currentQuestionIndex + 1; i < total; i++) {
+        if (answeredQuestions[questions[i].id] !== 'answered') {
+          currentQuestionIndex = i;
+          displayQuestion(questions[currentQuestionIndex]);
           toggleNavigationButtons();
           updateQuestionCounter();
           return;
         }
       }
 
-      if (
-        currentQuestionIndex === questions.length - 1 &&
-        answeredQuestions[questions[currentQuestionIndex].id] !== 'answered'
-      ) {
-        displayQuestion(questions[currentQuestionIndex]);
-      } else {
-        document.getElementById('quizSection').innerHTML = '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
-        document.getElementById('resetQuiz').addEventListener('click', resetQuiz);
+      for (let i = 0; i <= currentQuestionIndex; i++) {
+        if (answeredQuestions[questions[i].id] !== 'answered') {
+          currentQuestionIndex = i;
+          displayQuestion(questions[currentQuestionIndex]);
+          toggleNavigationButtons();
+          updateQuestionCounter();
+          return;
+        }
       }
 
+      document.getElementById('quizSection').innerHTML = '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
+      document.getElementById('resetQuiz').addEventListener('click', resetQuiz);
       toggleNavigationButtons();
       updateQuestionCounter();
     }
@@ -513,7 +520,6 @@
     function submitAnswer() {
       const questionType = document.querySelector('input[name="questionType"]:checked').value;
       const currentQuestion = questions[currentQuestionIndex];
-
       let isCorrect = false;
 
       if (questionType === 'textInput') {
@@ -532,16 +538,27 @@
 
         const explanationText = currentQuestion.explanation ? `\nExplanation: ${currentQuestion.explanation}` : '';
         alert(`Correct!${explanationText}`);
-
       } else {
         if (answeredQuestions[currentQuestion.id] !== 'incorrect') {
           answeredQuestions[currentQuestion.id] = 'incorrect';
           wrongAnswersCount++;
         }
+
         const continueToNext = confirm("Incorrect! Continue to the next question?");
         if (!continueToNext) {
           displayQuestion(currentQuestion);
+          updateScoreDisplay();
+          updateQuestionCounter();
           return;
+        }
+
+        const showIncorrect = document.getElementById('showIncorrect').checked;
+        if (!showIncorrect) {
+          questions.splice(currentQuestionIndex, 1);
+
+          if (currentQuestionIndex >= questions.length) {
+            currentQuestionIndex = Math.max(0, questions.length - 1);
+          }
         }
       }
 
@@ -551,9 +568,7 @@
 
       updateScoreDisplay();
       updateQuestionCounter();
-      answeredQuestions[currentQuestion.id] = 'answered';
       displayNextQuestion();
-      loadSavedData();
     }
 
     function checkAnswer(questionType, currentQuestion) {
@@ -667,10 +682,8 @@
       loadFromFirebase('savedQuestions', [], (data) => {
         if (data && Object.keys(data).length) {
           const savedQuestions = Object.values(data);
-          questions = shuffleArray(savedQuestions);
-          questions.forEach(q => {
-            answeredQuestions[q.id] = undefined;
-          });
+          const filtered = savedQuestions.filter(q => answeredQuestions[q.id] !== 'answered');
+          questions = document.getElementById('shuffleToggle').checked ? shuffleArray(filtered) : filtered;
           currentQuestionIndex = 0;
           displayQuestion(questions[currentQuestionIndex]);
           updateQuestionCounter();
