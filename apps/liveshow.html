@@ -132,6 +132,14 @@
                 <progress id="progress-bar" value="0" max="100" style="width: 100%;"></progress>
                 <span id="progress-text">0%</span>
             </div>
+
+            <section id="folder-data-section">
+                <h3>Linked Task Info</h3>
+                <ul id="folder-data-list">
+                    <li>Waiting for selection...</li>
+                </ul>
+            </section>
+
         </section>
 
         <section>
@@ -462,6 +470,51 @@
                     if (nestedContent) {
                         nestedContent.classList.toggle('collapsed');
                     }
+                }
+            });
+
+            fromDropdown.addEventListener('change', async () => {
+                const selectedFolder = fromDropdown.value.trim();
+                const folderDataList = document.getElementById('folder-data-list');
+                folderDataList.innerHTML = '<li>Searching for matching project...</li>';
+
+                const match = selectedFolder.match(/^(.*?)\/images\/(.+)$/);
+                if (!match) {
+                    folderDataList.innerHTML = '<li>Not a valid folder path (missing /images/).</li>';
+                    return;
+                }
+
+                const dbPathRoot = match[1];
+                const projectId = match[2];
+                const dbRef = ref(getDatabase(), dbPathRoot);
+                console.log("Searching in DB path:", dbPathRoot, "for project ID:", projectId);
+
+                try {
+                    const snapshot = await get(dbRef);
+                    const tasks = snapshot.val();
+
+                    if (!tasks) {
+                        folderDataList.innerHTML = `<li>No tasks found under ${dbPathRoot}.</li>`;
+                        return;
+                    }
+
+                    const foundEntry = Object.entries(tasks).find(([_, task]) => task.project === projectId);
+
+                    if (foundEntry) {
+                        const [entryKey, entryData] = foundEntry;
+                        folderDataList.innerHTML = `<li><strong>Firebase Key:</strong> ${entryKey}</li>`;
+
+                        for (const [key, value] of Object.entries(entryData)) {
+                            const li = document.createElement('li');
+                            li.textContent = `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`;
+                            folderDataList.appendChild(li);
+                        }
+                    } else {
+                        folderDataList.innerHTML = `<li>No task with project ID "${projectId}" found under ${dbPathRoot}.</li>`;
+                    }
+                } catch (err) {
+                    console.error("Error loading from database:", err);
+                    folderDataList.innerHTML = '<li>Error loading data. Check console for details.</li>';
                 }
             });
 
