@@ -177,7 +177,9 @@
                 <div>Total Hours Between Dates: <span id="calculatedHours">0</span></div>
             </div>
 
-            <div id="buttons"></div>
+            <div id="buttons">
+                <button id="loadAllBtn">Show All</button>
+            </div>
 
             <button id="goToTopBtn">Go to Top ⤒</button>
             <button id="populateOneNoteBtn">Populate OneNote</button>
@@ -406,6 +408,8 @@
             deleteButton.innerText = 'Delete';
             deleteButton.addEventListener('click', () => confirmDeleteTask(task.id, row));
             actionsCell.appendChild(deleteButton);
+
+            enableClickCopy(row);
         }
 
         async function loadTaskForEditing(taskId) {
@@ -565,9 +569,6 @@
                 const initialTasks = allTasks.slice(0, initialLoadCount);
                 initialTasks.forEach(task => addTaskToTable(task));
 
-                if (allTasks.length > initialLoadCount) {
-                    addLoadAllButton();
-                }
                 document.getElementById('totalTasks').innerText = allTasks.length;
 
                 checkForOngoingTask();
@@ -590,6 +591,10 @@
 
             buttonContainer.appendChild(loadAllBtn);
         }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('loadAllBtn').addEventListener('click', loadAllTasks);
+        });
 
         function loadAllTasks() {
             const remainingTasks = allTasks.slice(initialLoadCount);
@@ -621,28 +626,22 @@
             currentTaskTimeDisplay.innerText = '00:00:00';
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            loadColumnVisibility();
-            applyColumnVisibility();
-
-            document.querySelectorAll('.toggle-column').forEach(checkbox => {
-                checkbox.addEventListener('change', () => {
-                    saveColumnVisibility();
-                    applyColumnVisibility();
-                });
-            });
-        });
-
-        function updateTaskField(taskId, field, value) {
+        function updateTaskField(taskId, field, newValue) {
             const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${taskId}`);
-            update(taskRef, { [field]: value })
-                .then(() => {
-                    console.log(`Task ${taskId} updated: ${field} = ${value}`);
-                    applySearchFilter();
-                })
-                .catch(error => {
-                    console.error('Error updating task:', error);
-                });
+            get(taskRef).then(snapshot => {
+                if (!snapshot.exists()) return;
+                const currentValue = snapshot.val()[field];
+                if (currentValue === newValue) return;
+
+                update(taskRef, { [field]: newValue })
+                    .then(() => {
+                        console.log(`Task ${taskId} updated: ${field} = ${newValue}`);
+                        applySearchFilter();
+                    })
+                    .catch(error => {
+                        console.error('Error updating task:', error);
+                    });
+            });
         }
 
         function checkForOngoingTask() {
@@ -804,15 +803,6 @@
 
             rows.forEach(row => taskLogTable.appendChild(row));
         }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            const startTimeHeader = document.querySelector('#task-log th.start-time-column');
-
-            startTimeHeader.addEventListener('click', () => {
-                sortTableByColumn(7, sortOrder);
-                sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
-            });
-        });
 
         function saveData() {
             const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
@@ -1476,6 +1466,82 @@
             }
         });
 
+        function formatToLocalTime(isoTime) {
+            const date = new Date(isoTime);
+            return date.toLocaleString("en-US", {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: true,
+                timeZoneName: "short"
+            });
+        }
+
+        function enableClickCopy(row) {
+            for (let cell of row.cells) {
+                cell.addEventListener('click', function (e) {
+                    if (!this._clickCount) this._clickCount = 0;
+                    this._clickCount++;
+
+                    clearTimeout(this._clickTimeout);
+                    this._clickTimeout = setTimeout(() => {
+                        this._clickCount = 0;
+                    }, 500);
+
+                    if (this._clickCount === 4) {
+                        navigator.clipboard.writeText(this.innerText.trim()).then(() => {
+                            const originalBg = this.style.backgroundColor;
+                            this.style.backgroundColor = 'lightblue';
+                            setTimeout(() => {
+                                this.style.backgroundColor = originalBg;
+                            }, 1000);
+                        }).catch(err => {
+                            console.error('Failed to copy text: ', err);
+                        });
+
+                        this._clickCount = 0;
+                    }
+                });
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadColumnVisibility();
+            applyColumnVisibility();
+
+            document.querySelectorAll('.toggle-column').forEach(checkbox => {
+                checkbox.addEventListener('change', () => {
+                    saveColumnVisibility();
+                    applyColumnVisibility();
+                });
+            });
+
+            const startTimeHeader = document.querySelector('#task-log th.start-time-column');
+            startTimeHeader.addEventListener('click', () => {
+                sortTableByColumn(7, sortOrder);
+                sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+            });
+
+            document.getElementById('loadAllBtn').addEventListener('click', loadAllTasks);
+
+            const headerTitle = document.querySelector('header h1');
+            const loginSection = document.getElementById('login-section');
+
+            headerTitle.addEventListener('dblclick', () => {
+                loginSection.style.display =
+                    loginSection.style.display === 'none' || getComputedStyle(loginSection).display === 'none'
+                        ? 'block'
+                        : 'none';
+
+                console.log('Header double-clicked: reloading tasks...');
+                loadTasks();
+            });
+
+        });
+
         // OneNote section Code
 
         const populateOneNoteBtn = document.getElementById("populateOneNoteBtn");
@@ -1581,115 +1647,6 @@
             });
         }
 
-        function formatToLocalTime(isoTime) {
-            const date = new Date(isoTime);
-            return date.toLocaleString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-                hour12: true,
-                timeZoneName: "short"
-            });
-        }
-
-        window.loadTasks = loadTasks;
-    </script>
-    <script>
-
-        document.addEventListener("DOMContentLoaded", () => {
-            const taskTable = document.getElementById("task-log");
-
-            taskTable.addEventListener("click", (event) => {
-                const target = event.target;
-
-                if (target && target.tagName === "TD" && target.isContentEditable) {
-                    if (!target.dataset.clickCount) {
-                        target.dataset.clickCount = 1;
-                    } else {
-                        target.dataset.clickCount = parseInt(target.dataset.clickCount) + 1;
-                    }
-
-                    clearTimeout(target.dataset.clickTimeout);
-                    target.dataset.clickTimeout = setTimeout(() => {
-                        if (parseInt(target.dataset.clickCount) >= 3) {
-                            const text = target.innerText.trim();
-                            navigator.clipboard.writeText(text).then(() => {
-                                target.style.backgroundColor = "#c7ffd8";
-                                setTimeout(() => {
-                                    target.style.backgroundColor = "";
-                                }, 1000);
-                            });
-                        }
-                        target.dataset.clickCount = 0;
-                    }, 300);
-                }
-            });
-        });
-
-        function enableCopyOnLongPress(selector = "#task-log td[contenteditable]") {
-            let longPressTimer;
-
-            document.querySelectorAll(selector).forEach(cell => {
-                cell.addEventListener('touchstart', () => {
-                    longPressTimer = setTimeout(() => {
-                        const text = cell.innerText.trim();
-                        navigator.clipboard.writeText(text).then(() => {
-                            cell.style.backgroundColor = "#c7ffd8";
-                            setTimeout(() => {
-                                cell.style.backgroundColor = "";
-                            }, 1000);
-                        });
-                    }, 600);
-                });
-
-                cell.addEventListener('touchend', () => {
-                    clearTimeout(longPressTimer);
-                });
-
-                cell.addEventListener('touchmove', () => {
-                    clearTimeout(longPressTimer);
-                });
-
-                let clickCount = 0;
-                cell.addEventListener('click', () => {
-                    clickCount++;
-                    setTimeout(() => {
-                        if (clickCount >= 3) {
-                            const text = cell.innerText.trim();
-                            navigator.clipboard.writeText(text).then(() => {
-                                cell.style.backgroundColor = "#c7ffd8";
-                                setTimeout(() => {
-                                    cell.style.backgroundColor = "";
-                                }, 1000);
-                            });
-                        }
-                        clickCount = 0;
-                    }, 300);
-                });
-            });
-        }
-
-        document.addEventListener("DOMContentLoaded", () => {
-            enableCopyOnLongPress();
-        });
-
-        document.addEventListener('DOMContentLoaded', () => {
-            const headerTitle = document.querySelector('header h1');
-            const loginSection = document.getElementById('login-section');
-
-            headerTitle.addEventListener('dblclick', () => {
-                if (loginSection.style.display === 'none' || getComputedStyle(loginSection).display === 'none') {
-                    loginSection.style.display = 'block';
-                } else {
-                    loginSection.style.display = 'none';
-                }
-
-                loadTasks();
-            });
-        });
     </script>
 
     <script src="./assets/js/onenoteAuth.js"></script>
