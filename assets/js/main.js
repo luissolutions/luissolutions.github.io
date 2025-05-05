@@ -102,16 +102,31 @@ function handleOutsideClick(event) {
   }
 }
 
-document.addEventListener("DOMContentLoaded", function () {
-  fetch("header.html")
-    .then(response => response.text())
+function fetchWithFallback(targetId, primaryPath, fallbackPath) {
+  fetch(primaryPath)
+    .then(res => {
+      if (!res.ok) throw new Error('Primary failed');
+      return res.text();
+    })
     .then(data => {
-      document.getElementById("header-placeholder").innerHTML = data;
+      document.getElementById(targetId).innerHTML = data;
+    })
+    .catch(() => {
+      fetch(fallbackPath)
+        .then(res => {
+          if (!res.ok) throw new Error('Fallback failed');
+          return res.text();
+        })
+        .then(data => {
+          document.getElementById(targetId).innerHTML = data;
+        })
+        .catch(err => {
+          console.error(`Failed to load ${targetId}:`, err);
+        });
     });
+}
 
-  fetch("footer.html")
-    .then(response => response.text())
-    .then(data => {
-      document.getElementById("footer-placeholder").innerHTML = data;
-    });
+document.addEventListener("DOMContentLoaded", function () {
+  fetchWithFallback("header-placeholder", "components/header.html", "../components/header.html");
+  fetchWithFallback("footer-placeholder", "components/footer.html", "../components/footer.html");
 });
