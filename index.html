@@ -41,59 +41,12 @@
     <div id="footer-placeholder"></div>
 
     <script type="module">
-        import { getDatabase, get, database, ref, onValue, update, set, remove, getStorage, storage, storageRef, getDownloadURL } from './apps/assets/js/firebase-init.js';
+        import { getIP, updateVisitCount } from './assets/js/visitLogger.js';
 
-        document.addEventListener("DOMContentLoaded", () => {
-            updateVisitCount();
+        document.addEventListener("DOMContentLoaded", async () => {
+            const ip = await getIP();
+            updateVisitCount(ip);
         });
-
-        function updateVisitCount(ipAddress) {
-            const db = getDatabase();
-            const sanitizedIP = ipAddress.replace(/\./g, '-');
-            const visitCountRef = ref(db, 'public/log/visitCount');
-            const visitsLogRef = ref(db, `public/log/visits/${sanitizedIP}`);
-            const visitTime = new Date().toISOString();
-            const visitURL = window.location.href;
-
-            return get(visitCountRef)
-                .then((snapshot) => {
-                    let visitCount = snapshot.exists() ? snapshot.val() : 0;
-                    visitCount += 1;
-
-                    document.getElementById("visit-counter").textContent = ` | Visits: ${visitCount}`;
-
-                    return set(visitCountRef, visitCount).then(() => visitCount);
-                })
-                .then(() => {
-                    return get(visitsLogRef).then((snapshot) => {
-                        const visitEntry = { time: visitTime, url: visitURL };
-                        if (snapshot.exists()) {
-                            const existingData = snapshot.val();
-                            if (!existingData.visits) existingData.visits = [];
-                            existingData.visits.push(visitEntry);
-                            return set(visitsLogRef, existingData);
-                        } else {
-                            return set(visitsLogRef, {
-                                ip: ipAddress,
-                                visits: [visitEntry]
-                            });
-                        }
-                    });
-                });
-        }
-
-        function getIP() {
-            return fetch('https://api.ipify.org?format=json')
-                .then((response) => response.json())
-                .then((data) => data.ip)
-                .catch((error) => {
-                    console.error("Error fetching IP address:", error);
-                    return "Unknown IP";
-                });
-        }
-
-        getIP()
-            .then((ipAddress) => updateVisitCount(ipAddress))
     </script>
 </body>
 
