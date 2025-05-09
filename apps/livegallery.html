@@ -251,31 +251,50 @@
             moveToFolder.innerHTML = '<option value="">-- Select Destination --</option>';
 
             const baseRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images`);
+            const dbRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+
             try {
                 const snapshot = await listAll(baseRef);
-                const folderNames = new Set();
+                const folderNames = new Set(snapshot.prefixes.map(folder => folder.name));
 
-                for (const folder of snapshot.prefixes) {
-                    folderNames.add(folder.name);
+                const taskSnapshot = await get(dbRef);
+                const projectDataMap = {};
+                if (taskSnapshot.exists()) {
+                    const taskData = taskSnapshot.val();
+                    Object.values(taskData).forEach(task => {
+                        if (task.project) {
+                            projectDataMap[task.project] = {
+                                customerName: task.customerName || '',
+                                startTime: task.startTime ? new Date(task.startTime).toLocaleDateString() : ''
+                            };
+                        }
+                    });
                 }
 
-                [...folderNames].reverse().forEach(folderName => {
+                const folderArray = [...folderNames].map(folderName => {
+                    const task = projectDataMap[folderName];
+                    const timestamp = task?.startTime ? new Date(task.startTime).getTime() : 0;
+                    return { folderName, timestamp };
+                });
+
+                folderArray.sort((a, b) => b.timestamp - a.timestamp);
+
+                folderArray.forEach(({ folderName, timestamp }) => {
+                    const task = projectDataMap[folderName];
+                    const displayText = task
+                        ? `${folderName}: ${task.customerName} (${new Date(task.startTime).toLocaleDateString()})`
+                        : folderName;
+
                     const option = document.createElement('option');
                     option.value = folderName;
-                    option.textContent = folderName;
+                    option.textContent = displayText;
                     folderDropdown.appendChild(option);
 
                     const moveOption = option.cloneNode(true);
                     moveToFolder.appendChild(moveOption);
                 });
-
-                const lastUploadedFolder = localStorage.getItem('lastUploadedFolder');
-                if (lastUploadedFolder && folderNames.has(lastUploadedFolder)) {
-                    folderDropdown.value = lastUploadedFolder;
-                    await loadImages(lastUploadedFolder);
-                }
             } catch (error) {
-                console.error("Error loading folders:", error);
+                console.error("Error loading folders or tasks:", error);
             }
         }
 
@@ -401,7 +420,7 @@
                             favoriteStar.textContent = "☆";
                             favoriteStar.classList.remove('favorited');
                         }
-                        sortAndRenderImages();
+                        sortAndRenderImages(thisLoadToken);;
                     });
 
                     const caption = document.createElement('p');
@@ -425,7 +444,7 @@
                 console.error("Error loading images:", error);
                 alert("Failed to load images.");
             }
-            sortAndRenderImages()
+            sortAndRenderImages(thisLoadToken);
         }
 
         imageDropdown.addEventListener('change', () => {
@@ -594,7 +613,7 @@
             setFavorites(favorites);
         }
 
-        function sortAndRenderImages(loadToken = currentFolderLoadToken) {
+        function sortAndRenderImages(loadToken) {
             if (loadToken !== currentFolderLoadToken) return;
             const favorites = getFavorites();
 
@@ -628,7 +647,7 @@
                 favoriteStar.addEventListener('click', (e) => {
                     e.stopPropagation();
                     toggleFavorite(item.fullPath);
-                    sortAndRenderImages();
+                    sortAndRenderImages(thisLoadToken);;
                 });
 
                 const caption = document.createElement('p');
