@@ -949,46 +949,47 @@
         }
 
         function calculateHoursBetweenDates() {
-            const startDate = new Date(document.getElementById('startDate').value);
-            const endDate = new Date(document.getElementById('endDate').value);
+            const startDateInput = document.getElementById('startDate').value;
+            const endDateInput = document.getElementById('endDate').value;
+
+            const startDate = new Date(startDateInput);
+            const endDate = new Date(endDateInput);
+            endDate.setHours(23, 59, 59, 999);
 
             if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-                alert('Please select valid start and end dates and times.');
+                alert('Please select valid start and end dates.');
                 return;
             }
 
-            endDate.setHours(23, 59, 59, 999);
+            const rows = Array.from(document.querySelectorAll('#task-log tbody tr'))
+                .filter(row => row.style.display !== 'none'); // Only visible rows (filtered)
 
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
-            get(taskRef).then(snapshot => {
-                let totalSeconds = 0;
+            let totalSeconds = 0;
 
-                snapshot.forEach(taskSnapshot => {
-                    const task = taskSnapshot.val();
-                    const taskStartTime = new Date(task.startTime);
-                    const taskEndTime = task.endTime ? new Date(task.endTime) : null;
+            rows.forEach(row => {
+                const startCell = row.querySelector('.start-time-column');
+                const endCell = row.querySelector('.end-time-column');
 
-                    if (!taskEndTime) return;
+                if (!startCell || !endCell) return;
 
-                    const effectiveStart = taskStartTime > startDate ? taskStartTime : startDate;
-                    const effectiveEnd = taskEndTime < endDate ? taskEndTime : endDate;
+                const taskStart = new Date(startCell.innerText);
+                const taskEnd = new Date(endCell.innerText);
 
-                    if (effectiveStart <= effectiveEnd) {
-                        const lengthInSeconds = (effectiveEnd - effectiveStart) / 1000;
-                        totalSeconds += lengthInSeconds;
-                    }
-                });
+                if (isNaN(taskStart.getTime()) || isNaN(taskEnd.getTime())) return;
 
-                const hours = Math.floor(totalSeconds / 3600);
-                const minutes = Math.floor((totalSeconds % 3600) / 60);
-                const decimalHours = (totalSeconds / 3600).toFixed(2);
+                const effectiveStart = taskStart < startDate ? startDate : taskStart;
+                const effectiveEnd = taskEnd > endDate ? endDate : taskEnd;
 
-                document.getElementById('calculatedHours').innerText = `${hours} hours, ${minutes} minutes (${decimalHours})`;
-
-                filterTasksByDateRange(startDate, endDate);
-            }).catch(error => {
-                console.error('Error calculating hours:', error);
+                if (effectiveStart <= effectiveEnd) {
+                    totalSeconds += (effectiveEnd - effectiveStart) / 1000;
+                }
             });
+
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const decimalHours = (totalSeconds / 3600).toFixed(2);
+
+            document.getElementById('calculatedHours').innerText = `${hours} hours, ${minutes} minutes (${decimalHours})`;
         }
 
         function filterTasksByDateRange(startDate, endDate) {
