@@ -171,7 +171,13 @@
         let DATABASE_BASE_PATH = 'public';
         onAuthStateChanged(auth, (user) => {
             DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
-            loadFolderOptions();
+            loadFolderOptions().then(() => {
+                const lastViewed = localStorage.getItem('lastViewedFolder');
+                if (lastViewed) {
+                    folderDropdown.value = lastViewed;
+                    folderDropdown.dispatchEvent(new Event('change'));
+                }
+            });
         });
 
         let currentFolderLoadToken = 0;
@@ -250,6 +256,9 @@
             folderDropdown.innerHTML = '<option value="">-- Select a Folder --</option>';
             moveToFolder.innerHTML = '<option value="">-- Select Destination --</option>';
 
+            const lastUsed = localStorage.getItem('lastUploadedFolder');
+            let lastUsedFound = false;
+
             const baseRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images`);
             const dbRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
 
@@ -282,17 +291,28 @@
                 folderArray.forEach(({ folderName, timestamp }) => {
                     const task = projectDataMap[folderName];
                     const displayText = task
-                        ? `${folderName}: ${task.customerName} (${new Date(task.startTime).toLocaleDateString()})`
+                        ? `${folderName}: ${task.customerName} (${task.startTime})`
                         : folderName;
 
                     const option = document.createElement('option');
                     option.value = folderName;
                     option.textContent = displayText;
+
+                    if (folderName === lastUsed) {
+                        option.selected = true;
+                        lastUsedFound = true;
+                    }
+
                     folderDropdown.appendChild(option);
 
                     const moveOption = option.cloneNode(true);
                     moveToFolder.appendChild(moveOption);
                 });
+
+                if (lastUsed && lastUsedFound) {
+                    imageLabel.value = lastUsed;
+                    folderDropdown.dispatchEvent(new Event('change'));
+                }
             } catch (error) {
                 console.error("Error loading folders or tasks:", error);
             }
@@ -358,6 +378,7 @@
 
         folderDropdown.addEventListener('change', async () => {
             const folder = folderDropdown.value;
+            localStorage.setItem('lastViewedFolder', folder);
             imageLabel.value = folder;
             if (folder) {
                 await loadImages(folder);
@@ -649,7 +670,7 @@
                     toggleFavorite(item.fullPath);
                     sortAndRenderImages(loadToken);
                 });
-                
+
                 const caption = document.createElement('p');
                 caption.textContent = item.name;
                 caption.style.fontSize = '14px';
