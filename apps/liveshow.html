@@ -115,10 +115,24 @@
                 <option value="">-- Select a folder --</option>
             </select>
 
+            <div>
+                <strong>From Folder:</strong>
+                <ul id="folder-data-list-from">
+                    <li>Waiting for selection...</li>
+                </ul>
+            </div>
+
             <label>To Folder:</label>
             <select id="toFolderDropdown">
                 <option value="">-- Select a folder --</option>
             </select>
+
+            <div>
+                <strong>To Folder:</strong>
+                <ul id="folder-data-list-to">
+                    <li>Waiting for selection...</li>
+                </ul>
+            </div>
 
             <label>
                 <input type="checkbox" id="copyInsteadCheckbox">
@@ -132,13 +146,6 @@
                 <progress id="progress-bar" value="0" max="100" style="width: 100%;"></progress>
                 <span id="progress-text">0%</span>
             </div>
-
-            <section id="folder-data-section">
-                <h3>Linked Task Info</h3>
-                <ul id="folder-data-list">
-                    <li>Waiting for selection...</li>
-                </ul>
-            </section>
 
         </section>
 
@@ -161,30 +168,32 @@
 
     </main>
     <script type="module">
-        import { auth, onAuthStateChanged, database, getDatabase, getBytes, uploadBytes, ref, set, get, push, onValue, remove, update, uploadBytesResumable, getDownloadURL, deleteObject, listAll, getStorage, storageRef, storage } from './assets/js/firebase-init.js';
+        import {
+            auth, onAuthStateChanged, getDatabase, ref, get, onValue, update,
+            listAll, getBytes, uploadBytes, deleteObject, storageRef, storage
+        } from './assets/js/firebase-init.js';
 
         const outputTable = document.getElementById('output');
         const fromDropdown = document.getElementById('fromFolderDropdown');
         const toDropdown = document.getElementById('toFolderDropdown');
         const moveButton = document.getElementById('moveImageButton');
-        const activeListeners = {};
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
 
         let DATABASE_BASE_PATH = 'public';
+        let timelineEntriesGlobal = [];
+        let activeListeners = {};
 
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                DATABASE_BASE_PATH = user.uid;
-            } else {
-                DATABASE_BASE_PATH = 'public';
-            }
-
+        onAuthStateChanged(auth, user => {
+            DATABASE_BASE_PATH = user ? user.uid : 'public';
             tryLoadPath('/', () => { });
             tryLoadPath(`/${DATABASE_BASE_PATH}`, () => { });
+            populateFolderDropdowns();
         });
 
         async function getAllFolders(startRef, base = '') {
             const folders = [];
-
             async function recurse(currentRef, pathSoFar) {
                 const result = await listAll(currentRef);
                 for (const prefix of result.prefixes) {
@@ -193,7 +202,6 @@
                     await recurse(prefix, folderPath);
                 }
             }
-
             await recurse(startRef, base);
             return folders;
         }
@@ -202,23 +210,51 @@
             const startRef = storageRef(storage, '');
 
             try {
-                const folders = await getAllFolders(startRef, '');
+                const folders = await getAllFolders(startRef);
 
-                fromDropdown.innerHTML = '<option value="">-- Select a folder --</option>';
-                toDropdown.innerHTML = '<option value="">-- Select a folder --</option>';
+                const folderData = await Promise.all(
+                    folders.map(async (folder) => {
+                        const match = folder.match(/^(.*?)\/images\/(.+)$/);
+                        if (!match) return { folder, startTime: null };
 
-                folders.forEach(folder => {
-                    const option1 = document.createElement('option');
-                    option1.value = folder;
-                    option1.textContent = folder;
-                    fromDropdown.appendChild(option1);
+                        const [_, dbPath, projectId] = match;
+                        const dbRef = ref(getDatabase(), dbPath);
 
-                    const option2 = option1.cloneNode(true);
-                    toDropdown.appendChild(option2);
+                        try {
+                            const snap = await get(dbRef);
+                            const data = snap.val();
+                            const entry = Object.values(data || {}).find((v) => v.project === projectId);
+                            return {
+                                folder,
+                                startTime: entry?.startTime || null
+                            };
+                        } catch {
+                            return { folder, startTime: null };
+                        }
+                    })
+                );
+
+                folderData.sort((a, b) => {
+                    if (a.startTime && b.startTime) {
+                        return new Date(b.startTime) - new Date(a.startTime);
+                    }
+                    if (a.startTime) return -1;
+                    if (b.startTime) return 1;
+                    return 0;
                 });
 
+                [fromDropdown, toDropdown].forEach(dropdown => {
+                    dropdown.innerHTML = '<option value="">-- Select a folder --</option>';
+                    folderData.forEach(({ folder, startTime }) => {
+                        const label = startTime
+                            ? `${new Date(startTime).toLocaleDateString()} - ${folder}`
+                            : folder;
+                        const option = new Option(label, folder);
+                        dropdown.appendChild(option.cloneNode(true));
+                    });
+                });
             } catch (err) {
-                console.error("Failed to get folders:", err);
+                console.error("Failed to get folders or task info:", err);
             }
         }
 
@@ -227,307 +263,209 @@
             const toFolder = toDropdown.value.trim();
             const copyInstead = document.getElementById('copyInsteadCheckbox').checked;
 
-            if (!fromFolder || !toFolder) {
-                alert("Both folders must be selected.");
+            if (!fromFolder || !toFolder || fromFolder === toFolder) {
+                alert("Select two different folders.");
                 return;
             }
 
-            if (fromFolder === toFolder) {
-                alert("From and To folders cannot be the same.");
-                return;
-            }
-
-            async function moveAllFilesRecursively(folderRef, currentFromPath) {
-                const listResult = await listAll(folderRef);
-
-                const totalFiles = listResult.items.length;
-                let movedCount = 0;
-
-                document.getElementById('progress-container').style.display = 'block';
-
-                const progressBar = document.getElementById('progress-bar');
-                const progressText = document.getElementById('progress-text');
-
-                for (const item of listResult.items) {
-                    try {
-                        const arrayBuffer = await getBytes(item);
-                        const relativePath = item.fullPath.replace(fromFolder, '').replace(/^\/+/, '');
-                        const newPath = `${toFolder}/${relativePath}`;
-                        const toRef = storageRef(storage, newPath);
-                        await uploadBytes(toRef, arrayBuffer);
-                        if (!copyInstead) {
-                            await deleteObject(item);
-                        }
-
-                        movedCount++;
-
-                        const progress = Math.round((movedCount / totalFiles) * 100);
-                        progressBar.value = progress;
-                        progressText.textContent = `${progress}%`;
-
-                        console.log(`${copyInstead ? 'Copied' : 'Moved'}: ${item.fullPath} ➝ ${newPath}`);
-                    } catch (moveError) {
-                        console.warn(`Failed to ${copyInstead ? 'copy' : 'move'} ${item.fullPath}:`, moveError);
-                    }
-                }
-
-                for (const prefix of listResult.prefixes) {
-                    await moveAllFilesRecursively(prefix, `${currentFromPath}/${prefix.name}`);
-                }
-            }
+            const baseRef = storageRef(storage, fromFolder);
+            progressContainer.style.display = 'block';
 
             try {
-                const baseRef = storageRef(storage, fromFolder);
-                await moveAllFilesRecursively(baseRef, fromFolder);
-
-                alert(`Successfully ${copyInstead ? 'copied' : 'moved'} files from "${fromFolder}" to "${toFolder}".`);
-
+                await moveAllFilesRecursively(baseRef, fromFolder, toFolder, copyInstead);
+                alert(`Successfully ${copyInstead ? 'copied' : 'moved'} files.`);
                 await populateFolderDropdowns();
             } catch (err) {
-                console.error(`Error ${copyInstead ? 'copying' : 'moving'} files:`, err);
-                alert(`Failed to ${copyInstead ? 'copy' : 'move'} some files. See console for details.`);
+                console.error("Move/Copy Error:", err);
+                alert("Error moving/copying files.");
             }
 
-            document.getElementById('progress-container').style.display = 'none';
+            progressContainer.style.display = 'none';
         });
 
-        function displayData(data, table, path = '/') {
-            if (typeof data !== 'object' || data === null) {
-                const row = table.insertRow();
-                const cell = row.insertCell();
-                cell.colSpan = 2;
+        async function moveAllFilesRecursively(folderRef, fromFolder, toFolder, copyInstead) {
+            const listResult = await listAll(folderRef);
+            const totalFiles = listResult.items.length;
+            let movedCount = 0;
 
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.value = data;
+            for (const item of listResult.items) {
+                try {
+                    const buffer = await getBytes(item);
+                    const relativePath = item.fullPath.replace(fromFolder, '').replace(/^\/+/, '');
+                    const toRef = storageRef(storage, `${toFolder}/${relativePath}`);
+                    await uploadBytes(toRef, buffer);
+                    if (!copyInstead) await deleteObject(item);
 
-                const saveButton = document.createElement('span');
-                saveButton.textContent = 'Save';
-                saveButton.className = 'save-button';
-                saveButton.addEventListener('click', () => {
-                    const newData = input.value;
-                    const updates = {};
-                    updates[path] = newData;
-                    update(ref(getDatabase()), updates);
-                });
+                    movedCount++;
+                    const percent = Math.round((movedCount / totalFiles) * 100);
+                    progressBar.value = percent;
+                    progressText.textContent = `${percent}%`;
+                } catch (err) {
+                    console.warn("Failed to move/copy file:", item.fullPath, err);
+                }
+            }
 
-                cell.appendChild(input);
-                cell.appendChild(saveButton);
+            for (const prefix of listResult.prefixes) {
+                await moveAllFilesRecursively(prefix, fromFolder, toFolder, copyInstead);
+            }
+        }
+
+        async function displayTaskInfoForFolder(folderPath, targetListId) {
+            const listEl = document.getElementById(targetListId);
+            listEl.innerHTML = '<li>Searching for matching project...</li>';
+            const match = folderPath.match(/^(.*?)\/images\/(.+)$/);
+            if (!match) {
+                listEl.innerHTML = '<li>Not a valid folder path (missing /images/)</li>';
                 return;
             }
 
-            Object.entries(data).forEach(([key, value]) => {
+            const [_, dbPath, projectId] = match;
+            const dbRef = ref(getDatabase(), dbPath);
+
+            try {
+                const snapshot = await get(dbRef);
+                const data = snapshot.val();
+                if (!data) {
+                    listEl.innerHTML = `<li>No tasks found under ${dbPath}</li>`;
+                    return;
+                }
+
+                const [key, task] = Object.entries(data).find(([, v]) => v.project === projectId) || [];
+                if (!key) {
+                    listEl.innerHTML = `<li>No task with project ID "${projectId}" found.</li>`;
+                    return;
+                }
+
+                listEl.innerHTML = `<li><strong>Firebase Key:</strong> ${key}</li>`;
+                Object.entries(task).forEach(([k, v]) => {
+                    const li = document.createElement('li');
+                    li.textContent = `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`;
+                    listEl.appendChild(li);
+                });
+            } catch (err) {
+                listEl.innerHTML = '<li>Error loading task info.</li>';
+                console.error(err);
+            }
+        }
+
+        function tryLoadPath(path, onLoaded) {
+            const dbRef = ref(getDatabase(), path);
+
+            if (activeListeners[path]) {
+                activeListeners[path]();
+            }
+
+            activeListeners[path] = onValue(dbRef, snapshot => {
+                const data = snapshot.val();
+                outputTable.innerHTML = '';
+                if (data) displayData(data, outputTable, path);
+                else outputTable.innerHTML = '<tr><td>No data available</td></tr>';
+                onLoaded();
+            });
+        }
+
+        function displayData(data, table, path = '/') {
+            if (typeof data !== 'object' || data === null) return;
+            Object.entries(data).forEach(([key, val]) => {
                 const row = table.insertRow();
                 const cell = row.insertCell();
                 cell.colSpan = 2;
-                const currentPath = path === '/' ? `/${key}` : `${path}/${key}`;
+                const currPath = `${path}/${key}`.replace(/\/+/g, '/');
 
-                if (typeof value === 'object' && Object.keys(value).length) {
+                if (typeof val === 'object') {
                     const header = document.createElement('div');
                     header.textContent = key;
                     header.className = 'collapsible';
+                    header.onclick = () => header.nextElementSibling.classList.toggle('collapsed');
                     cell.appendChild(header);
 
-                    if (!cell.querySelector('.nested')) {
-                        const nestedTable = document.createElement('table');
-                        nestedTable.className = 'nested';
-                        displayData(value, nestedTable, currentPath);
-                        cell.appendChild(nestedTable);
-                    }
+                    const nested = document.createElement('table');
+                    nested.className = 'nested';
+                    cell.appendChild(nested);
+                    displayData(val, nested, currPath);
                 } else {
-                    const input = document.createElement('input');
-                    input.type = 'text';
-                    input.value = value;
+                    cell.innerHTML = `${key}: <input type="text" value="${val}" />`;
+                    const input = cell.querySelector('input');
+                    const save = document.createElement('span');
+                    save.textContent = ' Save ';
+                    save.className = 'save-button';
+                    save.onclick = () => update(ref(getDatabase()), { [currPath]: input.value });
 
-                    const saveButton = document.createElement('span');
-                    saveButton.textContent = 'Save';
-                    saveButton.className = 'save-button';
-                    saveButton.addEventListener('click', () => {
-                        const newData = input.value;
-                        const updates = {};
-                        updates[currentPath] = newData;
-                        update(ref(getDatabase()), updates);
-                    });
+                    const del = document.createElement('span');
+                    del.textContent = 'Delete';
+                    del.className = 'delete-button';
+                    del.onclick = () => confirm("Delete this value?") && update(ref(getDatabase()), { [currPath]: null });
 
-                    const deleteButton = document.createElement('span');
-                    deleteButton.textContent = 'Delete';
-                    deleteButton.className = 'delete-button';
-                    deleteButton.style.color = 'red';
-                    deleteButton.style.marginLeft = '10px';
-                    deleteButton.style.cursor = 'pointer';
-                    deleteButton.addEventListener('click', () => {
-                        if (confirm(`Are you sure you want to delete ${key}?`)) {
-                            const updates = {};
-                            updates[currentPath] = null;
-                            update(ref(getDatabase()), updates);
-                        }
-                    });
-
-                    cell.textContent = `${key}: `;
-                    cell.appendChild(input);
-                    cell.appendChild(saveButton);
-                    cell.appendChild(deleteButton);
+                    cell.appendChild(save);
+                    cell.appendChild(del);
                 }
             });
         }
-
-        function tryLoadPath(path, onDataLoaded) {
-            if (activeListeners[path]) {
-                return;
-            }
-
-            const databaseRef = ref(getDatabase(), path);
-            activeListeners[path] = onValue(databaseRef, (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    outputTable.innerHTML = '';
-                    displayData(data, outputTable, path);
-                    onDataLoaded();
-                } else {
-                    console.log(`No data available at path: ${path}`);
-                    outputTable.innerHTML = '<tr><td>No data available</td></tr>';
-                }
-            }, {
-                onError: (error) => {
-                    console.log(`Error reading path ${path}: ${error.message}`);
-                }
-            });
-        }
-
-        let timelineEntriesGlobal = [];
 
         function loadVisitTimeline() {
-            const db = getDatabase();
-            const visitsRef = ref(db, 'public/log/visits');
-            const timelineContainer = document.getElementById('visit-timeline');
-
-            onValue(visitsRef, (snapshot) => {
-                const visitsData = snapshot.val();
+            const visitsRef = ref(getDatabase(), 'public/log/visits');
+            onValue(visitsRef, snapshot => {
+                const data = snapshot.val();
                 timelineEntriesGlobal = [];
 
-                if (visitsData) {
-                    Object.entries(visitsData).forEach(([sanitizedIP, ipData]) => {
-                        const ip = ipData.ip || sanitizedIP.replace(/-/g, '.');
-                        if (ipData.visits && Array.isArray(ipData.visits)) {
-                            ipData.visits.forEach((visit) => {
-                                timelineEntriesGlobal.push({
-                                    time: new Date(visit.time),
-                                    ip: ip,
-                                    url: visit.url
-                                });
-                            });
-                        }
+                Object.entries(data || {}).forEach(([ipKey, ipData]) => {
+                    const ip = ipData.ip || ipKey.replace(/-/g, '.');
+                    (ipData.visits || []).forEach(visit => {
+                        timelineEntriesGlobal.push({
+                            time: new Date(visit.time),
+                            ip,
+                            url: visit.url
+                        });
                     });
-                }
+                });
+
                 applyTimelineFilters();
-            }, {
-                onError: (error) => {
-                    console.error("Error loading visit timeline:", error);
-                    timelineContainer.textContent = "Error loading visit timeline.";
-                }
             });
         }
 
         function applyTimelineFilters() {
-            const ipFilterValue = document.getElementById('ipFilter').value.trim();
-            const sortOrderValue = document.getElementById('sortOrder').value;
-            let filteredEntries = timelineEntriesGlobal;
+            const ipFilter = document.getElementById('ipFilter').value.trim();
+            const sort = document.getElementById('sortOrder').value;
+            let entries = [...timelineEntriesGlobal];
 
-            if (ipFilterValue !== "") {
-                filteredEntries = filteredEntries.filter(entry => entry.ip.includes(ipFilterValue));
+            if (ipFilter) {
+                entries = entries.filter(e => e.ip.includes(ipFilter));
             }
 
-            if (sortOrderValue === "desc") {
-                filteredEntries.sort((a, b) => b.time - a.time);
-            } else {
-                filteredEntries.sort((a, b) => a.time - b.time);
-            }
-            renderTimelineEntries(filteredEntries);
+            entries.sort((a, b) => sort === 'asc' ? a.time - b.time : b.time - a.time);
+            renderTimelineEntries(entries);
         }
 
         function renderTimelineEntries(entries) {
-            const timelineContainer = document.getElementById('visit-timeline');
-            timelineContainer.innerHTML = '';
-            if (entries.length === 0) {
-                timelineContainer.textContent = "No matching visit logs found.";
+            const container = document.getElementById('visit-timeline');
+            container.innerHTML = '';
+            if (!entries.length) {
+                container.textContent = "No matching visit logs found.";
                 return;
             }
+
             const ul = document.createElement('ul');
-            entries.forEach(entry => {
+            entries.forEach(e => {
                 const li = document.createElement('li');
-                li.textContent = `${entry.time.toLocaleString()} – IP: ${entry.ip} – URL: ${entry.url}`;
+                li.textContent = `${e.time.toLocaleString()} – IP: ${e.ip} – URL: ${e.url}`;
                 ul.appendChild(li);
             });
-            timelineContainer.appendChild(ul);
+            container.appendChild(ul);
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            populateFolderDropdowns();
-
-            outputTable.addEventListener('click', (event) => {
-                if (event.target.classList.contains('collapsible')) {
-                    const nestedContent = event.target.nextElementSibling;
-                    if (nestedContent) {
-                        nestedContent.classList.toggle('collapsed');
-                    }
-                }
+            fromDropdown.addEventListener('change', () => {
+                displayTaskInfoForFolder(fromDropdown.value.trim(), 'folder-data-list-from');
             });
-
-            fromDropdown.addEventListener('change', async () => {
-                const selectedFolder = fromDropdown.value.trim();
-                const folderDataList = document.getElementById('folder-data-list');
-                folderDataList.innerHTML = '<li>Searching for matching project...</li>';
-
-                const match = selectedFolder.match(/^(.*?)\/images\/(.+)$/);
-                if (!match) {
-                    folderDataList.innerHTML = '<li>Not a valid folder path (missing /images/).</li>';
-                    return;
-                }
-
-                const dbPathRoot = match[1];
-                const projectId = match[2];
-                const dbRef = ref(getDatabase(), dbPathRoot);
-                console.log("Searching in DB path:", dbPathRoot, "for project ID:", projectId);
-
-                try {
-                    const snapshot = await get(dbRef);
-                    const tasks = snapshot.val();
-
-                    if (!tasks) {
-                        folderDataList.innerHTML = `<li>No tasks found under ${dbPathRoot}.</li>`;
-                        return;
-                    }
-
-                    const foundEntry = Object.entries(tasks).find(([_, task]) => task.project === projectId);
-
-                    if (foundEntry) {
-                        const [entryKey, entryData] = foundEntry;
-                        folderDataList.innerHTML = `<li><strong>Firebase Key:</strong> ${entryKey}</li>`;
-
-                        for (const [key, value] of Object.entries(entryData)) {
-                            const li = document.createElement('li');
-                            li.textContent = `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`;
-                            folderDataList.appendChild(li);
-                        }
-                    } else {
-                        folderDataList.innerHTML = `<li>No task with project ID "${projectId}" found under ${dbPathRoot}.</li>`;
-                    }
-                } catch (err) {
-                    console.error("Error loading from database:", err);
-                    folderDataList.innerHTML = '<li>Error loading data. Check console for details.</li>';
-                }
+            toDropdown.addEventListener('change', () => {
+                displayTaskInfoForFolder(toDropdown.value.trim(), 'folder-data-list-to');
             });
-
-            document.getElementById('applyFiltersBtn').addEventListener('click', () => {
-                applyTimelineFilters();
-            });
-
-            document.getElementById('ipFilter').addEventListener('input', () => {
-                applyTimelineFilters();
-            });
+            document.getElementById('applyFiltersBtn').onclick = applyTimelineFilters;
+            document.getElementById('ipFilter').oninput = applyTimelineFilters;
 
             loadVisitTimeline();
         });
+
     </script>
 
 </body>
