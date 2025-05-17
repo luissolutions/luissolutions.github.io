@@ -86,14 +86,15 @@
     <main>
         <section>
             <h2>Upload Image</h2>
-            <input type="file" id="fileUploader" accept="image/*"><br>
+            <input type="file" id="fileUploader" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt">
+            <br>
             <label>Image Name:</label>
             <input type="text" id="imageNameInput" placeholder="Enter image name"><br>
             <label>Folder Name:</label>
             <input type="text" id="imageLabel" placeholder="Enter folder name" value="default"><br>
             <label for="markupTextInput">Markup Text:</label>
             <input type="text" id="markupTextInput" placeholder="Enter markup text"><br>
-            <button id="uploadButton">Upload Image</button><br>
+            <button id="uploadButton">Upload</button><br>
             <label>Browse Folder:</label>
             <select id="folderDropdown"></select>
         </section>
@@ -121,7 +122,7 @@
         import { accessToken, loginToMicrosoft, logoutFromMicrosoft } from './assets/js/onenoteGalleryAuth.js';
 
         const ROOT_FOLDER = "JobPhotos";
-        let currentImages = [], currentIndex = 0;
+        let currentFiles = [], currentIndex = 0;
 
         document.getElementById("loginButton").addEventListener("click", loginToMicrosoft);
         document.getElementById("logoutButton").addEventListener("click", logoutFromMicrosoft);
@@ -134,14 +135,23 @@
 
             if (!fileInput.files.length) return alert("Select a file");
             const file = fileInput.files[0];
-            let imageBlob = await resizeImage(file, 2048);
+
+            // Derive name if not set
             if (!nameInput && markupText) nameInput = markupText;
             else if (!nameInput) nameInput = file.name.split('.').slice(0, -1).join('_');
 
             const ext = file.name.split('.').pop();
-            const baseFileName = markupText ? `${nameInput}_m` : nameInput;
+            const baseFileName = markupText && file.type.startsWith("image/") ? `${nameInput}_m` : nameInput;
             const finalFileName = `${baseFileName}.${ext}`;
-            if (markupText) imageBlob = await addTextToImage(imageBlob, markupText);
+
+            let fileBlob;
+
+            if (file.type.startsWith("image/")) {
+                fileBlob = await resizeImage(file, 2048);
+                if (markupText) fileBlob = await addTextToImage(fileBlob, markupText);
+            } else {
+                fileBlob = file;
+            }
 
             try {
                 await ensurePhotosFolder();
@@ -150,12 +160,12 @@
                 const res = await fetch(uploadUrl, {
                     method: "PUT",
                     headers: { Authorization: `Bearer ${accessToken}` },
-                    body: imageBlob
+                    body: fileBlob
                 });
                 if (!res.ok) throw new Error("Upload failed");
                 alert("Uploaded to OneDrive!");
                 await listFolders();
-                await listImages(folder);
+                await listFiles(folder);
             } catch (err) {
                 console.error("Upload error:", err);
                 alert("Error uploading: " + err.message);
@@ -253,37 +263,53 @@
             const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
             const data = await res.json();
             data.value.forEach(item => {
-                if (item.folder) {
-                    dropdown.add(new Option(item.name, item.name));
-                }
+                if (item.folder) dropdown.add(new Option(item.name, item.name));
             });
 
             if (dropdown.options.length > 0) {
                 dropdown.selectedIndex = 0;
-                await listImages(dropdown.value);
+                await listFiles(dropdown.value);
             }
         }
 
-        async function listImages(folder) {
+        async function listFiles(folder) {
             const gallery = document.getElementById("gallery");
             gallery.innerHTML = "";
             const listUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${ROOT_FOLDER}/${folder}:/children`;
             const res = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
             const data = await res.json();
-            currentImages = [];
+            currentFiles = [];
+
             data.value.forEach((item, index) => {
-                if (item.file && item.file.mimeType.startsWith("image/")) {
-                    currentImages.push({ url: item['@microsoft.graph.downloadUrl'], name: item.name });
+                if (item.file) {
+                    const mimeType = item.file.mimeType;
+                    const isImage = mimeType.startsWith("image/");
+                    const fileUrl = item['@microsoft.graph.downloadUrl'];
+                    currentFiles.push({ url: fileUrl, name: item.name });
+
                     const container = document.createElement("div");
                     container.className = "thumbnailItem";
-                    const img = document.createElement("img");
-                    img.src = item['@microsoft.graph.downloadUrl'];
-                    img.className = "thumbnail";
-                    img.title = item.name;
-                    img.addEventListener('click', () => openModal(img.src, item.name, index));
+
+                    if (isImage) {
+                        const img = document.createElement("img");
+                        img.src = fileUrl;
+                        img.className = "thumbnail";
+                        img.title = item.name;
+                        img.addEventListener('click', () => openModal(fileUrl, item.name, index));
+                        container.appendChild(img);
+                    } else {
+                        const block = document.createElement("div");
+                        block.textContent = item.name;
+                        block.style.background = "#eee";
+                        block.style.padding = "10px";
+                        block.style.borderRadius = "8px";
+                        block.style.cursor = "pointer";
+                        block.addEventListener('click', () => window.open(fileUrl, '_blank'));
+                        container.appendChild(block);
+                    }
+
                     const caption = document.createElement("p");
                     caption.textContent = item.name;
-                    container.appendChild(img);
                     container.appendChild(caption);
                     gallery.appendChild(container);
                 }
@@ -292,12 +318,9 @@
 
         function openModal(imageUrl, fileName, index) {
             currentIndex = index;
-            const modal = document.getElementById("modal");
-            const modalImage = document.getElementById("modalImage");
-            const modalFileName = document.getElementById("modalFileName");
-            modal.style.display = "flex";
-            modalImage.src = imageUrl;
-            modalFileName.textContent = fileName;
+            document.getElementById("modal").style.display = "flex";
+            document.getElementById("modalImage").src = imageUrl;
+            document.getElementById("modalFileName").textContent = fileName;
         }
 
         document.getElementById("closeModalButton").addEventListener("click", () => {
@@ -310,14 +333,14 @@
 
         document.getElementById("modalNavLeft").addEventListener("click", () => {
             if (currentIndex > 0) {
-                const prev = currentImages[currentIndex - 1];
+                const prev = currentFiles[currentIndex - 1];
                 openModal(prev.url, prev.name, currentIndex - 1);
             }
         });
 
         document.getElementById("modalNavRight").addEventListener("click", () => {
-            if (currentIndex < currentImages.length - 1) {
-                const next = currentImages[currentIndex + 1];
+            if (currentIndex < currentFiles.length - 1) {
+                const next = currentFiles[currentIndex + 1];
                 openModal(next.url, next.name, currentIndex + 1);
             }
         });
@@ -327,7 +350,7 @@
         }
 
         window.addEventListener("load", listFolders);
-        document.getElementById("folderDropdown").addEventListener("change", (e) => listImages(e.target.value));
+        document.getElementById("folderDropdown").addEventListener("change", (e) => listFiles(e.target.value));
     </script>
 </body>
 
