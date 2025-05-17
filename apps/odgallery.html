@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Photo Upload & Show with OneDrive</title>
+    <title>File Uploader to OneDrive</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
     <style>
@@ -76,7 +76,7 @@
 
 <body>
     <header>
-        <h1>Photo Gallery (OneDrive)</h1>
+        <h1>File Gallery (OneDrive)</h1>
         <div>
             <button id="loginButton">Login to Microsoft</button>
             <button id="logoutButton">Logout</button>
@@ -84,8 +84,20 @@
     </header>
 
     <main>
+        <p id="loginStatus">Not logged in</p>
+
+        <section style="padding: 10px; background: #f9f9f9; border: 1px solid #ccc; border-radius: 8px; margin: 10px;">
+            <h2>Instructions</h2>
+            <ul>
+                <li>Click “Login to Microsoft” to access your OneDrive files.</li>
+                <li>Select a file and a folder name, then click “Upload”.</li>
+                <li>Use the dropdown to browse different folders.</li>
+                <li>Click a file to view or download it.</li>
+            </ul>
+        </section>
+
         <section>
-            <h2>Upload Image</h2>
+            <h2>Upload Files</h2>
             <input type="file" id="fileUploader" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt">
             <br>
             <label>Image Name:</label>
@@ -98,8 +110,6 @@
             <label>Browse Folder:</label>
             <select id="folderDropdown"></select>
         </section>
-
-        <hr>
 
         <section>
             <h2>Gallery</h2>
@@ -119,14 +129,47 @@
     </div>
 
     <script type="module">
-        import { accessToken, loginToMicrosoft, logoutFromMicrosoft } from './assets/js/onenoteGalleryAuth.js';
+        import { accessToken, loginToMicrosoft, logoutFromMicrosoft, getUserInfo } from './assets/js/onenoteGalleryAuth.js';
 
         const ROOT_FOLDER = "JobPhotos";
         let currentFiles = [], currentIndex = 0;
 
-        document.getElementById("loginButton").addEventListener("click", loginToMicrosoft);
-        document.getElementById("logoutButton").addEventListener("click", logoutFromMicrosoft);
+        // LOGIN BUTTON
+        document.getElementById("loginButton").addEventListener("click", async () => {
+            try {
+                await loginToMicrosoft(); // redirects and returns to this page with token in URL
+            } catch (err) {
+                console.error("Login failed:", err);
+                alert("Login failed. Please try again.");
+            }
+        });
 
+        // LOGOUT BUTTON
+        document.getElementById("logoutButton").addEventListener("click", () => {
+            logoutFromMicrosoft();
+            document.getElementById("loginStatus").textContent = "Not logged in";
+            document.getElementById("gallery").innerHTML = "";
+            document.getElementById("folderDropdown").innerHTML = "";
+        });
+
+        // INIT ON LOAD
+        window.addEventListener("load", async () => {
+            if (accessToken) {
+                try {
+                    const user = await getUserInfo();
+                    const userName = user?.displayName || user?.userPrincipalName || user?.mail || "Unknown user";
+                    document.getElementById("loginStatus").textContent = `Logged in as: ${userName}`;
+                    await listFolders();
+                } catch (err) {
+                    console.warn("Unable to retrieve user info", err);
+                    document.getElementById("loginStatus").textContent = "Not logged in";
+                }
+            } else {
+                document.getElementById("loginStatus").textContent = "Not logged in";
+            }
+        });
+
+        // FILE UPLOAD
         document.getElementById("uploadButton").addEventListener("click", async () => {
             const fileInput = document.getElementById("fileUploader");
             const folder = sanitizeInput(document.getElementById("imageLabel").value) || "default";
@@ -136,7 +179,6 @@
             if (!fileInput.files.length) return alert("Select a file");
             const file = fileInput.files[0];
 
-            // Derive name if not set
             if (!nameInput && markupText) nameInput = markupText;
             else if (!nameInput) nameInput = file.name.split('.').slice(0, -1).join('_');
 
@@ -171,6 +213,8 @@
                 alert("Error uploading: " + err.message);
             }
         });
+
+        // UTILITIES
 
         async function resizeImage(file, maxWidth) {
             return new Promise((resolve) => {
@@ -316,6 +360,7 @@
             });
         }
 
+        // MODAL HANDLING
         function openModal(imageUrl, fileName, index) {
             currentIndex = index;
             document.getElementById("modal").style.display = "flex";
@@ -349,7 +394,6 @@
             return input.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '_');
         }
 
-        window.addEventListener("load", listFolders);
         document.getElementById("folderDropdown").addEventListener("change", (e) => listFiles(e.target.value));
     </script>
 </body>
