@@ -71,6 +71,35 @@
                 max-width: 145px;
             }
         }
+
+        .favorite-star {
+            cursor: pointer;
+            font-size: 20px;
+            user-select: none;
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background-color: rgba(255, 255, 255, 0.7);
+            width: 30px;
+            text-align: center;
+            border-radius: 50%;
+        }
+
+        .favorite-star:hover {
+            background-color: lightskyblue;
+        }
+
+        .favorite-star.favorited {
+            color: gold;
+        }
+
+        .instructions {
+            background-color: #f0f8ff;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 10px;
+            margin: 10px;
+        }
     </style>
 </head>
 
@@ -86,13 +115,15 @@
     <main>
         <p id="loginStatus">Not logged in</p>
 
-        <section style="padding: 10px; background: #f9f9f9; border: 1px solid #ccc; border-radius: 8px; margin: 10px;">
+        <section class="instructions">
             <h2>Instructions</h2>
             <ul>
                 <li>Click “Login to Microsoft” to access your OneDrive files.</li>
                 <li>Select a file and a folder name, then click “Upload”.</li>
                 <li>Use the dropdown to browse different folders.</li>
-                <li>Click a file to view or download it.</li>
+                <li>Click a file to view or download it in full size.</li>
+                <li>Click the ☆ star icon on an image to mark it as a favorite.</li>
+                <li>Favorited images (★) are automatically moved to the top of the gallery.</li>
             </ul>
         </section>
 
@@ -137,7 +168,7 @@
         // LOGIN BUTTON
         document.getElementById("loginButton").addEventListener("click", async () => {
             try {
-                await loginToMicrosoft(); // redirects and returns to this page with token in URL
+                await loginToMicrosoft();
             } catch (err) {
                 console.error("Login failed:", err);
                 alert("Login failed. Please try again.");
@@ -215,7 +246,6 @@
         });
 
         // UTILITIES
-
         async function resizeImage(file, maxWidth) {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -322,14 +352,20 @@
             const listUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${ROOT_FOLDER}/${folder}:/children`;
             const res = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
             const data = await res.json();
-            currentFiles = [];
 
-            data.value.forEach((item, index) => {
-                if (item.file) {
+            const favorites = getFavorites();
+            currentFiles = data.value
+                .filter(item => item.file)
+                .sort((a, b) => {
+                    const aFav = favorites[a.name] ? 1 : 0;
+                    const bFav = favorites[b.name] ? 1 : 0;
+                    return bFav - aFav;
+                })
+                .map((item, index) => {
                     const mimeType = item.file.mimeType;
                     const isImage = mimeType.startsWith("image/");
                     const fileUrl = item['@microsoft.graph.downloadUrl'];
-                    currentFiles.push({ url: fileUrl, name: item.name });
+                    const name = item.name;
 
                     const container = document.createElement("div");
                     container.className = "thumbnailItem";
@@ -338,12 +374,12 @@
                         const img = document.createElement("img");
                         img.src = fileUrl;
                         img.className = "thumbnail";
-                        img.title = item.name;
-                        img.addEventListener('click', () => openModal(fileUrl, item.name, index));
+                        img.title = name;
+                        img.addEventListener('click', () => openModal(fileUrl, name, index));
                         container.appendChild(img);
                     } else {
                         const block = document.createElement("div");
-                        block.textContent = item.name;
+                        block.textContent = name;
                         block.style.background = "#eee";
                         block.style.padding = "10px";
                         block.style.borderRadius = "8px";
@@ -352,12 +388,30 @@
                         container.appendChild(block);
                     }
 
+                    const star = document.createElement("span");
+                    star.className = "favorite-star";
+                    if (favorites[name]) {
+                        star.textContent = "★";
+                        star.classList.add("favorited");
+                    } else {
+                        star.textContent = "☆";
+                    }
+
+                    star.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        toggleFavorite(name);
+                        listFiles(folder);
+                    });
+
+                    container.appendChild(star);
+
                     const caption = document.createElement("p");
-                    caption.textContent = item.name;
+                    caption.textContent = name;
                     container.appendChild(caption);
                     gallery.appendChild(container);
-                }
-            });
+
+                    return { url: fileUrl, name };
+                });
         }
 
         // MODAL HANDLING
@@ -395,6 +449,20 @@
         }
 
         document.getElementById("folderDropdown").addEventListener("change", (e) => listFiles(e.target.value));
+
+        function getFavorites() {
+            return JSON.parse(localStorage.getItem("onedrive_favorites")) || {};
+        }
+
+        function setFavorites(favorites) {
+            localStorage.setItem("onedrive_favorites", JSON.stringify(favorites));
+        }
+
+        function toggleFavorite(fileName) {
+            const favorites = getFavorites();
+            favorites[fileName] = !favorites[fileName];
+            setFavorites(favorites);
+        }
     </script>
 </body>
 
