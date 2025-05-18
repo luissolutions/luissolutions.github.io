@@ -100,6 +100,68 @@
             padding: 10px;
             margin: 10px;
         }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .delete-button {
+            margin-top: 5px;
+            background: transparent;
+            font-size: 18px;
+            cursor: pointer;
+            border: none;
+        }
+
+        .name-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .caption-text {
+            flex: 1;
+        }
+
+        .block-file {
+            background: #eee;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 0 auto;
+            max-width: 150px;
+        }
+
+        .pdf-icon {
+            font-size: 48px;
+            cursor: pointer;
+            margin: 10px auto;
+        }
+
+        button {
+            z-index: 10;
+        }
+
+        #modalNavLeft,
+        #modalNavRight {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 40%;
+            cursor: pointer;
+            z-index: 5;
+            pointer-events: auto;
+        }
+
+        #modalNavLeft {
+            left: 0;
+        }
+
+        #modalNavRight {
+            right: 0;
+        }
     </style>
 </head>
 
@@ -125,6 +187,14 @@
                 <li>Click the ☆ star icon on an image to mark it as a favorite.</li>
                 <li>Favorited images (★) are automatically moved to the top of the gallery.</li>
             </ul>
+        </section>
+
+        <section>
+            <h2>Project Notes</h2>
+            <textarea id="folderNotes" rows="6" style="width: 100%;"
+                placeholder="Enter notes for this folder..."></textarea><br>
+            <button id="saveNotesButton">Save Notes</button>
+            <span id="notesStatus" style="margin-left:10px;"></span>
         </section>
 
         <section>
@@ -154,8 +224,8 @@
             <p id="modalFileName"></p>
             <button id="downloadButton">Download</button>
             <button id="closeModalButton">Close</button>
-            <div id="modalNavLeft" style="position:absolute;top:0;left:0;width:40%;height:100%;cursor:pointer;"></div>
-            <div id="modalNavRight" style="position:absolute;top:0;right:0;width:40%;height:100%;cursor:pointer;"></div>
+            <div id="modalNavLeft"></div>
+            <div id="modalNavRight"></div>
         </div>
     </div>
 
@@ -202,39 +272,44 @@
 
         // FILE UPLOAD
         document.getElementById("uploadButton").addEventListener("click", async () => {
-            const fileInput = document.getElementById("fileUploader");
-            const folder = sanitizeInput(document.getElementById("imageLabel").value) || "default";
-            const markupText = document.getElementById("markupTextInput").value.trim();
-            let nameInput = document.getElementById("imageNameInput").value.trim();
-
-            if (!fileInput.files.length) return alert("Select a file");
-            const file = fileInput.files[0];
-
-            if (!nameInput && markupText) nameInput = markupText;
-            else if (!nameInput) nameInput = file.name.split('.').slice(0, -1).join('_');
-
-            const ext = file.name.split('.').pop();
-            const baseFileName = markupText && file.type.startsWith("image/") ? `${nameInput}_m` : nameInput;
-            const finalFileName = `${baseFileName}.${ext}`;
-
-            let fileBlob;
-
-            if (file.type.startsWith("image/")) {
-                fileBlob = await resizeImage(file, 2048);
-                if (markupText) fileBlob = await addTextToImage(fileBlob, markupText);
-            } else {
-                fileBlob = file;
-            }
+            const uploadBtn = document.getElementById("uploadButton");
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = "Uploading...";
 
             try {
+                const fileInput = document.getElementById("fileUploader");
+                const folder = sanitizeInput(document.getElementById("imageLabel").value) || "default";
+                const markupText = document.getElementById("markupTextInput").value.trim();
+                let nameInput = document.getElementById("imageNameInput").value.trim();
+
+                if (!fileInput.files.length) throw new Error("Select a file");
+                const file = fileInput.files[0];
+
+                if (!nameInput && markupText) nameInput = markupText;
+                else if (!nameInput) nameInput = file.name.split('.').slice(0, -1).join('_');
+
+                const ext = file.name.split('.').pop();
+                const baseFileName = markupText && file.type.startsWith("image/") ? `${nameInput}_m` : nameInput;
+                const finalFileName = `${baseFileName}.${ext}`;
+
+                let fileBlob = file.type.startsWith("image/")
+                    ? await resizeImage(file, 2048)
+                    : file;
+
+                if (file.type.startsWith("image/") && markupText) {
+                    fileBlob = await addTextToImage(fileBlob, markupText);
+                }
+
                 await ensurePhotosFolder();
                 await createSubFolderIfNeeded(folder);
+
                 const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${ROOT_FOLDER}/${folder}/${finalFileName}:/content`;
                 const res = await fetch(uploadUrl, {
                     method: "PUT",
                     headers: { Authorization: `Bearer ${accessToken}` },
                     body: fileBlob
                 });
+
                 if (!res.ok) throw new Error("Upload failed");
                 alert("Uploaded to OneDrive!");
                 await listFolders();
@@ -242,6 +317,9 @@
             } catch (err) {
                 console.error("Upload error:", err);
                 alert("Error uploading: " + err.message);
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = "Upload";
             }
         });
 
@@ -345,19 +423,23 @@
                 const selected = dropdown.value;
                 document.getElementById("imageLabel").value = selected;
                 await listFiles(selected);
+                await loadFolderNotes(selected);
             }
         }
 
         async function listFiles(folder) {
             const gallery = document.getElementById("gallery");
             gallery.innerHTML = "";
+
             const listUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${ROOT_FOLDER}/${folder}:/children`;
             const res = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
             const data = await res.json();
 
             const favorites = getFavorites();
-            currentFiles = data.value
-                .filter(item => item.file)
+
+            const files = data.value.filter(item => item.file);
+
+            currentFiles = files
                 .sort((a, b) => {
                     const aFav = favorites[a.name] ? 1 : 0;
                     const bFav = favorites[b.name] ? 1 : 0;
@@ -366,6 +448,7 @@
                 .map((item, index) => {
                     const mimeType = item.file.mimeType;
                     const isImage = mimeType.startsWith("image/");
+                    const isPDF = mimeType === "application/pdf";
                     const fileUrl = item['@microsoft.graph.downloadUrl'];
                     const name = item.name;
 
@@ -375,17 +458,27 @@
                     if (isImage) {
                         const img = document.createElement("img");
                         img.src = fileUrl;
+                        img.onerror = () => {
+                            img.src = "../assets/img/default.png";
+                        };
                         img.className = "thumbnail";
                         img.title = name;
                         img.addEventListener('click', () => openModal(fileUrl, name, index));
                         container.appendChild(img);
+                    } else if (isPDF) {
+                        const pdfIcon = document.createElement("div");
+                        pdfIcon.textContent = "📄";
+                        pdfIcon.title = name;
+                        pdfIcon.className = "pdf-icon";
+                        pdfIcon.addEventListener("click", () => {
+                            window.open(fileUrl, "_blank");
+                        });
+                        container.appendChild(pdfIcon);
                     } else {
                         const block = document.createElement("div");
                         block.textContent = name;
-                        block.style.background = "#eee";
-                        block.style.padding = "10px";
-                        block.style.borderRadius = "8px";
-                        block.style.cursor = "pointer";
+                        block.className = "block-file";
+                        block.title = name;
                         block.addEventListener('click', () => window.open(fileUrl, '_blank'));
                         container.appendChild(block);
                     }
@@ -407,21 +500,68 @@
 
                     container.appendChild(star);
 
-                    const caption = document.createElement("p");
+                    const nameRow = document.createElement("div");
+                    nameRow.className = "name-row";
+
+                    const caption = document.createElement("span");
                     caption.textContent = name;
-                    container.appendChild(caption);
+                    caption.className = "caption-text";
+
+                    const deleteBtn = document.createElement("button");
+                    deleteBtn.textContent = "🗑️";
+                    deleteBtn.className = "delete-button";
+                    deleteBtn.title = "Delete File";
+                    deleteBtn.addEventListener("click", async (e) => {
+                        e.stopPropagation();
+                        const confirmDelete = confirm(`Are you sure you want to delete "${name}"?`);
+                        if (confirmDelete) {
+                            await deleteFile(folder, name);
+                            await listFiles(folder);
+                        }
+                    });
+
+                    nameRow.appendChild(caption);
+                    nameRow.appendChild(deleteBtn);
+                    container.appendChild(nameRow);
                     gallery.appendChild(container);
 
                     return { url: fileUrl, name };
                 });
         }
 
+        async function deleteFile(folder, fileName) {
+            const encodedPath = encodeURIComponent(`${ROOT_FOLDER}/${folder}/${fileName}`);
+            const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}`;
+
+            const res = await fetch(url, {
+                method: "DELETE",
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+
+            if (!res.ok) {
+                console.error("Failed to delete:", await res.text());
+                alert(`Failed to delete "${fileName}"`);
+            }
+        }
+
         // MODAL HANDLING
-        function openModal(imageUrl, fileName, index) {
+        function openModal(fileUrl, fileName, index) {
             currentIndex = index;
             document.getElementById("modal").style.display = "flex";
-            document.getElementById("modalImage").src = imageUrl;
             document.getElementById("modalFileName").textContent = fileName;
+
+            const modalImage = document.getElementById("modalImage");
+            const isPDF = fileName.toLowerCase().endsWith(".pdf");
+
+            if (isPDF) {
+                modalImage.src = "../assets/img/default.png";
+            } else {
+                modalImage.style.display = "block";
+                modalImage.src = fileUrl;
+                modalImage.onerror = () => {
+                    modalImage.src = "../assets/img/default.png";
+                };
+            }
         }
 
         document.getElementById("closeModalButton").addEventListener("click", () => {
@@ -450,9 +590,11 @@
             return input.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '_');
         }
 
-        document.getElementById("folderDropdown").addEventListener("change", (e) => {
-            listFiles(e.target.value);
-            document.getElementById("imageLabel").value = e.target.value;
+        document.getElementById("folderDropdown").addEventListener("change", async (e) => {
+            const selected = e.target.value;
+            await listFiles(selected);
+            document.getElementById("imageLabel").value = selected;
+            await loadFolderNotes(selected);
         });
 
         function getFavorites() {
@@ -468,6 +610,147 @@
             favorites[fileName] = !favorites[fileName];
             setFavorites(favorites);
         }
+
+        async function getOrCreateNotebook(notebookName = "Projects", sectionName = "Radar") {
+            // Get notebooks
+            const res = await fetch("https://graph.microsoft.com/v1.0/me/onenote/notebooks", {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            const data = await res.json();
+            let notebook = data.value.find(n => n.displayName === notebookName);
+
+            // Create notebook if not exists
+            if (!notebook) {
+                const createRes = await fetch("https://graph.microsoft.com/v1.0/me/onenote/notebooks", {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ displayName: notebookName })
+                });
+                notebook = await createRes.json();
+            }
+
+            // Get sections
+            const sectionRes = await fetch(`https://graph.microsoft.com/v1.0/me/onenote/notebooks/${notebook.id}/sections`, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            const sectionData = await sectionRes.json();
+            let section = sectionData.value.find(s => s.displayName === sectionName);
+
+            // Create section if not exists
+            if (!section) {
+                const createSectionRes = await fetch(`https://graph.microsoft.com/v1.0/me/onenote/notebooks/${notebook.id}/sections`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ displayName: sectionName })
+                });
+                section = await createSectionRes.json();
+            }
+
+            return { notebookId: notebook.id, sectionId: section.id };
+        }
+
+        async function getPageByTitle(sectionId, title) {
+            const res = await fetch(`https://graph.microsoft.com/v1.0/me/onenote/sections/${sectionId}/pages`, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            const data = await res.json();
+            return data.value.find(p => p.title === title);
+        }
+
+        async function saveFolderNotes(folderName, content) {
+            const { sectionId } = await getOrCreateNotebook();
+            const existingPage = await getPageByTitle(sectionId, folderName);
+
+            const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head><title>${folderName}</title></head>
+            <div>
+                <p>${content.replace(/\n/g, "<br>")}</p>
+            </div>
+            </html>`;
+
+            if (existingPage) {
+                const updateUrl = `https://graph.microsoft.com/v1.0/me/onenote/pages/${existingPage.id}/content`;
+                await fetch(updateUrl, {
+                    method: "PATCH",
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        "Content-Type": "application/xhtml+xml"
+                    },
+                    body: htmlContent
+                });
+            } else {
+                const createUrl = `https://graph.microsoft.com/v1.0/me/onenote/sections/${sectionId}/pages`;
+                await fetch(createUrl, {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        "Content-Type": "application/xhtml+xml"
+                    },
+                    body: htmlContent
+                });
+            }
+
+            document.getElementById("notesStatus").textContent = "Saved.";
+        }
+
+        async function loadFolderNotes(folderName) {
+            const notesArea = document.getElementById("folderNotes");
+            const status = document.getElementById("notesStatus");
+            notesArea.value = "Loading...";
+
+            const { sectionId } = await getOrCreateNotebook();
+            const page = await getPageByTitle(sectionId, folderName);
+
+            if (!page) {
+                notesArea.value = "";
+                status.textContent = "No notes yet.";
+                return;
+            }
+
+            const res = await fetch(page.contentUrl, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+
+            const html = await res.text();
+
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, "text/html");
+
+            const paragraphs = [...doc.querySelectorAll("p")];
+            const text = paragraphs.map(p => p.textContent).join("\n").trim();
+
+            notesArea.value = text || "";
+            status.textContent = "Loaded.";
+        }
+
+        document.getElementById("saveNotesButton").addEventListener("click", async () => {
+            const saveBtn = document.getElementById("saveNotesButton");
+            const status = document.getElementById("notesStatus");
+
+            const folder = document.getElementById("imageLabel").value;
+            const content = document.getElementById("folderNotes").value;
+
+            saveBtn.disabled = true;
+            status.textContent = "Saving...";
+
+            try {
+                await saveFolderNotes(folder, content);
+            } catch (err) {
+                console.error("Note saving error:", err);
+                status.textContent = "Error saving notes.";
+            } finally {
+                saveBtn.disabled = false;
+                status.textContent = "Saved.";
+            }
+        });
     </script>
 </body>
 
