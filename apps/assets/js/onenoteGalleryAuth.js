@@ -1,61 +1,55 @@
 const clientId = "f5ef88e6-7af0-40af-ae6a-5a9d3342360e";
 const tenantId = "f9cb31b8-4d87-4d78-89f4-636d4e6f6509";
 const redirectUri = `${window.location.origin}${window.location.pathname}`;
-let accessToken;
 
-const storage = {
-    setAccessToken: (token) => localStorage.setItem("accessToken", token),
-    getAccessToken: () => localStorage.getItem("accessToken"),
-    clearAccessToken: () => localStorage.removeItem("accessToken")
+const msalConfig = {
+    auth: {
+        clientId,
+        authority: `https://login.microsoftonline.com/${tenantId}`,
+        redirectUri
+    },
+    cache: {
+        cacheLocation: "localStorage",
+        storeAuthStateInCookie: false
+    }
 };
 
-function extractAccessTokenFromUrl() {
-    const hash = window.location.hash.substring(1);
-    const params = new URLSearchParams(hash);
-    const token = params.get("access_token");
+const msalInstance = new msal.PublicClientApplication(msalConfig);
+let account = null;
+let accessToken = null;
 
-    if (token) {
-        accessToken = token;
-        storage.setAccessToken(token);
+const loginRequest = {
+    scopes: ["Files.ReadWrite.All", "User.Read"]
+};
+
+async function loginToMicrosoft() {
+    try {
+        const loginResponse = await msalInstance.loginPopup(loginRequest);
+        account = loginResponse.account;
+
+        const tokenResponse = await msalInstance.acquireTokenSilent({
+            ...loginRequest,
+            account
+        });
+
+        accessToken = tokenResponse.accessToken;
+        localStorage.setItem("accessToken", accessToken);
+
         if (!sessionStorage.getItem("loginNotified")) {
             alert("Successfully logged in!");
             sessionStorage.setItem("loginNotified", "true");
         }
-        history.replaceState(null, null, window.location.pathname);
-    } else {
-        alert("Unable to retrieve access token. Check your Azure configuration.");
+    } catch (error) {
+        console.error("Login error:", error);
+        alert("Login failed. Check console for details.");
     }
-}
-
-function initializeAccessToken() {
-    if (window.location.hash) {
-        extractAccessTokenFromUrl();
-    }
-
-    if (!accessToken) {
-        accessToken = storage.getAccessToken();
-        if (accessToken) {
-            console.log("Using stored access token.");
-        } else {
-            console.log("No access token found. Please log in.");
-        }
-    }
-}
-
-async function loginToMicrosoft() {
-    const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(
-        redirectUri
-    )}&scope=${encodeURIComponent("Files.ReadWrite.All User.Read")}&response_mode=fragment`;
-    window.location.href = authUrl;
 }
 
 async function getUserInfo() {
     if (!accessToken) return null;
 
     const res = await fetch("https://graph.microsoft.com/v1.0/me", {
-        headers: {
-            Authorization: `Bearer ${accessToken}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
     });
 
     if (!res.ok) {
@@ -67,14 +61,15 @@ async function getUserInfo() {
 }
 
 function logoutFromMicrosoft() {
-    storage.clearAccessToken();
+    msalInstance.logoutPopup();
     accessToken = null;
+    localStorage.removeItem("accessToken");
     sessionStorage.removeItem("loginNotified");
     alert("Logged out successfully.");
 }
 
 function isLoggedIn() {
-    return !!accessToken;
+    return !!localStorage.getItem("accessToken");
 }
 
 function setupAuthEventListeners() {
@@ -82,7 +77,6 @@ function setupAuthEventListeners() {
     document.getElementById("logoutButton")?.addEventListener("click", logoutFromMicrosoft);
 }
 
-initializeAccessToken();
 setupAuthEventListeners();
 
 export { accessToken, loginToMicrosoft, logoutFromMicrosoft, getUserInfo, isLoggedIn };
