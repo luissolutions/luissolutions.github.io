@@ -12,6 +12,7 @@
 </head>
 
 <body>
+
     <header>
         <h1>Radar Job Tracker</h1>
         <section id="login-section" style="display: block;">
@@ -34,7 +35,14 @@
             <p id="loginStatus">Login status...</p>
         </div>
     </header>
-    <main>
+
+    <div id="authScreen">
+        <h2>Enter Project Code to Continue</h2>
+        <input type="text" id="accessCode" placeholder="Project ID" />
+        <button id="submitCode">Enter</button>
+    </div>
+
+    <main id="mainApp" class="hidden">
         <section class="instructions">
             <h2>Instructions</h2>
             <ul>
@@ -61,6 +69,25 @@
                     <option value="">-- Choose a project --</option>
                 </select>
             </label>
+        </section>
+
+        <!-- Site Images Section -->
+        <section id="siteImagesSection">
+            <h3>Site Images</h3>
+            <input type="file" id="siteImageUploader" accept="image/*" />
+            <button id="uploadSiteImage">Upload Site Image</button>
+
+            <div id="siteImageContainer">
+                <div id="siteImageWrapper">
+                    <img id="siteImageDisplay" src="" alt="Site Image" />
+                </div>
+
+                <div id="siteImageNav">
+                    <button id="prevSiteImage">◀︎ Previous</button>
+                    <button id="rotateSiteImage">↻ Rotate</button>
+                    <button id="nextSiteImage">Next ▶︎</button>
+                </div>
+            </div>
         </section>
 
         <!-- Notes -->
@@ -128,10 +155,8 @@
     </main>
 
     <script type="module">
-        // radar-app.js
         import {
-            db, storage,
-            ref as dbRef, set, get,
+            db, storage, ref as dbRef, set, get,
             storageRef, uploadBytes, getDownloadURL, listAll, deleteObject
         } from './assets/js/firebase-test-init.js';
 
@@ -176,6 +201,42 @@
                 };
             };
             reader.readAsDataURL(blob);
+        });
+
+        async function validateCode() {
+            const input = document.getElementById('accessCode').value.trim();
+            if (!input) return alert('Please enter a project code.');
+
+            try {
+                const snapshot = await get(dbRef(db, 'projects'));
+                if (!snapshot.exists()) {
+                    return alert('No projects found in database.');
+                }
+
+                // Use the *keys* of your projects node:
+                const projectIDs = Object.keys(snapshot.val());
+                if (projectIDs.includes(input)) {
+                    // valid → hide auth, show main app
+                    document.getElementById('authScreen').remove();
+                    document.getElementById('mainApp').classList.remove('hidden');
+                    // now you can call your normal init:
+                    populateProjects();
+                } else {
+                    alert('Invalid code.');
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Error checking database.');
+            }
+        }
+
+        // wire up the button (and allow “Enter” key)
+        document.getElementById('submitCode').addEventListener('click', validateCode);
+        document.getElementById('accessCode').addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                validateCode();
+            }
         });
 
         async function populateProjects() {
@@ -287,12 +348,24 @@
 
         async function uploadDeliverable() {
             const file = document.getElementById('fileUploader').files[0];
-            const name = sanitize(document.getElementById('imageNameInput').value);
-            const markup = sanitize(document.getElementById('markupTextInput').value);
-            if (!currentProjectId || !file || !name) return alert('Fill out all fields');
-            const filename = `${markup || name}.jpg`;
+            const nameInput = sanitize(document.getElementById('imageNameInput').value);
+            const markupInput = sanitize(document.getElementById('markupTextInput').value);
+
+            if (!currentProjectId || !file || (!nameInput && !markupInput)) {
+                return alert('Please select a file and enter either a Name or Markup');
+            }
+
+            const baseName = markupInput || nameInput;
+            const filename = `${baseName}.jpg`;
             const path = `projects/${currentProjectId}/deliverables/${filename}`;
-            await uploadBytes(storageRef(storage, path), file);
+
+            let blob = await resizeImage(file, 2048);
+
+            if (markupInput) {
+                blob = await addTextToImage(blob, markupInput);
+            }
+
+            await uploadBytes(storageRef(storage, path), blob);
             updateGallery();
         }
 
@@ -370,6 +443,92 @@
             }
         });
 
+        // --- SITE IMAGES SECTION ---
+        let siteImages = [];
+        let currentSiteIndex = 0;
+        let siteImageRotation = 0;
+
+        function getSiteIndex() {
+            return parseInt(localStorage.getItem(`${currentProjectId}_siteIdx`) || '0', 10);
+        }
+        function saveSiteIndex(idx) {
+            localStorage.setItem(`${currentProjectId}_siteIdx`, idx);
+        }
+
+        async function updateSiteImages() {
+            if (!currentProjectId) return;
+            const base = `projects/${currentProjectId}/siteImages`;
+            try {
+                const snap = await listAll(storageRef(storage, base));
+                siteImages = await Promise.all(snap.items.map(async item => ({ name: item.name, url: await getDownloadURL(item) })));
+            } catch { siteImages = []; }
+
+            currentSiteIndex = Math.min(getSiteIndex(), siteImages.length - 1);
+            if (currentSiteIndex < 0) currentSiteIndex = 0;
+            renderSiteImage();
+        }
+
+        function renderSiteImage() {
+            const imgEl = document.getElementById('siteImageDisplay');
+            const prevBtn = document.getElementById('prevSiteImage');
+            const nextBtn = document.getElementById('nextSiteImage');
+            const rotateBtn = document.getElementById('rotateSiteImage');
+
+            if (siteImages.length) {
+                imgEl.src = siteImages[currentSiteIndex].url;
+                imgEl.alt = siteImages[currentSiteIndex].name;
+                siteImageRotation = 0;
+                imgEl.style.transform = 'rotate(0deg)';
+                prevBtn.disabled = nextBtn.disabled = rotateBtn.disabled = false;
+            } else {
+                imgEl.src = '';
+                imgEl.alt = 'No site images uploaded';
+                prevBtn.disabled = nextBtn.disabled = rotateBtn.disabled = true;
+            }
+        }
+
+        function nextSiteImage() {
+            if (!siteImages.length) return;
+            currentSiteIndex = (currentSiteIndex + 1) % siteImages.length;
+            saveSiteIndex(currentSiteIndex);
+            renderSiteImage();
+        }
+        function prevSiteImage() {
+            if (!siteImages.length) return;
+            currentSiteIndex = (currentSiteIndex - 1 + siteImages.length) % siteImages.length;
+            saveSiteIndex(currentSiteIndex);
+            renderSiteImage();
+        }
+
+        function rotateSiteImage() {
+            if (!siteImages.length) return;
+            siteImageRotation = (siteImageRotation + 90) % 360;
+            document.getElementById('siteImageDisplay').style.transform = `rotate(${siteImageRotation}deg)`;
+        }
+
+        async function uploadSiteImage() {
+            if (!currentProjectId) return alert('Select or save a project first.');
+            const file = document.getElementById('siteImageUploader').files[0];
+            if (!file) return alert('Please choose an image to upload.');
+
+            const blob = await resizeImage(file, 2048);
+            const filename = sanitize(file.name);
+            const path = `projects/${currentProjectId}/siteImages/${filename}`;
+            await uploadBytes(storageRef(storage, path), blob);
+            document.getElementById('siteImageUploader').value = '';
+            await updateSiteImages();
+        }
+
+        document.getElementById('uploadSiteImage').onclick = uploadSiteImage;
+        document.getElementById('nextSiteImage').onclick = nextSiteImage;
+        document.getElementById('prevSiteImage').onclick = prevSiteImage;
+        document.getElementById('rotateSiteImage').onclick = rotateSiteImage;
+
+        const _origLoad = loadProject;
+        loadProject = async id => {
+            await _origLoad(id);
+            await updateSiteImages();
+        };
 
         populateProjects();
     </script>
