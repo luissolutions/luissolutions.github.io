@@ -40,9 +40,7 @@
         <h2>Enter Project Code to Continue</h2>
         <input type="text" id="accessCode" placeholder="Project ID" />
         <button id="submitCode">Enter</button>
-    </div>
 
-    <main id="mainApp" class="hidden">
         <section class="instructions">
             <h2>Instructions</h2>
             <ul>
@@ -57,10 +55,12 @@
                 <li>Click ★ to favorite an image (favorites are shown first).</li>
             </ul>
         </section>
+    </div>
 
-        <!-- Project setup -->
+    <main id="mainApp" class="hidden">
+
         <section>
-            <label>New Project ID: <input type="text" id="projectId" /></label>
+            <label>Project ID: <input type="text" id="projectId" /></label>
             <label>Total Sensors: <input type="number" id="sensorCount" min="1" /></label>
             <button id="saveProject">Save New Project</button>
             <br /><br />
@@ -71,7 +71,6 @@
             </label>
         </section>
 
-        <!-- Site Images Section -->
         <section id="siteImagesSection">
             <h3>Site Images</h3>
             <input type="file" id="siteImageUploader" accept="image/*" />
@@ -90,7 +89,6 @@
             </div>
         </section>
 
-        <!-- Notes -->
         <section>
             <h3>Project Notes</h3>
             <label>Date: <input type="date" id="noteDate" /></label><br />
@@ -99,22 +97,26 @@
             <div id="notesList" class="notes-section"></div>
         </section>
 
-        <!-- View mode -->
         <section class="radio-group">
             <label><input type="radio" name="viewMode" value="sensors" checked /> Sensor Images</label>
             <label><input type="radio" name="viewMode" value="deliverables" /> Other Deliverables</label>
         </section>
 
-        <!-- Sensor upload -->
         <section id="sensorUploadSection">
             <h3>Upload Sensor Image</h3>
             <input type="file" id="sensorImage" /><br />
+
             <label>Sensor #: <input type="number" id="sensorNumber" min="1" /></label>
-            <label>Serial: <input type="text" id="serialNumber" /></label>
+            <label>Serial: <input type="text" id="serialNumber" /></label><br />
+
+            <label>
+                <input type="checkbox" id="skipMarkupCheckbox" />
+                No Markup
+            </label>
+
             <button id="uploadImage">Upload</button>
         </section>
 
-        <!-- Deliverable upload -->
         <section id="deliverableUploadSection" style="display:none;">
             <h3>Upload Deliverable Image</h3>
             <input type="file" id="fileUploader" accept="image/*" /><br />
@@ -123,13 +125,11 @@
             <button id="uploadDeliverableImage">Upload Image</button>
         </section>
 
-        <!-- Missing images -->
         <section>
             <h3>Missing Images</h3>
             <ul id="missingList"></ul>
         </section>
 
-        <!-- Gallery -->
         <section>
             <h3>Gallery</h3>
             <label for="imageDropdown">Select an Image:</label>
@@ -139,29 +139,35 @@
             <div id="gallery"></div>
         </section>
 
-        <!-- OneDrive upload -->
         <button id="uploadFolderToOneDrive">Upload Folder to OneDrive</button>
 
-        <!-- Modal -->
-        <div id="modal" style="display:none;">
+        <div id="modal">
             <div id="modalContent">
                 <img id="modalImage" src="" alt="Large View" />
                 <p id="modalFileName"></p>
+                <div class="modal-nav">
+                    <button id="modalPrev">◀ Previous</button>
+                    <button id="modalNext">Next ▶</button>
+                </div>
                 <button id="downloadButton">Download</button>
                 <button id="deleteButton">Delete</button>
                 <button id="closeModalButton">Close</button>
             </div>
         </div>
+
+
     </main>
 
     <script type="module">
         import {
-            db, storage, ref as dbRef, set, get,
-            storageRef, uploadBytes, getDownloadURL, listAll, deleteObject
-        } from './assets/js/firebase-test-init.js';
+            database, storage, ref as dbRef, set, get, storageRef, uploadBytes, getDownloadURL, listAll, deleteObject
+        } from '../apps/assets/js/firebase-init.js';
 
         let currentProjectId = '';
         let expectedSensors = 0;
+        let modalItems = [];
+        let modalIndex = 0;
+
 
         const sanitize = str => str.trim().replace(/\s+/g, '_');
 
@@ -208,18 +214,15 @@
             if (!input) return alert('Please enter a project code.');
 
             try {
-                const snapshot = await get(dbRef(db, 'projects'));
+                const snapshot = await get(dbRef(database, 'public/projects'));
                 if (!snapshot.exists()) {
                     return alert('No projects found in database.');
                 }
 
-                // Use the *keys* of your projects node:
                 const projectIDs = Object.keys(snapshot.val());
                 if (projectIDs.includes(input)) {
-                    // valid → hide auth, show main app
                     document.getElementById('authScreen').remove();
                     document.getElementById('mainApp').classList.remove('hidden');
-                    // now you can call your normal init:
                     populateProjects();
                 } else {
                     alert('Invalid code.');
@@ -230,7 +233,6 @@
             }
         }
 
-        // wire up the button (and allow “Enter” key)
         document.getElementById('submitCode').addEventListener('click', validateCode);
         document.getElementById('accessCode').addEventListener('keydown', e => {
             if (e.key === 'Enter') {
@@ -240,7 +242,7 @@
         });
 
         async function populateProjects() {
-            const snapshot = await get(dbRef(db, 'projects'));
+            const snapshot = await get(dbRef(database, 'public/projects'));
             const dropdown = document.getElementById('projectList');
             dropdown.innerHTML = '<option value="">-- Choose a project --</option>';
             if (snapshot.exists()) {
@@ -256,7 +258,10 @@
         async function loadProject(id) {
             currentProjectId = id;
             localStorage.setItem('lastProject', id);
-            const snap = await get(dbRef(db, `projects/${id}/sensorCount`));
+
+            document.getElementById('projectId').value = id;
+
+            const snap = await get(dbRef(database, `public/projects/${id}/sensorCount`));
             expectedSensors = snap.exists() ? snap.val() : 0;
             document.getElementById('sensorCount').value = expectedSensors;
             updateGallery();
@@ -273,26 +278,28 @@
 
         async function updateGallery() {
             const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
-            const base = `projects/${currentProjectId}/${isSensor ? 'sensors' : 'deliverables'}`;
+            const base = `public/projects/${currentProjectId}/${isSensor ? 'sensors' : 'deliverables'}`;
             const snapshot = await listAll(storageRef(storage, base));
-            const gallery = document.getElementById('gallery');
-            const dropdown = document.getElementById('imageDropdown');
-            const missingList = document.getElementById('missingList');
-            gallery.innerHTML = '';
-            dropdown.innerHTML = '<option value="">-- Select an Image --</option>';
-            missingList.innerHTML = '';
 
-            const favorites = JSON.parse(localStorage.getItem('favorites') || '{}');
-
-            const map = {};
-            let items = await Promise.all(snapshot.items.map(async item => {
+            const items = await Promise.all(snapshot.items.map(async item => {
                 const url = await getDownloadURL(item);
                 return { name: item.name, url, fullPath: item.fullPath };
             }));
 
+            const favorites = JSON.parse(localStorage.getItem('favorites') || '{}');
             items.sort((a, b) => (favorites[b.fullPath] ? 1 : 0) - (favorites[a.fullPath] ? 1 : 0));
 
-            for (const item of items) {
+            modalItems = items;
+
+            const gallery = document.getElementById('gallery');
+            const dropdown = document.getElementById('imageDropdown');
+            const missingList = document.getElementById('missingList');
+
+            gallery.innerHTML = '';
+            dropdown.innerHTML = '<option value="">-- Select an Image --</option>';
+            missingList.innerHTML = '';
+
+            items.forEach(item => {
                 const container = document.createElement('div');
                 container.className = 'image-container';
 
@@ -313,37 +320,53 @@
                     updateGallery();
                 };
 
-                container.appendChild(img);
-                container.appendChild(star);
+                container.append(img, star);
                 gallery.appendChild(container);
 
-                const opt = new Option(item.name, item.url);
-                dropdown.appendChild(opt);
+                dropdown.appendChild(new Option(item.name, item.url));
+            });
 
-                if (isSensor) {
-                    const match = item.name.match(/^Sensor_(\d+)_/);
-                    if (match) map[match[1]] = (map[match[1]] || 0) + 1;
-                }
-            }
-
-            if (isSensor) for (let i = 1; i <= expectedSensors; i++) {
-                if ((map[i] || 0) < 2) {
-                    const li = document.createElement('li');
-                    li.textContent = `Sensor ${i} - Missing ${2 - (map[i] || 0)} image(s)`;
-                    missingList.appendChild(li);
+            if (isSensor) {
+                const countMap = {};
+                items.forEach(item => {
+                    const m = item.name.match(/^Sensor_(\d+)_/);
+                    if (m) countMap[m[1]] = (countMap[m[1]] || 0) + 1;
+                });
+                for (let i = 1; i <= expectedSensors; i++) {
+                    const have = countMap[i] || 0;
+                    if (have < 2) {
+                        const li = document.createElement('li');
+                        li.textContent = `Sensor ${i} - Missing ${2 - have} image(s)`;
+                        missingList.appendChild(li);
+                    }
                 }
             }
         }
 
         async function uploadSensor() {
-            const [num, serial] = [document.getElementById('sensorNumber').value, sanitize(document.getElementById('serialNumber').value)];
+            const num = document.getElementById('sensorNumber').value;
+            const serial = sanitize(document.getElementById('serialNumber').value);
             const file = document.getElementById('sensorImage').files[0];
-            if (!currentProjectId || !num || !serial || !file) return alert('Fill out all fields');
+            const skipMk = document.getElementById('skipMarkupCheckbox')?.checked;
+
+            if (!currentProjectId || !num || !serial || !file) {
+                return alert('Fill out all fields');
+            }
+
+            const paddedNum = String(num).padStart(2, '0');
+
             let blob = await resizeImage(file, 2048);
-            blob = await addTextToImage(blob, `Sensor ${num} - ${serial}`);
-            const path = `projects/${currentProjectId}/sensors/Sensor_${num}_${serial}.jpg`;
-            await uploadBytes(storageRef(storage, path), blob);
+            if (!skipMk) {
+                blob = await addTextToImage(blob, `${currentProjectId} ${paddedNum} - ${serial}`);
+            }
+
+            const folder = `public/projects/${currentProjectId}/sensors`;
+            const desired = `Sensor_${paddedNum}_${serial}.jpg`;
+            const uniqueName = await getUniqueFilename(folder, desired);
+
+            await uploadBytes(storageRef(storage, `${folder}/${uniqueName}`), blob);
             updateGallery();
+            alert(`Sensor image saved as “${uniqueName}”!`);
         }
 
         async function uploadDeliverable() {
@@ -356,29 +379,32 @@
             }
 
             const baseName = markupInput || nameInput;
-            const filename = `${baseName}.jpg`;
-            const path = `projects/${currentProjectId}/deliverables/${filename}`;
-
             let blob = await resizeImage(file, 2048);
 
             if (markupInput) {
                 blob = await addTextToImage(blob, markupInput);
             }
 
-            await uploadBytes(storageRef(storage, path), blob);
+            const folder = `public/projects/${currentProjectId}/deliverables`;
+            const desired = `${baseName}.jpg`;
+            const uniqueName = await getUniqueFilename(folder, desired);
+
+            await uploadBytes(storageRef(storage, `${folder}/${uniqueName}`), blob);
             updateGallery();
+            alert(`Deliverable saved as “${uniqueName}”!`);
         }
 
         async function saveNote() {
             const date = document.getElementById('noteDate').value;
             const text = document.getElementById('noteText').value.trim();
             if (!currentProjectId || !date || !text) return;
-            await set(dbRef(db, `projects/${currentProjectId}/notes/${date}`), text);
+            await set(dbRef(database, `public/projects/${currentProjectId}/notes/${date}`), text);
             loadNotes();
+            alert('Note saved successfully!');
         }
 
         async function loadNotes() {
-            const snapshot = await get(dbRef(db, `projects/${currentProjectId}/notes`));
+            const snapshot = await get(dbRef(database, `public/projects/${currentProjectId}/notes`));
             const list = document.getElementById('notesList');
             list.innerHTML = '';
             if (snapshot.exists()) {
@@ -395,26 +421,56 @@
             const id = sanitize(document.getElementById('projectId').value);
             const count = parseInt(document.getElementById('sensorCount').value);
             if (!id || isNaN(count)) return alert('Enter valid project ID and sensor count');
-            await set(dbRef(db, `projects/${id}`), { sensorCount: count });
+            await set(dbRef(database, `public/projects/${id}`), { sensorCount: count });
             await populateProjects();
             projectList.value = id;
             loadProject(id);
+            alert(`Project ${id} saved successfully!`);
         }
 
         function showModal(url, name, folderPath) {
+            modalIndex = modalItems.findIndex(item => item.url === url);
+
             const modal = document.getElementById('modal');
-            document.getElementById('modalImage').src = url;
-            document.getElementById('modalFileName').textContent = name;
-            modal.style.display = 'block';
+            const img = document.getElementById('modalImage');
+            const fn = document.getElementById('modalFileName');
+            img.src = modalItems[modalIndex].url;
+            fn.textContent = modalItems[modalIndex].name;
+            modal.style.display = 'flex';
+
+            document.getElementById('modalPrev').disabled = modalItems.length <= 1;
+            document.getElementById('modalNext').disabled = modalItems.length <= 1;
 
             document.getElementById('downloadButton').onclick = () => window.open(url, '_blank');
             document.getElementById('closeModalButton').onclick = () => modal.style.display = 'none';
+            modal.addEventListener('click', e => {
+                if (e.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
             document.getElementById('deleteButton').onclick = async () => {
+                if (!confirm(`Delete ${name}?`)) return;
                 await deleteObject(storageRef(storage, `${folderPath}/${name}`));
                 modal.style.display = 'none';
                 updateGallery();
             };
         }
+
+        document.getElementById('modalPrev').onclick = () => {
+            if (modalItems.length < 2) return;
+            modalIndex = (modalIndex - 1 + modalItems.length) % modalItems.length;
+            const { url, name } = modalItems[modalIndex];
+            document.getElementById('modalImage').src = url;
+            document.getElementById('modalFileName').textContent = name;
+        };
+
+        document.getElementById('modalNext').onclick = () => {
+            if (modalItems.length < 2) return;
+            modalIndex = (modalIndex + 1) % modalItems.length;
+            const { url, name } = modalItems[modalIndex];
+            document.getElementById('modalImage').src = url;
+            document.getElementById('modalFileName').textContent = name;
+        };
 
         // Event bindings
         projectList.onchange = e => e.target.value && loadProject(e.target.value);
@@ -431,7 +487,7 @@
             });
         });
 
-        // Image dropdown opens modal on selection
+        // Image dropdown opens modal
         document.getElementById('imageDropdown').addEventListener('change', function () {
             const selectedOption = this.options[this.selectedIndex];
             const url = selectedOption.value;
@@ -439,7 +495,7 @@
             if (url) {
                 const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
                 const folder = isSensor ? 'sensors' : 'deliverables';
-                showModal(url, name, `projects/${currentProjectId}/${folder}`);
+                showModal(url, name, `public/projects/${currentProjectId}/${folder}`);
             }
         });
 
@@ -457,7 +513,7 @@
 
         async function updateSiteImages() {
             if (!currentProjectId) return;
-            const base = `projects/${currentProjectId}/siteImages`;
+            const base = `public/projects/${currentProjectId}/siteImages`;
             try {
                 const snap = await listAll(storageRef(storage, base));
                 siteImages = await Promise.all(snap.items.map(async item => ({ name: item.name, url: await getDownloadURL(item) })));
@@ -469,22 +525,49 @@
         }
 
         function renderSiteImage() {
-            const imgEl = document.getElementById('siteImageDisplay');
+            const img = document.getElementById('siteImageDisplay');
+            const wrapper = document.getElementById('siteImageWrapper');
             const prevBtn = document.getElementById('prevSiteImage');
             const nextBtn = document.getElementById('nextSiteImage');
-            const rotateBtn = document.getElementById('rotateSiteImage');
+            const rotBtn = document.getElementById('rotateSiteImage');
 
-            if (siteImages.length) {
-                imgEl.src = siteImages[currentSiteIndex].url;
-                imgEl.alt = siteImages[currentSiteIndex].name;
-                siteImageRotation = 0;
-                imgEl.style.transform = 'rotate(0deg)';
-                prevBtn.disabled = nextBtn.disabled = rotateBtn.disabled = false;
-            } else {
-                imgEl.src = '';
-                imgEl.alt = 'No site images uploaded';
-                prevBtn.disabled = nextBtn.disabled = rotateBtn.disabled = true;
+            if (!siteImages.length) {
+                wrapper.style.height = 'auto';
+                prevBtn.disabled = nextBtn.disabled = rotBtn.disabled = true;
+                img.src = '';
+                return;
             }
+
+            img.src = siteImages[currentSiteIndex].url;
+            img.alt = siteImages[currentSiteIndex].name;
+            siteImageRotation = 0;
+            img.style.transform = 'rotate(0deg)';
+            prevBtn.disabled = nextBtn.disabled = rotBtn.disabled = false;
+
+            img.onload = () => {
+                const dispW = wrapper.clientWidth;
+                const dispH = img.clientHeight;
+                wrapper.style.height = `${dispH}px`;
+            };
+        }
+
+        function rotateSiteImage() {
+            if (!siteImages.length) return;
+
+            const img = document.getElementById('siteImageDisplay');
+            const wrapper = document.getElementById('siteImageWrapper');
+
+            siteImageRotation = (siteImageRotation + 90) % 360;
+            img.style.transform = `rotate(${siteImageRotation}deg)`;
+
+            const dispW = wrapper.clientWidth;
+            const dispH = img.clientHeight;
+            const θ = siteImageRotation * Math.PI / 180;
+            const cos = Math.abs(Math.cos(θ));
+            const sin = Math.abs(Math.sin(θ));
+            const newH = dispW * sin + dispH * cos;
+
+            wrapper.style.height = `${newH}px`;
         }
 
         function nextSiteImage() {
@@ -500,23 +583,19 @@
             renderSiteImage();
         }
 
-        function rotateSiteImage() {
-            if (!siteImages.length) return;
-            siteImageRotation = (siteImageRotation + 90) % 360;
-            document.getElementById('siteImageDisplay').style.transform = `rotate(${siteImageRotation}deg)`;
-        }
-
         async function uploadSiteImage() {
-            if (!currentProjectId) return alert('Select or save a project first.');
+            if (!currentProjectId) return alert('Select a project first');
             const file = document.getElementById('siteImageUploader').files[0];
-            if (!file) return alert('Please choose an image to upload.');
+            if (!file) return alert('Pick an image!');
 
             const blob = await resizeImage(file, 2048);
-            const filename = sanitize(file.name);
-            const path = `projects/${currentProjectId}/siteImages/${filename}`;
+            const folder = `public/projects/${currentProjectId}/siteImages`;
+            const uniqueName = await getUniqueFilename(folder, sanitize(file.name));
+            const path = `${folder}/${uniqueName}`;
+
             await uploadBytes(storageRef(storage, path), blob);
-            document.getElementById('siteImageUploader').value = '';
             await updateSiteImages();
+            alert(`Uploaded as “${uniqueName}”`);
         }
 
         document.getElementById('uploadSiteImage').onclick = uploadSiteImage;
@@ -529,6 +608,27 @@
             await _origLoad(id);
             await updateSiteImages();
         };
+
+        async function getUniqueFilename(folderPath, filename) {
+            const idx = filename.lastIndexOf('.');
+            const base = idx >= 0 ? filename.slice(0, idx) : filename;
+            const ext = idx >= 0 ? filename.slice(idx) : '';
+            let name = base;
+            let suffix = 1;
+
+            while (true) {
+                const path = `${folderPath}/${name}${ext}`;
+                try {
+                    await getDownloadURL(storageRef(storage, path));
+                    name = `${base}_${suffix++}`;
+                } catch (e) {
+                    if (e.code === 'storage/object-not-found') {
+                        return name + ext;
+                    }
+                    throw e;
+                }
+            }
+        }
 
         populateProjects();
     </script>
