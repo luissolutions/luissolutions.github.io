@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Radar Sensor Tracker</title>
+    <link rel="stylesheet" href="../assets/css/app-styles.css" />
+    <link rel="stylesheet" href="./assets/css/radar-styles.css" />
+    <script type="module" src="../apps/assets/js/microsoftAuth.js"></script>
+    <script type="module" src="../apps/assets/js/login.js"></script>
+</head>
+
+<body>
+    <header>
+        <h1>Radar Job Tracker</h1>
+        <section id="login-section" style="display: block;">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Login</button>
+            </form>
+            <button id="logout" style="display: none;">Logout</button>
+        </section>
+
+        <div class="ms">
+            <br>
+            <button id="loginButton">Login to MS</button>
+            <button id="logoutButton">Logout of MS</button>
+            <p id="loginStatus">Login status...</p>
+        </div>
+    </header>
+    <main>
+        <section class="instructions">
+            <h2>Instructions</h2>
+            <ul>
+                <li>Enter a new Project ID and total sensors, then click “Save New Project”.</li>
+                <li>Use the dropdown to switch between existing saved projects.</li>
+                <li>Save project notes with a date and description.</li>
+                <li>Select between Sensor Images or Deliverables view.</li>
+                <li>Sensor uploads are resized and marked with the sensor number + serial.</li>
+                <li>Deliverable uploads use the image name or markup as filename.</li>
+                <li>Missing sensor images are shown below (2 required per sensor).</li>
+                <li>Click an image to view, download, delete, or move it.</li>
+                <li>Click ★ to favorite an image (favorites are shown first).</li>
+            </ul>
+        </section>
+
+        <!-- Project setup -->
+        <section>
+            <label>New Project ID: <input type="text" id="projectId" /></label>
+            <label>Total Sensors: <input type="number" id="sensorCount" min="1" /></label>
+            <button id="saveProject">Save New Project</button>
+            <br /><br />
+            <label>Select Existing Project:
+                <select id="projectList">
+                    <option value="">-- Choose a project --</option>
+                </select>
+            </label>
+        </section>
+
+        <!-- Notes -->
+        <section>
+            <h3>Project Notes</h3>
+            <label>Date: <input type="date" id="noteDate" /></label><br />
+            <textarea id="noteText" rows="3" cols="50"></textarea><br />
+            <button id="saveNote">Save Note</button>
+            <div id="notesList" class="notes-section"></div>
+        </section>
+
+        <!-- View mode -->
+        <section class="radio-group">
+            <label><input type="radio" name="viewMode" value="sensors" checked /> Sensor Images</label>
+            <label><input type="radio" name="viewMode" value="deliverables" /> Other Deliverables</label>
+        </section>
+
+        <!-- Sensor upload -->
+        <section id="sensorUploadSection">
+            <h3>Upload Sensor Image</h3>
+            <input type="file" id="sensorImage" /><br />
+            <label>Sensor #: <input type="number" id="sensorNumber" min="1" /></label>
+            <label>Serial: <input type="text" id="serialNumber" /></label>
+            <button id="uploadImage">Upload</button>
+        </section>
+
+        <!-- Deliverable upload -->
+        <section id="deliverableUploadSection" style="display:none;">
+            <h3>Upload Deliverable Image</h3>
+            <input type="file" id="fileUploader" accept="image/*" /><br />
+            <label>Name: <input type="text" id="imageNameInput" /></label>
+            <label>Markup: <input type="text" id="markupTextInput" /></label>
+            <button id="uploadDeliverableImage">Upload Image</button>
+        </section>
+
+        <!-- Missing images -->
+        <section>
+            <h3>Missing Images</h3>
+            <ul id="missingList"></ul>
+        </section>
+
+        <!-- Gallery -->
+        <section>
+            <h3>Gallery</h3>
+            <label for="imageDropdown">Select an Image:</label>
+            <select id="imageDropdown">
+                <option value="">- Select an Image -</option>
+            </select>
+            <div id="gallery"></div>
+        </section>
+
+        <!-- OneDrive upload -->
+        <button id="uploadFolderToOneDrive">Upload Folder to OneDrive</button>
+
+        <!-- Modal -->
+        <div id="modal" style="display:none;">
+            <div id="modalContent">
+                <img id="modalImage" src="" alt="Large View" />
+                <p id="modalFileName"></p>
+                <button id="downloadButton">Download</button>
+                <button id="deleteButton">Delete</button>
+                <button id="closeModalButton">Close</button>
+            </div>
+        </div>
+    </main>
+
+    <script type="module">
+        // radar-app.js
+        import {
+            db, storage,
+            ref as dbRef, set, get,
+            storageRef, uploadBytes, getDownloadURL, listAll, deleteObject
+        } from './assets/js/firebase-test-init.js';
+
+        let currentProjectId = '';
+        let expectedSensors = 0;
+
+        const sanitize = str => str.trim().replace(/\s+/g, '_');
+
+        const resizeImage = (file, maxWidth) => new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const img = new Image();
+                img.src = reader.result;
+                img.onload = () => {
+                    let [w, h] = [img.width, img.height];
+                    if (w > maxWidth) h *= maxWidth / w, w = maxWidth;
+                    const canvas = Object.assign(document.createElement('canvas'), { width: w, height: h });
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    canvas.toBlob(resolve, file.type);
+                };
+            };
+            reader.readAsDataURL(file);
+        });
+
+        const addTextToImage = (blob, text) => new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const img = new Image();
+                img.src = reader.result;
+                img.onload = () => {
+                    const canvas = Object.assign(document.createElement('canvas'), {
+                        width: img.width,
+                        height: img.height + 100
+                    });
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    ctx.fillStyle = 'white';
+                    ctx.font = '80px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(text, canvas.width / 2, canvas.height - 20);
+                    canvas.toBlob(resolve, 'image/jpeg');
+                };
+            };
+            reader.readAsDataURL(blob);
+        });
+
+        async function populateProjects() {
+            const snapshot = await get(dbRef(db, 'projects'));
+            const dropdown = document.getElementById('projectList');
+            dropdown.innerHTML = '<option value="">-- Choose a project --</option>';
+            if (snapshot.exists()) {
+                Object.keys(snapshot.val()).forEach(id => {
+                    const opt = new Option(id, id);
+                    dropdown.appendChild(opt);
+                });
+            }
+            const last = localStorage.getItem('lastProject');
+            if (last) dropdown.value = last, loadProject(last);
+        }
+
+        async function loadProject(id) {
+            currentProjectId = id;
+            localStorage.setItem('lastProject', id);
+            const snap = await get(dbRef(db, `projects/${id}/sensorCount`));
+            expectedSensors = snap.exists() ? snap.val() : 0;
+            document.getElementById('sensorCount').value = expectedSensors;
+            updateGallery();
+            loadNotes();
+        }
+
+        const getFavorites = () => JSON.parse(localStorage.getItem('favorites') || '{}');
+        const toggleFavorite = path => {
+            const favs = getFavorites();
+            if (favs[path]) delete favs[path];
+            else favs[path] = true;
+            localStorage.setItem('favorites', JSON.stringify(favs));
+        };
+
+        async function updateGallery() {
+            const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
+            const base = `projects/${currentProjectId}/${isSensor ? 'sensors' : 'deliverables'}`;
+            const snapshot = await listAll(storageRef(storage, base));
+            const gallery = document.getElementById('gallery');
+            const dropdown = document.getElementById('imageDropdown');
+            const missingList = document.getElementById('missingList');
+            gallery.innerHTML = '';
+            dropdown.innerHTML = '<option value="">-- Select an Image --</option>';
+            missingList.innerHTML = '';
+
+            const favorites = JSON.parse(localStorage.getItem('favorites') || '{}');
+
+            const map = {};
+            let items = await Promise.all(snapshot.items.map(async item => {
+                const url = await getDownloadURL(item);
+                return { name: item.name, url, fullPath: item.fullPath };
+            }));
+
+            items.sort((a, b) => (favorites[b.fullPath] ? 1 : 0) - (favorites[a.fullPath] ? 1 : 0));
+
+            for (const item of items) {
+                const container = document.createElement('div');
+                container.className = 'image-container';
+
+                const img = document.createElement('img');
+                img.src = item.url;
+                img.alt = item.name;
+                img.onclick = () => showModal(item.url, item.name, base);
+
+                const star = document.createElement('span');
+                star.className = 'favorite-star';
+                star.textContent = favorites[item.fullPath] ? '★' : '☆';
+                if (favorites[item.fullPath]) star.classList.add('favorited');
+                star.onclick = e => {
+                    e.stopPropagation();
+                    if (favorites[item.fullPath]) delete favorites[item.fullPath];
+                    else favorites[item.fullPath] = true;
+                    localStorage.setItem('favorites', JSON.stringify(favorites));
+                    updateGallery();
+                };
+
+                container.appendChild(img);
+                container.appendChild(star);
+                gallery.appendChild(container);
+
+                const opt = new Option(item.name, item.url);
+                dropdown.appendChild(opt);
+
+                if (isSensor) {
+                    const match = item.name.match(/^Sensor_(\d+)_/);
+                    if (match) map[match[1]] = (map[match[1]] || 0) + 1;
+                }
+            }
+
+            if (isSensor) for (let i = 1; i <= expectedSensors; i++) {
+                if ((map[i] || 0) < 2) {
+                    const li = document.createElement('li');
+                    li.textContent = `Sensor ${i} - Missing ${2 - (map[i] || 0)} image(s)`;
+                    missingList.appendChild(li);
+                }
+            }
+        }
+
+        async function uploadSensor() {
+            const [num, serial] = [document.getElementById('sensorNumber').value, sanitize(document.getElementById('serialNumber').value)];
+            const file = document.getElementById('sensorImage').files[0];
+            if (!currentProjectId || !num || !serial || !file) return alert('Fill out all fields');
+            let blob = await resizeImage(file, 2048);
+            blob = await addTextToImage(blob, `Sensor ${num} - ${serial}`);
+            const path = `projects/${currentProjectId}/sensors/Sensor_${num}_${serial}.jpg`;
+            await uploadBytes(storageRef(storage, path), blob);
+            updateGallery();
+        }
+
+        async function uploadDeliverable() {
+            const file = document.getElementById('fileUploader').files[0];
+            const name = sanitize(document.getElementById('imageNameInput').value);
+            const markup = sanitize(document.getElementById('markupTextInput').value);
+            if (!currentProjectId || !file || !name) return alert('Fill out all fields');
+            const filename = `${markup || name}.jpg`;
+            const path = `projects/${currentProjectId}/deliverables/${filename}`;
+            await uploadBytes(storageRef(storage, path), file);
+            updateGallery();
+        }
+
+        async function saveNote() {
+            const date = document.getElementById('noteDate').value;
+            const text = document.getElementById('noteText').value.trim();
+            if (!currentProjectId || !date || !text) return;
+            await set(dbRef(db, `projects/${currentProjectId}/notes/${date}`), text);
+            loadNotes();
+        }
+
+        async function loadNotes() {
+            const snapshot = await get(dbRef(db, `projects/${currentProjectId}/notes`));
+            const list = document.getElementById('notesList');
+            list.innerHTML = '';
+            if (snapshot.exists()) {
+                const notes = snapshot.val();
+                Object.keys(notes).sort().reverse().forEach(date => {
+                    const div = document.createElement('div');
+                    div.innerHTML = `<strong>${date}</strong><br>${notes[date]}`;
+                    list.appendChild(div);
+                });
+            }
+        }
+
+        async function saveProject() {
+            const id = sanitize(document.getElementById('projectId').value);
+            const count = parseInt(document.getElementById('sensorCount').value);
+            if (!id || isNaN(count)) return alert('Enter valid project ID and sensor count');
+            await set(dbRef(db, `projects/${id}`), { sensorCount: count });
+            await populateProjects();
+            projectList.value = id;
+            loadProject(id);
+        }
+
+        function showModal(url, name, folderPath) {
+            const modal = document.getElementById('modal');
+            document.getElementById('modalImage').src = url;
+            document.getElementById('modalFileName').textContent = name;
+            modal.style.display = 'block';
+
+            document.getElementById('downloadButton').onclick = () => window.open(url, '_blank');
+            document.getElementById('closeModalButton').onclick = () => modal.style.display = 'none';
+            document.getElementById('deleteButton').onclick = async () => {
+                await deleteObject(storageRef(storage, `${folderPath}/${name}`));
+                modal.style.display = 'none';
+                updateGallery();
+            };
+        }
+
+        // Event bindings
+        projectList.onchange = e => e.target.value && loadProject(e.target.value);
+        document.getElementById('saveProject').onclick = saveProject;
+        document.getElementById('uploadImage').onclick = uploadSensor;
+        document.getElementById('uploadDeliverableImage').onclick = uploadDeliverable;
+        document.getElementById('saveNote').onclick = saveNote;
+        document.querySelectorAll('input[name="viewMode"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
+                document.getElementById('sensorUploadSection').style.display = isSensor ? 'block' : 'none';
+                document.getElementById('deliverableUploadSection').style.display = isSensor ? 'none' : 'block';
+                updateGallery();
+            });
+        });
+
+        // Image dropdown opens modal on selection
+        document.getElementById('imageDropdown').addEventListener('change', function () {
+            const selectedOption = this.options[this.selectedIndex];
+            const url = selectedOption.value;
+            const name = selectedOption.textContent;
+            if (url) {
+                const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
+                const folder = isSensor ? 'sensors' : 'deliverables';
+                showModal(url, name, `projects/${currentProjectId}/${folder}`);
+            }
+        });
+
+
+        populateProjects();
+    </script>
+</body>
+
+</html>
