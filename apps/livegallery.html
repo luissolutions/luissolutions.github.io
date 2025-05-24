@@ -109,13 +109,18 @@
                 <button type="submit">Login</button>
             </form>
             <button id="logout" style="display: none;">Logout</button>
-            <div class="ms" style="display: none;">
-                <button id="loginButton">Login to Microsoft</button>
-                <button id="logoutButton">Logout of Microsoft</button>
-            </div>
+
+
         </section>
     </header>
     <main>
+        <div class="ms">
+            <button id="loginButton">Login to Microsoft</button>
+            <button id="logoutButton">Logout of Microsoft</button>
+        </div>
+        <p id="loginStatus">Checking login status...</p>
+        <button id="uploadFolderToOneDrive">Upload Folder to OneDrive</button>
+
         <h1>Photo Upload</h1>
         <div id="uploadSection">
             <input type="file" id="fileUploader" accept="image/*"><br>
@@ -134,14 +139,15 @@
 
         <h1>Show Images</h1>
         <div id="showSection">
-            <label for="folderDropdown">Select a Folder:</label>
+            <label for="folderDropdown">Select a Site:</label>
             <select id="folderDropdown">
-                <option value="">-- Select a Folder --</option>
+                <option value="">-- Select a Site --</option>
             </select>
             <label for="imageDropdown">Select an Image:</label>
             <select id="imageDropdown">
                 <option value="">-- Select an Image --</option>
             </select>
+
 
             <div id="gallery"></div>
         </div>
@@ -166,6 +172,8 @@
     </div>
 
     <script type="module">
+        import { accessToken, loginToMicrosoft, logoutFromMicrosoft, getUserInfo } from './assets/js/onenoteGalleryAuth.js';
+
         import { storage, storageRef, uploadBytesResumable, getDownloadURL, listAll, deleteObject, onAuthStateChanged, auth, getBlob, uploadBytes, database, get, ref, set, onValue } from './assets/js/firebase-init.js';
 
         let DATABASE_BASE_PATH = 'public';
@@ -253,7 +261,7 @@
         });
 
         async function loadFolderOptions() {
-            folderDropdown.innerHTML = '<option value="">-- Select a Folder --</option>';
+            folderDropdown.innerHTML = '<option value="">-- Select a Site --</option>';
             moveToFolder.innerHTML = '<option value="">-- Select Destination --</option>';
 
             const lastUsed = localStorage.getItem('lastUploadedFolder');
@@ -689,6 +697,89 @@
                 option.dataset.fullPath = item.fullPath;
                 document.getElementById('imageDropdown').appendChild(option);
             });
+        }
+
+
+
+        document.getElementById("loginButton").addEventListener("click", loginToMicrosoft);
+        document.getElementById("logoutButton").addEventListener("click", logoutFromMicrosoft);
+
+        window.addEventListener("load", async () => {
+            if (accessToken) {
+                try {
+                    const user = await getUserInfo();
+                    document.getElementById("loginStatus").textContent = `Logged in as: ${user.displayName}`;
+                } catch {
+                    document.getElementById("loginStatus").textContent = "Login failed.";
+                }
+            } else {
+                document.getElementById("loginStatus").textContent = "Not logged in.";
+            }
+        });
+
+        document.getElementById("uploadFolderToOneDrive").addEventListener("click", async () => {
+            const selectedFolder = folderDropdown.value;
+            if (!selectedFolder) return alert("Select a folder first.");
+
+            if (!accessToken) {
+                alert("You must be logged into Microsoft first.");
+                return;
+            }
+
+            try {
+                const folderRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images/${selectedFolder}`);
+                const folderSnapshot = await listAll(folderRef);
+
+                await ensureOneDriveFolder("JobPhotos");
+                await ensureOneDriveFolder(`JobPhotos/${selectedFolder}`);
+
+                for (const item of folderSnapshot.items) {
+                    const blob = await getBlob(item);
+                    const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/JobPhotos/${selectedFolder}/${item.name}:/content`;
+                    const res = await fetch(uploadUrl, {
+                        method: "PUT",
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`
+                        },
+                        body: blob
+                    });
+                    if (!res.ok) {
+                        console.error(`Failed to upload ${item.name}:`, await res.text());
+                    }
+                }
+
+                alert(`Uploaded all images from "${selectedFolder}" to OneDrive!`);
+            } catch (err) {
+                console.error("Error uploading folder to OneDrive:", err);
+                alert("Upload failed. See console for details.");
+            }
+        });
+
+        async function ensureOneDriveFolder(path) {
+            const parts = path.split('/');
+            let currentPath = '';
+            for (const part of parts) {
+                currentPath += (currentPath ? '/' : '') + part;
+                const checkUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${currentPath}:/`;
+                const res = await fetch(checkUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+                if (res.status === 404) {
+                    const parent = currentPath.substring(0, currentPath.lastIndexOf('/'));
+                    const createUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${parent ? parent : ''}:/children`;
+                    const createRes = await fetch(createUrl, {
+                        method: "POST",
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            name: part,
+                            folder: {},
+                            "@microsoft.graph.conflictBehavior": "rename"
+                        })
+                    });
+                    if (!createRes.ok) throw new Error(`Failed to create folder "${part}"`);
+                }
+            }
         }
 
     </script>
