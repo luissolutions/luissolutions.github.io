@@ -158,14 +158,18 @@
     </main>
 
     <script type="module">
-        import {
-            database, storage, ref as dbRef, set, get, storageRef, uploadBytes, getDownloadURL, listAll, deleteObject
-        } from '../apps/assets/js/firebase-init.js';
+        import { auth, onAuthStateChanged, database, storage, ref as dbRef, set, get, storageRef, uploadBytes, getDownloadURL, listAll, deleteObject } from '../apps/assets/js/firebase-init.js';
 
         let currentProjectId = '';
         let expectedSensors = 0;
         let modalItems = [];
         let modalIndex = 0;
+        let DATABASE_BASE_PATH = 'public';
+
+        onAuthStateChanged(auth, (user) => {
+            DATABASE_BASE_PATH = user ? user.uid : 'public';
+            populateProjects();
+        });
 
         const sanitize = str => str.trim().replace(/\s+/g, '_');
 
@@ -212,7 +216,7 @@
             if (!input) return alert('Please enter a project code.');
 
             try {
-                const snapshot = await get(dbRef(database, 'public/projects'));
+                const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects`));
                 if (!snapshot.exists()) {
                     return alert('No projects found in database.');
                 }
@@ -240,7 +244,7 @@
         });
 
         async function populateProjects() {
-            const snapshot = await get(dbRef(database, 'public/projects'));
+            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects`));
             const dropdown = document.getElementById('projectList');
             dropdown.innerHTML = '<option value="">-- Choose a project --</option>';
             if (snapshot.exists()) {
@@ -259,7 +263,7 @@
 
             document.getElementById('projectId').value = id;
 
-            const snap = await get(dbRef(database, `public/projects/${id}/sensorCount`));
+            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${id}/sensorCount`));
             expectedSensors = snap.exists() ? snap.val() : 0;
             document.getElementById('sensorCount').value = expectedSensors;
             updateGallery();
@@ -350,11 +354,13 @@
             const numEl = document.getElementById('sensorNumber');
             const serialEl = document.getElementById('serialNumber');
             const fileEl = document.getElementById('sensorImage');
+            const skipMarkupEl = document.getElementById('skipMarkupCheckbox');
 
-            const num = document.getElementById('sensorNumber').value;
-            const serial = sanitize(document.getElementById('serialNumber').value);
-            const file = document.getElementById('sensorImage').files[0];
-            const skipMk = document.getElementById('skipMarkupCheckbox')?.checked;
+            const num = numEl.value;
+            const serial = sanitize(serialEl.value);
+            const file = fileEl.files[0];
+            const skipMarkup = skipMarkupEl.checked;
+
 
             if (!currentProjectId || !num || !serial || !file) {
                 return alert('Fill out all fields');
@@ -386,9 +392,9 @@
             const nameEl = document.getElementById('imageNameInput');
             const markupEl = document.getElementById('markupTextInput');
 
-            const file = document.getElementById('fileUploader').files[0];
-            const nameInput = sanitize(document.getElementById('imageNameInput').value);
-            const markupInput = sanitize(document.getElementById('markupTextInput').value);
+            const file = fileEl.files[0];
+            const nameInput = sanitize(nameEl.value);
+            const markupInput = sanitize(markupEl.value);
 
             if (!currentProjectId || !file || (!nameInput && !markupInput)) {
                 return alert('Please select a file and enter either a Name or Markup');
@@ -418,13 +424,13 @@
             const date = document.getElementById('noteDate').value;
             const text = document.getElementById('noteText').value.trim();
             if (!currentProjectId || !date || !text) return;
-            await set(dbRef(database, `public/projects/${currentProjectId}/notes/${date}`), text);
+            await set(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/notes/${date}`), text);
             loadNotes();
             alert('Note saved successfully!');
         }
 
         async function loadNotes() {
-            const snapshot = await get(dbRef(database, `public/projects/${currentProjectId}/notes`));
+            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/notes`));
             const list = document.getElementById('notesList');
             list.innerHTML = '';
             if (snapshot.exists()) {
@@ -441,7 +447,7 @@
             const id = sanitize(document.getElementById('projectId').value);
             const count = parseInt(document.getElementById('sensorCount').value);
             if (!id || isNaN(count)) return alert('Enter valid project ID and sensor count');
-            await set(dbRef(database, `public/projects/${id}`), { sensorCount: count });
+            await set(dbRef(database, `${DATABASE_BASE_PATH}/projects/${id}`), { sensorCount: count });
             await populateProjects();
             projectList.value = id;
             loadProject(id);
@@ -649,8 +655,6 @@
                 }
             }
         }
-
-        populateProjects();
     </script>
 </body>
 
