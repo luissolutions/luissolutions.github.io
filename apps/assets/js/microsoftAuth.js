@@ -22,8 +22,6 @@ function extractAccessTokenFromUrl() {
             sessionStorage.setItem("loginNotified", "true");
         }
         history.replaceState(null, null, window.location.pathname);
-    } else {
-        alert("Unable to retrieve access token. Check your Azure configuration.");
     }
 }
 
@@ -34,11 +32,45 @@ function initializeAccessToken() {
 
     if (!accessToken) {
         accessToken = storage.getAccessToken();
-        if (accessToken) {
-            console.log("Using stored access token.");
+    }
+
+    setupAuthEventListeners();
+    updateLoginStatusUI();
+}
+
+async function updateLoginStatusUI() {
+    const statusEl = document.getElementById("loginStatus");
+    const msControls = document.querySelector(".ms");
+    const loginBtn = document.getElementById("loginButton");
+    const logoutBtn = document.getElementById("logoutButton");
+
+    if (!statusEl || !msControls) return;
+
+    msControls.style.display = "block";
+
+    if (!accessToken) {
+        statusEl.textContent = "Not logged in.";
+        if (loginBtn) loginBtn.style.display = "inline-block";
+        if (logoutBtn) logoutBtn.style.display = "none";
+        return;
+    }
+
+    try {
+        const user = await getUserInfo();
+        if (user) {
+            statusEl.textContent = `User: ${user.displayName || user.userPrincipalName}`;
+            if (loginBtn) loginBtn.style.display = "none";
+            if (logoutBtn) logoutBtn.style.display = "inline-block";
         } else {
-            console.log("No access token found. Please log in.");
+            statusEl.textContent = "Failed to load user info.";
+            if (loginBtn) loginBtn.style.display = "inline-block";
+            if (logoutBtn) logoutBtn.style.display = "none";
         }
+    } catch (e) {
+        console.error("Error retrieving user info", e);
+        statusEl.textContent = "Error loading user info.";
+        if (loginBtn) loginBtn.style.display = "inline-block";
+        if (logoutBtn) logoutBtn.style.display = "none";
     }
 }
 
@@ -53,9 +85,7 @@ async function getUserInfo() {
     if (!accessToken) return null;
 
     const res = await fetch("https://graph.microsoft.com/v1.0/me", {
-        headers: {
-            Authorization: `Bearer ${accessToken}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
     });
 
     if (!res.ok) {
@@ -71,6 +101,14 @@ function logoutFromMicrosoft() {
     accessToken = null;
     sessionStorage.removeItem("loginNotified");
     alert("Logged out successfully.");
+
+    const statusEl = document.getElementById("loginStatus");
+    const loginBtn = document.getElementById("loginButton");
+    const logoutBtn = document.getElementById("logoutButton");
+
+    if (statusEl) statusEl.textContent = "Not logged in.";
+    if (loginBtn) loginBtn.style.display = "inline-block";
+    if (logoutBtn) logoutBtn.style.display = "none";
 }
 
 function isLoggedIn() {
@@ -83,6 +121,5 @@ function setupAuthEventListeners() {
 }
 
 initializeAccessToken();
-setupAuthEventListeners();
 
 export { accessToken, loginToMicrosoft, logoutFromMicrosoft, getUserInfo, isLoggedIn };

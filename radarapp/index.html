@@ -15,7 +15,7 @@
 
     <header>
         <h1>Radar Job Tracker</h1>
-        <section id="login-section">
+        <section id="login-section" style="display: block;">
             <form id="login-form">
                 <label for="username">Email:</label>
                 <input type="email" id="username" required>
@@ -28,7 +28,7 @@
             <button id="logout" style="display: none;">Logout</button>
         </section>
 
-        <div class="ms" style="display: none;">
+        <div class="ms">
             <br>
             <button id="loginButton">Login to MS</button>
             <button id="logoutButton">Logout of MS</button>
@@ -159,6 +159,7 @@
 
     <script type="module">
         import { auth, onAuthStateChanged, database, storage, ref as dbRef, set, get, storageRef, uploadBytes, getDownloadURL, listAll, deleteObject } from '../apps/assets/js/firebase-init.js';
+        import { accessToken } from '../apps/assets/js/microsoftAuth.js';
 
         let currentProjectId = '';
         let expectedSensors = 0;
@@ -655,6 +656,84 @@
                 }
             }
         }
+
+
+        document.getElementById("uploadFolderToOneDrive").addEventListener("click", async () => {
+            if (!currentProjectId) return alert("Select or load a project first.");
+            if (!accessToken) return alert("You must be logged into Microsoft first.");
+
+            const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
+            const folderType = isSensor ? 'sensors' : 'deliverables';
+            const firebaseFolder = `public/projects/${currentProjectId}/${folderType}`;
+            const oneDriveFolder = `JobPhotos/${currentProjectId}/${folderType}`;
+
+            try {
+                const folderRef = storageRef(storage, firebaseFolder);
+                const folderSnapshot = await listAll(folderRef);
+
+                await ensureOneDriveFolder("JobPhotos");
+                await ensureOneDriveFolder(`JobPhotos/${currentProjectId}`);
+                await ensureOneDriveFolder(oneDriveFolder);
+
+                for (const item of folderSnapshot.items) {
+                    const blob = await getBlob(item);
+                    const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${oneDriveFolder}/${item.name}:/content`;
+                    const res = await fetch(uploadUrl, {
+                        method: "PUT",
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`
+                        },
+                        body: blob
+                    });
+                    if (!res.ok) {
+                        console.error(`Failed to upload ${item.name}:`, await res.text());
+                    }
+                }
+
+                alert(`Uploaded all images to OneDrive folder: ${oneDriveFolder}`);
+            } catch (err) {
+                console.error("Upload error:", err);
+                alert("Upload failed. See console for details.");
+            }
+        });
+
+        async function getBlob(storageItem) {
+            const url = await getDownloadURL(storageItem);
+            const res = await fetch(url);
+            return await res.blob();
+        }
+
+        async function ensureOneDriveFolder(path) {
+            const parts = path.split('/');
+            let currentPath = '';
+            for (const part of parts) {
+                currentPath += (currentPath ? '/' : '') + part;
+                const checkUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${currentPath}:/`;
+                const res = await fetch(checkUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+
+                if (res.status === 404) {
+                    const parent = currentPath.substring(0, currentPath.lastIndexOf('/'));
+                    const createUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${parent ? parent : ''}:/children`;
+                    const createRes = await fetch(createUrl, {
+                        method: "POST",
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            name: part,
+                            folder: {},
+                            "@microsoft.graph.conflictBehavior": "rename"
+                        })
+                    });
+
+                    if (!createRes.ok) {
+                        throw new Error(`Failed to create folder "${part}": ${await createRes.text()}`);
+                    }
+                }
+            }
+        }
+
     </script>
 </body>
 
