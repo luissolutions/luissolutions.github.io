@@ -120,7 +120,7 @@
         <section id="deliverableUploadSection" style="display:none;">
             <h3>Upload Deliverable Image</h3>
             <input type="file" id="fileUploader" accept="image/*" /><br />
-            <label>Name: <input type="text" id="imageNameInput" /></label>
+            <label>Name: <input type="text" id="imageNameInput" /></label> <br>
             <label>Markup: <input type="text" id="markupTextInput" /></label>
             <button id="uploadDeliverableImage">Upload Image</button>
         </section>
@@ -174,6 +174,40 @@
 
         const sanitize = str => str.trim().replace(/\s+/g, '_');
 
+        async function validateCode() {
+            const input = document.getElementById('accessCode').value.trim();
+            if (!input) return alert('Please enter a project code.');
+
+            try {
+                const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects`));
+                if (!snapshot.exists()) {
+                    return alert('No projects found in database.');
+                }
+
+                const projectIDs = Object.keys(snapshot.val());
+                if (projectIDs.includes(input)) {
+                    document.getElementById('authScreen').remove();
+                    document.getElementById('mainApp').classList.remove('hidden');
+                    populateProjects();
+                    document.getElementById('projectList').value = input;
+                    await loadProject(input);
+                } else {
+                    alert('Invalid code.');
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Error checking database.');
+            }
+        }
+
+        document.getElementById('submitCode').addEventListener('click', validateCode);
+        document.getElementById('accessCode').addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                validateCode();
+            }
+        });
+
         const resizeImage = (file, maxWidth) => new Promise(resolve => {
             const reader = new FileReader();
             reader.onload = () => {
@@ -210,38 +244,6 @@
                 };
             };
             reader.readAsDataURL(blob);
-        });
-
-        async function validateCode() {
-            const input = document.getElementById('accessCode').value.trim();
-            if (!input) return alert('Please enter a project code.');
-
-            try {
-                const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects`));
-                if (!snapshot.exists()) {
-                    return alert('No projects found in database.');
-                }
-
-                const projectIDs = Object.keys(snapshot.val());
-                if (projectIDs.includes(input)) {
-                    document.getElementById('authScreen').remove();
-                    document.getElementById('mainApp').classList.remove('hidden');
-                    populateProjects();
-                } else {
-                    alert('Invalid code.');
-                }
-            } catch (e) {
-                console.error(e);
-                alert('Error checking database.');
-            }
-        }
-
-        document.getElementById('submitCode').addEventListener('click', validateCode);
-        document.getElementById('accessCode').addEventListener('keydown', e => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                validateCode();
-            }
         });
 
         async function populateProjects() {
@@ -352,6 +354,10 @@
         }
 
         async function uploadSensor() {
+            const uploadBtn = document.getElementById('uploadImage');
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Uploading...';
+
             const numEl = document.getElementById('sensorNumber');
             const serialEl = document.getElementById('serialNumber');
             const fileEl = document.getElementById('sensorImage');
@@ -362,33 +368,47 @@
             const file = fileEl.files[0];
             const skipMarkup = skipMarkupEl.checked;
 
-
             if (!currentProjectId || !num || !serial || !file) {
-                return alert('Fill out all fields');
+                alert('Fill out all fields');
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Upload';
+                return;
             }
 
             const paddedNum = String(num).padStart(2, '0');
 
-            let blob = await resizeImage(file, 2048);
-            if (!skipMarkup) {
-                blob = await addTextToImage(blob, `${currentProjectId} ${paddedNum} - ${serial}`);
+            try {
+                let blob = await resizeImage(file, 2048);
+                if (!skipMarkup) {
+                    blob = await addTextToImage(blob, `${currentProjectId} ${paddedNum} - ${serial}`);
+                }
+
+                const folder = `public/projects/${currentProjectId}/sensors`;
+                const desired = `${currentProjectId}_${paddedNum}-${serial}.jpg`;
+                const uniqueName = await getUniqueFilename(folder, desired);
+
+                await uploadBytes(storageRef(storage, `${folder}/${uniqueName}`), blob);
+                await updateGallery();
+                alert(`Sensor image saved as “${uniqueName}”!`);
+
+                fileEl.value = '';
+                numEl.value = '';
+                serialEl.value = '';
+                skipMarkupEl.checked = false;
+            } catch (err) {
+                console.error('Upload failed:', err);
+                alert('Sensor upload failed. See console for details.');
             }
 
-            const folder = `public/projects/${currentProjectId}/sensors`;
-            const desired = `${currentProjectId}_${paddedNum}-${serial}.jpg`;
-            const uniqueName = await getUniqueFilename(folder, desired);
-
-            await uploadBytes(storageRef(storage, `${folder}/${uniqueName}`), blob);
-            updateGallery();
-            alert(`Sensor image saved as “${uniqueName}”!`);
-
-            fileEl.value = '';
-            numEl.value = '';
-            serialEl.value = '';
-            document.getElementById('skipMarkupCheckbox').checked = false;
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload';
         }
 
         async function uploadDeliverable() {
+            const uploadBtn = document.getElementById('uploadDeliverableImage');
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Uploading...';
+
             const fileEl = document.getElementById('fileUploader');
             const nameEl = document.getElementById('imageNameInput');
             const markupEl = document.getElementById('markupTextInput');
@@ -398,27 +418,38 @@
             const markupInput = sanitize(markupEl.value);
 
             if (!currentProjectId || !file || (!nameInput && !markupInput)) {
-                return alert('Please select a file and enter either a Name or Markup');
+                alert('Please select a file and enter either a Name or Markup');
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Upload Image';
+                return;
             }
 
-            const baseName = markupInput || nameInput;
-            let blob = await resizeImage(file, 2048);
+            try {
+                const baseName = markupInput || nameInput;
+                let blob = await resizeImage(file, 2048);
 
-            if (markupInput) {
-                blob = await addTextToImage(blob, markupInput);
+                if (markupInput) {
+                    blob = await addTextToImage(blob, markupInput);
+                }
+
+                const folder = `public/projects/${currentProjectId}/deliverables`;
+                const desired = `${baseName}.jpg`;
+                const uniqueName = await getUniqueFilename(folder, desired);
+
+                await uploadBytes(storageRef(storage, `${folder}/${uniqueName}`), blob);
+                await updateGallery();
+                alert(`Deliverable saved as “${uniqueName}”!`);
+
+                fileEl.value = '';
+                nameEl.value = '';
+                markupEl.value = '';
+            } catch (err) {
+                console.error('Upload failed:', err);
+                alert('Deliverable upload failed. See console for details.');
             }
 
-            const folder = `public/projects/${currentProjectId}/deliverables`;
-            const desired = `${baseName}.jpg`;
-            const uniqueName = await getUniqueFilename(folder, desired);
-
-            await uploadBytes(storageRef(storage, `${folder}/${uniqueName}`), blob);
-            updateGallery();
-            alert(`Deliverable saved as “${uniqueName}”!`);
-
-            fileEl.value = '';
-            nameEl.value = '';
-            markupEl.value = '';
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload Image';
         }
 
         async function saveNote() {
@@ -538,7 +569,7 @@
             }
         });
 
-        // --- SITE IMAGES SECTION ---
+        // Site images section
         let siteImages = [];
         let currentSiteIndex = 0;
         let siteImageRotation = 0;
@@ -669,7 +700,7 @@
             }
         }
 
-
+        // OneDrive upload code
         document.getElementById("uploadFolderToOneDrive").addEventListener("click", async () => {
             const uploadBtn = document.getElementById("uploadFolderToOneDrive");
 
