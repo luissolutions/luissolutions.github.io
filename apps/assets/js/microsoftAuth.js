@@ -62,7 +62,7 @@ async function updateLoginStatusUI() {
             if (loginBtn) loginBtn.style.display = "none";
             if (logoutBtn) logoutBtn.style.display = "inline-block";
         } else {
-            statusEl.textContent = "Failed to load user info.";
+            statusEl.textContent = "No user logged in.";
             if (loginBtn) loginBtn.style.display = "inline-block";
             if (logoutBtn) logoutBtn.style.display = "none";
         }
