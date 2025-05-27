@@ -15,7 +15,7 @@
 
     <header>
         <h1>Radar Job Tracker</h1>
-        <section id="login-section" style="display: block;">
+        <section id="login-section">
             <form id="login-form">
                 <label for="username">Email:</label>
                 <input type="email" id="username" required>
@@ -465,12 +465,28 @@
             const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/notes`));
             const list = document.getElementById('notesList');
             list.innerHTML = '';
+
             if (snapshot.exists()) {
                 const notes = snapshot.val();
                 Object.keys(notes).sort().reverse().forEach(date => {
                     const div = document.createElement('div');
-                    div.innerHTML = `<strong>${date}</strong><br>${notes[date]}`;
+                    div.innerHTML = `
+                        <strong>${date}</strong><br>${notes[date]}
+                        <button data-date="${date}" class="deleteNoteButton">🗑</button>
+                        <hr>
+                    `;
                     list.appendChild(div);
+                });
+
+                document.querySelectorAll('.deleteNoteButton').forEach(button => {
+                    button.addEventListener('click', async () => {
+                        const noteDate = button.dataset.date;
+                        const confirmDelete = confirm(`Delete note for ${noteDate}?`);
+                        if (confirmDelete) {
+                            await set(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/notes/${noteDate}`), null);
+                            loadNotes();
+                        }
+                    });
                 });
             }
         }
@@ -510,8 +526,11 @@
 
         document.getElementById('deleteButton').onclick = async () => {
             const item = modalItems[modalIndex];
-            if (!confirm(`Delete ${item.name}?`)) return;
-
+            if (!(await confirmWithPassword("deleting this image"))) {
+                alert("Incorrect password. Action cancelled.");
+                return;
+            }
+            
             const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
             const folder = isSensor ? 'sensors' : 'deliverables';
             const path = `public/projects/${currentProjectId}/${folder}/${item.name}`;
@@ -785,6 +804,13 @@
                     }
                 }
             }
+        }
+
+        async function confirmWithPassword(actionDescription = "this action") {
+            const input = prompt(`Enter password to confirm ${actionDescription}:`);
+            if (!input) return false;
+            const correctPassword = "telaidadmin";
+            return input === correctPassword;
         }
 
     </script>
