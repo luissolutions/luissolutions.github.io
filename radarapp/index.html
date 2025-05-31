@@ -176,22 +176,26 @@
         const sanitize = str => str.trim().replace(/\s+/g, '_');
 
         async function validateCode() {
-            const input = document.getElementById('accessCode').value.trim();
-            if (!input) return alert('Please enter a project code.');
-
             try {
+                const input = document.getElementById('accessCode').value.trim().toLowerCase();
+
                 const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects`));
                 if (!snapshot.exists()) {
                     return alert('No projects found in database.');
                 }
 
-                const projectIDs = Object.keys(snapshot.val());
-                if (projectIDs.includes(input)) {
+                const projectData = snapshot.val();
+                const projectIDs = Object.keys(projectData).map(id => id.toLowerCase());
+                const originalIDs = Object.keys(projectData); // Preserve casing
+
+                const matchIndex = projectIDs.indexOf(input);
+                if (matchIndex !== -1) {
+                    const matchedID = originalIDs[matchIndex];
                     document.getElementById('authScreen').remove();
                     document.getElementById('mainApp').classList.remove('hidden');
                     populateProjects();
-                    document.getElementById('projectList').value = input;
-                    await loadProject(input);
+                    document.getElementById('projectList').value = matchedID;
+                    await loadProject(matchedID);
                 } else {
                     alert('Invalid code.');
                 }
@@ -415,8 +419,11 @@
             const markupEl = document.getElementById('markupTextInput');
 
             const file = fileEl.files[0];
-            const nameInput = sanitize(nameEl.value);
-            const markupInput = sanitize(markupEl.value);
+            const rawName = nameEl.value.trim();
+            const rawMarkup = markupEl.value.trim();
+
+            const nameInput = sanitize(rawName);
+            const markupInput = rawMarkup;
 
             if (!currentProjectId || !file || (!nameInput && !markupInput)) {
                 alert('Please select a file and enter either a Name or Markup');
@@ -426,11 +433,11 @@
             }
 
             try {
-                const baseName = markupInput || nameInput;
+                const baseName = nameInput || sanitize(rawMarkup);
                 let blob = await resizeImage(file, 2048);
 
-                if (markupInput) {
-                    blob = await addTextToImage(blob, markupInput);
+                if (rawMarkup) {
+                    blob = await addTextToImage(blob, rawMarkup);
                 }
 
                 const folder = `public/projects/${currentProjectId}/deliverables`;
