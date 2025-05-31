@@ -454,10 +454,12 @@
         }
 
         async function saveNote() {
-            const date = document.getElementById('noteDate').value;
+            const dateInput = document.getElementById('noteDate').value;
             const text = document.getElementById('noteText').value.trim();
-            if (!currentProjectId || !date || !text) return;
-            await set(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/notes/${date}`), text);
+            if (!currentProjectId || !dateInput || !text) return;
+
+            const utcTimestamp = Date.now();
+            await set(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/notes/${utcTimestamp}`), text);
             loadNotes();
             alert('Note saved successfully!');
         }
@@ -469,22 +471,27 @@
 
             if (snapshot.exists()) {
                 const notes = snapshot.val();
-                Object.keys(notes).sort().reverse().forEach(date => {
-                    const div = document.createElement('div');
-                    div.innerHTML = `
-                        <strong>${date}</strong><br>${notes[date]}
-                        <button data-date="${date}" class="deleteNoteButton">🗑</button>
-                        <hr>
-                    `;
-                    list.appendChild(div);
-                });
+
+                Object.keys(notes)
+                    .sort((a, b) => parseInt(b) - parseInt(a))
+                    .forEach(timestamp => {
+                        const dateStr = new Date(parseInt).toLocaleString();
+                        const formattedNote = notes[timestamp].replace(/\n/g, "<br>");
+                        const div = document.createElement('div');
+                        div.innerHTML = `
+                            <strong>${dateStr}</strong><br>${formattedNote}
+                            <button data-timestamp="${timestamp}" class="deleteNoteButton">🗑 Delete</button>
+                            <hr>
+                        `;
+                        list.appendChild(div);
+                    });
 
                 document.querySelectorAll('.deleteNoteButton').forEach(button => {
                     button.addEventListener('click', async () => {
-                        const noteDate = button.dataset.date;
-                        const confirmDelete = confirm(`Delete note for ${noteDate}?`);
+                        const timestamp = button.dataset.timestamp;
+                        const confirmDelete = confirm(`Delete note from ${new Date(parseInt(timestamp)).toLocaleString()}?`);
                         if (confirmDelete) {
-                            await set(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/notes/${noteDate}`), null);
+                            await set(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/notes/${timestamp}`), null);
                             loadNotes();
                         }
                     });
