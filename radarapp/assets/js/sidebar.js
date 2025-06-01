@@ -23,7 +23,7 @@ function injectSidebarCSS() {
             position: fixed;
             top: 0;
             right: 0;
-            max-width: 300px;
+            max-width: 400px;
             height: 100vh;
             background-color: #f9f9f9;
             box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
@@ -100,7 +100,7 @@ function wireUpSidebarToggle() {
     const sidebar = document.getElementById('sidebar');
 
     if (!toggleBtn || !sidebar) {
-        console.warn('layout.js: Toggle button or sidebar not found.');
+        console.warn('sidebar.js: Toggle button or sidebar not found.');
         return;
     }
 
