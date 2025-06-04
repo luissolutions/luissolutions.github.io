@@ -103,6 +103,20 @@
             <label><input type="radio" name="viewMode" value="deliverables" /> Other Deliverables</label>
         </section>
 
+        <section>
+            <h3>Sensor Details</h3>
+            <label>Sensor #:
+                <select id="sensorMetaNumberDropdown">
+                    <option value="">Select a Sensor</option>
+                </select>
+            </label><br>
+            <label>Serial #: <input type="text" id="sensorMetaSerial" /></label><br>
+            <label>Measurement 1: <input type="text" id="sensorMetaM1" /></label><br>
+            <label>Measurement 2: <input type="text" id="sensorMetaM2" /></label><br>
+            <label>Measurement 3: <input type="text" id="sensorMetaM3" /></label><br>
+            <button id="saveSensorMeta">Save Sensor Info</button>
+        </section>
+
         <section id="sensorUploadSection">
             <h3>Upload Sensor Image</h3>
             <input type="file" id="sensorImage" /><br />
@@ -269,14 +283,24 @@
         async function loadProject(id) {
             currentProjectId = id;
             localStorage.setItem('lastProject', id);
-
             document.getElementById('projectId').value = id;
 
             const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${id}/sensorCount`));
             expectedSensors = snap.exists() ? snap.val() : 0;
             document.getElementById('sensorCount').value = expectedSensors;
+
+            populateSensorDropdown(expectedSensors); // ← Add this
             updateGallery();
             loadNotes();
+        }
+
+        function populateSensorDropdown(count) {
+            const dropdown = document.getElementById('sensorMetaNumberDropdown');
+            dropdown.innerHTML = `<option value="">Select a Sensor</option>`;
+            for (let i = 1; i <= count; i++) {
+                const padded = String(i).padStart(2, '0');
+                dropdown.innerHTML += `<option value="${i}">${padded}</option>`;
+            }
         }
 
         const getFavorites = () => JSON.parse(localStorage.getItem('favorites') || '{}');
@@ -382,18 +406,30 @@
             }
 
             const paddedNum = String(num).padStart(2, '0');
+            const folderPath = `${DATABASE_BASE_PATH}/projects/${currentProjectId}/sensors`;
 
             try {
+                const files = await listAll(storageRef(storage, folderPath));
+                const matchCount = files.items.filter(f => f.name.startsWith(`${currentProjectId}_${paddedNum}`)).length;
+
+                if (matchCount >= 2) {
+                    const proceed = confirm(`Sensor ${paddedNum} already has 2 uploads. Upload another?`);
+                    if (!proceed) {
+                        uploadBtn.disabled = false;
+                        uploadBtn.textContent = 'Upload';
+                        return;
+                    }
+                }
+
                 let blob = await resizeImage(file, 2048);
                 if (!skipMarkup) {
                     blob = await addTextToImage(blob, `${currentProjectId} ${paddedNum} - ${serial}`);
                 }
 
-                const folder = `public/projects/${currentProjectId}/sensors`;
                 const desired = `${currentProjectId}_${paddedNum}-${serial}.jpg`;
-                const uniqueName = await getUniqueFilename(folder, desired);
+                const uniqueName = await getUniqueFilename(folderPath, desired);
 
-                await uploadBytes(storageRef(storage, `${folder}/${uniqueName}`), blob);
+                await uploadBytes(storageRef(storage, `${folderPath}/${uniqueName}`), blob);
                 await updateGallery();
                 alert(`Sensor image saved as “${uniqueName}”!`);
 
@@ -401,6 +437,7 @@
                 numEl.value = '';
                 serialEl.value = '';
                 skipMarkupEl.checked = false;
+
             } catch (err) {
                 console.error('Upload failed:', err);
                 alert('Sensor upload failed. See console for details.');
@@ -601,6 +638,58 @@
                 const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
                 const folder = isSensor ? 'sensors' : 'deliverables';
                 showModal(url, name, `public/projects/${currentProjectId}/${folder}`);
+            }
+        });
+
+        document.getElementById("sensorMetaNumberDropdown").addEventListener("change", async (e) => {
+            const num = e.target.value;
+            if (!num || !currentProjectId) return;
+
+            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/sensorMeta/${num}`));
+            if (snap.exists()) {
+                const data = snap.val();
+                document.getElementById("sensorMetaSerial").value = data.serial || '';
+                document.getElementById("sensorMetaM1").value = data.m1 || '';
+                document.getElementById("sensorMetaM2").value = data.m2 || '';
+                document.getElementById("sensorMetaM3").value = data.m3 || '';
+            } else {
+
+                document.getElementById("sensorMetaSerial").value = '';
+                document.getElementById("sensorMetaM1").value = '';
+                document.getElementById("sensorMetaM2").value = '';
+                document.getElementById("sensorMetaM3").value = '';
+            }
+        });
+
+        document.getElementById("saveSensorMeta").onclick = async () => {
+            const num = document.getElementById("sensorMetaNumberDropdown").value;
+            const serial = document.getElementById("sensorMetaSerial").value.trim();
+            const m1 = document.getElementById("sensorMetaM1").value.trim();
+            const m2 = document.getElementById("sensorMetaM2").value.trim();
+            const m3 = document.getElementById("sensorMetaM3").value.trim();
+
+            if (!num || !serial) return alert("Sensor number and serial are required.");
+
+            const sensorData = { serial, m1, m2, m3 };
+            await set(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/sensorMeta/${num}`), sensorData);
+            alert("Sensor info saved!");
+        };
+
+        document.getElementById("sensorNumber").addEventListener("change", async (e) => {
+            const num = e.target.value;
+            const serialEl = document.getElementById("serialNumber");
+
+            if (!num || !currentProjectId) {
+                serialEl.value = '';
+                return;
+            }
+
+            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/sensorMeta/${num}`));
+            if (snap.exists()) {
+                const data = snap.val();
+                serialEl.value = data.serial || '';
+            } else {
+                serialEl.value = '';
             }
         });
 
