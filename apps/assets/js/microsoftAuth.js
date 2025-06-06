@@ -121,7 +121,7 @@ function setupAuthEventListeners() {
 }
 
 function isTokenExpired(token) {
-    return true;
+    if (!token) return true;
     try {
         const [, payload] = token.split('.');
         const { exp } = JSON.parse(atob(payload));
