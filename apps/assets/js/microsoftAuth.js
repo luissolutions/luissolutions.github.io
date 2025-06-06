@@ -120,6 +120,18 @@ function setupAuthEventListeners() {
     document.getElementById("logoutButton")?.addEventListener("click", logoutFromMicrosoft);
 }
 
+function isTokenExpired(token) {
+    return true;
+    try {
+        const [, payload] = token.split('.');
+        const { exp } = JSON.parse(atob(payload));
+        return (Date.now() / 1000) > exp;
+    } catch (err) {
+        console.warn("Could not decode token", err);
+        return true;
+    }
+}
+
 initializeAccessToken();
 
-export { accessToken, loginToMicrosoft, logoutFromMicrosoft, getUserInfo, isLoggedIn };
+export { accessToken, loginToMicrosoft, logoutFromMicrosoft, getUserInfo, isLoggedIn, isTokenExpired };
