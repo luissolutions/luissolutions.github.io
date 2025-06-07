@@ -126,7 +126,7 @@
   </aside>
 
   <script type="module">
-    import { getDatabase, database, ref, onValue, push, set, remove, auth, onAuthStateChanged } from './assets/js/firebase-init.js';
+    import { getDatabase, database, ref, onValue, push, get, child, set, remove, auth, onAuthStateChanged } from './assets/js/firebase-init.js';
 
     let DATABASE_BASE_PATH = 'public';
     let currentQuestionIndex = 0;
@@ -536,21 +536,30 @@
         answeredQuestions[currentQuestion.id] = 'answered';
         correctAnswersCount++;
 
+        saveToFirebase('answeredQuestions', answeredQuestions);
+        saveToFirebase('correctAnswersCount', correctAnswersCount);
+        saveToFirebase('wrongAnswersCount', wrongAnswersCount);
+
         const explanationText = currentQuestion.explanation ? `\nExplanation: ${currentQuestion.explanation}` : '';
         alert(`Correct!${explanationText}`);
       } else {
-        if (answeredQuestions[currentQuestion.id] !== 'incorrect') {
-          answeredQuestions[currentQuestion.id] = 'incorrect';
-          wrongAnswersCount++;
-        }
-
         const continueToNext = confirm("Incorrect! Continue to the next question?");
         if (!continueToNext) {
+          // ❌ Don't mark anything, don't save
           displayQuestion(currentQuestion);
           updateScoreDisplay();
           updateQuestionCounter();
           return;
         }
+
+        if (answeredQuestions[currentQuestion.id] !== 'answered') {
+          answeredQuestions[currentQuestion.id] = 'incorrect';
+          wrongAnswersCount++;
+        }
+
+        saveToFirebase('answeredQuestions', answeredQuestions);
+        saveToFirebase('correctAnswersCount', correctAnswersCount);
+        saveToFirebase('wrongAnswersCount', wrongAnswersCount);
 
         const showIncorrect = document.getElementById('showIncorrect').checked;
         if (!showIncorrect) {
@@ -562,17 +571,12 @@
         }
       }
 
-      saveToFirebase('answeredQuestions', answeredQuestions);
-      saveToFirebase('correctAnswersCount', correctAnswersCount);
-      saveToFirebase('wrongAnswersCount', wrongAnswersCount);
-
       updateScoreDisplay();
       updateQuestionCounter();
 
-      if (isCorrect || showIncorrect) {
+      if (isCorrect || document.getElementById('showIncorrect').checked) {
         displayNextQuestion();
       }
-
     }
 
     function checkAnswer(questionType, currentQuestion) {
@@ -791,30 +795,30 @@
     }
 
     function loadSavedData() {
+      let loaded = 0;
+      const totalToLoad = 3;
+
+      const checkAllLoaded = () => {
+        loaded++;
+        if (loaded === totalToLoad) {
+          updateScoreDisplay();
+        }
+      };
+
       loadFromFirebase('answeredQuestions', {}, (data) => {
         answeredQuestions = data;
+        checkAllLoaded();
       });
 
       loadFromFirebase('correctAnswersCount', 0, (data) => {
         correctAnswersCount = data;
+        checkAllLoaded();
       });
 
       loadFromFirebase('wrongAnswersCount', 0, (data) => {
         wrongAnswersCount = data;
+        checkAllLoaded();
       });
-
-      loadFromFirebase('currentQuestionIndex', 0, (data) => {
-        currentQuestionIndex = data;
-      });
-
-      loadFromFirebase('savedQuestions', {}, (data) => {
-        if (data) {
-          const savedQuestions = Object.values(data);
-          saveToLocalStorage('savedQuestions', savedQuestions);
-        }
-      });
-
-      updateScoreDisplay();
     }
 
     const sidebar = document.getElementById('sidebar');
