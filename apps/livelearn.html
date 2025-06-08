@@ -145,6 +145,25 @@
       initializeApp();
     });
 
+    function initializeApp() {
+      loadFromFirebase('startTime', null, (savedStartTime) => {
+        if (savedStartTime) {
+          updateElapsedTime(savedStartTime);
+        } else {
+          startTimer();
+        }
+      });
+
+      loadFromFirebase('highScores', [], (highScores) => {
+        displayHighScores(highScores);
+      });
+
+      loadSavedData().then(() => {
+        registerEventListeners();
+        fetchQuestions(true);
+      });
+    }
+
     function saveToFirebase(path, value) {
       if (!DATABASE_BASE_PATH) {
         console.error("Database path is not set.");
@@ -177,6 +196,10 @@
       updateElapsedTime(currentTime);
     }
 
+    function stopTimer() {
+      clearInterval(timerInterval);
+    }
+
     function updateElapsedTime(startTime) {
       clearInterval(timerInterval);
       timerInterval = setInterval(() => {
@@ -193,10 +216,6 @@
       const minutes = Math.floor((seconds % 3600) / 60);
       const remainingSeconds = seconds % 60;
       return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
-    }
-
-    function stopTimer() {
-      clearInterval(timerInterval);
     }
 
     function updateHighScore() {
@@ -233,24 +252,6 @@
       highScores.forEach((scoreEntry) => {
         highScoreElement.innerHTML += `${scoreEntry.name}:  ${scoreEntry.percentage}% (${scoreEntry.correctAnswers} out of ${scoreEntry.totalQuestions}) ${scoreEntry.time}<br>`;
       });
-    }
-
-    function initializeApp() {
-      loadFromFirebase('startTime', null, (savedStartTime) => {
-        if (savedStartTime) {
-          updateElapsedTime(savedStartTime);
-        } else {
-          startTimer();
-        }
-      });
-
-      loadFromFirebase('highScores', [], (highScores) => {
-        displayHighScores(highScores);
-      });
-
-      loadSavedData();
-      registerEventListeners();
-      fetchQuestions();
     }
 
     function saveToLocalStorage(key, value) {
@@ -491,6 +492,15 @@
       toggleNavigationButtons();
     }
 
+    function filterQuestionsList(questionList, showIncorrect) {
+      return questionList.filter(q => {
+        const status = answeredQuestions[q.id];
+        if (status === 'answered') return false;
+        if (!showIncorrect && status === 'incorrect') return false;
+        return true;
+      });
+    }
+
     function generateOptionsHTML(options, correctAnswer) {
       return options.map(option => {
         const inputType = Array.isArray(correctAnswer) ? 'checkbox' : 'radio';
@@ -506,15 +516,6 @@
       }).join('<br>');
 
       quizSection.innerHTML += `<div>${optionsHTML}</div>`;
-    }
-
-    function filterQuestionsList(questionList, showIncorrect) {
-      return questionList.filter(q => {
-        const status = answeredQuestions[q.id];
-        if (status === 'answered') return false;
-        if (!showIncorrect && status === 'incorrect') return false;
-        return true;
-      });
     }
 
     function submitAnswer() {
@@ -545,7 +546,6 @@
       } else {
         const continueToNext = confirm("Incorrect! Continue to the next question?");
         if (!continueToNext) {
-          // ❌ Don't mark anything, don't save
           displayQuestion(currentQuestion);
           updateScoreDisplay();
           updateQuestionCounter();
@@ -795,15 +795,22 @@
     }
 
     function loadSavedData() {
-      let loaded = 0;
-      const totalToLoad = 3;
-
-      const checkAllLoaded = () => {
-        loaded++;
-        if (loaded === totalToLoad) {
-          updateScoreDisplay();
-        }
-      };
+      return Promise.all([
+        new Promise(resolve => loadFromFirebase('answeredQuestions', {}, data => {
+          answeredQuestions = data;
+          resolve();
+        })),
+        new Promise(resolve => loadFromFirebase('correctAnswersCount', 0, data => {
+          correctAnswersCount = data;
+          resolve();
+        })),
+        new Promise(resolve => loadFromFirebase('wrongAnswersCount', 0, data => {
+          wrongAnswersCount = data;
+          resolve();
+        }))
+      ]).then(() => {
+        updateScoreDisplay();
+      });
 
       loadFromFirebase('answeredQuestions', {}, (data) => {
         answeredQuestions = data;
