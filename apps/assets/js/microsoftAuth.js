@@ -62,7 +62,7 @@ async function updateLoginStatusUI() {
             if (loginBtn) loginBtn.style.display = "none";
             if (logoutBtn) logoutBtn.style.display = "inline-block";
         } else {
-            statusEl.textContent = "No user logged in.";
+            statusEl.textContent = "Logged Out.";
             if (loginBtn) loginBtn.style.display = "inline-block";
             if (logoutBtn) logoutBtn.style.display = "none";
         }
