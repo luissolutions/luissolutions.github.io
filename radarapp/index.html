@@ -192,6 +192,7 @@
         let modalItems = [];
         let modalIndex = 0;
         let DATABASE_BASE_PATH = 'public';
+        let isLoadingProject = false;
 
         onAuthStateChanged(auth, (user) => {
             DATABASE_BASE_PATH = user ? user.uid : 'public';
@@ -291,17 +292,29 @@
         }
 
         async function loadProject(id) {
-            currentProjectId = id;
-            localStorage.setItem('lastProject', id);
-            document.getElementById('projectId').value = id;
+            if (isLoadingProject) return;
+            isLoadingProject = true;
 
-            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${id}/sensorCount`));
-            expectedSensors = snap.exists() ? snap.val() : 0;
-            document.getElementById('sensorCount').value = expectedSensors;
+            try {
+                console.log(`[loadProject] Start loading project: ${id}`);
+                currentProjectId = id;
+                localStorage.setItem('lastProject', id);
+                document.getElementById('projectId').value = id;
 
-            populateSensorDropdown(expectedSensors); // ← Add this
-            updateGallery();
-            loadNotes();
+                const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${id}/sensorCount`));
+                expectedSensors = snap.exists() ? snap.val() : 0;
+                console.log(`[loadProject] Sensor count: ${expectedSensors}`);
+                document.getElementById('sensorCount').value = expectedSensors;
+
+                populateSensorDropdown(expectedSensors);
+                await updateGallery();
+                await loadNotes();
+                await updateSiteImages();
+            } catch (err) {
+                console.error(`[loadProject] Failed:`, err);
+            } finally {
+                isLoadingProject = false;
+            }
         }
 
         function populateSensorDropdown(count) {
@@ -350,6 +363,7 @@
 
                 const img = document.createElement('img');
                 img.src = item.url;
+                img.loading = 'lazy';
                 img.alt = item.name;
                 img.onclick = () => showModal(item.url, item.name, base);
 
@@ -716,6 +730,8 @@
         }
 
         async function updateSiteImages() {
+            siteImages = [];
+
             if (!currentProjectId) return;
             const base = `public/projects/${currentProjectId}/siteImages`;
             try {
