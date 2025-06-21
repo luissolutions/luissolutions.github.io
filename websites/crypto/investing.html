@@ -83,7 +83,7 @@
             background-color: #f2f2f2;
         }
 
-        form#calcForm {
+        form.calc-form {
             background: #fff;
             border: 1px solid #ccc;
             padding: 1rem;
@@ -92,13 +92,13 @@
             border-radius: 4px;
         }
 
-        form#calcForm label {
+        form.calc-form label {
             display: block;
             margin: 0.5rem 0 0.2rem;
             font-weight: bold;
         }
 
-        form#calcForm input {
+        form.calc-form input {
             width: 95%;
             padding: 0.4rem;
             margin-bottom: 0.8rem;
@@ -106,7 +106,7 @@
             border-radius: 4px;
         }
 
-        form#calcForm button {
+        form.calc-form button {
             padding: 0.6rem 1rem;
             color: #fff;
             border: none;
@@ -114,7 +114,7 @@
             cursor: pointer;
         }
 
-        #calcResult {
+        .calc-result {
             text-align: center;
             margin-top: 1rem;
             font-size: 1.2rem;
@@ -431,7 +431,7 @@
             <p>This calculator estimates the future value of your investment based on an initial sum, monthly
                 contributions, and an annual interest rate with monthly compounding. Enter your values below and click
                 "Calculate Future Value" to see the projected growth.</p>
-            <form id="calcForm">
+            <form id="calcForm" class="calc-form">
                 <label for="initialInvestment">Initial Investment ($):</label>
                 <input type="number" id="initialInvestment" required placeholder="e.g., 1000">
 
@@ -447,6 +447,37 @@
                 <button type="submit">Calculate Future Value</button>
             </form>
             <div id="calcResult"></div>
+        </section>
+
+        <section id="capital-gains-tax">
+            <h2>Capital Gains Tax</h2>
+            <p>Capital gains tax is a tax on the profit made from selling an investment asset such as stocks, bonds, or
+                real estate.</p>
+
+            <h3>Short-Term vs. Long-Term</h3>
+            <ul>
+                <li><strong>Short-Term:</strong> Assets held for less than 1 year are taxed as ordinary income.</li>
+                <li><strong>Long-Term:</strong> Assets held for 1 year or more benefit from reduced tax rates (0%, 15%,
+                    or 20%) depending on income level.</li>
+            </ul>
+
+            <h3>Capital Gains Tax Estimator</h3>
+            <form id="gainsTaxForm" class="calc-form">
+                <label for="purchasePrice">Purchase Price ($):</label>
+                <input type="number" id="purchasePrice" required placeholder="e.g., 1000">
+
+                <label for="salePrice">Sale Price ($):</label>
+                <input type="number" id="salePrice" required placeholder="e.g., 1500">
+
+                <label for="yearsHeld">Years Held:</label>
+                <input type="number" id="yearsHeld" required placeholder="e.g., 2">
+
+                <label for="taxRate">Estimated Tax Rate (%):</label>
+                <input type="number" id="taxRate" required placeholder="e.g., 15" step="0.1">
+
+                <button type="submit">Estimate Tax</button>
+            </form>
+            <div id="gainsTaxResult"></div>
         </section>
 
         <!-- DEFINITIONS / KEY TERMS -->
@@ -478,38 +509,65 @@
     </footer>
 
     <script>
-        // Update the footer year automatically
         document.getElementById('year').textContent = new Date().getFullYear();
 
-        // Investment Calculator Logic
         document.getElementById('calcForm').addEventListener('submit', function (e) {
             e.preventDefault();
 
-            // Retrieve form values
             const initial = parseFloat(document.getElementById('initialInvestment').value);
             const contribution = parseFloat(document.getElementById('monthlyContribution').value);
             const rate = parseFloat(document.getElementById('annualRate').value);
             const years = parseFloat(document.getElementById('years').value);
 
-            // Calculate monthly interest rate and total months
             const monthlyRate = rate / 100 / 12;
             const months = years * 12;
 
-            // Future Value = initial * (1 + monthlyRate)^months + contribution * [((1 + monthlyRate)^months - 1) / monthlyRate]
             let futureValue = initial * Math.pow(1 + monthlyRate, months);
             if (monthlyRate > 0) {
                 futureValue += contribution * ((Math.pow(1 + monthlyRate, months) - 1) / monthlyRate);
             } else {
-                futureValue += contribution * months; // When rate is 0%
+                futureValue += contribution * months;
             }
 
-            // Format the result
-            const formattedValue = futureValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const totalContributions = initial + (contribution * months);
+            const interestEarned = futureValue - totalContributions;
 
-            // Display the result
-            document.getElementById('calcResult').innerHTML = `<p>Future Value: $${formattedValue}</p>`;
+            const format = n => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+            document.getElementById('calcResult').innerHTML = `
+            <p><strong>Future Value:</strong> $${format(futureValue)}</p>
+            <p><strong>Total Contributions:</strong> $${format(totalContributions)}</p>
+            <p><strong>Interest Earned:</strong> $${format(interestEarned)}</p>
+        `;
         });
+
+        document.getElementById('gainsTaxForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            const purchasePrice = parseFloat(document.getElementById('purchasePrice').value);
+            const salePrice = parseFloat(document.getElementById('salePrice').value);
+            const yearsHeld = parseFloat(document.getElementById('yearsHeld').value);
+            const taxRate = parseFloat(document.getElementById('taxRate').value);
+
+            const gain = salePrice - purchasePrice;
+            const isLongTerm = yearsHeld >= 1;
+            const applicableRate = isLongTerm ? taxRate : taxRate + 10; // Assume 10% higher for short-term
+
+            const tax = gain > 0 ? (gain * applicableRate / 100) : 0;
+            const afterTaxGain = gain - tax;
+
+            const format = n => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+            document.getElementById('gainsTaxResult').innerHTML = `
+            <p><strong>Capital Gain:</strong> $${format(gain)}</p>
+            <p><strong>Holding Period:</strong> ${yearsHeld} year(s) (${isLongTerm ? "Long-Term" : "Short-Term"})</p>
+            <p><strong>Tax Owed:</strong> $${format(tax)}</p>
+            <p><strong>After-Tax Gain:</strong> $${format(afterTaxGain)}</p>
+        `;
+        });
+
     </script>
+
 </body>
 
 </html>
