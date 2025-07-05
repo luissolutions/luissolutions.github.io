@@ -28,13 +28,13 @@
 
 <body>
   <header>
-    <img src="./assets/img/t_logo.png" alt="Logo">
+    <button id="toggleSidebar" class="toggleSidebar">&rarr; Show Index</button>
 
     <section class="stats">
-      <button id="toggleSidebar" class="toggleSidebar">&rarr; Show Index</button>
 
       <div id="scoreDisplay">Learned: 0% (0 correct / 0 wrong)</div>
-      <div id="timer">Time: <span id="timer-value">00:00:00</span></div>
+      <div id="timer" style="cursor: pointer;" title="Click to start/pause/reset">Time: <span
+          id="timer-value">00:00:00</span></div>
       <div style="display: none;">
         <button id="startTimerBtn">Start</button>
         <button id="pauseTimerBtn">Pause</button>
@@ -139,6 +139,8 @@
     let currentDescription = '';
     let timerInterval;
     let timeElapsed = 0;
+    let timerRunning = false;
+    let timerStartTime = null;
 
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? user.uid : 'public';
@@ -146,14 +148,6 @@
     });
 
     function initializeApp() {
-      loadFromFirebase('startTime', null, (savedStartTime) => {
-        if (savedStartTime) {
-          updateElapsedTime(savedStartTime);
-        } else {
-          startTimer();
-        }
-      });
-
       loadFromFirebase('highScores', [], (highScores) => {
         displayHighScores(highScores);
       });
@@ -190,26 +184,66 @@
     }
 
     function startTimer() {
-      const currentTime = Date.now();
-      saveToFirebase('startTime', currentTime);
+      if (!timerRunning) {
+        timerStartTime = Date.now() - timeElapsed * 1000;
+        timerRunning = true;
+        runTimer();
+      }
 
-      updateElapsedTime(currentTime);
+      document.getElementById('timer').title = timerRunning
+        ? 'Click to pause timer. Double-click to reset.'
+        : 'Click to start timer. Double-click to reset.';
+
     }
 
     function stopTimer() {
+      timerRunning = false;
       clearInterval(timerInterval);
+
+      document.getElementById('timer').title = timerRunning
+        ? 'Click to pause timer. Double-click to reset.'
+        : 'Click to start timer. Double-click to reset.';
+
     }
 
-    function updateElapsedTime(startTime) {
+    function runTimer() {
       clearInterval(timerInterval);
       timerInterval = setInterval(() => {
-        const currentTime = Date.now();
-        timeElapsed = Math.floor((currentTime - startTime) / 1000);
+        if (!timerRunning || !timerStartTime) return;
 
-        const formattedTime = formatTime(timeElapsed);
-        document.getElementById('timer-value').textContent = formattedTime;
+        const currentTime = Date.now();
+        timeElapsed = Math.floor((currentTime - timerStartTime) / 1000);
+        document.getElementById('timer-value').textContent = formatTime(timeElapsed);
       }, 1000);
     }
+
+    function resetTimer() {
+      stopTimer();
+      timeElapsed = 0;
+      document.getElementById('timer-value').textContent = formatTime(0);
+      timerStartTime = null;
+    }
+
+    let clickCount = 0;
+    let clickTimer = null;
+
+    document.getElementById('timer').addEventListener('click', () => {
+      clickCount++;
+
+      clearTimeout(clickTimer);
+      clickTimer = setTimeout(() => {
+        if (clickCount === 1) {
+          if (timerRunning) {
+            stopTimer();
+          } else {
+            startTimer();
+          }
+        } else if (clickCount === 2) {
+          resetTimer();
+        }
+        clickCount = 0;
+      }, 300);
+    });
 
     function formatTime(seconds) {
       const hours = Math.floor(seconds / 3600);
