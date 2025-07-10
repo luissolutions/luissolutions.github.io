@@ -856,19 +856,29 @@
         }
 
         function exportData() {
-            const headers = Array.from(document.querySelectorAll('#task-log thead th'))
-                .filter(th => th.style.display !== 'none' && !th.classList.contains('actions-column'))
-                .map(th => th.innerText);
+            const table = document.getElementById('task-log');
 
-            const allRows = Array.from(document.querySelectorAll('#task-log tbody tr'));
+            const headers = Array.from(table.querySelectorAll('thead th'))
+                .filter(th => !th.classList.contains('actions-column') && th.style.display !== 'none')
+                .map(th => th.textContent.trim());
+
+            const headerIndexes = Array.from(table.querySelectorAll('thead th'))
+                .map((th, idx) => ({ text: th.textContent.trim(), idx }))
+                .filter(({ idx }) => {
+                    const th = table.querySelectorAll('thead th')[idx];
+                    return !th.classList.contains('actions-column') && th.style.display !== 'none';
+                })
+                .map(({ idx }) => idx);
+
+            const allRows = Array.from(table.querySelectorAll('tbody tr'));
             const visibleRows = allRows.filter(row => row.style.display !== 'none');
 
-            const rowsToExport = (visibleRows.length === allRows.length) ? allRows : visibleRows;
-
-            const rows = rowsToExport.map(row => {
-                return Array.from(row.cells)
-                    .filter((cell, index) => headers.includes(document.querySelectorAll('#task-log thead th')[index].innerText))
-                    .map(cell => cell.innerText.trim());
+            const rows = visibleRows.map(row => {
+                const cells = Array.from(row.cells);
+                return headerIndexes.map(i => {
+                    const cell = cells[i];
+                    return cell ? cell.textContent.replace(/\r?\n|\r/g, ' ').trim() : '';
+                });
             });
 
             rows.unshift(headers);
@@ -877,32 +887,28 @@
         }
 
         function exportToCSV(rows) {
-            let csvContent = "data:text/csv;charset=utf-8,";
+            let csvContent = "";
 
             rows.forEach(rowArray => {
-                let row = rowArray
-                    .map(field => {
-                        if (field === null || field === undefined) {
-                            return '';
-                        }
-                        field = field.toString().trim();
+                const escapedRow = rowArray.map(field => {
+                    if (field == null) return '';
+                    field = field.toString().replace(/\r?\n|\r/g, ' ').trim();
 
-                        field = field.replace(/[\u00A0\r?\n|\r]/g, ' ');
-                        if (field.includes(',') || field.includes('"') || field.includes('\n')) {
-                            field = `"${field.replace(/"/g, '""')}"`;
-                        }
+                    if (field.includes(',') || field.includes('"') || field.includes('\n') || field.includes('#')) {
+                        field = `"${field.replace(/"/g, '""')}"`;
+                    }
 
-                        return field;
-                    }).join(",");
-                csvContent += row + "\r\n";
+                    return field;
+                }).join(",");
+
+                csvContent += escapedRow + "\r\n";
             });
 
-            const encodedUri = encodeURI(csvContent);
+            const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
             link.setAttribute("download", "task_data.csv");
             document.body.appendChild(link);
-
             link.click();
             document.body.removeChild(link);
         }
