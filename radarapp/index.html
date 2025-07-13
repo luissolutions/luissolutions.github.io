@@ -597,19 +597,31 @@
             const count = parseInt(document.getElementById('sensorCount').value);
             if (!projectName || isNaN(count)) return alert('Enter valid project ID and sensor count');
 
-            const timestamp = Date.now().toString();
-            const taskRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${timestamp}`);
+            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
+            const data = snapshot.exists() ? snapshot.val() : {};
 
-            await update(taskRef, {
-                id: timestamp,
-                project: projectName,
-                sensorCount: count
-            });
+            const existingEntry = Object.entries(data).find(([id, task]) => task.project === projectName);
+
+            let id;
+            if (existingEntry) {
+                id = existingEntry[0];
+                await update(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${id}`), {
+                    project: projectName,
+                    sensorCount: count
+                });
+            } else {
+                id = Date.now().toString();
+                await set(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${id}`), {
+                    id,
+                    project: projectName,
+                    sensorCount: count
+                });
+            }
 
             await populateProjects();
-            document.getElementById('projectList').value = timestamp;
-            await loadProject(timestamp);
-            alert(`Project ${projectName} saved successfully as ${timestamp}!`);
+            document.getElementById('projectList').value = id;
+            await loadProject(id);
+            alert(`Project ${projectName} saved successfully as ${id}!`);
         }
 
         function showModal(url, name, folderPath) {
