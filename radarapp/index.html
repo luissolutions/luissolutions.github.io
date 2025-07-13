@@ -63,7 +63,7 @@
     <main id="mainApp" class="hidden">
 
         <section>
-            <label>Project ID: <input type="text" id="projectId" /></label> <br>
+            <label>Project ID: <input type="text" id="project" /></label> <br>
             <label>Total Sensors: <input type="number" id="sensorCount" min="1" /></label>
             <button id="saveProject">Save New Project</button>
             <br /><br />
@@ -191,12 +191,13 @@
         import { accessToken, isTokenExpired } from '../apps/assets/js/microsoftAuth.js';
         import { getIP, updateVisitCount } from '../assets/js/visitLogger.js';
 
-        let currentProjectId = '';
+        let currentProject = '';
         let expectedSensors = 0;
         let modalItems = [];
         let modalIndex = 0;
         let DATABASE_BASE_PATH = 'public';
         let isLoadingProject = false;
+        let currentProjectName = '';
 
         onAuthStateChanged(auth, (user) => {
             DATABASE_BASE_PATH = user ? user.uid : 'public';
@@ -205,33 +206,30 @@
 
         const sanitize = str => str.trim().replace(/\s+/g, '_');
 
+        let validated = false;
+
         async function validateCode() {
-            try {
-                const input = document.getElementById('accessCode').value.trim().toLowerCase();
+            const input = document.getElementById('accessCode').value.trim().toLowerCase();
+            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
+            if (!snapshot.exists()) return alert('No tasks found.');
 
-                const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects`));
-                if (!snapshot.exists()) {
-                    return alert('No projects found in database.');
-                }
+            const tasks = snapshot.val();
+            const matchEntry = Object.entries(tasks).find(([id, data]) => {
+                return data.project?.trim().toLowerCase() === input;
+            });
 
-                const projectData = snapshot.val();
-                const projectIDs = Object.keys(projectData).map(id => id.toLowerCase());
-                const originalIDs = Object.keys(projectData);
+            if (matchEntry) {
+                const [matchedID, matchedData] = matchEntry;
+                localStorage.setItem('lastProject', matchedID);
+                validated = true;
 
-                const matchIndex = projectIDs.indexOf(input);
-                if (matchIndex !== -1) {
-                    const matchedID = originalIDs[matchIndex];
-                    document.getElementById('authScreen').remove();
-                    document.getElementById('mainApp').classList.remove('hidden');
-                    populateProjects();
-                    document.getElementById('projectList').value = matchedID;
-                    await loadProject(matchedID);
-                } else {
-                    alert('Invalid code.');
-                }
-            } catch (e) {
-                console.error(e);
-                alert('Error checking database.');
+                document.getElementById('authScreen')?.remove();
+                document.getElementById('mainApp')?.classList.remove('hidden');
+                await populateProjects();
+                document.getElementById('projectList').value = matchedID;
+                await loadProject(matchedID);
+            } else {
+                alert('Invalid project name.');
             }
         }
 
@@ -282,17 +280,23 @@
         });
 
         async function populateProjects() {
-            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects`));
+            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
             const dropdown = document.getElementById('projectList');
-            dropdown.innerHTML = '<option value="">-- Choose a project --</option>';
+            dropdown.innerHTML = '';
+
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = '-- Choose a project --';
+            dropdown.appendChild(defaultOption);
+
             if (snapshot.exists()) {
-                Object.keys(snapshot.val()).forEach(id => {
-                    const opt = new Option(id, id);
+                const data = snapshot.val();
+                Object.entries(data).forEach(([id, task]) => {
+                    const label = task.project || `(Unnamed - ${id})`;
+                    const opt = new Option(label, id);
                     dropdown.appendChild(opt);
                 });
             }
-            const last = localStorage.getItem('lastProject');
-            if (last) dropdown.value = last, loadProject(last);
         }
 
         async function loadProject(id) {
@@ -301,21 +305,32 @@
 
             try {
                 console.log(`[loadProject] Start loading project: ${id}`);
-                currentProjectId = id;
+                currentProject = id;
                 localStorage.setItem('lastProject', id);
-                document.getElementById('projectId').value = id;
 
-                const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${id}/sensorCount`));
-                expectedSensors = snap.exists() ? snap.val() : 0;
-                console.log(`[loadProject] Sensor count: ${expectedSensors}`);
+                const dataSnap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${id}`));
+                if (!dataSnap.exists()) {
+                    throw new Error(`No task found for ID ${id}`);
+                }
+
+                const data = dataSnap.val();
+
+                currentProjectName = data.project || '';
+                expectedSensors = data.sensorCount || 0;
+
+                document.getElementById('project').value = currentProjectName;
                 document.getElementById('sensorCount').value = expectedSensors;
+
+                console.log(`[loadProject] Sensor count: ${expectedSensors}`);
 
                 await updateSiteImages();
                 await loadNotes();
                 populateSensorDropdown(expectedSensors);
                 await updateGallery();
+
             } catch (err) {
                 console.error(`[loadProject] Failed:`, err);
+                alert('Failed to load project. Check console for details.');
             } finally {
                 isLoadingProject = false;
             }
@@ -342,7 +357,7 @@
 
         async function updateGallery() {
             const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
-            const base = `public/projects/${currentProjectId}/${isSensor ? 'sensors' : 'deliverables'}`;
+            const base = `public/tasks/${currentProject}/${isSensor ? 'sensors' : 'deliverables'}`;
             const snapshot = await listAll(storageRef(storage, base));
 
             const items = await Promise.all(snapshot.items.map(async item => {
@@ -428,7 +443,7 @@
             const file = fileEl.files[0];
             const skipMarkup = skipMarkupEl.checked;
 
-            if (!currentProjectId || !num || !serial || !file) {
+            if (!currentProject || !num || !serial || !file) {
                 alert('Fill out all fields');
                 uploadBtn.disabled = false;
                 uploadBtn.textContent = 'Upload';
@@ -436,11 +451,12 @@
             }
 
             const paddedNum = String(num).padStart(2, '0');
-            const folderPath = `${DATABASE_BASE_PATH}/projects/${currentProjectId}/sensors`;
+            const safeProjectName = sanitize(currentProjectName || currentProject);
+            const folderPath = `public/tasks/${currentProject}/sensors`;
 
             try {
                 const files = await listAll(storageRef(storage, folderPath));
-                const matchCount = files.items.filter(f => f.name.startsWith(`${currentProjectId}_${paddedNum}`)).length;
+                const matchCount = files.items.filter(f => f.name.startsWith(`${safeProjectName}_${paddedNum}`)).length;
 
                 if (matchCount >= 2) {
                     const proceed = confirm(`Sensor ${paddedNum} already has 2 uploads. Upload another?`);
@@ -453,10 +469,10 @@
 
                 let blob = await resizeImage(file, 2048);
                 if (!skipMarkup) {
-                    blob = await addTextToImage(blob, `${currentProjectId} ${paddedNum} - ${serial}`);
+                    blob = await addTextToImage(blob, `${currentProjectName} ${paddedNum} - ${serial}`);
                 }
 
-                const desired = `${currentProjectId}_${paddedNum}-${serial}.jpg`;
+                const desired = `${safeProjectName}_${paddedNum}-${serial}.jpg`;
                 const uniqueName = await getUniqueFilename(folderPath, desired);
 
                 await uploadBytes(storageRef(storage, `${folderPath}/${uniqueName}`), blob);
@@ -493,7 +509,7 @@
             const nameInput = sanitize(rawName);
             const markupInput = rawMarkup;
 
-            if (!currentProjectId || !file || (!nameInput && !markupInput)) {
+            if (!currentProject || !file || (!nameInput && !markupInput)) {
                 alert('Please select a file and enter either a Name or Markup');
                 uploadBtn.disabled = false;
                 uploadBtn.textContent = 'Upload Image';
@@ -508,7 +524,7 @@
                     blob = await addTextToImage(blob, rawMarkup);
                 }
 
-                const folder = `public/projects/${currentProjectId}/deliverables`;
+                const folder = `public/tasks/${currentProject}/deliverables`;
                 const desired = `${baseName}.jpg`;
                 const uniqueName = await getUniqueFilename(folder, desired);
 
@@ -531,16 +547,18 @@
         async function saveNote() {
             const dateInput = document.getElementById('noteDate').value;
             const text = document.getElementById('noteText').value.trim();
-            if (!currentProjectId || !dateInput || !text) return;
+            if (!currentProject || !dateInput || !text) return;
 
             const utcTimestamp = Date.now();
-            await set(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/notes/${utcTimestamp}`), text);
+            await update(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/comments`), {
+                [utcTimestamp]: text
+            });;
             loadNotes();
             alert('Note saved successfully!');
         }
 
         async function loadNotes() {
-            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/notes`));
+            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/comments`));
             const list = document.getElementById('notesList');
             list.innerHTML = '';
 
@@ -566,7 +584,7 @@
                         const timestamp = button.dataset.timestamp;
                         const confirmDelete = confirm(`Delete note from ${new Date(parseInt(timestamp)).toLocaleString()}?`);
                         if (confirmDelete) {
-                            await set(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/notes/${timestamp}`), null);
+                            await set(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/comments/${timestamp}`), null);
                             loadNotes();
                         }
                     });
@@ -575,14 +593,23 @@
         }
 
         async function saveProject() {
-            const id = sanitize(document.getElementById('projectId').value);
+            const projectName = sanitize(document.getElementById('project').value);
             const count = parseInt(document.getElementById('sensorCount').value);
-            if (!id || isNaN(count)) return alert('Enter valid project ID and sensor count');
-            await update(dbRef(database, `${DATABASE_BASE_PATH}/projects/${id}`), { sensorCount: count });
+            if (!projectName || isNaN(count)) return alert('Enter valid project ID and sensor count');
+
+            const timestamp = Date.now().toString();
+            const taskRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${timestamp}`);
+
+            await update(taskRef, {
+                id: timestamp,
+                project: projectName,
+                sensorCount: count
+            });
+
             await populateProjects();
-            projectList.value = id;
-            loadProject(id);
-            alert(`Project ${id} saved successfully!`);
+            document.getElementById('projectList').value = timestamp;
+            await loadProject(timestamp);
+            alert(`Project ${projectName} saved successfully as ${timestamp}!`);
         }
 
         function showModal(url, name, folderPath) {
@@ -616,7 +643,7 @@
 
             const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
             const folder = isSensor ? 'sensors' : 'deliverables';
-            const path = `public/projects/${currentProjectId}/${folder}/${item.name}`;
+            const path = `public/tasks/${currentProject}/${folder}/${item.name}`;
 
             try {
                 await deleteObject(storageRef(storage, path));
@@ -667,15 +694,15 @@
             if (url) {
                 const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
                 const folder = isSensor ? 'sensors' : 'deliverables';
-                showModal(url, name, `public/projects/${currentProjectId}/${folder}`);
+                showModal(url, name, `public/tasks/${currentProject}/${folder}`);
             }
         });
 
         document.getElementById("sensorMetaNumberDropdown").addEventListener("change", async (e) => {
             const num = e.target.value;
-            if (!num || !currentProjectId) return;
+            if (!num || !currentProject) return;
 
-            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/sensorMeta/${num}`));
+            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/sensorMeta/${num}`));
             if (snap.exists()) {
                 const data = snap.val();
                 document.getElementById("sensorMetaSerial").value = data.serial || '';
@@ -701,7 +728,7 @@
             if (!num || !serial) return alert("Sensor number and serial are required.");
 
             const sensorData = { serial, m1, m2, m3 };
-            await set(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/sensorMeta/${num}`), sensorData);
+            await set(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/sensorMeta/${num}`), sensorData);
             alert("Sensor info saved!");
         };
 
@@ -709,12 +736,12 @@
             const num = e.target.value;
             const serialEl = document.getElementById("serialNumber");
 
-            if (!num || !currentProjectId) {
+            if (!num || !currentProject) {
                 serialEl.value = '';
                 return;
             }
 
-            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/projects/${currentProjectId}/sensorMeta/${num}`));
+            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/sensorMeta/${num}`));
             if (snap.exists()) {
                 const data = snap.val();
                 serialEl.value = data.serial || '';
@@ -729,17 +756,17 @@
         let siteImageRotation = 0;
 
         function getSiteIndex() {
-            return parseInt(localStorage.getItem(`${currentProjectId}_siteIdx`) || '0', 10);
+            return parseInt(localStorage.getItem(`${currentProject}_siteIdx`) || '0', 10);
         }
         function saveSiteIndex(idx) {
-            localStorage.setItem(`${currentProjectId}_siteIdx`, idx);
+            localStorage.setItem(`${currentProject}_siteIdx`, idx);
         }
 
         async function updateSiteImages() {
             siteImages = [];
 
-            if (!currentProjectId) return;
-            const base = `public/projects/${currentProjectId}/siteImages`;
+            if (!currentProject) return;
+            const base = `public/tasks/${currentProject}/siteImages`;
             try {
                 const snap = await listAll(storageRef(storage, base));
                 siteImages = await Promise.all(snap.items.map(async item => ({ name: item.name, url: await getDownloadURL(item) })));
@@ -813,12 +840,12 @@
         }
 
         async function uploadSiteImage() {
-            if (!currentProjectId) return alert('Select a project first');
+            if (!currentProject) return alert('Select a project first');
             const file = document.getElementById('siteImageUploader').files[0];
             if (!file) return alert('Pick an image!');
 
             const blob = await resizeImage(file, 2048);
-            const folder = `public/projects/${currentProjectId}/siteImages`;
+            const folder = `public/tasks/${currentProject}/siteImages`;
             const uniqueName = await getUniqueFilename(folder, sanitize(file.name));
             const path = `${folder}/${uniqueName}`;
 
@@ -857,7 +884,7 @@
         document.getElementById("uploadFolderToOneDrive").addEventListener("click", async () => {
             const uploadBtn = document.getElementById("uploadFolderToOneDrive");
 
-            if (!currentProjectId) return alert("Select or load a project first.");
+            if (!currentProject) return alert("Select or load a project first.");
             if (!accessToken) return alert("You must be logged into Microsoft first.");
 
             if (isTokenExpired(accessToken)) {
@@ -872,15 +899,15 @@
 
             const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
             const folderType = isSensor ? 'sensors' : 'deliverables';
-            const firebaseFolder = `public/projects/${currentProjectId}/${folderType}`;
-            const oneDriveFolder = `JobPhotos/${currentProjectId}/${folderType}`;
+            const firebaseFolder = `public/tasks/${currentProject}/${folderType}`;
+            const oneDriveFolder = `JobPhotos/${currentProject}/${folderType}`;
 
             try {
                 const folderRef = storageRef(storage, firebaseFolder);
                 const folderSnapshot = await listAll(folderRef);
 
                 await ensureOneDriveFolder("JobPhotos");
-                await ensureOneDriveFolder(`JobPhotos/${currentProjectId}`);
+                await ensureOneDriveFolder(`JobPhotos/${currentProject}`);
                 await ensureOneDriveFolder(oneDriveFolder);
 
                 for (const item of folderSnapshot.items) {
