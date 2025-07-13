@@ -128,7 +128,7 @@
         </section>
 
         <section id="sensorUploadSection">
-            <h3>Upload Sensor Image</h3>
+            <h3>Upload Sensor Image Below</h3>
             <input type="file" id="sensorImage" /><br />
 
             <label>Sensor #:
@@ -599,7 +599,21 @@
             const count = parseInt(document.getElementById('sensorCount').value);
             if (!projectName || isNaN(count)) return alert('Enter valid project ID and sensor count');
 
-            const timestamp = Date.now().toString();
+            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
+
+            let existingProjectId = null;
+
+            if (snapshot.exists()) {
+                const tasks = snapshot.val();
+                for (const [id, task] of Object.entries(tasks)) {
+                    if ((task.project || '').trim().toLowerCase() === projectName.toLowerCase()) {
+                        existingProjectId = id;
+                        break;
+                    }
+                }
+            }
+
+            const timestamp = existingProjectId || Date.now().toString();
             const taskRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${timestamp}`);
 
             await update(taskRef, {
@@ -611,7 +625,7 @@
             await populateProjects();
             document.getElementById('projectList').value = timestamp;
             await loadProject(timestamp);
-            alert(`Project ${projectName} saved successfully as ${timestamp}!`);
+            alert(`Project "${projectName}" ${existingProjectId ? 'updated' : 'saved'} successfully as ${timestamp}!`);
         }
 
         function showModal(url, name, folderPath) {
