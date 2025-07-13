@@ -1112,29 +1112,45 @@
             }
         });
 
+        async function getAllImagesRecursive(folderRef) {
+            let imageUrls = [];
+
+            const list = await listAll(folderRef);
+
+            for (const item of list.items) {
+                const url = await getDownloadURL(item);
+                imageUrls.push({ name: item.name, url });
+            }
+
+            for (const prefix of list.prefixes) {
+                const nestedUrls = await getAllImagesRecursive(prefix);
+                imageUrls = imageUrls.concat(nestedUrls);
+            }
+
+            return imageUrls;
+        }
+
         async function loadTaskImages(project) {
             imageUrls = [];
             imageSelect.innerHTML = '<option value="" disabled selected>Select Image</option>';
             photoContainer.innerHTML = '';
-
             loadingIndicator.style.display = 'block';
 
             try {
-                const storageImagesRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images/${project}`);
-                const storageSnapshot = await listAll(storageImagesRef);
+                const rootRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images/${project}`);
+                const allImages = await getAllImagesRecursive(rootRef);
 
-                for (const item of storageSnapshot.items) {
-                    const imageUrl = await getDownloadURL(item);
+                for (const { name, url } of allImages) {
                     const option = document.createElement('option');
-                    option.value = imageUrl;
-                    option.textContent = item.name;
+                    option.value = url;
+                    option.textContent = name;
                     imageSelect.appendChild(option);
-                    imageUrls.push(imageUrl);
+                    imageUrls.push(url);
                 }
 
                 displayImagesForPage(1);
             } catch (error) {
-                console.error("Error loading images:", error);
+                console.error("Error loading images recursively:", error);
             } finally {
                 loadingIndicator.style.display = 'none';
             }
