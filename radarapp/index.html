@@ -120,6 +120,7 @@
             <label>Measurement 2: <input type="text" id="sensorMetaM2" placeholder="Optional" /></label><br>
             <label>Measurement 3: <input type="text" id="sensorMetaM3" placeholder="Optional" /></label><br>
             <button id="saveSensorMeta">Save Sensor Info</button>
+            <button id="exportCSV">Export Sensor Data</button>
         </section>
         <br>
         <section class="radio-group">
@@ -1067,6 +1068,58 @@
         function createPlaceholderBlob(content = "This is a placeholder file.") {
             return new Blob([content], { type: "text/plain" });
         }
+
+        function normalizeText(text) {
+            return (text || "")
+                .replace(/[‘’‛`´]/g, "'")
+                .replace(/[“”«»]/g, '"')
+                .replace(/[–—−]/g, '-')
+                .replace(/[′″]/g, match => match === '′' ? "'" : '"')
+                .replace(/,+/g, " ")
+                .replace(/"/g, '')
+                .normalize('NFKD')
+                .replace(/[^\x00-\x7F]/g, '');
+        }
+
+        document.getElementById("exportCSV").addEventListener("click", async () => {
+            if (!currentProject) {
+                alert("No project selected.");
+                return;
+            }
+
+            const refPath = `${DATABASE_BASE_PATH}/tasks/${currentProject}/sensorMeta`;
+            const snapshot = await get(dbRef(database, refPath));
+
+            if (!snapshot.exists()) {
+                alert("No sensor data found.");
+                return;
+            }
+
+            const data = snapshot.val();
+            const headers = ["Sensor #", "Serial", "Measurement 1", "Measurement 2", "Measurement 3"];
+            const rows = [headers];
+
+            Object.entries(data).forEach(([sensorNum, meta]) => {
+                rows.push([
+                    normalizeText(sensorNum),
+                    normalizeText(meta.serial),
+                    normalizeText(meta.m1),
+                    normalizeText(meta.m2),
+                    normalizeText(meta.m3)
+                ]);
+            });
+
+            const csvContent = rows.map(row => row.join(",")).join("\n");
+            const blob = new Blob([csvContent], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${sanitize(currentProjectName || currentProject)}_sensorData.csv`;
+            a.click();
+
+            URL.revokeObjectURL(url);
+        });
 
     </script>
 </body>
