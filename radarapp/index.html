@@ -205,6 +205,7 @@
             populateProjects();
         });
 
+        const ADMIN_PASSWORD = "telaidadmin";
         const sanitize = str => str.trim().replace(/\s+/g, '_');
 
         let validated = false;
@@ -230,7 +231,33 @@
                 document.getElementById('projectList').value = matchedID;
                 await loadProject(matchedID);
             } else {
-                alert('Invalid project name.');
+                const shouldCreate = confirm(`Project "${input}" not found. Would you like to create it?`);
+                if (!shouldCreate) return;
+
+                const inputPassword = prompt("Enter password to create a new project:");
+                if (inputPassword !== ADMIN_PASSWORD) {
+                    alert("Incorrect password.");
+                    return;
+                }
+
+                const newTimestamp = Date.now().toString();
+                const taskRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${newTimestamp}`);
+
+                await update(taskRef, {
+                    id: newTimestamp,
+                    project: input,
+                    sensorCount: 0
+                });
+
+                localStorage.setItem('lastProject', newTimestamp);
+                validated = true;
+
+                alert("New project created. Please enter the total sensors and save.");
+                document.getElementById('authScreen')?.remove();
+                document.getElementById('mainApp')?.classList.remove('hidden');
+                await populateProjects();
+                document.getElementById('projectList').value = newTimestamp;
+                await loadProject(newTimestamp);
             }
         }
 
@@ -292,7 +319,14 @@
 
             if (snapshot.exists()) {
                 const data = snapshot.val();
-                Object.entries(data).forEach(([id, task]) => {
+
+                const sortedEntries = Object.entries(data).sort(([, a], [, b]) => {
+                    const nameA = (a.project || '').toLowerCase();
+                    const nameB = (b.project || '').toLowerCase();
+                    return nameA.localeCompare(nameB);
+                });
+
+                sortedEntries.forEach(([id, task]) => {
                     const label = task.project || `(Unnamed - ${id})`;
                     const opt = new Option(label, id);
                     dropdown.appendChild(opt);
@@ -1026,9 +1060,7 @@
 
         async function confirmWithPassword(actionDescription = "this action") {
             const input = prompt(`Enter password to confirm ${actionDescription}:`);
-            if (!input) return false;
-            const correctPassword = "telaidadmin";
-            return input === correctPassword;
+            return input === ADMIN_PASSWORD;
         }
 
         document.addEventListener("DOMContentLoaded", async () => {
