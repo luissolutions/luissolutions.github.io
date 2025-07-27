@@ -10,6 +10,30 @@
     <script type="module" src="../apps/assets/js/microsoftAuth.js"></script>
     <script type="module" src="../apps/assets/js/login.js"></script>
     <script src="assets/js/sidebar.js"></script>
+    <style>
+        #fieldSelector {
+            display: flex;
+        }
+
+        input:disabled,
+        textarea:disabled,
+        button:disabled {
+            background-color: #eee;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        #fieldSelector input[type="checkbox"],
+        #adminSection input[type="checkbox"] {
+            margin-right: 10px;
+            transform: scale(1.2);
+        }
+
+        .compact-panel {
+            display: none;
+            position: relative;
+        }
+    </style>
 </head>
 
 <body>
@@ -21,7 +45,7 @@
                 <form id="login-form">
                     <label for="username">Email:</label>
                     <input type="email" id="username" required>
-                    <br>
+                    <br>j
                     <label for="password">Password:</label>
                     <input type="password" id="password" required>
                     <br>
@@ -37,6 +61,15 @@
                 <p id="loginStatus">Login status...</p>
             </div>
         </span>
+        <section id="adminSection" style="display: none;">
+            <label>
+                <input type="checkbox" id="adminToggle" />
+                Admin Mode
+            </label>
+        </section>
+
+
+
     </header>
 
     <div id="authScreen">
@@ -62,10 +95,24 @@
 
     <main id="mainApp" class="hidden">
 
+        <section id="fieldSelector">
+            <button id="customizeToggle" class="compact-btn">⚙️ Customize View</button>
+            <div id="customizePanel" class="compact-panel">
+                <label><input type="checkbox" class="section-toggle" data-target="siteImagesSection" checked> Site
+                    Images</label><br>
+                <label><input type="checkbox" class="section-toggle" data-target="notes-section" checked> Project
+                    Notes</label><br>
+                <label><input type="checkbox" class="section-toggle" data-target="sensor-meta" checked> Sensor
+                    Details</label><br>
+                <label><input type="checkbox" class="section-toggle" data-target="radio-group" checked> Image Mode
+                    Toggle</label><br>
+            </div>
+        </section>
+
         <section>
             <label>Project ID: <input type="text" id="project" /></label> <br>
             <label>Total Sensors: <input type="number" id="sensorCount" min="1" /></label>
-            <button id="saveProject">Save New Project</button>
+            <button id="saveProject" style="display: none;">Save New Project</button>
             <br /><br />
             <label>Existing Projects:
                 <select id="projectList">
@@ -100,7 +147,7 @@
             </div>
         </section>
 
-        <section>
+        <section class="notes-section">
             <h3>Project Notes:</h3>
             <div id="notesList" class="notes-section"></div>
             <label>Date: <input type="date" id="noteDate" /></label><br />
@@ -108,7 +155,7 @@
             <button id="saveNote">Save Note</button>
         </section>
 
-        <section>
+        <section class="sensor-meta">
             <h3>Sensor Details</h3>
             <label>Sensor #:
                 <select id="sensorMetaNumberDropdown">
@@ -1090,8 +1137,14 @@
 
         document.querySelector("h1").addEventListener("dblclick", () => {
             const loginSection = document.getElementById("logins-section");
+            const adminSection = document.getElementById("adminSection");
+
             if (loginSection) {
                 loginSection.style.display = (loginSection.style.display === "none" || loginSection.style.display === "") ? "flex" : "none";
+            }
+
+            if (adminSection) {
+                adminSection.style.display = (adminSection.style.display === "none" || adminSection.style.display === "") ? "block" : "none";
             }
         });
 
@@ -1162,6 +1215,85 @@
             a.click();
 
             URL.revokeObjectURL(url);
+        });
+
+        document.querySelectorAll('.section-toggle').forEach(checkbox => {
+            checkbox.addEventListener('change', () => {
+                const targetClass = checkbox.dataset.target;
+                const elements = document.getElementsByClassName(targetClass);
+                for (let el of elements) {
+                    el.style.display = checkbox.checked ? '' : 'none';
+                }
+
+                // For single-ID targets like siteImagesSection
+                const single = document.getElementById(targetClass);
+                if (single) {
+                    single.style.display = checkbox.checked ? '' : 'none';
+                }
+            });
+        });
+
+        // Save to localStorage
+        document.querySelectorAll('.section-toggle').forEach(checkbox => {
+            checkbox.addEventListener('change', () => {
+                localStorage.setItem(`toggle_${checkbox.dataset.target}`, checkbox.checked);
+            });
+        });
+
+        // Restore on load
+        window.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.section-toggle').forEach(checkbox => {
+                const saved = localStorage.getItem(`toggle_${checkbox.dataset.target}`);
+                if (saved !== null) {
+                    checkbox.checked = saved === 'true';
+                    checkbox.dispatchEvent(new Event('change')); // apply it
+                }
+            });
+        });
+
+        function updateUploadPermissions() {
+            const isAdmin = document.getElementById('adminToggle').checked;
+
+            // Upload buttons
+            document.getElementById('uploadDeliverableImage').disabled = !isAdmin;
+            document.getElementById('uploadSiteImage').disabled = !isAdmin;
+            document.getElementById('uploadFolderToOneDrive').disabled = !isAdmin;
+
+            // Save buttons
+            document.getElementById('saveNote').disabled = !isAdmin;
+            document.getElementById('saveSensorMeta').disabled = !isAdmin;
+            document.getElementById('saveProject').style.display = isAdmin ? 'inline-block' : 'none';
+
+            // Input fields
+            document.getElementById('noteDate').disabled = !isAdmin;
+            document.getElementById('noteText').disabled = !isAdmin;
+            document.getElementById('skipMarkupCheckbox').disabled = !isAdmin;
+            document.getElementById('fileUploader').disabled = !isAdmin;
+            document.getElementById('imageNameInput').disabled = !isAdmin;
+            document.getElementById('markupTextInput').disabled = !isAdmin;
+            document.getElementById('sensorCount').disabled = !isAdmin;
+
+            // ✅ Hide or show fieldSelector
+            document.getElementById('fieldSelector').style.display = isAdmin ? 'block' : 'none';
+        }
+
+        document.getElementById('adminToggle').addEventListener('change', () => {
+            const isAdmin = document.getElementById('adminToggle').checked;
+            localStorage.setItem('adminMode', isAdmin ? 'true' : 'false');
+            updateUploadPermissions();
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const saved = localStorage.getItem('adminMode');
+            if (saved) {
+                document.getElementById('adminToggle').checked = saved === 'true';
+            }
+            updateUploadPermissions();
+        });
+
+        document.getElementById('customizeToggle').addEventListener('click', () => {
+            const panel = document.getElementById('customizePanel');
+            panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
         });
 
     </script>
