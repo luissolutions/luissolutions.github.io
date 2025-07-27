@@ -64,7 +64,7 @@
 
         <section id="adminSection" style="display: none;">
             <label>
-                <input type="checkbox" id="adminToggle" checked/>
+                <input type="checkbox" id="adminToggle" checked />
                 Admin Mode
             </label>
         </section>
@@ -75,6 +75,8 @@
         <h2>Enter Project Code to Continue</h2>
         <input type="text" id="accessCode" placeholder="Project ID" />
         <button id="submitCode">Enter</button>
+        <button id="autoValidateBtn">Select Project</button>
+
 
         <section class="instructions">
             <h2>Instructions</h2>
@@ -277,6 +279,11 @@
                 document.getElementById('projectList').value = matchedID;
                 await loadProject(matchedID);
             } else {
+                if (!input) {
+                    alert("Project name cannot be blank.");
+                    return;
+                }
+
                 const shouldCreate = confirm(`Project "${input}" not found. Would you like to create it?`);
                 if (!shouldCreate) return;
 
@@ -306,6 +313,41 @@
                 await loadProject(newTimestamp);
             }
         }
+
+        document.getElementById('autoValidateBtn').addEventListener('click', async () => {
+            const tasksSnapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
+            if (!tasksSnapshot.exists()) {
+                alert("No projects found.");
+                return;
+            }
+
+            const tasks = tasksSnapshot.val();
+            const taskEntries = Object.entries(tasks);
+            if (taskEntries.length === 0) {
+                alert("No projects available.");
+                return;
+            }
+
+            let selectedID;
+
+            const lastProjectID = localStorage.getItem('lastProject');
+            const foundLast = taskEntries.find(([id]) => id === lastProjectID);
+            if (lastProjectID && foundLast) {
+                selectedID = lastProjectID;
+            } else {
+                // Randomly pick one
+                const randomEntry = taskEntries[Math.floor(Math.random() * taskEntries.length)];
+                selectedID = randomEntry[0];
+            }
+
+            validated = true;
+            document.getElementById('authScreen')?.remove();
+            document.getElementById('mainApp')?.classList.remove('hidden');
+            localStorage.setItem('lastProject', selectedID);
+            await populateProjects();
+            document.getElementById('projectList').value = selectedID;
+            await loadProject(selectedID);
+        });
 
         document.getElementById('submitCode').addEventListener('click', validateCode);
         document.getElementById('accessCode').addEventListener('keydown', e => {
