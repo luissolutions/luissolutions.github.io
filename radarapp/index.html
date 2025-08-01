@@ -1058,7 +1058,6 @@
 
             if (!currentProject) return alert("Select or load a project first.");
             if (!accessToken) return alert("You must be logged into Microsoft first.");
-
             if (isTokenExpired(accessToken)) {
                 alert("Session expired. Please log in again.");
                 logoutMicrosoft();
@@ -1083,6 +1082,7 @@
                 await ensureOneDriveFolder("JobPhotos");
                 await ensureOneDriveFolder(`JobPhotos/${safeProjectName}`);
                 await ensureOneDriveFolder(oneDriveFolder);
+
                 for (const item of folderSnapshot.items) {
                     const blob = await getBlob(item);
                     const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${oneDriveFolder}/${item.name}:/content`;
@@ -1098,7 +1098,48 @@
                     }
                 }
 
-                alert(`Uploaded all images to OneDrive folder: ${oneDriveFolder}`);
+                // ✅ Upload sensor CSV if in deliverables mode
+                if (!isSensor) {
+                    const refPath = `${DATABASE_BASE_PATH}/tasks/${currentProject}/sensorMeta`;
+                    const snapshot = await get(dbRef(database, refPath));
+
+                    if (snapshot.exists()) {
+                        const data = snapshot.val();
+                        const headers = ["Sensor #", "Serial", "Measurement 1", "Measurement 2", "Measurement 3"];
+                        const rows = [headers];
+
+                        Object.entries(data).forEach(([sensorNum, meta]) => {
+                            rows.push([
+                                normalizeText(sensorNum),
+                                normalizeText(meta.serial),
+                                normalizeText(meta.m1),
+                                normalizeText(meta.m2),
+                                normalizeText(meta.m3)
+                            ]);
+                        });
+
+                        const csvContent = rows.map(row => row.join(",")).join("\n");
+                        const blob = new Blob([csvContent], { type: "text/csv" });
+                        const filename = `${sanitize(currentProjectName || currentProject)}_redline.csv`;
+                        const csvUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${oneDriveFolder}/${filename}:/content`;
+
+                        const csvRes = await fetch(csvUrl, {
+                            method: "PUT",
+                            headers: {
+                                Authorization: `Bearer ${accessToken}`
+                            },
+                            body: blob
+                        });
+
+                        if (!csvRes.ok) {
+                            console.error(`Failed to upload CSV:`, await csvRes.text());
+                        } else {
+                            console.log("Sensor CSV uploaded successfully.");
+                        }
+                    }
+                }
+
+                alert(`Uploaded all images${!isSensor ? ' and CSV' : ''} to OneDrive folder: ${oneDriveFolder}`);
             } catch (err) {
                 console.error("Upload error:", err);
                 alert("Upload failed. See console for details.");
