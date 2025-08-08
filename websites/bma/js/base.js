@@ -68,9 +68,9 @@ const appNamesMap = {
   "Quote/Invoice Maker": { filename: "liveinvoice", tags: ["invoice", "billing", "quote", "finance"] },
   "Financial Logging": { filename: "livebudget", tags: ["budget", "money", "expenses", "finance"] },
   "Contacts": { filename: "livecontacts", tags: ["contacts", "phone", "address", "people"] },
+  "Job Details": { filename: "livedetails", tags: ["details", "jobnotes", "job"] },
   "Password Generator": { filename: "password", tags: ["password", "security", "generator"] },
   "Conversion Calculator": { filename: "conversion", tags: ["conversion", "convert", "math"] },
-  "Percentage Calculator": { filename: "percent", tags: ["percentage", "math", "calculator"] },
   "Calculator": { filename: "calc", tags: ["calculator", "math", "numbers"] },
   "Wire Counter": { filename: "count", tags: ["count", "wires", "electrical"] },
 };
