@@ -861,7 +861,7 @@
 
                 await uploadBytes(storageRef(storage, `${folder}/${uniqueName}`), blob);
 
-                const placeholderRef = storageRef(storage, `${folderPath}/.init.txt`);
+                const placeholderRef = storageRef(storage, `${folder}/.init.txt`);
                 try {
                     await deleteObject(placeholderRef);
                     console.log('Sensor .init.txt deleted.');
@@ -1141,13 +1141,24 @@
         async function updateSiteImages() {
             siteImages = [];
             const safeProjectName = sanitize(currentProjectName || currentProject);
-
             if (!currentProject) return;
+
             const base = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/siteImages`;
+            const isImageName = (n) => /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(n);
+
             try {
                 const snap = await listAll(storageRef(storage, base));
-                siteImages = await Promise.all(snap.items.map(async item => ({ name: item.name, url: await getDownloadURL(item) })));
-            } catch { siteImages = []; }
+                const imageItems = snap.items.filter(item => isImageName(item.name));
+                imageItems.sort((a, b) => a.name.localeCompare(b.name));
+
+                siteImages = await Promise.all(
+                    imageItems.map(async item => ({ name: item.name, url: await getDownloadURL(item) }))
+                );
+                console.log('[siteImages] found:', siteImages.map(x => x.name));
+            } catch (e) {
+                console.warn('[siteImages] list error:', e);
+                siteImages = [];
+            }
 
             currentSiteIndex = Math.min(getSiteIndex(), siteImages.length - 1);
             if (currentSiteIndex < 0) currentSiteIndex = 0;
@@ -1167,21 +1178,53 @@
                 nextBtns.forEach(btn => btn.disabled = true);
                 rotBtns.forEach(btn => btn.disabled = true);
                 img.src = '';
+                img.alt = '';
+                img.style.opacity = 1;
                 return;
             }
 
-            img.style.opacity = 0;
-            img.src = `${siteImages[currentSiteIndex].url}?t=${Date.now()}`;
-            img.alt = siteImages[currentSiteIndex].name;
+            const multi = siteImages.length > 1;
+            prevBtns.forEach(btn => btn.disabled = !multi);
+            nextBtns.forEach(btn => btn.disabled = !multi);
+            rotBtns.forEach(btn => btn.disabled = false);
+
+            const { url, name } = siteImages[currentSiteIndex];
+            img.alt = name;
             siteImageRotation = 0;
             img.style.transform = 'rotate(0deg)';
 
+            img.style.opacity = 0.01;
+            img.src = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+
+            let safetyTimer = setTimeout(() => {
+                console.warn('[siteImages] load timeout; advancing…', name);
+                tryNextImage();
+            }, 2000);
+
             img.onload = () => {
+                clearTimeout(safetyTimer);
                 img.style.opacity = 1;
-                const dispW = wrapper.clientWidth;
-                const dispH = img.clientHeight;
-                wrapper.style.height = `${dispH}px`;
+                requestAnimationFrame(() => {
+                    wrapper.style.height = `${img.clientHeight}px`;
+                });
             };
+
+            img.onerror = () => {
+                clearTimeout(safetyTimer);
+                console.warn('[siteImages] decode error; advancing…', name);
+                tryNextImage();
+            };
+
+            function tryNextImage() {
+                if (siteImages.length <= 1) {
+                    img.style.opacity = 1;
+                    wrapper.style.height = 'auto';
+                    return;
+                }
+                currentSiteIndex = (currentSiteIndex + 1) % siteImages.length;
+                saveSiteIndex(currentSiteIndex);
+                renderSiteImage();
+            }
         }
 
         function rotateSiteImage() {
