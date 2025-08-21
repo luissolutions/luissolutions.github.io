@@ -10,6 +10,96 @@
     <link rel="icon" type="image/png" sizes="16x16" href="assets/img/favicon-16x16.png">
     <link rel="manifest" href="./site.webmanifest">
     <link rel="stylesheet" href="assets/css/app-styles.css" />
+
+    <style>
+        .admin-bar {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            padding: 10px;
+            background: #2a2a2a
+        }
+
+        .admin-bar small {
+            color: #ccc
+        }
+
+        .admin-bar .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #eef2f3;
+            color: #333;
+            font-size: .85rem
+        }
+
+        .admin-bar input[type="checkbox"] {
+            transform: scale(1.1)
+        }
+
+        .product-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center
+        }
+
+        .product-item {
+            background: #fff;
+            border: 1px solid #eee;
+            border-radius: 12px;
+            padding: 14px;
+            width: 260px;
+            text-align: left
+        }
+
+        .product-item img {
+            width: 100%;
+            height: 160px;
+            object-fit: contain;
+            background: #fafafa;
+            border: 1px solid #eee;
+            border-radius: 8px
+        }
+
+        .product-item h3 {
+            margin: .6rem 0 .25rem 0;
+            font-size: 1.05rem;
+            color: #222
+        }
+
+        .product-item .meta {
+            opacity: .75;
+            margin: .1rem 0 .4rem
+        }
+
+        .product-item .our-price {
+            font-weight: 700;
+            margin: .3rem 0 .7rem
+        }
+
+        .cta-button {
+            display: inline-block;
+            padding: 10px 14px;
+            background: var(--primaryColor);
+            color: #fff;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700
+        }
+
+        .cta-button:hover {
+            background: var(--secondaryColor)
+        }
+
+        .affiliate-disclosure {
+            font-size: .9rem;
+            opacity: .85
+        }
+    </style>
 </head>
 
 <body>
@@ -25,10 +115,18 @@
         <a href="about.html">About</a>
     </nav>
 
+    <!-- Appears only when a user is signed in so they can flip workspaces -->
+    <div class="admin-bar" id="viewBar" style="display:none;">
+        <small id="viewLabel">Viewing: Public</small>
+        <label class="chip" id="viewToggleWrap" style="display:none;">
+            <input type="checkbox" id="viewToggle" /> My Workspace
+        </label>
+    </div>
+
     <main>
         <section class="container">
-            <div class="hero" style="text-align:center; padding:28px 16px;">
-                <h2>Tools & Gear for Low‑Voltage Pros</h2>
+            <div class="hero" style="text-align:center;padding:28px 16px;">
+                <h2>Tools &amp; Gear for Low-Voltage Pros</h2>
                 <p>Curated picks for technicians and integrators — testers, termination, racks, PoE and more.</p>
                 <a href="catalog.html" class="cta-button">Shop Catalog</a>
             </div>
@@ -41,19 +139,18 @@
 
             <section class="content" style="margin-top:24px;">
                 <h2>Featured Products</h2>
-                <div class="product-grid" id="featuredGrid">
-                    <!-- Featured cards rendered here -->
-                </div>
-                <p id="featuredEmpty" style="display:none; opacity:.8;">No featured items yet. Add products with an
+                <div class="product-grid" id="featuredGrid"></div>
+                <p id="featuredEmpty" style="display:none;opacity:.8;">No featured items yet. Add products with an
                     Amazon link in your inventory.</p>
             </section>
 
             <section style="margin-top:36px;">
                 <h2>Why Shop Here?</h2>
                 <ul style="line-height:1.8;">
-                    <li>Hand‑picked gear for structured cabling, CCTV, access control and networking.</li>
-                    <li>Quick filters by category (Test & Certify, Termination, Rack & Power, Cameras, etc.).</li>
-                    <li>Straightforward recommendations with clear specs and field‑proven picks.</li>
+                    <li>Hand-picked gear for structured cabling, CCTV, access control and networking.</li>
+                    <li>Quick filters by category (Test &amp; Certify, Termination, Rack &amp; Power, Cameras, etc.).
+                    </li>
+                    <li>Straightforward recommendations with clear specs and field-proven picks.</li>
                 </ul>
             </section>
         </section>
@@ -69,29 +166,80 @@
     </footer>
 
     <script type="module">
-        // Uses your existing no-auth Firebase init
-        import { ref, onValue, database } from '../../assets/js/firebase-init-noauth.js';
+        import {
+            auth, database,
+            ref, onValue, get, off,
+            onAuthStateChanged
+        } from "assets/js/firebase-init.js";
 
-        const featuredGrid = document.getElementById('featuredGrid');
-        const featuredEmpty = document.getElementById('featuredEmpty');
+        // ----- Dynamic BASE: "public" by default; <uid> if user toggles -----
+        let BASE = null;
+        let signedInUID = null;
+        let affiliateTag = "";
+        let inventoryRefLive = null;
 
-        document.addEventListener('DOMContentLoaded', loadFeaturedRandom);
+        const join = (...parts) => parts.filter(Boolean).map(String).join("/").replace(/\/+/g, "/");
+        const dbRef = (...p) => ref(database, join(BASE, ...p));
 
-        function loadFeaturedRandom() {
-            const inventoryRef = ref(database, 'inventory');
-            onValue(inventoryRef, (snap) => {
+        // UI
+        const featuredGrid = document.getElementById("featuredGrid");
+        const featuredEmpty = document.getElementById("featuredEmpty");
+        const viewBar = document.getElementById("viewBar");
+        const viewLabel = document.getElementById("viewLabel");
+        const viewToggle = document.getElementById("viewToggle");
+        const viewToggleWrap = document.getElementById("viewToggleWrap");
+
+        // Auth -> show public by default; toggle available when signed in
+        onAuthStateChanged(auth, (user) => {
+            signedInUID = user ? user.uid : null;
+
+            setBase("public"); // always land on public first
+
+            viewBar.style.display = user ? "flex" : "none";
+            viewToggleWrap.style.display = user ? "inline-flex" : "none";
+            if (viewToggle) viewToggle.checked = false;
+            viewLabel.textContent = "Viewing: Public";
+        });
+
+        viewToggle?.addEventListener("change", () => {
+            if (!signedInUID) return;
+            const next = viewToggle.checked ? signedInUID : "public";
+            setBase(next);
+            viewLabel.textContent = `Viewing: ${next === "public" ? "Public" : "My Workspace"}`;
+        });
+
+        // Bind for current BASE
+        function setBase(newBase) {
+            const needRebind = BASE !== newBase || !inventoryRefLive;
+            BASE = newBase;
+
+            if (!needRebind) return;
+
+            // rebind inventory -> pick featured
+            if (inventoryRefLive) off(inventoryRefLive);
+            inventoryRefLive = dbRef("inventory");
+
+            onValue(inventoryRefLive, (snap) => {
                 const root = snap.val() || {};
                 const all = collectAffiliateItems(root);
                 if (!all.length) {
-                    featuredGrid.innerHTML = '';
-                    featuredEmpty.style.display = 'block';
-                    return;
+                    featuredGrid.innerHTML = "";
+                    featuredEmpty.style.display = "block";
+                } else {
+                    featuredEmpty.style.display = "none";
+                    const picks = shuffle(all).slice(0, 6);
+                    renderCards(picks, featuredGrid);
                 }
-                featuredEmpty.style.display = 'none';
-                const picks = shuffle(all).slice(0, 6); // show up to 6
-                renderCards(picks, featuredGrid);
-            }, (err) => console.error('Failed to load inventory:', err));
+            }, (err) => console.error("Failed to load inventory:", err));
+
+            // load affiliate tag for this base
+            get(dbRef("settings/affiliateTag"))
+                .then(s => { affiliateTag = s.val() || ""; renderCardsFromDom(); })
+                .catch(() => { affiliateTag = ""; renderCardsFromDom(); });
         }
+
+        // Initial bind so the page shows Public even before auth fires
+        setBase("public");
 
         function collectAffiliateItems(data) {
             const out = [];
@@ -99,16 +247,17 @@
                 for (const component in data[category]) {
                     for (const partName in data[category][component]) {
                         const e = data[category][component][partName] || {};
-                        if (!e.affiliateUrl) continue; // only items with affiliate links
+                        if (!e.affiliateUrl) continue;
                         out.push({
                             name: partName,
-                            category,
-                            component,
+                            category, component,
                             price: e.price,
-                            description: e.description || '',
+                            description: e.description || "",
                             affiliateUrl: e.affiliateUrl,
-                            asin: e.asin || '',
-                            imageUrl: (e.imageUrl && e.imageUrl.trim()) ? e.imageUrl : `../../assets/img/database/${partName}.png`
+                            asin: e.asin || "",
+                            imageUrl: (e.imageUrl && e.imageUrl.trim())
+                                ? e.imageUrl
+                                : `assets/img/database/${encodeURIComponent(partName)}.png`
                         });
                     }
                 }
@@ -125,38 +274,65 @@
             return a;
         }
 
-        function ensureAffiliateTag(url, tag) {
-            try {
-                const u = new URL(url, window.location.origin);
-                u.searchParams.set('tag', tag); // replace or append
-                return u.toString();
-            } catch {
-                return url;
-            }
-        }
-
         function renderCards(items, target) {
-            target.innerHTML = '';
+            target.innerHTML = "";
             items.forEach(p => {
                 const price = parseFloat(p.price);
-                const priceText = isNaN(price) ? '' : `$${price.toFixed(2)}`;
-                const card = document.createElement('div');
-                card.className = 'product-item';
+                const priceText = isNaN(price) ? "" : `$${price.toFixed(2)}`;
+
+                const card = document.createElement("div");
+                card.className = "product-item";
                 card.innerHTML = `
-          <img src="${p.imageUrl}" alt="${escapeHtml(p.name)}" loading="lazy">
+          <img src="${escapeAttr(p.imageUrl)}" alt="${escapeAttr(p.name)}" loading="lazy">
           <h3>${escapeHtml(p.name)}</h3>
           <p class="meta">${escapeHtml(p.category)} • ${escapeHtml(p.component)}</p>
-          ${priceText ? `<p class="our-price">Our listed price: ${priceText}</p>` : ''}
-          <a class="cta-button" href="${ensureAffiliateTag(p.affiliateUrl, 'YOURTAG-20')}" target="_blank" rel="sponsored nofollow noopener" data-asin="${p.asin}">View on Amazon</a>
+          ${priceText ? `<p class="our-price">Our listed price: ${priceText}</p>` : ""}
+          <a class="cta-button"
+             href="${escapeAttr(ensureAffiliateTag(p.affiliateUrl, affiliateTag || ""))}"
+             target="_blank" rel="sponsored nofollow noopener"
+             data-asin="${escapeAttr(p.asin)}">View on Amazon</a>
           <small class="aff-note">As an Amazon Associate, we earn from qualifying purchases.</small>
         `;
+
+                // graceful image fallback
+                const img = card.querySelector("img");
+                img.addEventListener("error", () => {
+                    if (!img.dataset.fallback) {
+                        img.dataset.fallback = "1";
+                        img.src = "assets/img/placeholder.png";
+                    }
+                });
+
                 target.appendChild(card);
             });
         }
 
-        function escapeHtml(s = "") {
-            return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]));
+        // When affiliateTag changes after first render, rebuild links in-place
+        function renderCardsFromDom() {
+            if (!affiliateTag) return; // nothing to change
+            featuredGrid.querySelectorAll(".product-item a.cta-button").forEach(a => {
+                try {
+                    const u = new URL(a.href, window.location.origin);
+                    u.searchParams.set("tag", affiliateTag);
+                    a.href = u.toString();
+                } catch { }
+            });
         }
+
+        function ensureAffiliateTag(url, tag) {
+            try {
+                const u = new URL(url, window.location.origin);
+                if (tag) u.searchParams.set("tag", tag);
+                return u.toString();
+            } catch { return url; }
+        }
+
+        function escapeHtml(s = "") {
+            return s.replace(/[&<>"']/g, c => ({
+                "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+            }[c]));
+        }
+        function escapeAttr(s = "") { return escapeHtml(String(s)); }
     </script>
 </body>
 
