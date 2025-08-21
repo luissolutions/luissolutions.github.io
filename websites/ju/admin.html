@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Emporium - Admin</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/img/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/img/favicon-16x16.png">
+    <link rel="manifest" href="./site.webmanifest">
+    <link rel="stylesheet" href="assets/css/app-styles.css" />
+    <style>
+        /* Admin-specific light tweaks that reuse your theme */
+        .admin-bar {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            padding: 10px;
+            background: #2a2a2a;
+        }
+
+        .admin-bar small {
+            opacity: .85;
+        }
+
+        .section-card {
+            background: var(--entryBackground);
+            color: #222;
+            border: 1px solid var(--borderColor);
+            border-radius: 12px;
+            padding: 14px;
+            margin: 14px 0;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 12px;
+        }
+
+        .inline {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .muted {
+            color: #666;
+        }
+
+        .chip {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: #eef2f3;
+            color: #333;
+            font-size: .8rem;
+        }
+
+        .danger {
+            background: #fef0f0;
+            border: 1px solid #f4caca;
+        }
+
+        .success {
+            background: #effaf1;
+            border: 1px solid #c8e6cd;
+        }
+
+        .thumb {
+            width: 160px;
+            height: 120px;
+            object-fit: contain;
+            background: #fafafa;
+            border: 1px solid #eee;
+            border-radius: 8px;
+        }
+
+        .row-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .kicker {
+            font-size: .9rem;
+            opacity: .85;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <img src="assets/img/logo.png" alt="The Emporium" class="logo" />
+        <h1>Admin • The Emporium</h1>
+    </header>
+
+    <nav>
+        <a href="index.html">Home</a> |
+        <a href="catalog.html">Shop</a> |
+        <a href="sop.html">SOP</a> |
+        <a href="about.html">About</a> |
+        <a href="admin.html" class="active">Admin</a>
+    </nav>
+
+    <main class="container">
+        <!-- Admin access bar -->
+        <div class="admin-bar">
+            <button id="signInBtn">Sign in</button>
+            <button id="signOutBtn" style="display:none;">Sign out</button>
+            <small id="authStatus" class="muted">Not signed in</small>
+            <span class="chip" id="roleChip" title="Only approved UIDs can write images">viewer</span>
+        </div>
+
+        <section id="adminContent" hidden>
+            <!-- SETTINGS -->
+            <section class="section-card">
+                <h2>Store Settings</h2>
+                <div class="grid-2">
+                    <div>
+                        <label for="affiliateTag"><strong>Amazon Associates Tag</strong></label><br />
+                        <input type="text" id="affiliateTag" placeholder="YOURTAG-20" />
+                        <button id="saveTagBtn">Save Tag</button>
+                        <p class="muted kicker">Stored at <code>/settings/affiliateTag</code>. The storefront can read
+                            this to attach <code>tag=</code> to links.</p>
+                    </div>
+                    <div>
+                        <label><strong>Default Category / Sub‑Category</strong></label>
+                        <div class="inline">
+                            <input id="defaultCategory" placeholder="e.g., Tools" />
+                            <input id="defaultComponent" placeholder="e.g., Testers" />
+                        </div>
+                        <p class="muted kicker">Applied when creating new items or bulk importing.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CREATE NEW PRODUCT -->
+            <section class="section-card">
+                <h2>Add a Product</h2>
+                <div class="grid-2">
+                    <div>
+                        <label>Category</label>
+                        <input id="catInput" placeholder="Category" />
+                        <label>Sub‑Category</label>
+                        <input id="compInput" placeholder="Sub‑Category" />
+                        <label>Part Name (unique key)</label>
+                        <input id="nameInput" placeholder="Klein_VDV501-851" />
+                        <label>Description</label>
+                        <textarea id="descInput" rows="4"
+                            placeholder="What makes this great for LV installs..."></textarea>
+                    </div>
+                    <div>
+                        <label>Our Listed Price</label>
+                        <input id="priceInput" type="number" step="0.01" />
+                        <label>Cost</label>
+                        <input id="actualPriceInput" type="number" step="0.01" />
+                        <label>Quantity</label>
+                        <input id="qtyInput" type="number" />
+                        <label>Amazon Link</label>
+                        <input id="affInput" type="url" placeholder="https://www.amazon.com/... or https://a.co/..." />
+                        <div class="row-actions">
+                            <input id="asinInput" placeholder="ASIN (optional)" />
+                            <button id="fetchFromAmazonBtn" type="button">Auto‑fill from Amazon</button>
+                        </div>
+                        <p class="muted kicker">Uses a Cloud Function <code>paapiFetch</code> (PA‑API v5). Deploy
+                            separately with your keys.</p>
+                        <div class="row-actions">
+                            <button id="createBtn">Create</button>
+                            <button id="clearCreateBtn" class="clear-button">Clear</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- BULK IMPORT LINKS -->
+            <section class="section-card">
+                <h2>Bulk Import Amazon Links</h2>
+                <p class="muted">Paste one URL per line. Items will be named <code>Item_YYYYMMDD_HHMMSS_N</code>. You
+                    can rename later.</p>
+                <textarea id="bulkLinks" rows="6" placeholder="https://a.co/d/...
+https://www.amazon.com/dp/...
+..."></textarea>
+                <div class="inline" style="margin-top:8px;">
+                    <input id="bulkCat" placeholder="Category (uses Default if blank)" />
+                    <input id="bulkComp" placeholder="Sub‑Category (uses Default if blank)" />
+                    <button id="bulkImportBtn">Import</button>
+                </div>
+                <pre id="bulkLog" class="muted" style="white-space:pre-wrap; max-height:200px; overflow:auto;"></pre>
+            </section>
+
+            <!-- FILTERS -->
+            <section class="section-card">
+                <h2>Products</h2>
+                <div class="inline">
+                    <select id="filterCat">
+                        <option value="">All Categories</option>
+                    </select>
+                    <select id="filterComp">
+                        <option value="">All Sub‑Categories</option>
+                    </select>
+                    <input id="filterSearch" placeholder="Search name/desc/tags" />
+                    <button id="refreshBtn">Refresh</button>
+                </div>
+                <div id="entriesContainer" class="entries-container" style="margin-top:12px;"></div>
+                <p id="emptyState" class="muted" style="display:none;">Nothing here yet. Try changing filters.</p>
+            </section>
+
+            <section class="section-card danger">
+                <h3>Danger Zone</h3>
+                <p class="muted">Deleting a product removes it from the database. Images in Storage are not auto-deleted
+                    unless the row has a stored <code>imageStoragePath</code>.</p>
+            </section>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2024 The Emporium. All Rights Reserved.</p>
+        <ul class="footer-links">
+            <li><a href="privacy.html">Privacy Policy</a></li>
+            <li><a href="terms.html">Terms of Service</a></li>
+            <li><a href="contact.html">Contact Us</a></li>
+        </ul>
+    </footer>
+
+    <script type="module">
+        // Adjust the import path below if your folder structure differs
+        import { app, database, ref, onValue, set, update, remove, get } from '../../assets/js/firebase-init-noauth.js';
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+        import { getStorage, ref as sRef, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js';
+        import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js';
+
+        const auth = getAuth(app);
+        const storage = getStorage(app);
+        const functions = getFunctions(app, 'us-central1');
+
+        // Callable Cloud Function (PA-API v5). Make sure it's deployed under this name.
+        const fetchFromAmazon = httpsCallable(functions, 'paapiFetch');
+
+        // Whitelist admin UIDs who can manage images (match your Storage rules)
+        const ALLOWED_UIDS = ['7cIh8rrhVNOjjj5CBDgb3IlqzEh2'];
+
+        // UI elements
+        const adminContent = document.getElementById('adminContent');
+        const authStatus = document.getElementById('authStatus');
+        const roleChip = document.getElementById('roleChip');
+        const signInBtn = document.getElementById('signInBtn');
+        const signOutBtn = document.getElementById('signOutBtn');
+
+        const affiliateTagEl = document.getElementById('affiliateTag');
+        const saveTagBtn = document.getElementById('saveTagBtn');
+        const defaultCategoryEl = document.getElementById('defaultCategory');
+        const defaultComponentEl = document.getElementById('defaultComponent');
+
+        const catInput = document.getElementById('catInput');
+        const compInput = document.getElementById('compInput');
+        const nameInput = document.getElementById('nameInput');
+        const descInput = document.getElementById('descInput');
+        const priceInput = document.getElementById('priceInput');
+        const actualPriceInput = document.getElementById('actualPriceInput');
+        const qtyInput = document.getElementById('qtyInput');
+        const affInput = document.getElementById('affInput');
+        const asinInput = document.getElementById('asinInput');
+        const createBtn = document.getElementById('createBtn');
+        const clearCreateBtn = document.getElementById('clearCreateBtn');
+        const fetchFromAmazonBtn = document.getElementById('fetchFromAmazonBtn');
+
+        const bulkLinks = document.getElementById('bulkLinks');
+        const bulkCat = document.getElementById('bulkCat');
+        const bulkComp = document.getElementById('bulkComp');
+        const bulkImportBtn = document.getElementById('bulkImportBtn');
+        const bulkLog = document.getElementById('bulkLog');
+
+        const filterCat = document.getElementById('filterCat');
+        const filterComp = document.getElementById('filterComp');
+        const filterSearch = document.getElementById('filterSearch');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const entriesContainer = document.getElementById('entriesContainer');
+        const emptyState = document.getElementById('emptyState');
+
+        // --- AUTH ---
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                authStatus.textContent = `Signed in as ${user.email || user.uid}`;
+                signInBtn.style.display = 'none';
+                signOutBtn.style.display = 'inline-block';
+                roleChip.textContent = ALLOWED_UIDS.includes(user.uid) ? 'admin' : 'viewer';
+                adminContent.hidden = false; // show admin UI
+            } else {
+                authStatus.textContent = 'Not signed in';
+                signInBtn.style.display = 'inline-block';
+                signOutBtn.style.display = 'none';
+                roleChip.textContent = 'viewer';
+                adminContent.hidden = false; // keep visible for browsing; restricted actions will fail
+            }
+        });
+
+        signInBtn.addEventListener('click', async () => {
+            const email = prompt('Email:');
+            const pass = prompt('Password:');
+            if (!email || !pass) return;
+            try { await signInWithEmailAndPassword(auth, email, pass); }
+            catch (e) { alert('Sign-in failed: ' + (e?.message || e)); }
+        });
+        signOutBtn.addEventListener('click', () => signOut(auth));
+
+        // --- SETTINGS ---
+        (async function initSettings() {
+            try {
+                const tagSnap = await get(ref(database, 'settings/affiliateTag'));
+                const defCatSnap = await get(ref(database, 'settings/defaultCategory'));
+                const defCompSnap = await get(ref(database, 'settings/defaultComponent'));
+                affiliateTagEl.value = tagSnap.val() || '';
+                defaultCategoryEl.value = defCatSnap.val() || '';
+                defaultComponentEl.value = defCompSnap.val() || '';
+            } catch (e) { console.warn('Settings load failed', e); }
+        })();
+
+        saveTagBtn.addEventListener('click', async () => {
+            try {
+                await update(ref(database, 'settings'), {
+                    affiliateTag: affiliateTagEl.value.trim(),
+                    defaultCategory: defaultCategoryEl.value.trim(),
+                    defaultComponent: defaultComponentEl.value.trim()
+                });
+                alert('Settings saved.');
+            } catch (e) {
+                alert('Failed to save settings: ' + (e?.message || e));
+            }
+        });
+
+        // --- CREATE PRODUCT ---
+        createBtn.addEventListener('click', async () => {
+            const category = sanitize(catInput.value) || sanitize(defaultCategoryEl.value);
+            const component = sanitize(compInput.value) || sanitize(defaultComponentEl.value);
+            const name = sanitize(nameInput.value);
+            if (!category || !component || !name) return alert('Fill Category, Sub‑Category, and Part Name');
+
+            const data = {
+                description: descInput.value || '',
+                price: priceInput.value || '',
+                actualPrice: actualPriceInput.value || '',
+                quantity: Number(qtyInput.value || 0),
+                affiliateUrl: affInput.value || '',
+                asin: asinInput.value || '',
+                // imageUrl left blank until upload
+                tags: []
+            };
+
+            try {
+                await set(ref(database, `inventory/${category}/${component}/${name}`), data);
+                alert('Created. You can now upload an image in the row below.');
+                clearCreateForm();
+            } catch (e) {
+                alert('Create failed: ' + (e?.message || e));
+            }
+        });
+
+        clearCreateBtn.addEventListener('click', clearCreateForm);
+        function clearCreateForm() {
+            catInput.value = compInput.value = nameInput.value = '';
+            descInput.value = priceInput.value = actualPriceInput.value = qtyInput.value = '';
+            affInput.value = asinInput.value = '';
+        }
+
+        // --- AUTO-FILL FROM AMAZON (PA-API via Cloud Function) ---
+        fetchFromAmazonBtn.addEventListener('click', async () => {
+            const url = (affInput.value || '').trim();
+            const asin = (asinInput.value || '').trim();
+            if (!url && !asin) return alert('Paste an Amazon URL or enter an ASIN first.');
+            try {
+                const { data } = await fetchFromAmazon(url ? { url } : { asin });
+                if (data?.title) nameInput.value = slugFromTitle(data.title);
+                if (data?.asin) asinInput.value = data.asin;
+                if (data?.detailPageURL) affInput.value = data.detailPageURL;
+                if (Array.isArray(data?.features) && data.features.length) {
+                    const bullets = data.features.slice(0, 6).map(b => `• ${b}`).join('\n');
+                    descInput.value = (descInput.value ? descInput.value + '\n\n' : '') + bullets;
+                }
+                alert('Auto‑fill complete. Review fields, then click Create.');
+            } catch (e) {
+                console.error(e);
+                alert('Could not fetch details from Amazon. Make sure the Cloud Function is deployed and keys are set.');
+            }
+        });
+
+        function slugFromTitle(t) {
+            return String(t)
+                .replace(/[™®©]/g, '')
+                .replace(/[^A-Za-z0-9]+/g, '_')
+                .replace(/^_+|_+$/g, '')
+                .slice(0, 60);
+        }
+
+        // --- BULK IMPORT (with PA-API enrichment if available) ---
+        bulkImportBtn.addEventListener('click', async () => {
+            const lines = (bulkLinks.value || '')
+                .split(/\r?\n+/)
+                .map(s => s.trim())
+                .filter(Boolean);
+
+            if (!lines.length) return alert('Paste at least one link.');
+
+            const category = sanitize(bulkCat.value) || sanitize(defaultCategoryEl.value) || 'Starter_Picks';
+            const component = sanitize(bulkComp.value) || sanitize(defaultComponentEl.value) || 'Unsorted';
+
+            let ok = 0, fail = 0;
+            bulkLog.textContent = '';
+
+            for (let i = 0; i < lines.length; i++) {
+                const url = lines[i];
+                const stamp = new Date();
+
+                try {
+                    let meta = null;
+                    try {
+                        const resp = await fetchFromAmazon({ url });
+                        meta = resp?.data || null;
+                    } catch (e) {
+                        bulkLog.textContent += `PA-API failed for ${url}: ${(e?.message || e)}
+`;
+                    }
+
+                    const name = meta?.title
+                        ? slugFromTitle(meta.title)
+                        : `Item_${fmt(stamp)}_${String(i + 1).padStart(2, '0')}`;
+
+                    const path = `inventory/${category}/${component}/${name}`;
+                    const description = Array.isArray(meta?.features) && meta.features.length
+                        ? meta.features.slice(0, 6).map(b => `• ${b}`).join('\n')
+                        : '';
+
+                    const record = {
+                        description,
+                        price: '',
+                        actualPrice: '',
+                        quantity: 0,
+                        affiliateUrl: meta?.detailPageURL || url,
+                        asin: meta?.asin || '',
+                        imageUrl: meta?.imageUrl || '',
+                        tags: []
+                    };
+
+                    await set(ref(database, path), record);
+                    bulkLog.textContent += `✓ ${path}${meta ? ' (enriched)' : ''}
+`;
+                    ok++;
+
+                    // Throttle to ~1 req/sec for PA-API
+                    await new Promise(r => setTimeout(r, 1200));
+                } catch (e) {
+                    bulkLog.textContent += `✗ ${url} :: ${(e?.message || e)}
+`;
+                    fail++;
+                }
+            }
+
+            bulkLog.textContent += `
+Done. Success: ${ok}  Failed: ${fail}`;
+        });
+
+        function fmt(d) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mi = String(d.getMinutes()).padStart(2, '0');
+            const ss = String(d.getSeconds()).padStart(2, '0');
+            return `${y}${m}${dd}_${hh}${mi}${ss}`;
+        }
+
+        // --- LIST/EDIT PRODUCTS ---
+        let allItems = [];
+
+        onValue(ref(database, 'inventory'), (snap) => {
+            const data = snap.val() || {};
+            const { items, cats, comps } = flatten(data);
+            allItems = items;
+            renderFilterOptions(cats, comps);
+            renderList();
+        }, (err) => console.error('Inventory load failed:', err));
+
+        function flatten(data) {
+            const items = []; const catSet = new Set(); const compSet = new Set();
+            for (const cat in data) {
+                for (const comp in data[cat]) {
+                    for (const name in data[cat][comp]) {
+                        const e = data[cat][comp][name] || {};
+                        catSet.add(cat); compSet.add(comp);
+                        items.push({ cat, comp, name, ...e });
+                    }
+                }
+            }
+            return { items, cats: [...catSet].sort(), comps: [...compSet].sort() };
+        }
+
+        function renderFilterOptions(cats, comps) {
+            filterCat.innerHTML = '<option value="">All Categories</option>' + cats.map(c => `<option>${escapeHtml(c)}</option>`).join('');
+            filterComp.innerHTML = '<option value="">All Sub‑Categories</option>' + comps.map(c => `<option>${escapeHtml(c)}</option>`).join('');
+        }
+
+        filterCat.addEventListener('change', renderList);
+        filterComp.addEventListener('change', renderList);
+        filterSearch.addEventListener('input', renderList);
+        refreshBtn.addEventListener('click', renderList);
+
+        function renderList() {
+            const cat = filterCat.value; const comp = filterComp.value; const q = (filterSearch.value || '').toLowerCase();
+            const filtered = allItems.filter(it => {
+                const okCat = !cat || it.cat === cat;
+                const okComp = !comp || it.comp === comp;
+                const blob = `${it.name} ${it.cat} ${it.comp} ${it.description || ''} ${(it.tags || []).join(' ')}`.toLowerCase();
+                const okQ = !q || blob.includes(q);
+                return okCat && okComp && okQ;
+            });
+
+            entriesContainer.innerHTML = '';
+            if (!filtered.length) { emptyState.style.display = 'block'; return; }
+            emptyState.style.display = 'none';
+
+            filtered.forEach(row => entriesContainer.appendChild(renderRow(row)));
+        }
+
+        function renderRow(e) {
+            const card = document.createElement('div');
+            card.className = 'data';
+            card.innerHTML = `
+        <label>Category <input class="cat" value="${escapeAttr(e.cat)}"></label>
+        <label>Sub‑Category <input class="comp" value="${escapeAttr(e.comp)}"></label>
+        <label>Part Name <input class="name" value="${escapeAttr(e.name)}"></label>
+        <label>Description <textarea class="desc">${escapeHtml(e.description || '')}</textarea></label>
+        <div class="grid-2">
+          <div>
+            <label>Our Listed Price $ <input class="price" type="number" step="0.01" value="${escapeAttr(e.price || '')}"></label>
+            <label>Cost $ <input class="actualPrice" type="number" step="0.01" value="${escapeAttr(e.actualPrice || '')}"></label>
+            <label>Quantity <input class="qty" type="number" value="${escapeAttr(e.quantity || 0)}"></label>
+            <label>Amazon Link <input class="aff" type="url" value="${escapeAttr(e.affiliateUrl || '')}"></label>
+            <label>ASIN <input class="asin" value="${escapeAttr(e.asin || '')}"></label>
+          </div>
+          <div>
+            <img class="thumb" src="${escapeAttr(e.imageUrl || '')}" alt="Preview" style="${e.imageUrl ? '' : 'display:none;'}">
+            <div class="row-actions">
+              <input type="file" class="imgfile" accept="image/*">
+              <button class="uploadBtn">Upload Image</button>
+              <button class="removeImgBtn" ${e.imageUrl ? '' : 'disabled'}>Remove Image</button>
+            </div>
+            ${e.imageStoragePath ? `<small class="muted">${escapeHtml(e.imageStoragePath)}</small>` : ''}
+          </div>
+        </div>
+        <div class="row-actions">
+          <button class="saveBtn">Update</button>
+          <button class="delete-button delBtn">Delete</button>
+        </div>
+      `;
+
+            const catEl = card.querySelector('.cat');
+            const compEl = card.querySelector('.comp');
+            const nameEl = card.querySelector('.name');
+            const descEl = card.querySelector('.desc');
+            const priceEl = card.querySelector('.price');
+            const actualEl = card.querySelector('.actualPrice');
+            const qtyEl = card.querySelector('.qty');
+            const affEl = card.querySelector('.aff');
+            const asinEl = card.querySelector('.asin');
+            const imgEl = card.querySelector('.thumb');
+
+            // Save/update
+            card.querySelector('.saveBtn').addEventListener('click', async () => {
+                const newCat = sanitize(catEl.value); const newComp = sanitize(compEl.value); const newName = sanitize(nameEl.value);
+                if (!newCat || !newComp || !newName) return alert('Category, Sub‑Category, and Part Name are required.');
+
+                const newData = {
+                    description: descEl.value || '',
+                    price: priceEl.value || '',
+                    actualPrice: actualEl.value || '',
+                    quantity: Number(qtyEl.value || 0),
+                    affiliateUrl: affEl.value || '',
+                    asin: asinEl.value || '',
+                };
+
+                const oldPath = `inventory/${e.cat}/${e.comp}/${e.name}`;
+                const newPath = `inventory/${newCat}/${newComp}/${newName}`;
+
+                try {
+                    if (oldPath !== newPath) {
+                        // move: write new, copy imageUrl/StoragePath if present, then remove old
+                        const carry = {};
+                        if (e.imageUrl) carry.imageUrl = e.imageUrl;
+                        if (e.imageStoragePath) carry.imageStoragePath = e.imageStoragePath;
+                        await set(ref(database, newPath), { ...newData, ...carry });
+                        await remove(ref(database, oldPath));
+                    } else {
+                        await update(ref(database, oldPath), newData);
+                    }
+                    alert('Saved.');
+                } catch (err) {
+                    alert('Save failed: ' + (err?.message || err));
+                }
+            });
+
+            // Delete row
+            card.querySelector('.delBtn').addEventListener('click', async () => {
+                if (!confirm(`Delete ${e.name}?`)) return;
+                try {
+                    await remove(ref(database, `inventory/${e.cat}/${e.comp}/${e.name}`));
+                    // optional: delete file if we know exact path
+                    if (e.imageStoragePath) {
+                        try { await deleteObject(sRef(storage, e.imageStoragePath)); } catch { }
+                    }
+                } catch (err) {
+                    alert('Delete failed: ' + (err?.message || err));
+                }
+            });
+
+            // Upload image
+            card.querySelector('.uploadBtn').addEventListener('click', async () => {
+                const file = card.querySelector('.imgfile').files?.[0];
+                if (!file) return alert('Choose an image file first.');
+
+                // auth check for writes
+                const u = auth.currentUser;
+                if (!u || !ALLOWED_UIDS.includes(u.uid)) {
+                    return alert('You must be signed in as an admin to upload images.');
+                }
+
+                const newCat = sanitize(catEl.value); const newComp = sanitize(compEl.value); const newName = sanitize(nameEl.value);
+                if (!newCat || !newComp || !newName) return alert('Fill Category, Sub‑Category, and Part Name first');
+
+                const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+                const storagePath = `product-images/${newCat}/${newComp}/${newName}.${ext}`;
+                const storageRef = sRef(storage, storagePath);
+
+                try {
+                    await uploadBytes(storageRef, file);
+                    const url = await getDownloadURL(storageRef);
+                    await update(ref(database, `inventory/${newCat}/${newComp}/${newName}`), { imageUrl: url, imageStoragePath: storagePath });
+                    imgEl.src = url; imgEl.style.display = 'block';
+                    card.querySelector('.removeImgBtn').disabled = false;
+                    alert('Image uploaded and linked.');
+                } catch (err) {
+                    alert('Upload failed: ' + (err?.message || err));
+                }
+            });
+
+            // Remove image
+            card.querySelector('.removeImgBtn').addEventListener('click', async () => {
+                if (!confirm('Remove image from this product?')) return;
+                try {
+                    if (e.imageStoragePath) {
+                        // Optional: also delete physical file
+                        try { await deleteObject(sRef(storage, e.imageStoragePath)); } catch { }
+                    }
+                    await update(ref(database, `inventory/${e.cat}/${e.comp}/${e.name}`), { imageUrl: null, imageStoragePath: null });
+                    imgEl.src = ''; imgEl.style.display = 'none';
+                    card.querySelector('.removeImgBtn').disabled = true;
+                } catch (err) {
+                    alert('Failed to remove image: ' + (err?.message || err));
+                }
+            });
+
+            return card;
+        }
+
+        function sanitize(s) { return String(s || '').replace(/[\/#?\[\]]/g, '_').trim(); }
+        function escapeHtml(s = '') { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c])); }
+        function escapeAttr(s = '') { return escapeHtml(String(s)); }
+    </script>
+</body>
+
+</html>
