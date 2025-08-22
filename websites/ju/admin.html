@@ -5,13 +5,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>The Emporium - Admin</title>
+
     <link rel="apple-touch-icon" sizes="180x180" href="assets/img/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="assets/img/favicon-16x16.png">
     <link rel="manifest" href="./site.webmanifest">
     <link rel="stylesheet" href="assets/css/app-styles.css" />
+
     <style>
-        /* Admin-specific light tweaks that reuse your theme */
         .admin-bar {
             display: flex;
             gap: 10px;
@@ -22,7 +23,8 @@
         }
 
         .admin-bar small {
-            opacity: .85
+            opacity: .85;
+            color: #ccc
         }
 
         .section-card {
@@ -52,12 +54,14 @@
         }
 
         .chip {
-            display: inline-block;
-            padding: 3px 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
             border-radius: 999px;
             background: #eef2f3;
             color: #333;
-            font-size: .8rem
+            font-size: .85rem
         }
 
         .danger {
@@ -106,6 +110,10 @@
         #logout {
             margin-left: 10px
         }
+
+        .toggle-wrap input[type="checkbox"] {
+            transform: scale(1.1)
+        }
     </style>
 </head>
 
@@ -123,7 +131,7 @@
         <a href="admin.html" class="active">Admin</a>
     </nav>
 
-    <!-- Login UI (handled by login.js) -->
+    <!-- Login UI handled by login.js -->
     <section id="login-section">
         <form id="login-form">
             <label for="username">Email:</label>
@@ -135,15 +143,23 @@
         <button id="logout" style="display:none;">Logout</button>
     </section>
 
-    <main class="container">
-        <!-- Status + role -->
-        <div class="admin-bar">
-            <small id="authStatus" class="muted">Not signed in</small>
-            <span class="chip" id="roleChip" title="Only approved UIDs can write images">viewer</span>
-        </div>
+    <!-- Status/role + workspace toggle -->
+    <div class="admin-bar" style="gap:16px;">
+        <small id="authStatus">Not signed in</small>
+        <span class="chip" id="roleChip" title="Only approved UIDs can write images">viewer</span>
 
-        <!-- Admin tools (hidden until signed in; change if you want browse access) -->
-        <section id="adminContent" hidden>
+        <!-- Shown only when signed in -->
+        <span id="viewBar" style="display:none;gap:10px;align-items:center;">
+            <small id="viewLabel">Viewing: Public</small>
+            <label class="chip toggle-wrap" id="viewToggleWrap" style="display:none;">
+                <input type="checkbox" id="viewToggle" />
+                My Workspace
+            </label>
+        </span>
+    </div>
+
+    <main class="container">
+        <section id="adminContent">
             <!-- SETTINGS -->
             <section class="section-card">
                 <h2>Store Settings</h2>
@@ -152,8 +168,8 @@
                         <label for="affiliateTag"><strong>Amazon Associates Tag</strong></label><br />
                         <input type="text" id="affiliateTag" placeholder="YOURTAG-20" />
                         <button id="saveTagBtn">Save Tag</button>
-                        <p class="muted kicker">Stored at <code>{base}/settings/affiliateTag</code>. Your storefront can
-                            read the public base (<code>/public</code>) to attach <code>tag=</code>.</p>
+                        <p class="muted kicker">Saved under <code>{BASE}/settings/affiliateTag</code> (BASE = /public or
+                            /&lt;uid&gt;).</p>
                     </div>
                     <div>
                         <label><strong>Default Category / Sub-Category</strong></label>
@@ -161,7 +177,7 @@
                             <input id="defaultCategory" placeholder="e.g., Tools" />
                             <input id="defaultComponent" placeholder="e.g., Testers" />
                         </div>
-                        <p class="muted kicker">Applied when creating new items or bulk importing.</p>
+                        <p class="muted kicker">Used by Create/Bulk Import.</p>
                     </div>
                 </div>
             </section>
@@ -194,9 +210,7 @@
                             <input id="asinInput" placeholder="ASIN (optional)" />
                             <button id="fetchFromAmazonBtn" type="button">Auto-fill from Amazon</button>
                         </div>
-                        <p class="muted kicker">Uses a Cloud Function <code>paapiFetch</code> (PA-API v5) in
-                            <code>us-central1</code>.
-                        </p>
+                        <p class="muted kicker">Calls Cloud Function <code>paapiFetch</code> (PA-API v5).</p>
                         <div class="row-actions">
                             <button id="createBtn">Create</button>
                             <button id="clearCreateBtn" class="clear-button">Clear</button>
@@ -208,8 +222,8 @@
             <!-- BULK IMPORT LINKS -->
             <section class="section-card">
                 <h2>Bulk Import Amazon Links</h2>
-                <p class="muted">Paste one URL per line. Items will be named <code>Item_YYYYMMDD_HHMMSS_N</code> if
-                    PA-API can’t get a title. You can rename later.</p>
+                <p class="muted">One URL per line. If PA-API fails, items are named <code>Item_YYYYMMDD_HHMMSS_N</code>.
+                    You can rename later.</p>
                 <textarea id="bulkLinks" rows="6" placeholder="https://a.co/d/...
 https://www.amazon.com/dp/...
 ..."></textarea>
@@ -218,7 +232,7 @@ https://www.amazon.com/dp/...
                     <input id="bulkComp" placeholder="Sub-Category (uses Default if blank)" />
                     <button id="bulkImportBtn">Import</button>
                 </div>
-                <pre id="bulkLog" class="muted" style="white-space:pre-wrap; max-height:220px; overflow:auto;"></pre>
+                <pre id="bulkLog" class="muted" style="white-space:pre-wrap;max-height:220px;overflow:auto;"></pre>
             </section>
 
             <!-- FILTERS + LIST -->
@@ -240,8 +254,10 @@ https://www.amazon.com/dp/...
 
             <section class="section-card danger">
                 <h3>Danger Zone</h3>
-                <p class="muted">Deleting a product removes it from the database. Images in Storage are not auto-deleted
-                    unless the row has a stored <code>imageStoragePath</code>.</p>
+                <p class="muted">Delete removes the DB row at
+                    <code>{BASE}/inventory/&lt;cat&gt;/&lt;comp&gt;/&lt;name&gt;</code>. If the row has
+                    <code>imageStoragePath</code>, the file is also deleted.
+                </p>
             </section>
         </section>
     </main>
@@ -255,12 +271,11 @@ https://www.amazon.com/dp/...
         </ul>
     </footer>
 
-    <!-- Your login handler (toggles #login-section UI) -->
+    <!-- Your login handler -->
     <script type="module" src="../../apps/assets/js/login.js"></script>
 
     <!-- Admin logic -->
     <script type="module">
-        // Single source of truth: your v9 init module (adjust path)
         import {
             app, auth, database, storage,
             // db
@@ -273,24 +288,22 @@ https://www.amazon.com/dp/...
             getFunctions, httpsCallable
         } from "../../assets/js/firebase-init.js";
 
-        // --- Dynamic base: /public when signed out, /<uid> when signed in
-        let DATABASE_BASE_PATH = "public";
-
-        const join = (...parts) => parts.filter(Boolean).map(String).join("/").replace(/\/+/g, "/");
-        const dbRef = (...parts) => ref(database, join(DATABASE_BASE_PATH, ...parts));
-        const storageKey = (...parts) => join("product-images", DATABASE_BASE_PATH, ...parts);
-
-        // Callable (region must match deployment)
+        // ----- Cloud Function (PA-API v5) -----
         const functions = getFunctions(app, "us-central1");
         const fetchFromAmazon = httpsCallable(functions, "paapiFetch");
 
-        // Whitelist admin UIDs who can manage images (match your Storage rules)
+        // ----- Permissions for image writes (match your Storage rules) -----
         const ALLOWED_UIDS = ["7cIh8rrhVNOjjj5CBDgb3IlqzEh2"];
 
-        // UI refs
+        // ----- UI refs -----
         const adminContent = document.getElementById("adminContent");
         const authStatus = document.getElementById("authStatus");
         const roleChip = document.getElementById("roleChip");
+
+        const viewBar = document.getElementById("viewBar");
+        const viewLabel = document.getElementById("viewLabel");
+        const viewToggle = document.getElementById("viewToggle");
+        const viewToggleWrap = document.getElementById("viewToggleWrap");
 
         const affiliateTagEl = document.getElementById("affiliateTag");
         const saveTagBtn = document.getElementById("saveTagBtn");
@@ -323,27 +336,56 @@ https://www.amazon.com/dp/...
         const entriesContainer = document.getElementById("entriesContainer");
         const emptyState = document.getElementById("emptyState");
 
+        // ----- Base switching (/public or /<uid>) -----
+        let BASE = "public";
+        let signedInUID = null;
         let inventoryRefLive = null;
 
+        const join = (...parts) => parts.filter(Boolean).map(String).join("/").replace(/\/+/g, "/");
+        const dbRef = (...p) => ref(database, join(BASE, ...p));
+        const storageKey = (...p) => join("product-images", BASE, ...p);
+
+        const getSavedBase = (uid) => localStorage.getItem(`adminBase:${uid}`) || uid || "public";
+        const saveBase = (uid, base) => uid && localStorage.setItem(`adminBase:${uid}`, base);
+
         onAuthStateChanged(auth, (user) => {
-            // switch base path
-            DATABASE_BASE_PATH = user ? user.uid : "public";
+            signedInUID = user ? user.uid : null;
 
-            authStatus.textContent = user ? `Signed in as ${user.email || user.uid}` : "Public mode";
-            roleChip.textContent = user && ALLOWED_UIDS.includes(user.uid) ? "admin" : "public";
+            authStatus.textContent = user ? `Signed in as ${user.email || user.uid}` : "Not signed in";
+            roleChip.textContent = user && ALLOWED_UIDS.includes(user.uid) ? "admin" : "viewer";
 
-            // IMPORTANT: keep admin visible in public mode
+            // Show toggle only when signed in
+            const showToggle = !!user;
+            viewBar.style.display = showToggle ? "flex" : "none";
+            viewToggleWrap.style.display = showToggle ? "inline-flex" : "none";
+
+            // Choose base: saved choice (default to uid on admin page)
+            const desired = user ? getSavedBase(user.uid) : "public";
+            const isWorkspace = user && desired !== "public";
+            BASE = isWorkspace ? user.uid : "public";
+            if (viewToggle) viewToggle.checked = isWorkspace;
+            viewLabel.textContent = `Viewing: ${isWorkspace ? "My Workspace" : "Public"}`;
+
+            // Admin UI: keep visible for browsing even if logged out (writes may fail by rules)
             adminContent.hidden = false;
 
-            // Rebind to the new base
             bindInventoryListener();
             loadSettings();
         });
 
-        function bindInventoryListener() {
-            if (inventoryRefLive) off(inventoryRefLive);
-            inventoryRefLive = dbRef("inventory");
+        viewToggle?.addEventListener("change", () => {
+            if (!signedInUID) return;
+            const next = viewToggle.checked ? signedInUID : "public";
+            BASE = next;
+            saveBase(signedInUID, next);
+            viewLabel.textContent = `Viewing: ${next === "public" ? "Public" : "My Workspace"}`;
+            bindInventoryListener(true);
+            loadSettings();
+        });
 
+        function bindInventoryListener(rebind = false) {
+            if (inventoryRefLive && rebind) off(inventoryRefLive);
+            inventoryRefLive = dbRef("inventory");
             onValue(inventoryRefLive, (snap) => {
                 const data = snap.val() || {};
                 const { items, cats, comps } = flatten(data);
@@ -355,12 +397,12 @@ https://www.amazon.com/dp/...
 
         async function loadSettings() {
             try {
-                const tagSnap = await get(dbRef("settings/affiliateTag"));
-                const defCatSnap = await get(dbRef("settings/defaultCategory"));
-                const defCompSnap = await get(dbRef("settings/defaultComponent"));
-                affiliateTagEl.value = tagSnap.val() || "";
-                defaultCategoryEl.value = defCatSnap.val() || "";
-                defaultComponentEl.value = defCompSnap.val() || "";
+                const tag = await get(dbRef("settings/affiliateTag"));
+                const defCat = await get(dbRef("settings/defaultCategory"));
+                const defCmp = await get(dbRef("settings/defaultComponent"));
+                affiliateTagEl.value = tag.val() || "";
+                defaultCategoryEl.value = defCat.val() || "";
+                defaultComponentEl.value = defCmp.val() || "";
             } catch (e) { console.warn("Settings load failed", e); }
         }
 
@@ -369,15 +411,13 @@ https://www.amazon.com/dp/...
                 await update(dbRef("settings"), {
                     affiliateTag: (affiliateTagEl.value || "").trim(),
                     defaultCategory: (defaultCategoryEl.value || "").trim(),
-                    defaultComponent: (defaultComponentEl.value || "").trim()
+                    defaultComponent: (defaultComponentEl.value || "").trim(),
                 });
                 alert("Settings saved.");
-            } catch (e) {
-                alert("Failed to save settings: " + (e?.message || e));
-            }
+            } catch (e) { alert("Failed to save settings: " + (e?.message || e)); }
         });
 
-        // ----- Create product
+        // ----- Create product -----
         createBtn.addEventListener("click", async () => {
             const category = sanitize(catInput.value) || sanitize(defaultCategoryEl.value);
             const component = sanitize(compInput.value) || sanitize(defaultComponentEl.value);
@@ -398,30 +438,25 @@ https://www.amazon.com/dp/...
                 await set(dbRef("inventory", category, component, name), data);
                 alert("Created. You can now upload an image in the row below.");
                 clearCreateForm();
-            } catch (e) {
-                alert("Create failed: " + (e?.message || e));
-            }
+            } catch (e) { alert("Create failed: " + (e?.message || e)); }
         });
 
-        clearCreateBtn.addEventListener("click", clearCreateForm);
         function clearCreateForm() {
             catInput.value = compInput.value = nameInput.value = "";
             descInput.value = priceInput.value = actualPriceInput.value = qtyInput.value = "";
             affInput.value = asinInput.value = "";
         }
+        clearCreateBtn.addEventListener("click", clearCreateForm);
 
-        // ----- Auto-fill from Amazon (PA-API via Cloud Function)
+        // ----- Auto-fill from Amazon -----
         fetchFromAmazonBtn.addEventListener("click", async () => {
             const url = (affInput.value || "").trim();
             const asin = (asinInput.value || "").trim();
             if (!url && !asin) return alert("Paste an Amazon URL or enter an ASIN first.");
+
             try {
                 const { data } = await fetchFromAmazon(url ? { url } : { asin });
-
-                if (data?.error) {
-                    console.warn("PA-API error:", data);
-                    return alert(`Amazon lookup failed: ${data.error}${data.message ? " — " + data.message : ""}`);
-                }
+                if (data?.error) return alert(`Amazon lookup failed: ${data.error}${data.message ? " — " + data.message : ""}`);
 
                 if (data?.title) nameInput.value = slugFromTitle(data.title);
                 if (data?.asin) asinInput.value = data.asin;
@@ -445,13 +480,10 @@ https://www.amazon.com/dp/...
                 .slice(0, 60);
         }
 
-        // ----- Bulk import (with PA-API enrichment when available)
+        // ----- Bulk import -----
         bulkImportBtn.addEventListener("click", async () => {
             const lines = (bulkLinks.value || "")
-                .split(/\r?\n+/)
-                .map(s => s.trim())
-                .filter(Boolean);
-
+                .split(/\r?\n+/).map(s => s.trim()).filter(Boolean);
             if (!lines.length) return alert("Paste at least one link.");
 
             const category = sanitize(bulkCat.value) || sanitize(defaultCategoryEl.value) || "Starter_Picks";
@@ -459,28 +491,21 @@ https://www.amazon.com/dp/...
 
             let ok = 0, fail = 0;
             bulkLog.textContent = "";
-
             const oldLabel = bulkImportBtn.textContent;
             bulkImportBtn.disabled = true;
-            const setProgress = (i) => bulkImportBtn.textContent = `Importing ${i}/${lines.length}…`;
 
             for (let i = 0; i < lines.length; i++) {
                 const url = lines[i];
+                bulkImportBtn.textContent = `Importing ${i + 1}/${lines.length}…`;
                 const stamp = new Date();
-                setProgress(i + 1);
 
                 try {
                     let meta = null;
                     try {
                         const resp = await fetchFromAmazon({ url });
                         meta = resp?.data || null;
-                        if (meta?.error) {
-                            bulkLog.textContent += `PA-API error for ${url}: ${meta.error}${meta.message ? " — " + meta.message : ""}\n`;
-                            meta = null;
-                        }
-                    } catch (e) {
-                        bulkLog.textContent += `PA-API failed for ${url}: ${(e?.message || e)}\n`;
-                    }
+                        if (meta?.error) { bulkLog.textContent += `PA-API error for ${url}: ${meta.error}\n`; meta = null; }
+                    } catch (e) { bulkLog.textContent += `PA-API failed for ${url}: ${(e?.message || e)}\n`; }
 
                     const name = meta?.title
                         ? slugFromTitle(meta.title)
@@ -492,9 +517,7 @@ https://www.amazon.com/dp/...
 
                     const record = {
                         description,
-                        price: "",
-                        actualPrice: "",
-                        quantity: 0,
+                        price: "", actualPrice: "", quantity: 0,
                         affiliateUrl: meta?.detailPageURL || url,
                         asin: meta?.asin || "",
                         imageUrl: meta?.imageUrl || "",
@@ -502,11 +525,10 @@ https://www.amazon.com/dp/...
                     };
 
                     await set(dbRef("inventory", category, component, name), record);
-                    bulkLog.textContent += `✓ ${join(DATABASE_BASE_PATH, "inventory", category, component, name)}${meta ? " (enriched)" : ""}\n`;
+                    bulkLog.textContent += `✓ ${join(BASE, "inventory", category, component, name)}${meta ? " (enriched)" : ""}\n`;
                     ok++;
 
-                    // ~1 req/sec throttle to be kind to PA-API quotas
-                    await new Promise(r => setTimeout(r, 1200));
+                    await new Promise(r => setTimeout(r, 1200)); // be nice to quotas
                 } catch (e) {
                     bulkLog.textContent += `✗ ${url} :: ${(e?.message || e)}\n`;
                     fail++;
@@ -528,7 +550,7 @@ https://www.amazon.com/dp/...
             return `${y}${m}${dd}_${hh}${mi}${ss}`;
         }
 
-        // ----- List & edit products
+        // ----- List & edit -----
         let allItems = [];
 
         function flatten(data) {
@@ -648,9 +670,7 @@ https://www.amazon.com/dp/...
                         await update(oldRef, newData);
                     }
                     alert("Saved.");
-                } catch (err) {
-                    alert("Save failed: " + (err?.message || err));
-                }
+                } catch (err) { alert("Save failed: " + (err?.message || err)); }
             });
 
             // Delete row
@@ -659,9 +679,7 @@ https://www.amazon.com/dp/...
                 try {
                     await remove(dbRef("inventory", e.cat, e.comp, e.name));
                     if (e.imageStoragePath) { try { await deleteObject(sRef(storage, e.imageStoragePath)); } catch { } }
-                } catch (err) {
-                    alert("Delete failed: " + (err?.message || err));
-                }
+                } catch (err) { alert("Delete failed: " + (err?.message || err)); }
             });
 
             // Upload image
@@ -688,9 +706,7 @@ https://www.amazon.com/dp/...
                     imgEl.src = url; imgEl.style.display = "block";
                     card.querySelector(".removeImgBtn").disabled = false;
                     alert("Image uploaded and linked.");
-                } catch (err) {
-                    alert("Upload failed: " + (err?.message || err));
-                }
+                } catch (err) { alert("Upload failed: " + (err?.message || err)); }
             });
 
             // Remove image
@@ -701,9 +717,7 @@ https://www.amazon.com/dp/...
                     await update(dbRef("inventory", e.cat, e.comp, e.name), { imageUrl: null, imageStoragePath: null });
                     imgEl.src = ""; imgEl.style.display = "none";
                     card.querySelector(".removeImgBtn").disabled = true;
-                } catch (err) {
-                    alert("Failed to remove image: " + (err?.message || err));
-                }
+                } catch (err) { alert("Failed to remove image: " + (err?.message || err)); }
             });
 
             return card;
@@ -713,6 +727,7 @@ https://www.amazon.com/dp/...
         function sanitize(s) { return String(s || "").replace(/[\/#?\[\]]/g, "_").trim(); }
         function escapeHtml(s = "") { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
         function escapeAttr(s = "") { return escapeHtml(String(s)); }
+
     </script>
 </body>
 
