@@ -40,7 +40,13 @@
     </div>
 
     <main>
+
         <section class="container">
+
+            <label class="chip">
+                <input type="checkbox" id="includeNoLink"> Include items without link
+            </label>
+
             <h2>Shop Tools for Low-Voltage Pros</h2>
 
             <div class="filters" role="search">
@@ -153,7 +159,8 @@
                 .catch(() => { affiliateTag = ""; });
         }
 
-        // Build items from nested structure
+        const includeNoLink = document.getElementById('includeNoLink');
+
         function normalize(data) {
             const items = [];
             const catSet = new Set();
@@ -163,7 +170,6 @@
                 for (const component in data[category]) {
                     for (const partName in data[category][component]) {
                         const e = data[category][component][partName] || {};
-                        if (!e.affiliateUrl) continue; // only show items with a buy link
                         catSet.add(category);
                         compSet.add(component);
                         items.push({
@@ -172,7 +178,7 @@
                             component,
                             description: e.description || "",
                             price: e.price,
-                            affiliateUrl: e.affiliateUrl,
+                            affiliateUrl: e.affiliateUrl || "",
                             asin: e.asin || "",
                             imageUrl: (e.imageUrl && e.imageUrl.trim())
                                 ? e.imageUrl
@@ -184,6 +190,8 @@
             }
             return { items, categories: [...catSet].sort(), components: [...compSet].sort() };
         }
+
+        includeNoLink?.addEventListener('change', render);
 
         function renderFilters(categories, components) {
             catSel.innerHTML = '<option value="">All Categories</option>' +
@@ -200,8 +208,10 @@
             const cat = catSel.value;
             const comp = compSel.value;
             const q = (searchBox.value || "").trim().toLowerCase();
+            const showNoLink = document.getElementById("includeNoLink")?.checked;
 
             const filtered = allItems.filter(it => {
+                if (!showNoLink && !it.affiliateUrl) return false; // <-- filter here
                 const hitCat = !cat || it.category === cat;
                 const hitComp = !comp || it.component === comp;
                 const hay = `${it.name} ${it.category} ${it.component} ${it.description} ${(it.tags || []).join(" ")}`.toLowerCase();
@@ -219,19 +229,24 @@
             filtered.forEach(p => {
                 const price = parseFloat(p.price);
                 const priceText = isNaN(price) ? "" : `$${price.toFixed(2)}`;
+
+                const linkHtml = p.affiliateUrl
+                    ? `<a class="cta-button"
+                    href="${escapeAttr(ensureAffiliateTag(p.affiliateUrl, affiliateTag || 'YOURTAG-20'))}"
+                    target="_blank" rel="sponsored nofollow noopener"
+                    data-asin="${escapeAttr(p.asin)}">View on Amazon</a>`
+                    : `<span class="cta-button" style="opacity:.6;pointer-events:none;">No link yet</span>`;
+
                 const el = document.createElement("div");
                 el.className = "product-item";
                 el.innerHTML = `
-          <img src="${escapeAttr(p.imageUrl)}" alt="${escapeAttr(p.name)}" loading="lazy">
-          <h3>${escapeHtml(p.name)}</h3>
-          <p class="meta">${escapeHtml(p.category)} • ${escapeHtml(p.component)}</p>
-          ${priceText ? `<p class="our-price">Our listed price: ${priceText}</p>` : ""}
-          <a class="cta-button"
-             href="${escapeAttr(ensureAffiliateTag(p.affiliateUrl, affiliateTag || 'YOURTAG-20'))}"
-             target="_blank" rel="sponsored nofollow noopener"
-             data-asin="${escapeAttr(p.asin)}">View on Amazon</a>
-          <small class="aff-note">As an Amazon Associate, we earn from qualifying purchases.</small>
-        `;
+                <img src="${escapeAttr(p.imageUrl)}" alt="${escapeAttr(p.name)}" loading="lazy">
+                <h3>${escapeHtml(p.name)}</h3>
+                <p class="meta">${escapeHtml(p.category)} • ${escapeHtml(p.component)}</p>
+                ${priceText ? `<p class="our-price">Our listed price: ${priceText}</p>` : ""}
+                ${linkHtml}
+                <small class="aff-note">As an Amazon Associate, we earn from qualifying purchases.</small>
+                `;
                 grid.appendChild(el);
             });
         }
