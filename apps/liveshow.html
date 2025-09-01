@@ -258,6 +258,81 @@
             }
         }
 
+        function parseFolderToDbPathAndProject(folderPath) {
+            const match = folderPath.match(/^(.*?)\/images\/(.+)$/);
+            if (!match) return null;
+            return { dbPath: match[1], projectId: match[2] };
+        }
+
+        async function findTaskByProject(dbPath, projectId) {
+            const dbRef = ref(getDatabase(), dbPath);
+            const snap = await get(dbRef);
+            const data = snap.val();
+            if (!data) return null;
+
+            for (const [k, v] of Object.entries(data)) {
+                if (v && typeof v === 'object' && v.project === projectId) {
+                    return { key: k, data: v };
+                }
+            }
+            return null;
+        }
+
+        function buildMissingFieldsPatch(sourceData, destData) {
+            const patch = {};
+            for (const [k, v] of Object.entries(sourceData || {})) {
+                if (destData === null || destData === undefined || !(k in destData) || destData[k] === undefined) {
+                    patch[k] = v;
+                }
+            }
+            return patch;
+        }
+
+        async function copyMissingTaskInfo(fromFolder, toFolder) {
+            const parsedFrom = parseFolderToDbPathAndProject(fromFolder);
+            const parsedTo = parseFolderToDbPathAndProject(toFolder);
+
+            if (!parsedFrom || !parsedTo) {
+                console.warn("Folder path did not match expected pattern. Skipping info copy.", { fromFolder, toFolder });
+                return;
+            }
+
+            const { dbPath: fromDbPath, projectId: fromProjectId } = parsedFrom;
+            const { dbPath: toDbPath, projectId: toProjectId } = parsedTo;
+
+            try {
+                const fromTask = await findTaskByProject(fromDbPath, fromProjectId);
+                if (!fromTask || !fromTask.data) {
+                    console.info("No source task found to copy from.");
+                    return;
+                }
+
+                const sourceDataForCopy = { ...fromTask.data, project: toProjectId };
+
+                const toTask = await findTaskByProject(toDbPath, toProjectId);
+
+                if (toTask) {
+                    const patch = buildMissingFieldsPatch(sourceDataForCopy, toTask.data);
+                    if (Object.keys(patch).length === 0) {
+                        console.info("Destination task already has all fields. Nothing to copy.");
+                        return;
+                    }
+                    await update(ref(getDatabase()), {
+                        [`${toDbPath}/${toTask.key}`]: { ...toTask.data, ...patch }
+                    });
+                    console.info("Copied missing fields into existing destination task.");
+                } else {
+                    const newKey = Date.now().toString();
+                    await update(ref(getDatabase()), {
+                        [`${toDbPath}/${newKey}`]: sourceDataForCopy
+                    });
+                    console.info("Created new destination task with copied info.");
+                }
+            } catch (err) {
+                console.error("Failed to copy missing task info:", err);
+            }
+        }
+
         moveButton.addEventListener('click', async () => {
             const fromFolder = fromDropdown.value.trim();
             const toFolder = toDropdown.value.trim();
@@ -273,8 +348,13 @@
 
             try {
                 await moveAllFilesRecursively(baseRef, fromFolder, toFolder, copyInstead);
-                alert(`Successfully ${copyInstead ? 'copied' : 'moved'} files.`);
+
+                await copyMissingTaskInfo(fromFolder, toFolder);
+
+                alert(`Successfully ${copyInstead ? 'copied' : 'moved'} files and synced task info.`);
                 await populateFolderDropdowns();
+                if (fromDropdown.value) displayTaskInfoForFolder(fromDropdown.value.trim(), 'folder-data-list-from');
+                if (toDropdown.value) displayTaskInfoForFolder(toDropdown.value.trim(), 'folder-data-list-to');
             } catch (err) {
                 console.error("Move/Copy Error:", err);
                 alert("Error moving/copying files.");
