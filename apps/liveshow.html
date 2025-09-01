@@ -257,20 +257,55 @@
                 console.error("Failed to get folders or task info:", err);
             }
         }
-
         function parseFolderToDbPathAndProject(folderPath) {
-            const match = folderPath.match(/^(.*?)\/images\/(.+)$/);
-            if (!match) return null;
-            return { dbPath: match[1], projectId: match[2] };
+            // Expect "<dbPath>/images/<projectId>" but we won't insist on using projectId if it's missing
+            const m = folderPath.match(/^(.*?)\/images\/(.+)$/);
+            if (!m) return { dbPath: null, projectId: null };
+            return { dbPath: m[1], projectId: m[2] };
         }
 
-        async function findTaskByProject(dbPath, projectId) {
+        async function fetchAllTasks(dbPath) {
+            if (!dbPath) return {};
             const dbRef = ref(getDatabase(), dbPath);
             const snap = await get(dbRef);
-            const data = snap.val();
-            if (!data) return null;
+            return snap.val() || {};
+        }
 
-            for (const [k, v] of Object.entries(data)) {
+        function pickBestFallbackTaskEntry(entries) {
+            // Choose the “most recent-looking” one if we can (startTime, createdAt, updatedAt)
+            let best = null;
+            let bestTime = -Infinity;
+
+            for (const [key, data] of Object.entries(entries)) {
+                if (!data || typeof data !== 'object') continue;
+                const tCandidates = [data.updatedAt, data.createdAt, data.startTime].filter(Boolean);
+                const t = tCandidates.length ? new Date(tCandidates[0]).getTime() : 0;
+                if (t > bestTime) {
+                    best = [key, data];
+                    bestTime = t;
+                }
+            }
+            // If nothing had times, just return the first object entry
+            return best || Object.entries(entries)[0] || null;
+        }
+
+        async function getSourceTask(dbPath, projectId) {
+            const all = await fetchAllTasks(dbPath);
+            // Prefer an explicit project match when available
+            for (const [k, v] of Object.entries(all)) {
+                if (v && typeof v === 'object' && v.project === projectId) {
+                    return { key: k, data: v };
+                }
+            }
+            // Fallback: pick the “best” entry (no ID requirement)
+            const fallback = pickBestFallbackTaskEntry(all);
+            return fallback ? { key: fallback[0], data: fallback[1] } : null;
+        }
+
+        async function getDestinationTaskOrNull(dbPath, projectId) {
+            const all = await fetchAllTasks(dbPath);
+            // If a task already exists with same project, we’ll merge into it; otherwise return null (we’ll create new)
+            for (const [k, v] of Object.entries(all)) {
                 if (v && typeof v === 'object' && v.project === projectId) {
                     return { key: k, data: v };
                 }
@@ -281,55 +316,53 @@
         function buildMissingFieldsPatch(sourceData, destData) {
             const patch = {};
             for (const [k, v] of Object.entries(sourceData || {})) {
-                if (destData === null || destData === undefined || !(k in destData) || destData[k] === undefined) {
+                // Only add if dest is missing or undefined (won’t overwrite defined values)
+                if (!destData || !(k in destData) || destData[k] === undefined) {
                     patch[k] = v;
                 }
             }
             return patch;
         }
 
-        async function copyMissingTaskInfo(fromFolder, toFolder) {
-            const parsedFrom = parseFolderToDbPathAndProject(fromFolder);
-            const parsedTo = parseFolderToDbPathAndProject(toFolder);
+        async function copyInfoDataRegardlessOfIds(fromFolder, toFolder) {
+            const { dbPath: fromDbPath, projectId: fromProjectId } = parseFolderToDbPathAndProject(fromFolder);
+            const { dbPath: toDbPath, projectId: toProjectId } = parseFolderToDbPathAndProject(toFolder);
 
-            if (!parsedFrom || !parsedTo) {
-                console.warn("Folder path did not match expected pattern. Skipping info copy.", { fromFolder, toFolder });
+            if (!fromDbPath || !toDbPath) {
+                console.warn("Could not parse DB paths from folders; skipping info copy.", { fromFolder, toFolder });
                 return;
             }
 
-            const { dbPath: fromDbPath, projectId: fromProjectId } = parsedFrom;
-            const { dbPath: toDbPath, projectId: toProjectId } = parsedTo;
+            // 1) Get the source task (prefer by project; otherwise best fallback)
+            const source = await getSourceTask(fromDbPath, fromProjectId);
+            if (!source || !source.data) {
+                console.info("No source task data found to copy.");
+                return;
+            }
 
-            try {
-                const fromTask = await findTaskByProject(fromDbPath, fromProjectId);
-                if (!fromTask || !fromTask.data) {
-                    console.info("No source task found to copy from.");
+            // 2) Prepare data to copy. We’ll keep the destination’s projectId if we have one; but ID matching is not required.
+            const copiedData = { ...source.data };
+            if (toProjectId) copiedData.project = toProjectId; // keep things consistent with the folder we copied into
+
+            // 3) Try to merge into an existing destination task with same project; otherwise create new
+            const dest = await getDestinationTaskOrNull(toDbPath, toProjectId);
+
+            if (dest) {
+                const patch = buildMissingFieldsPatch(copiedData, dest.data);
+                if (Object.keys(patch).length === 0) {
+                    console.info("Destination task already contains all fields; nothing to add.");
                     return;
                 }
-
-                const sourceDataForCopy = { ...fromTask.data, project: toProjectId };
-
-                const toTask = await findTaskByProject(toDbPath, toProjectId);
-
-                if (toTask) {
-                    const patch = buildMissingFieldsPatch(sourceDataForCopy, toTask.data);
-                    if (Object.keys(patch).length === 0) {
-                        console.info("Destination task already has all fields. Nothing to copy.");
-                        return;
-                    }
-                    await update(ref(getDatabase()), {
-                        [`${toDbPath}/${toTask.key}`]: { ...toTask.data, ...patch }
-                    });
-                    console.info("Copied missing fields into existing destination task.");
-                } else {
-                    const newKey = Date.now().toString();
-                    await update(ref(getDatabase()), {
-                        [`${toDbPath}/${newKey}`]: sourceDataForCopy
-                    });
-                    console.info("Created new destination task with copied info.");
-                }
-            } catch (err) {
-                console.error("Failed to copy missing task info:", err);
+                await update(ref(getDatabase()), {
+                    [`${toDbPath}/${dest.key}`]: { ...dest.data, ...patch }
+                });
+                console.info("Merged missing fields into existing destination task.");
+            } else {
+                const newKey = Date.now().toString();
+                await update(ref(getDatabase()), {
+                    [`${toDbPath}/${newKey}`]: copiedData
+                });
+                console.info("Created a new destination task and copied info.");
             }
         }
 
@@ -348,13 +381,9 @@
 
             try {
                 await moveAllFilesRecursively(baseRef, fromFolder, toFolder, copyInstead);
-
-                await copyMissingTaskInfo(fromFolder, toFolder);
-
-                alert(`Successfully ${copyInstead ? 'copied' : 'moved'} files and synced task info.`);
+                await copyInfoDataRegardlessOfIds(fromFolder, toFolder);
+                alert(`Successfully ${copyInstead ? 'copied' : 'moved'} files.`);
                 await populateFolderDropdowns();
-                if (fromDropdown.value) displayTaskInfoForFolder(fromDropdown.value.trim(), 'folder-data-list-from');
-                if (toDropdown.value) displayTaskInfoForFolder(toDropdown.value.trim(), 'folder-data-list-to');
             } catch (err) {
                 console.error("Move/Copy Error:", err);
                 alert("Error moving/copying files.");
