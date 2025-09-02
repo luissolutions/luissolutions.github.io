@@ -7,6 +7,14 @@
   <link rel="icon" href="./assets/img/financial_logo.png">
   <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
   <script type="module" src="./assets/js/login.js" defer></script>
+  <style>
+    .transaction-row select,
+    .transaction-row button {
+      padding-bottom: 0;
+      padding-top: 0;
+      margin-bottom: 0;
+    }
+  </style>
 </head>
 
 <body>
@@ -47,6 +55,7 @@
               <th>Name</th>
               <th>Type</th>
               <th>Amount</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -141,7 +150,7 @@
     <script type="module">
       import { auth, onAuthStateChanged, database, ref, onValue, set, get, update } from './assets/js/firebase-init.js';
 
-      const months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       let currentYear = new Date().getFullYear();
       let yearlyDetails = initializeYearlyDetails();
       let DATABASE_BASE_PATH = 'public';
@@ -625,67 +634,110 @@
 
       function displayAllTransactions() {
         fetchSavedData().then(savedData => {
-          const transactionsTable = document.querySelector('#transactions-table tbody');
-          transactionsTable.innerHTML = '';
+          const tbody = document.querySelector('#transactions-table tbody');
+          tbody.innerHTML = '';
 
           const searchBox = document.getElementById('global-search');
-          const searchValue = searchBox ? searchBox.value.toLowerCase() : "";
+          const searchValue = (searchBox ? searchBox.value : '').toLowerCase();
 
-          let filteredTransactions = [];
+          const filteredForTotals = []; // use this for filtered total
+
+          const rows = [];
 
           Object.entries(savedData).forEach(([dateKey, data]) => {
-            const details = (data.details || []).filter(detail =>
-              new Date(detail.date).getFullYear() === currentYear
+            const details = (data.details || []).filter(d =>
+              new Date(d.date).getFullYear() === currentYear
             );
 
             details.forEach((detail, index) => {
-              const [monthName, day] = dateKey.split('-');
+              const [monthName, dayStr] = dateKey.split('-');
               const monthIndex = months.indexOf(monthName);
-              const dateObject = new Date(currentYear, monthIndex, parseInt(day, 10));
+              const dateObject = new Date(currentYear, monthIndex, parseInt(dayStr, 10));
 
-              const name = detail.name ? detail.name.toLowerCase() : "";
-              const type = detail.type ? detail.type.toLowerCase() : "";
-              const amount = detail.amount !== undefined ? detail.amount.toString().toLowerCase() : "";
+              const name = (detail.name || '').toLowerCase();
+              const type = (detail.type || '').toLowerCase();
+              const amountStr = (detail.amount ?? 0).toString().toLowerCase();
 
-              if (
+              const matches =
                 dateKey.toLowerCase().includes(searchValue) ||
                 name.includes(searchValue) ||
                 type.includes(searchValue) ||
-                amount.includes(searchValue)
-              ) {
-                filteredTransactions.push({
+                amountStr.includes(searchValue);
+
+              if (matches) {
+                rows.push({
                   dateKey,
                   dateObject,
                   index,
-                  name: detail.name || "Unknown",
-                  type: detail.type || "Unknown",
-                  amount: detail.amount !== undefined ? detail.amount.toFixed(2) : "0.00",
+                  detail
                 });
+                filteredForTotals.push(detail);
               }
             });
           });
 
-          filteredTransactions.sort((a, b) => a.dateObject - b.dateObject);
+          rows.sort((a, b) => a.dateObject - b.dateObject);
 
-          filteredTransactions.forEach(transaction => {
-            const row = document.createElement('tr');
-            row.classList.add("transaction-row");
+          rows.forEach(({ dateKey, index, detail }) => {
+            const tr = document.createElement('tr');
+            tr.classList.add('transaction-row');
 
-            row.innerHTML = `
-              <td>${transaction.dateKey}</td>
-              <td contenteditable="true" data-key="name">${transaction.name}</td>
-              <td>${transaction.type}</td>
-              <td contenteditable="true" data-key="amount">${transaction.amount}</td>
-            `;
+            // Date
+            const tdDate = document.createElement('td');
+            tdDate.textContent = dateKey;
 
-            row.querySelectorAll('[contenteditable="true"]').forEach(cell => {
-              cell.addEventListener('blur', (event) => {
-                updateTransactionEntry(transaction.dateKey, transaction.index, event.target.dataset.key, event.target.innerText);
-              });
+            // Name (editable)
+            const tdName = document.createElement('td');
+            tdName.contentEditable = 'true';
+            tdName.dataset.key = 'name';
+            tdName.textContent = detail.name || 'Unknown';
+            tdName.addEventListener('blur', e => {
+              updateTransactionEntry(dateKey, index, 'name', e.target.innerText);
             });
 
-            transactionsTable.appendChild(row);
+            // Type (dropdown)
+            const tdType = document.createElement('td');
+            tdType.appendChild(
+              createTypeSelect(detail.type || 'Expenses', async newVal => {
+                await updateTransactionEntry(dateKey, index, 'type', newVal);
+                handleYearChange(); // keep totals/tiles in sync
+              })
+            );
+
+            // Amount (editable)
+            const tdAmount = document.createElement('td');
+            tdAmount.contentEditable = 'true';
+            tdAmount.dataset.key = 'amount';
+            tdAmount.textContent = (detail.amount ?? 0).toFixed(2);
+            tdAmount.addEventListener('blur', e => {
+              let v = parseFloat(e.target.innerText.replace(/[^\d.-]/g, ''));
+              if (isNaN(v)) {
+                e.target.textContent = (detail.amount ?? 0).toFixed(2);
+                return;
+              }
+              e.target.textContent = v.toFixed(2);
+              updateTransactionEntry(dateKey, index, 'amount', v);
+            });
+
+            // Actions (Delete)
+            const tdActions = document.createElement('td');
+            const delBtn = document.createElement('button');
+            delBtn.className = 'clear-button';
+            delBtn.textContent = 'x';
+            delBtn.addEventListener('click', () => {
+              deleteTransactionEntry(dateKey, index);
+            });
+            tdActions.appendChild(delBtn);
+
+            tr.appendChild(tdDate);
+            tr.appendChild(tdName);
+            tr.appendChild(tdType);
+            tr.appendChild(tdAmount);
+            tr.appendChild(tdActions);
+            tbody.appendChild(tr);
           });
+
+          updateFilteredTotal(filteredForTotals);
         });
       }
 
@@ -717,36 +769,6 @@
         }
       }
 
-      function filterGlobalEntries() {
-        const searchInput = document.getElementById('global-search').value.toLowerCase();
-        const transactionsTableBody = document.querySelector('#transactions-table tbody');
-        transactionsTableBody.innerHTML = '';
-
-        let filteredData = [];
-        Object.entries(yearlyDetails).forEach(([month, monthData]) => {
-          monthData.details.forEach(detail => {
-            const amountString = detail.amount.toFixed(2).toString();
-
-            const matchesSearch = detail.name.toLowerCase().includes(searchInput) ||
-              detail.type.toLowerCase().includes(searchInput) ||
-              amountString.includes(searchInput);
-
-            if (matchesSearch) {
-              filteredData.push(detail);
-              const row = transactionsTableBody.insertRow();
-              row.innerHTML = `
-                    <td>${new Date(detail.date).toLocaleDateString()}</td>
-                    <td>${detail.name}</td>
-                    <td>${detail.type}</td>
-                    <td>${detail.amount.toFixed(2)}</td>
-                `;
-            }
-          });
-        });
-
-        updateFilteredTotal(filteredData);
-      }
-
       function updateFilteredTotal(filteredData) {
         let totalIncome = 0;
         let totalExpenses = 0;
@@ -763,7 +785,57 @@
         document.getElementById('filtered-total').textContent = `Filtered Total: $${filteredTotal.toFixed(2)}`;
       }
 
-      document.getElementById('global-search').addEventListener('input', filterGlobalEntries);
+      function createTypeSelect(currentType, onChange) {
+        const sel = document.createElement('select');
+        ['Income', 'Expenses'].forEach(optVal => {
+          const opt = document.createElement('option');
+          opt.value = optVal;
+          opt.textContent = optVal;
+          if ((currentType || '').toLowerCase() === optVal.toLowerCase()) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        sel.addEventListener('change', e => onChange(e.target.value));
+        return sel;
+      }
+
+      window.deleteTransactionEntry = async function deleteTransactionEntry(dateKey, entryIndex) {
+        if (!confirm("Are you sure you want to delete this entry?")) return;
+
+        try {
+          let savedData = await fetchSavedData();
+
+          if (savedData[dateKey] && savedData[dateKey].details.length > entryIndex) {
+            // keep behavior consistent with updateTransactionEntry: map "filtered index" -> global index
+            const filteredEntries = savedData[dateKey].details.filter(detail =>
+              new Date(detail.date).getFullYear() === currentYear
+            );
+
+            if (filteredEntries.length > entryIndex) {
+              const globalIndex = savedData[dateKey].details.indexOf(filteredEntries[entryIndex]);
+              if (globalIndex !== -1) {
+                savedData[dateKey].details.splice(globalIndex, 1);
+              }
+
+              // remove empty day bucket
+              if (savedData[dateKey].details.length === 0) {
+                delete savedData[dateKey];
+              }
+
+              await saveData(savedData);
+
+              // refresh UI: totals, grid, and table
+              handleYearChange();
+              displayAllTransactions();
+            } else {
+              console.warn("⚠️ No entry found for deletion in the current year.");
+            }
+          } else {
+            console.warn("⚠️ No entry found for deletion or index out of bounds.");
+          }
+        } catch (error) {
+          console.error("❌ Error deleting entry:", error);
+        }
+      };
 
     </script>
 </body>

@@ -584,36 +584,61 @@
         });
 
         async function populateProjects() {
-            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
             const dropdown = document.getElementById('projectList');
             dropdown.innerHTML = '';
+            dropdown.appendChild(new Option('-- Choose a project --', ''));
 
-            const defaultOption = new Option('-- Choose a project --', '');
-            dropdown.appendChild(defaultOption);
+            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
+            if (!snap.exists()) return;
 
-            if (!snapshot.exists()) return;
+            const tasks = snap.val();
 
-            const data = snapshot.val();
-            const seen = new Set();
+            // helper: best "freshness" timestamp for a task
+            const bestTime = (task, id) => {
+                const candidates = [
+                    Number(task.updatedAt) || 0,
+                    Number(task.createdAt) || 0,
+                    Number(task.startTime) || 0,
+                    Number(task.timestamp) || 0,
+                    Number(id) || 0, // many of your IDs are Date.now()
+                ];
+                return Math.max(...candidates);
+            };
 
-            const sortedEntries = Object.entries(data).sort(([, a], [, b]) => {
-                const nameA = (a.project || '').toLowerCase();
-                const nameB = (b.project || '').toLowerCase();
-                return nameA.localeCompare(nameB);
+            // Group by normalized project name, pick the freshest per group
+            const groups = new Map(); // key: normalized project, value: {id, task}
+            for (const [id, task] of Object.entries(tasks)) {
+                const projectRaw = (task.project || '').trim();
+                if (!projectRaw) continue; // skip truly unnamed
+
+                const key = projectRaw.toLowerCase();
+                const current = groups.get(key);
+
+                if (!current) {
+                    groups.set(key, { id, task });
+                } else {
+                    const newer =
+                        bestTime(task, id) > bestTime(current.task, current.id)
+                            ? { id, task }
+                            : current;
+                    groups.set(key, newer);
+                }
+            }
+
+            // Turn into a list, sort alphabetically by project label
+            const deduped = [...groups.values()].sort((a, b) => {
+                const A = (a.task.project || '').toLowerCase();
+                const B = (b.task.project || '').toLowerCase();
+                return A.localeCompare(B);
             });
 
-            for (const [id, task] of sortedEntries) {
+            // Build options (one per project)
+            for (const { id, task } of deduped) {
                 let label = task.project || `(Unnamed - ${id})`;
                 if (task.customerName && task.customerName.trim() !== '') {
                     label += ` — ${task.customerName}`;
                 }
-
-                const key = `${(task.project || '').toLowerCase()}|${(task.customerName || '').toLowerCase()}`;
-
-                if (!seen.has(key)) {
-                    seen.add(key);
-                    dropdown.appendChild(new Option(label, id));
-                }
+                dropdown.appendChild(new Option(label, id));
             }
         }
 
