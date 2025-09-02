@@ -10,7 +10,7 @@
  * @param {(s:string)=>Date|null} [cfg.dateParser] - Optional custom date parser
  * @param {boolean}  [cfg.strictFields=false] - If true, unknown fields cause a token to be ignored
  */
-function createQueryEngine(cfg) {
+export function createQueryEngine(cfg) {
     const caseSensitive = !!cfg.caseSensitive;
     const defaultFields = Array.isArray(cfg.defaultFields) && cfg.defaultFields.length
         ? cfg.defaultFields : Object.keys(cfg.fields || {});
