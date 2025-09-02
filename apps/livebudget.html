@@ -7,6 +7,7 @@
   <link rel="icon" href="./assets/img/financial_logo.png">
   <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
   <script type="module" src="./assets/js/login.js" defer></script>
+  <script src="./assets/js/search.js" defer></script>
 
   <style>
     .transaction-row select,
@@ -176,58 +177,33 @@
     let currentYear = new Date().getFullYear();
     let yearlyDetails = initializeYearlyDetails();
     let DATABASE_BASE_PATH = 'public';
-
-    // --- Advanced search (no fallback) ---
     let _engine = null;
-    let _engineReady = null;
 
-    function disableSearch(reason) {
+    function wireSearchEngine() {
       const input = document.getElementById('global-search');
       if (!input) return;
-      input.disabled = true;
-      input.placeholder = 'Search unavailable';
-      input.title = reason || 'Advanced search module not loaded';
-    }
 
-    function enableSearch() {
-      const input = document.getElementById('global-search');
-      if (!input) return;
-      input.disabled = false;
-      input.placeholder = 'Search…  e.g. name:rent & amount:>200';
-      if (_engine?.operatorsHelp) input.title = _engine.operatorsHelp();
-    }
-
-    function ensureEngine() {
-      if (_engineReady) return _engineReady;
-
-      // Start disabled; only enable if module loads
-      disableSearch('Loading advanced search…');
-
-      _engineReady = (async () => {
-        try {
-          const mod = await import('./assets/js/search.js'); // <-- your standalone module
-          _engine = mod.createQueryEngine({
-            fields: {
-              name: { type: 'string', resolver: r => r.name },
-              type: { type: 'string', resolver: r => r.type },
-              amount: { type: 'number', resolver: r => r.amount },
-              date: { type: 'date', resolver: r => r.date },     // ISO or Date
-              dateKey: { type: 'string', resolver: r => r.dateKey },  // e.g. "Jan-3"
-            },
-            defaultFields: ['name', 'type', 'dateKey'],
-            caseSensitive: false
-          });
-          console.info('✅ Advanced query engine loaded.');
-          enableSearch();
-        } catch (e) {
-          console.warn('⚠️ query-engine.js not found. Search disabled.', e);
-          _engine = null;               // keep disabled; no filtering
-          disableSearch('Advanced search module not found');
-        }
-        return _engine;
-      })();
-
-      return _engineReady;
+      if (window.SearchEngine) {
+        _engine = window.SearchEngine.create({
+          fields: {
+            name: { type: 'string', resolver: r => r.name },
+            type: { type: 'string', resolver: r => r.type },
+            amount: { type: 'number', resolver: r => r.amount },
+            date: { type: 'date', resolver: r => r.date },
+            dateKey: { type: 'string', resolver: r => r.dateKey },
+          },
+          defaultFields: ['name', 'type', 'dateKey'],
+          caseSensitive: false
+        });
+        input.disabled = false;
+        input.placeholder = 'Search…  e.g. name:"rent" & amount:>200';
+        input.title = _engine.operatorsHelp();
+      } else {
+        // Leave disabled; show why
+        input.disabled = true;
+        input.placeholder = 'Search unavailable';
+        input.title = 'Load ./assets/js/search.js to enable advanced search';
+      }
     }
 
     onAuthStateChanged(auth, (user) => {
@@ -247,7 +223,7 @@
         displayAllTransactions();
         renderCharts();
         handleYearChange();
-        ensureEngine();
+        wireSearchEngine();
       });
     }
 
@@ -355,27 +331,31 @@
       // --- Year pie ---
       const pieCtx = document.getElementById('yearPie');
       if (yearPieChart) yearPieChart.destroy();
-      yearPieChart = new Chart(pieCtx, {
-        type: 'pie',
-        data: {
-          labels: ['Income', 'Expenses'],
-          datasets: [
-            {
-              data: [totalIncome, totalExpenses]
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          plugins: {
-            title: {
-              display: true,
-              text: `Income vs Expenses — ${currentYear}`
-            },
-            legend: { position: 'right' }
-          }
+if (yearPieChart) yearPieChart.destroy();
+yearPieChart = new Chart(pieCtx, {
+  type: 'pie',
+  data: {
+    labels: months,                // Jan..Dec
+    datasets: [
+      {
+        label: 'Expenses by Month',
+        data: expenses             // one value per month
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      title: { display: true, text: `Expenses by Month — ${currentYear}` },
+      legend: { position: 'right' },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => `${ctx.label}: $${(ctx.parsed || 0).toFixed(2)}`
         }
-      });
+      }
+    }
+  }
+});
     }
 
     function handleYearChange() {
@@ -814,7 +794,6 @@
     }
 
     async function displayAllTransactions() {
-      await ensureEngine(); // tries to load; may leave _engine = null
 
       const savedData = await fetchSavedData();
       const tbody = document.querySelector('#transactions-table tbody');
