@@ -22,6 +22,12 @@
       width: 60%;
       margin: 0 auto;
     }
+
+    /* Optional: make tags cells wrap nicely */
+    .transaction-row td[data-key="tags"],
+    #modalContent td[data-key="tags"] {
+      white-space: pre-wrap;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -54,7 +60,8 @@
 
       <section id="all-transactions">
         <div>
-          <input type="text" id="global-search" placeholder="Search Transactions:" oninput="filterGlobalEntries()">
+          <input type="text" id="global-search" placeholder="Search Transactions:" oninput="filterGlobalEntries()"
+            disabled title="Load ./assets/js/search.js to enable advanced search">
         </div>
         <div class="table">
           <table id="transactions-table">
@@ -64,6 +71,7 @@
                 <th>Name</th>
                 <th>Type</th>
                 <th>Amount</th>
+                <th>Tags</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -179,6 +187,20 @@
     let DATABASE_BASE_PATH = 'public';
     let _engine = null;
 
+    // --- Tag helpers ---
+    function parseTags(input) {
+      if (!input) return [];
+      return String(input)
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean)
+        .slice(0, 20);
+    }
+    function formatTags(arr) {
+      if (!Array.isArray(arr)) return '';
+      return arr.join(', ');
+    }
+
     function wireSearchEngine() {
       const input = document.getElementById('global-search');
       if (!input) return;
@@ -191,15 +213,16 @@
             amount: { type: 'number', resolver: r => r.amount },
             date: { type: 'date', resolver: r => r.date },
             dateKey: { type: 'string', resolver: r => r.dateKey },
+            // NEW: tags searchable
+            tags: { type: 'string', resolver: r => Array.isArray(r.tags) ? r.tags.join(' ') : '' }
           },
-          defaultFields: ['name', 'type', 'dateKey'],
+          defaultFields: ['name', 'type', 'dateKey', 'tags'],
           caseSensitive: false
         });
         input.disabled = false;
-        input.placeholder = 'Search…  e.g. name:"rent" & amount:>200';
+        input.placeholder = 'Search…  e.g. tag:"rent", name:"gas", amount:>200';
         input.title = _engine.operatorsHelp();
       } else {
-        // Leave disabled; show why
         input.disabled = true;
         input.placeholder = 'Search unavailable';
         input.title = 'Load ./assets/js/search.js to enable advanced search';
@@ -245,7 +268,8 @@
       }
 
       document.getElementById('load-data')?.addEventListener('change', importJSONReplaceExisting);
-      document.getElementById('clear-details')?.addEventListener('click', clearDetails); document.getElementById('yearSelect').addEventListener('change', handleYearChange);
+      document.getElementById('clear-details')?.addEventListener('click', clearDetails);
+      document.getElementById('yearSelect')?.addEventListener('change', handleYearChange);
       document.getElementById('closeModal').onclick = closeModal;
       window.onclick = event => {
         if (event.target === document.getElementById('detailsModal')) {
@@ -328,34 +352,33 @@
         }
       });
 
-      // --- Year pie ---
+      // --- Year pie (expenses by month) ---
       const pieCtx = document.getElementById('yearPie');
       if (yearPieChart) yearPieChart.destroy();
-if (yearPieChart) yearPieChart.destroy();
-yearPieChart = new Chart(pieCtx, {
-  type: 'pie',
-  data: {
-    labels: months,                // Jan..Dec
-    datasets: [
-      {
-        label: 'Expenses by Month',
-        data: expenses             // one value per month
-      }
-    ]
-  },
-  options: {
-    responsive: true,
-    plugins: {
-      title: { display: true, text: `Expenses by Month — ${currentYear}` },
-      legend: { position: 'right' },
-      tooltip: {
-        callbacks: {
-          label: (ctx) => `${ctx.label}: $${(ctx.parsed || 0).toFixed(2)}`
+      yearPieChart = new Chart(pieCtx, {
+        type: 'pie',
+        data: {
+          labels: months,
+          datasets: [
+            {
+              label: 'Expenses by Month',
+              data: expenses
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            title: { display: true, text: `Expenses by Month — ${currentYear}` },
+            legend: { position: 'right' },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.label}: $${(ctx.parsed || 0).toFixed(2)}`
+              }
+            }
+          }
         }
-      }
-    }
-  }
-});
+      });
     }
 
     function handleYearChange() {
@@ -399,10 +422,10 @@ yearPieChart = new Chart(pieCtx, {
 
       Object.entries(data).forEach(([key, value]) => {
         let [month, day] = key.split('-');
-        month = (alias[month] || month);       // normalize common variants
+        month = (alias[month] || month);
         const details = (value.details || []).filter(d => new Date(d.date).getFullYear() === year);
 
-        if (!result[month]) result[month] = { details: [] };  // guard
+        if (!result[month]) result[month] = { details: [] };
         details.forEach(detail => result[month].details.push(detail));
       });
       return result;
@@ -443,7 +466,7 @@ yearPieChart = new Chart(pieCtx, {
     }
 
     function calculateTotal(details, type) {
-      return details.filter(detail => detail.type === type).reduce((acc, detail) => acc + detail.amount, 0);
+      return details.filter(detail => detail.type === type).reduce((acc, detail) => acc + (detail.amount || 0), 0);
     }
 
     function addEntry(type, selectedMonth) {
@@ -463,13 +486,10 @@ yearPieChart = new Chart(pieCtx, {
         day = new Date().getDate();
       }
 
-      if (isNaN(day) || day < 1 || day > 31) {
-        console.warn("⚠️ Invalid day provided. Defaulting to today.");
-        day = new Date().getDate();
-      }
+      const tagsInput = prompt('Add tags (comma-separated), optional:');
+      const tags = parseTags(tagsInput);
 
       const monthIndex = months.indexOf(selectedMonth);
-
       if (monthIndex === -1) {
         console.error("❌ Error: Invalid month selected.");
         alert("Invalid month selection. Please try again.");
@@ -492,7 +512,8 @@ yearPieChart = new Chart(pieCtx, {
         name,
         type,
         amount,
-        date: entryDate.toISOString()
+        date: entryDate.toISOString(),
+        tags
       };
 
       yearlyDetails[selectedMonth].details.push(newEntry);
@@ -613,6 +634,7 @@ yearPieChart = new Chart(pieCtx, {
                   <th>Name</th>
                   <th>Type</th>
                   <th>Amount</th>
+                  <th>Tags</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -625,15 +647,24 @@ yearPieChart = new Chart(pieCtx, {
             const row = document.createElement('tr');
 
             row.innerHTML = `
-                <td contenteditable="true" data-key="name">${detail.name}</td>
-                <td>${detail.type}</td>
-                <td contenteditable="true" data-key="amount">${detail.amount}</td>
+                <td contenteditable="true" data-key="name">${detail.name ?? ''}</td>
+                <td>${detail.type ?? ''}</td>
+                <td contenteditable="true" data-key="amount">${(detail.amount ?? 0)}</td>
+                <td contenteditable="true" data-key="tags">${formatTags(detail.tags || [])}</td>
                 <td><button class="clear-button" onclick="deleteEntry('${dateKey}', ${index})">Delete</button></td>
               `;
 
             row.querySelectorAll('[contenteditable="true"]').forEach(cell => {
               cell.addEventListener('blur', (event) => {
-                updateEntry(dateKey, index, event.target.dataset.key, event.target.innerText);
+                const key = event.target.dataset.key;
+                let val = event.target.innerText;
+                if (key === 'amount') {
+                  updateEntry(dateKey, index, 'amount', val);
+                } else if (key === 'tags') {
+                  updateEntry(dateKey, index, 'tags', parseTags(val));
+                } else {
+                  updateEntry(dateKey, index, key, val);
+                }
               });
             });
 
@@ -663,11 +694,15 @@ yearPieChart = new Chart(pieCtx, {
       let inputYear = parseInt(prompt(`Enter year (default is ${currentYear}):`), 10);
       if (isNaN(inputYear)) inputYear = currentYear;
 
+      const tagsInput = prompt('Add tags (comma-separated), optional:');
+      const tags = parseTags(tagsInput);
+
       const newEntry = {
         name,
         type,
         amount,
-        date: new Date(inputYear, months.indexOf(month), day).toISOString()
+        date: new Date(inputYear, months.indexOf(month), day).toISOString(),
+        tags
       };
 
       fetchSavedData().then(savedData => {
@@ -730,6 +765,9 @@ yearPieChart = new Chart(pieCtx, {
             if (field === "amount") {
               newValue = parseFloat(newValue);
               if (isNaN(newValue)) return;
+            }
+            if (field === "tags") {
+              if (!Array.isArray(newValue)) newValue = parseTags(String(newValue ?? ''));
             }
 
             savedData[dateKey].details[globalIndex][field] = newValue;
@@ -824,7 +862,9 @@ yearPieChart = new Chart(pieCtx, {
             dateKey,
             _dateObject: dateObject,
             _detail: detail,
-            _index: index
+            _index: index,
+            // NEW: tags into records for search
+            tags: Array.isArray(detail.tags) ? detail.tags : []
           });
         });
       });
@@ -881,6 +921,20 @@ yearPieChart = new Chart(pieCtx, {
           updateTransactionEntry(dateKey, index, 'amount', v);
         });
 
+        const tdTags = document.createElement('td');
+        tdTags.contentEditable = 'true';
+        tdTags.dataset.key = 'tags';
+        tdTags.textContent = formatTags(detail.tags || []);
+        tdTags.addEventListener('focus', e => { e.target.dataset.original = e.target.innerText.trim(); });
+        tdTags.addEventListener('blur', async e => {
+          const next = e.target.innerText.trim();
+          const prev = (e.target.dataset.original ?? '').trim();
+          if (next === prev) return;
+          const tagsArr = parseTags(next);
+          await updateTransactionEntry(dateKey, index, 'tags', tagsArr);
+          handleYearChange();
+        });
+
         const tdActions = document.createElement('td');
         const delBtn = document.createElement('button');
         delBtn.className = 'clear-button';
@@ -888,7 +942,7 @@ yearPieChart = new Chart(pieCtx, {
         delBtn.addEventListener('click', () => { deleteTransactionEntry(dateKey, index); });
         tdActions.appendChild(delBtn);
 
-        tr.append(tdDate, tdName, tdType, tdAmount, tdActions);
+        tr.append(tdDate, tdName, tdType, tdAmount, tdTags, tdActions);
         tbody.appendChild(tr);
       });
     }
@@ -912,6 +966,9 @@ yearPieChart = new Chart(pieCtx, {
               newValue = parseFloat(newValue);
               if (isNaN(newValue)) return;
             }
+            if (field === "tags") {
+              if (!Array.isArray(newValue)) newValue = parseTags(String(newValue ?? ''));
+            }
 
             savedData[dateKey].details[globalIndex][field] = newValue;
 
@@ -931,9 +988,9 @@ yearPieChart = new Chart(pieCtx, {
 
       filteredData.forEach(detail => {
         if (detail.type === 'Income') {
-          totalIncome += detail.amount;
+          totalIncome += (detail.amount || 0);
         } else if (detail.type === 'Expenses') {
-          totalExpenses += detail.amount;
+          totalExpenses += (detail.amount || 0);
         }
       });
 
@@ -961,7 +1018,6 @@ yearPieChart = new Chart(pieCtx, {
         let savedData = await fetchSavedData();
 
         if (savedData[dateKey] && savedData[dateKey].details.length > entryIndex) {
-          // keep behavior consistent with updateTransactionEntry: map "filtered index" -> global index
           const filteredEntries = savedData[dateKey].details.filter(detail =>
             new Date(detail.date).getFullYear() === currentYear
           );
@@ -972,7 +1028,6 @@ yearPieChart = new Chart(pieCtx, {
               savedData[dateKey].details.splice(globalIndex, 1);
             }
 
-            // remove empty day bucket
             if (savedData[dateKey].details.length === 0) {
               delete savedData[dateKey];
             }
@@ -992,7 +1047,6 @@ yearPieChart = new Chart(pieCtx, {
       }
     };
 
-
     function exportDetailsToJSON() {
       fetchSavedData().then(savedData => {
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(savedData, null, 2));
@@ -1011,12 +1065,10 @@ yearPieChart = new Chart(pieCtx, {
      */
     async function importJSONReplaceExisting(event) {
       const file = event.target.files?.[0];
-      // reset the input right away so user can pick the same file again if needed
       event.target.value = '';
 
       if (!file) return;
 
-      // ⚠️ Strong warning first
       const warned = confirm(
         "⚠️ WARNING: Importing will REPLACE all current data.\n\n" +
         "Please export a BACKUP first (use the Export button).\n\n" +
@@ -1024,7 +1076,6 @@ yearPieChart = new Chart(pieCtx, {
       );
       if (!warned) return;
 
-      // Read + parse
       let parsed;
       try {
         const text = await file.text();
@@ -1035,14 +1086,12 @@ yearPieChart = new Chart(pieCtx, {
         return;
       }
 
-      // Basic validation (lightweight & defensive)
       const isObj = parsed && typeof parsed === 'object' && !Array.isArray(parsed);
       if (!isObj) {
         alert("❌ Invalid format: root must be an object of { 'Mon-1': { details: [...] }, ... }");
         return;
       }
 
-      // Optional: sanity check counts for UX feedback
       let dayBuckets = 0, entries = 0;
       try {
         Object.values(parsed).forEach(v => {
@@ -1050,10 +1099,8 @@ yearPieChart = new Chart(pieCtx, {
           const arr = (v && Array.isArray(v.details)) ? v.details : [];
           entries += arr.length;
         });
-      } catch (_) {
-      }
+      } catch (_) { }
 
-      // Final confirmation before overwrite
       const confirmReplace = confirm(
         `This will OVERWRITE existing data at "Budget".\n\n` +
         `About to import ~${dayBuckets} day buckets and ~${entries} entries.\n\n` +
