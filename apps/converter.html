@@ -194,42 +194,97 @@
         }
 
         function convertToFinancial(text) {
-            const lines = text.split('\n');
-            const result = {};
+            const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+            if (lines.length < 2) return JSON.stringify({}, null, 2);
+
+            // --- CSV-safe split that respects quotes ---
+            const parseCSVLine = (line) => {
+                const out = [];
+                let cur = '';
+                let inQuotes = false;
+
+                for (let i = 0; i < line.length; i++) {
+                    const ch = line[i];
+                    if (ch === '"') {
+                        // Toggle quotes OR handle escaped quotes ("")
+                        if (inQuotes && line[i + 1] === '"') {
+                            cur += '"';
+                            i++; // skip the next quote
+                        } else {
+                            inQuotes = !inQuotes;
+                        }
+                    } else if (ch === ',' && !inQuotes) {
+                        out.push(cur);
+                        cur = '';
+                    } else {
+                        cur += ch;
+                    }
+                }
+                out.push(cur);
+                return out.map(s => s.trim());
+            };
+
             const monthNames = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
 
-            for (let i = 1; i < lines.length; i++) {
-                if (lines[i] && lines[i].trim() !== '') {
-                    const parts = lines[i].split('","');
-                    if (parts.length >= 5) {
-                        const postingDateParts = parts[1].split('/');
-                        if (postingDateParts.length === 3) {
-                            const postingDate = new Date(`${postingDateParts[2]}-${postingDateParts[0].padStart(2, '0')}-${postingDateParts[1].padStart(2, '0')}`).toISOString();
-                            const amount = Math.abs(parseFloat(parts[4].replace(/["$,]/g, '')));
-                            const transactionType = parts[3];
-                            const month = monthNames[parseInt(postingDateParts[0], 10) - 1];
-                            const day = postingDateParts[1];
+            // Parse header and map column indexes by name (case-insensitive, trimmed)
+            const header = parseCSVLine(lines[0]).map(h => h.replace(/^"+|"+$/g, '').trim().toLowerCase());
+            const idx = {
+                transDate: header.findIndex(h => ['transaction date', 'date'].includes(h)),
+                postDate: header.findIndex(h => ['posting date', 'posted date', 'post date'].includes(h)),
+                desc: header.findIndex(h => ['description', 'name', 'memo', 'payee'].includes(h)),
+                type: header.findIndex(h => ['type', 'transaction type', 'credit/debit'].includes(h)),
+                amount: header.findIndex(h => ['amount', 'transaction amount', 'amt'].includes(h)),
+            };
 
-                            const key = `${month}-${day}`;
+            // Fallbacks if header names weren’t recognized (assume common export layout)
+            const safe = (i, fallback) => (i >= 0 ? i : fallback);
+            const iTrans = safe(idx.transDate, 0);
+            const iPost = safe(idx.postDate, 1);
+            const iDesc = safe(idx.desc, 2);
+            const iType = safe(idx.type, 3);
+            const iAmt = safe(idx.amount, 4);
 
-                            if (!result[key]) {
-                                result[key] = {
-                                    details: []
-                                };
-                            }
+            const result = {};
 
-                            const transaction = {
-                                amount: amount,
-                                date: postingDate,
-                                type: transactionType === 'Credit' ? 'Income' : 'Expenses'
-                            };
+            for (let r = 1; r < lines.length; r++) {
+                const raw = lines[r];
+                if (!raw || !raw.trim()) continue;
 
-                            result[key].details.push(transaction);
-                        } else {
-                            console.error("Invalid date format in line " + i + ": " + parts[1]);
-                        }
-                    } else {
-                        console.error("Invalid format in line " + i + ": " + lines[i]);
+                const parts = parseCSVLine(raw).map(s => s.replace(/^"+|"+$/g, '').trim());
+
+                // Guard: need at least enough columns to read our targets
+                if (parts.length <= Math.max(iTrans, iPost, iDesc, iType, iAmt)) continue;
+
+                const postingDateStr = parts[iPost] || parts[iTrans]; // prefer posting date; fallback to transaction date
+                const description = parts[iDesc] || '';
+                const transactionType = (parts[iType] || '').toLowerCase();
+                const amountStr = parts[iAmt] || '';
+
+                // Parse amount (strip $ and commas)
+                const amount = Math.abs(parseFloat(amountStr.replace(/[$,"]/g, '')));
+                if (isNaN(amount)) continue;
+
+                // Parse date as YYYY-MM-DD for consistency
+                let dateISO = '';
+                if (postingDateStr) {
+                    // supports M/D/YYYY or MM/DD/YYYY
+                    const m = postingDateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+                    if (m) {
+                        const mm = m[1].padStart(2, '0');
+                        const dd = m[2].padStart(2, '0');
+                        let yyyy = m[3];
+                        if (yyyy.length === 2) yyyy = (parseInt(yyyy, 10) > 70 ? '19' : '20') + yyyy; // crude 2-digit year support
+                        dateISO = `${yyyy}-${mm}-${dd}`;
+                        const monthName = monthNames[parseInt(mm, 10) - 1];
+                        const key = `${monthName}-${parseInt(dd, 10)}`;
+
+                        if (!result[key]) result[key] = { details: [] };
+                        result[key].details.push({
+                            amount: amount,
+                            date: dateISO,
+                            name: description, // <-- now reliably populated
+                            type: transactionType === 'credit' ? 'Income' : 'Expenses'
+                        });
                     }
                 }
             }
