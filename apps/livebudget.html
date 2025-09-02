@@ -177,20 +177,58 @@
     let yearlyDetails = initializeYearlyDetails();
     let DATABASE_BASE_PATH = 'public';
 
-    // Standalone query engine: map from your record fields to the engine
-    const engine = createQueryEngine({
-      fields: {
-        name: { type: 'string', resolver: r => r.name },
-        type: { type: 'string', resolver: r => r.type },
-        amount: { type: 'number', resolver: r => r.amount },
-        date: { type: 'date', resolver: r => r.date },     // Date object or ISO string
-        dateKey: { type: 'string', resolver: r => r.dateKey },  // e.g. "Jan-3"
-      },
-      defaultFields: ['name', 'type', 'dateKey'],              // free-text searches these
-      caseSensitive: false
-    });
+    // --- Advanced search (no fallback) ---
+    let _engine = null;
+    let _engineReady = null;
 
-    document.getElementById('global-search').title = engine.operatorsHelp();
+    function disableSearch(reason) {
+      const input = document.getElementById('global-search');
+      if (!input) return;
+      input.disabled = true;
+      input.placeholder = 'Search unavailable';
+      input.title = reason || 'Advanced search module not loaded';
+    }
+
+    function enableSearch() {
+      const input = document.getElementById('global-search');
+      if (!input) return;
+      input.disabled = false;
+      input.placeholder = 'Search…  e.g. name:rent & amount:>200';
+      if (_engine?.operatorsHelp) input.title = _engine.operatorsHelp();
+    }
+
+    function ensureEngine() {
+      if (_engineReady) return _engineReady;
+
+      // Start disabled; only enable if module loads
+      disableSearch('Loading advanced search…');
+
+      _engineReady = (async () => {
+        try {
+          const mod = await import('./assets/js/search.js'); // <-- your standalone module
+          _engine = mod.createQueryEngine({
+            fields: {
+              name: { type: 'string', resolver: r => r.name },
+              type: { type: 'string', resolver: r => r.type },
+              amount: { type: 'number', resolver: r => r.amount },
+              date: { type: 'date', resolver: r => r.date },     // ISO or Date
+              dateKey: { type: 'string', resolver: r => r.dateKey },  // e.g. "Jan-3"
+            },
+            defaultFields: ['name', 'type', 'dateKey'],
+            caseSensitive: false
+          });
+          console.info('✅ Advanced query engine loaded.');
+          enableSearch();
+        } catch (e) {
+          console.warn('⚠️ query-engine.js not found. Search disabled.', e);
+          _engine = null;               // keep disabled; no filtering
+          disableSearch('Advanced search module not found');
+        }
+        return _engine;
+      })();
+
+      return _engineReady;
+    }
 
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
@@ -209,6 +247,7 @@
         displayAllTransactions();
         renderCharts();
         handleYearChange();
+        ensureEngine();
       });
     }
 
@@ -774,114 +813,106 @@
       document.getElementById('detailsModal').style.display = "none";
     }
 
-    function displayAllTransactions() {
-      fetchSavedData().then(savedData => {
-        const tbody = document.querySelector('#transactions-table tbody');
-        tbody.innerHTML = '';
+    async function displayAllTransactions() {
+      await ensureEngine(); // tries to load; may leave _engine = null
 
-        const searchBox = document.getElementById('global-search');
-        const query = (searchBox ? searchBox.value : '');
+      const savedData = await fetchSavedData();
+      const tbody = document.querySelector('#transactions-table tbody');
+      tbody.innerHTML = '';
 
-        const current = currentYear; // snapshot for closure
-        const records = [];
+      const input = document.getElementById('global-search');
+      const query = input && !input.disabled ? (input.value ?? '') : '';
 
-        // 1) Flatten DB -> array of records for the selected year
-        Object.entries(savedData).forEach(([dateKey, data]) => {
-          const [monthName, dayStr] = dateKey.split('-');
-          const monthIndex = months.indexOf(monthName);
-          const dateObject = new Date(current, monthIndex, parseInt(dayStr, 10));
+      const current = currentYear;
+      const records = [];
 
-          const details = (data.details || []).filter(d =>
-            new Date(d.date).getFullYear() === current
-          );
+      // Flatten DB → records for selected year
+      Object.entries(savedData).forEach(([dateKey, data]) => {
+        const [monthName, dayStr] = dateKey.split('-');
+        const monthIndex = months.indexOf(monthName);
+        const dateObject = new Date(current, monthIndex, parseInt(dayStr, 10));
 
-          details.forEach((detail, index) => {
-            records.push({
-              // fields used by the query engine
-              name: (detail.name ?? ''),
-              type: (detail.type ?? ''),
-              amount: Number(detail.amount ?? 0),
-              date: new Date(detail.date || dateObject), // robust fallback
-              dateKey,                                   // e.g. "Jan-3"
+        const details = (data.details || []).filter(d =>
+          new Date(d.date).getFullYear() === current
+        );
 
-              // UI/render helpers
-              _dateObject: dateObject,
-              _detail: detail,
-              _index: index
-            });
+        details.forEach((detail, index) => {
+          records.push({
+            name: (detail.name ?? ''),
+            type: (detail.type ?? ''),
+            amount: Number(detail.amount ?? 0),
+            date: new Date(detail.date || dateObject),
+            dateKey,
+            _dateObject: dateObject,
+            _detail: detail,
+            _index: index
           });
-        });
-
-        // 2) Filter with the standalone engine
-        const filtered = engine.filter(records, query);
-
-        // 3) Totals for the filtered set
-        updateFilteredTotal(filtered.map(r => r._detail));
-
-        // 4) Sort by date and render rows
-        filtered.sort((a, b) => a._dateObject - b._dateObject);
-
-        filtered.forEach(rec => {
-          const { dateKey, _detail: detail, _index: index } = rec;
-
-          const tr = document.createElement('tr');
-          tr.classList.add('transaction-row');
-
-          // Date
-          const tdDate = document.createElement('td');
-          tdDate.textContent = dateKey;
-
-          // Name (editable with "no write on no change")
-          const tdName = document.createElement('td');
-          tdName.contentEditable = 'true';
-          tdName.dataset.key = 'name';
-          tdName.textContent = detail.name || 'Unknown';
-          tdName.addEventListener('focus', e => { e.target.dataset.original = e.target.innerText.trim(); });
-          tdName.addEventListener('blur', e => {
-            const next = e.target.innerText.trim();
-            const prev = (e.target.dataset.original ?? '').trim();
-            if (next === prev) return; // unchanged → no DB write
-            updateTransactionEntry(dateKey, index, 'name', next);
-          });
-
-          // Type (dropdown)
-          const tdType = document.createElement('td');
-          tdType.appendChild(
-            createTypeSelect(detail.type || 'Expenses', async newVal => {
-              await updateTransactionEntry(dateKey, index, 'type', newVal);
-              handleYearChange();
-            })
-          );
-
-          // Amount (editable with "no write on no change")
-          const tdAmount = document.createElement('td');
-          tdAmount.contentEditable = 'true';
-          tdAmount.dataset.key = 'amount';
-          tdAmount.textContent = (detail.amount ?? 0).toFixed(2);
-          tdAmount.addEventListener('focus', e => { e.target.dataset.original = String(detail.amount ?? 0); });
-          tdAmount.addEventListener('blur', e => {
-            let v = parseFloat(e.target.innerText.replace(/[^\d.-]/g, ''));
-            if (isNaN(v)) { e.target.textContent = (detail.amount ?? 0).toFixed(2); return; }
-            const prev = parseFloat(e.target.dataset.original ?? 'NaN');
-            if (!isNaN(prev) && v === prev) { e.target.textContent = prev.toFixed(2); return; }
-            e.target.textContent = v.toFixed(2);
-            updateTransactionEntry(dateKey, index, 'amount', v);
-          });
-
-          // Actions (Delete)
-          const tdActions = document.createElement('td');
-          const delBtn = document.createElement('button');
-          delBtn.className = 'clear-button';
-          delBtn.textContent = 'x';
-          delBtn.addEventListener('click', () => { deleteTransactionEntry(dateKey, index); });
-          tdActions.appendChild(delBtn);
-
-          tr.append(tdDate, tdName, tdType, tdAmount, tdActions);
-          tbody.appendChild(tr);
         });
       });
-    }
 
+      // If engine loaded, filter; otherwise show everything
+      const filtered = _engine ? _engine.filter(records, query) : records;
+
+      // Totals for the filtered set
+      updateFilteredTotal(filtered.map(r => r._detail));
+
+      // Sort & render
+      filtered.sort((a, b) => a._dateObject - b._dateObject);
+
+      filtered.forEach(rec => {
+        const { dateKey, _detail: detail, _index: index } = rec;
+
+        const tr = document.createElement('tr');
+        tr.classList.add('transaction-row');
+
+        const tdDate = document.createElement('td');
+        tdDate.textContent = dateKey;
+
+        const tdName = document.createElement('td');
+        tdName.contentEditable = 'true';
+        tdName.dataset.key = 'name';
+        tdName.textContent = detail.name || 'Unknown';
+        tdName.addEventListener('focus', e => { e.target.dataset.original = e.target.innerText.trim(); });
+        tdName.addEventListener('blur', e => {
+          const next = e.target.innerText.trim();
+          const prev = (e.target.dataset.original ?? '').trim();
+          if (next === prev) return;
+          updateTransactionEntry(dateKey, index, 'name', next);
+        });
+
+        const tdType = document.createElement('td');
+        tdType.appendChild(
+          createTypeSelect(detail.type || 'Expenses', async newVal => {
+            await updateTransactionEntry(dateKey, index, 'type', newVal);
+            handleYearChange();
+          })
+        );
+
+        const tdAmount = document.createElement('td');
+        tdAmount.contentEditable = 'true';
+        tdAmount.dataset.key = 'amount';
+        tdAmount.textContent = (detail.amount ?? 0).toFixed(2);
+        tdAmount.addEventListener('focus', e => { e.target.dataset.original = String(detail.amount ?? 0); });
+        tdAmount.addEventListener('blur', e => {
+          let v = parseFloat(e.target.innerText.replace(/[^\d.-]/g, ''));
+          if (isNaN(v)) { e.target.textContent = (detail.amount ?? 0).toFixed(2); return; }
+          const prev = parseFloat(e.target.dataset.original ?? 'NaN');
+          if (!isNaN(prev) && v === prev) { e.target.textContent = prev.toFixed(2); return; }
+          e.target.textContent = v.toFixed(2);
+          updateTransactionEntry(dateKey, index, 'amount', v);
+        });
+
+        const tdActions = document.createElement('td');
+        const delBtn = document.createElement('button');
+        delBtn.className = 'clear-button';
+        delBtn.textContent = 'x';
+        delBtn.addEventListener('click', () => { deleteTransactionEntry(dateKey, index); });
+        tdActions.appendChild(delBtn);
+
+        tr.append(tdDate, tdName, tdType, tdAmount, tdActions);
+        tbody.appendChild(tr);
+      });
+    }
 
     window.filterGlobalEntries = function filterGlobalEntries() {
       displayAllTransactions();
