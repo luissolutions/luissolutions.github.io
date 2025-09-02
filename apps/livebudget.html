@@ -7,6 +7,7 @@
   <link rel="icon" href="./assets/img/financial_logo.png">
   <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
   <script type="module" src="./assets/js/login.js" defer></script>
+
   <style>
     .transaction-row select,
     .transaction-row button {
@@ -175,6 +176,21 @@
     let currentYear = new Date().getFullYear();
     let yearlyDetails = initializeYearlyDetails();
     let DATABASE_BASE_PATH = 'public';
+
+    // Standalone query engine: map from your record fields to the engine
+    const engine = createQueryEngine({
+      fields: {
+        name: { type: 'string', resolver: r => r.name },
+        type: { type: 'string', resolver: r => r.type },
+        amount: { type: 'number', resolver: r => r.amount },
+        date: { type: 'date', resolver: r => r.date },     // Date object or ISO string
+        dateKey: { type: 'string', resolver: r => r.dateKey },  // e.g. "Jan-3"
+      },
+      defaultFields: ['name', 'type', 'dateKey'],              // free-text searches these
+      caseSensitive: false
+    });
+
+    document.getElementById('global-search').title = engine.operatorsHelp();
 
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
@@ -764,47 +780,50 @@
         tbody.innerHTML = '';
 
         const searchBox = document.getElementById('global-search');
-        const searchValue = (searchBox ? searchBox.value : '').toLowerCase();
+        const query = (searchBox ? searchBox.value : '');
 
-        const filteredForTotals = []; // use this for filtered total
+        const current = currentYear; // snapshot for closure
+        const records = [];
 
-        const rows = [];
-
+        // 1) Flatten DB -> array of records for the selected year
         Object.entries(savedData).forEach(([dateKey, data]) => {
+          const [monthName, dayStr] = dateKey.split('-');
+          const monthIndex = months.indexOf(monthName);
+          const dateObject = new Date(current, monthIndex, parseInt(dayStr, 10));
+
           const details = (data.details || []).filter(d =>
-            new Date(d.date).getFullYear() === currentYear
+            new Date(d.date).getFullYear() === current
           );
 
           details.forEach((detail, index) => {
-            const [monthName, dayStr] = dateKey.split('-');
-            const monthIndex = months.indexOf(monthName);
-            const dateObject = new Date(currentYear, monthIndex, parseInt(dayStr, 10));
+            records.push({
+              // fields used by the query engine
+              name: (detail.name ?? ''),
+              type: (detail.type ?? ''),
+              amount: Number(detail.amount ?? 0),
+              date: new Date(detail.date || dateObject), // robust fallback
+              dateKey,                                   // e.g. "Jan-3"
 
-            const name = (detail.name || '').toLowerCase();
-            const type = (detail.type || '').toLowerCase();
-            const amountStr = (detail.amount ?? 0).toString().toLowerCase();
-
-            const matches =
-              dateKey.toLowerCase().includes(searchValue) ||
-              name.includes(searchValue) ||
-              type.includes(searchValue) ||
-              amountStr.includes(searchValue);
-
-            if (matches) {
-              rows.push({
-                dateKey,
-                dateObject,
-                index,
-                detail
-              });
-              filteredForTotals.push(detail);
-            }
+              // UI/render helpers
+              _dateObject: dateObject,
+              _detail: detail,
+              _index: index
+            });
           });
         });
 
-        rows.sort((a, b) => a.dateObject - b.dateObject);
+        // 2) Filter with the standalone engine
+        const filtered = engine.filter(records, query);
 
-        rows.forEach(({ dateKey, index, detail }) => {
+        // 3) Totals for the filtered set
+        updateFilteredTotal(filtered.map(r => r._detail));
+
+        // 4) Sort by date and render rows
+        filtered.sort((a, b) => a._dateObject - b._dateObject);
+
+        filtered.forEach(rec => {
+          const { dateKey, _detail: detail, _index: index } = rec;
+
           const tr = document.createElement('tr');
           tr.classList.add('transaction-row');
 
@@ -812,13 +831,17 @@
           const tdDate = document.createElement('td');
           tdDate.textContent = dateKey;
 
-          // Name (editable)
+          // Name (editable with "no write on no change")
           const tdName = document.createElement('td');
           tdName.contentEditable = 'true';
           tdName.dataset.key = 'name';
           tdName.textContent = detail.name || 'Unknown';
+          tdName.addEventListener('focus', e => { e.target.dataset.original = e.target.innerText.trim(); });
           tdName.addEventListener('blur', e => {
-            updateTransactionEntry(dateKey, index, 'name', e.target.innerText);
+            const next = e.target.innerText.trim();
+            const prev = (e.target.dataset.original ?? '').trim();
+            if (next === prev) return; // unchanged → no DB write
+            updateTransactionEntry(dateKey, index, 'name', next);
           });
 
           // Type (dropdown)
@@ -826,21 +849,21 @@
           tdType.appendChild(
             createTypeSelect(detail.type || 'Expenses', async newVal => {
               await updateTransactionEntry(dateKey, index, 'type', newVal);
-              handleYearChange(); // keep totals/tiles in sync
+              handleYearChange();
             })
           );
 
-          // Amount (editable)
+          // Amount (editable with "no write on no change")
           const tdAmount = document.createElement('td');
           tdAmount.contentEditable = 'true';
           tdAmount.dataset.key = 'amount';
           tdAmount.textContent = (detail.amount ?? 0).toFixed(2);
+          tdAmount.addEventListener('focus', e => { e.target.dataset.original = String(detail.amount ?? 0); });
           tdAmount.addEventListener('blur', e => {
             let v = parseFloat(e.target.innerText.replace(/[^\d.-]/g, ''));
-            if (isNaN(v)) {
-              e.target.textContent = (detail.amount ?? 0).toFixed(2);
-              return;
-            }
+            if (isNaN(v)) { e.target.textContent = (detail.amount ?? 0).toFixed(2); return; }
+            const prev = parseFloat(e.target.dataset.original ?? 'NaN');
+            if (!isNaN(prev) && v === prev) { e.target.textContent = prev.toFixed(2); return; }
             e.target.textContent = v.toFixed(2);
             updateTransactionEntry(dateKey, index, 'amount', v);
           });
@@ -850,22 +873,15 @@
           const delBtn = document.createElement('button');
           delBtn.className = 'clear-button';
           delBtn.textContent = 'x';
-          delBtn.addEventListener('click', () => {
-            deleteTransactionEntry(dateKey, index);
-          });
+          delBtn.addEventListener('click', () => { deleteTransactionEntry(dateKey, index); });
           tdActions.appendChild(delBtn);
 
-          tr.appendChild(tdDate);
-          tr.appendChild(tdName);
-          tr.appendChild(tdType);
-          tr.appendChild(tdAmount);
-          tr.appendChild(tdActions);
+          tr.append(tdDate, tdName, tdType, tdAmount, tdActions);
           tbody.appendChild(tr);
         });
-
-        updateFilteredTotal(filteredForTotals);
       });
     }
+
 
     window.filterGlobalEntries = function filterGlobalEntries() {
       displayAllTransactions();
@@ -953,7 +969,6 @@
 
             await saveData(savedData);
 
-            // refresh UI: totals, grid, and table
             handleYearChange();
             displayAllTransactions();
           } else {
@@ -1026,7 +1041,6 @@
           entries += arr.length;
         });
       } catch (_) {
-        // not fatal
       }
 
       // Final confirmation before overwrite
@@ -1040,7 +1054,7 @@
       try {
         await set(ref(database, `${DATABASE_BASE_PATH}/budget`), parsed);
         alert("✅ Import complete. Data has been replaced.");
-        initApp(); // refresh everything
+        initApp();
       } catch (err) {
         console.error("Error writing imported data:", err);
         alert("❌ Failed to write imported data. See console for details.");
