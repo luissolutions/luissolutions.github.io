@@ -19,7 +19,7 @@
 
     .visuals canvas {
       height: auto;
-      width: 60%;
+      width: 80%;
       margin: 0 auto;
     }
 
@@ -186,6 +186,7 @@
     let yearlyDetails = initializeYearlyDetails();
     let DATABASE_BASE_PATH = 'public';
     let _engine = null;
+    let handlersBound = false;
 
     // --- Tag helpers ---
     function parseTags(input) {
@@ -213,7 +214,6 @@
             amount: { type: 'number', resolver: r => r.amount },
             date: { type: 'date', resolver: r => r.date },
             dateKey: { type: 'string', resolver: r => r.dateKey },
-            // NEW: tags searchable
             tags: { type: 'string', resolver: r => Array.isArray(r.tags) ? r.tags.join(' ') : '' }
           },
           defaultFields: ['name', 'type', 'dateKey', 'tags'],
@@ -242,10 +242,9 @@
         yearlyDetails = aggregateMonthlyData(savedData, currentYear);
         populateMonths();
         calculateYearlyTotals();
-        generateYearGrid();
+        generateYearGrid(savedData);
         displayAllTransactions();
         renderCharts();
-        handleYearChange();
         wireSearchEngine();
       });
     }
@@ -258,6 +257,9 @@
     }
 
     function setupEventListeners() {
+      if (handlersBound) return;
+      handlersBound = true;
+
       document.getElementById('export-details')?.addEventListener('click', exportDetailsToJSON);
 
       const triggerImportBtn = document.getElementById('trigger-import');
@@ -387,7 +389,7 @@
         yearlyDetails = aggregateMonthlyData(savedData, currentYear);
         populateMonths();
         calculateYearlyTotals();
-        generateYearGrid();
+        generateYearGrid(savedData);
         displayAllTransactions();
         renderCharts();
       });
@@ -562,7 +564,7 @@
       document.getElementById('overall-balance').textContent = (overallIncome - overallExpenses).toFixed(2);
     }
 
-    function generateYearGrid() {
+    function generateYearGrid(savedData) {
       const yearGrid = document.getElementById('year-grid');
       yearGrid.innerHTML = '';
 
@@ -571,46 +573,43 @@
       const startOfYear = new Date(currentYear, 0, 1);
       const endOfYear = new Date(currentYear, 11, 31);
 
-      fetchSavedData().then(savedData => {
-        for (let day = startOfYear; day <= endOfYear; day.setDate(day.getDate() + 1)) {
-          const dayFormatted = day.toISOString().split('T')[0];
-          const monthName = months[day.getMonth()];
-          const dayOfMonth = day.getDate();
-          const dateKey = `${monthName}-${dayOfMonth}`;
+      for (let day = new Date(startOfYear); day <= endOfYear; day.setDate(day.getDate() + 1)) {
+        const monthName = months[day.getMonth()];
+        const dayOfMonth = day.getDate();
+        const dateKey = `${monthName}-${dayOfMonth}`;
 
-          const details = (savedData[dateKey]?.details || []).filter(entry =>
-            new Date(entry.date).getFullYear() === currentYear
-          );
+        const details = (savedData[dateKey]?.details || []).filter(entry =>
+          new Date(entry.date).getFullYear() === currentYear
+        );
 
-          let income = calculateTotal(details, 'Income');
-          let expenses = calculateTotal(details, 'Expenses');
+        const income = details.filter(d => d.type === 'Income').reduce((s, d) => s + (d.amount || 0), 0);
+        const expenses = details.filter(d => d.type === 'Expenses').reduce((s, d) => s + (d.amount || 0), 0);
 
-          if (day.getDate() === 1) {
-            const monthLabel = document.createElement('div');
-            monthLabel.textContent = monthName;
-            monthLabel.style.gridColumn = "1 / -1";
-            yearGrid.appendChild(monthLabel);
-          }
-
-          const dayBlock = document.createElement('div');
-          dayBlock.className = 'day-block';
-          dayBlock.textContent = dayOfMonth;
-          dayBlock.setAttribute('data-date', dateKey);
-
-          if (day.toDateString() === today.toDateString()) dayBlock.classList.add('today');
-
-          if (details.length > 0) {
-            if (expenses > income) {
-              dayBlock.classList.add('expenses-higher');
-            } else {
-              dayBlock.classList.add('has-data');
-            }
-          }
-
-          dayBlock.addEventListener('click', () => displayDayDetails(dateKey));
-          yearGrid.appendChild(dayBlock);
+        if (day.getDate() === 1) {
+          const monthLabel = document.createElement('div');
+          monthLabel.textContent = monthName;
+          monthLabel.style.gridColumn = "1 / -1";
+          yearGrid.appendChild(monthLabel);
         }
-      });
+
+        const dayBlock = document.createElement('div');
+        dayBlock.className = 'day-block';
+        dayBlock.textContent = dayOfMonth;
+        dayBlock.setAttribute('data-date', dateKey);
+
+        if (day.toDateString() === today.toDateString()) dayBlock.classList.add('today');
+
+        if (details.length > 0) {
+          if (expenses > income) {
+            dayBlock.classList.add('expenses-higher');
+          } else {
+            dayBlock.classList.add('has-data');
+          }
+        }
+
+        dayBlock.addEventListener('click', () => displayDayDetails(dateKey));
+        yearGrid.appendChild(dayBlock);
+      }
     }
 
     function displayDayDetails(dateKey) {
