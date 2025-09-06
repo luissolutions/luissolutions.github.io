@@ -11,6 +11,16 @@
   <script src="./assets/js/search.js" defer></script>
 
   <style>
+    html {
+      scroll-behavior: smooth;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+    }
+
     .transaction-row select,
     .transaction-row button {
       padding-bottom: 3px;
@@ -30,7 +40,6 @@
     }
 
     .tag-bar {
-      gap: 6px;
       margin: 8px 0 12px;
     }
 
@@ -177,12 +186,28 @@
           </tr>
         </tbody>
       </table>
+
       <br>
+
       <div class="visuals">
+        <div class="pie-controls">
+          <label>Breakdown:
+            <select id="pie-breakdown">
+              <option value="months" selected>Months</option>
+              <option value="tags">Tags</option>
+              <option value="years">Years</option>
+            </select>
+          </label>
+          <label>Metric:
+            <select id="pie-metric">
+              <option value="expenses" selected>Expenses</option>
+              <option value="income">Income</option>
+            </select>
+          </label>
+        </div>
+
         <canvas id="yearPie" height="120"></canvas>
       </div>
-    </section>
-
     </section>
 
     <section>
@@ -218,6 +243,7 @@
     let DATABASE_BASE_PATH = 'public';
     let _engine = null;
     let handlersBound = false;
+    let _lastSavedData = {};
 
     // --- Tag helpers ---
     function parseTags(input) {
@@ -268,6 +294,7 @@
     function initApp() {
       setupEventListeners();
       fetchSavedData().then(savedData => {
+        _lastSavedData = savedData;
         populateYearDropdown(savedData);
         fetchOverallTotals(savedData);
         renderTagBar(savedData);
@@ -310,6 +337,8 @@
           closeModal();
         }
       };
+      document.getElementById('pie-breakdown')?.addEventListener('change', () => renderPie());
+      document.getElementById('pie-metric')?.addEventListener('change', () => renderPie());
     }
 
     // === Charts: state & helpers ===
@@ -344,14 +373,10 @@
     }
 
     function renderCharts() {
-      // data
       const { income, expenses } = getMonthlyIncomeExpenses();
-      const { totalIncome, totalExpenses } = getYearTotals();
-
-      // labels like Jan..Dec
       const labels = months;
 
-      // --- Monthly stacked bar ---
+      // Monthly stacked bar
       const barCtx = document.getElementById('monthlyBar');
       if (monthlyBarChart) monthlyBarChart.destroy();
       monthlyBarChart = new Chart(barCtx, {
@@ -359,55 +384,158 @@
         data: {
           labels,
           datasets: [
-            {
-              label: 'Income',
-              data: income
-            },
-            {
-              label: 'Expenses',
-              data: expenses
-            }
+            { label: 'Income', data: income },
+            { label: 'Expenses', data: expenses }
           ]
         },
         options: {
           responsive: true,
           plugins: {
-            title: {
-              display: true,
-              text: `Income vs Expenses by Month — ${currentYear}`
-            },
+            title: { display: true, text: `Income vs Expenses by Month — ${currentYear}` },
             tooltip: { mode: 'index', intersect: false },
             legend: { position: 'top' }
           },
-          scales: {
-            x: { stacked: true },
-            y: { stacked: true, beginAtZero: true }
-          }
+          scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
         }
       });
 
-      // --- Year pie (expenses by month) ---
+      // New dynamic pie
+      renderPie();
+    }
+
+    function isIncome(d) { return String(d?.type || '').toLowerCase() === 'income'; }
+    function isExpense(d) {
+      const t = String(d?.type || '').toLowerCase();
+      return t === 'expenses' || t === 'expense';
+    }
+
+    // Build dataset by months for the current year
+    function groupByMonths(savedData, metric /* 'income' | 'expenses' */) {
+      const totals = Array(12).fill(0);
+      for (const bucket of Object.values(savedData || {})) {
+        const items = Array.isArray(bucket?.details) ? bucket.details : [];
+        for (const d of items) {
+          if (!d?.date) continue;
+          const y = new Date(d.date).getFullYear();
+          if (y !== currentYear) continue;
+          const m = new Date(d.date).getMonth(); // 0-11
+          const val = Number(d.amount) || 0;
+          if (metric === 'income' && isIncome(d)) totals[m] += val;
+          if (metric === 'expenses' && isExpense(d)) totals[m] += val;
+        }
+      }
+      return { labels: months.slice(), values: totals };
+    }
+
+    // Build dataset by tags for the current year (top N + Other)
+    function groupByTags(savedData, metric, topN = 12) {
+      const map = new Map(); // tag -> total
+      for (const bucket of Object.values(savedData || {})) {
+        const items = Array.isArray(bucket?.details) ? bucket.details : [];
+        for (const d of items) {
+          if (!d?.date) continue;
+          const y = new Date(d.date).getFullYear();
+          if (y !== currentYear) continue;
+          const val = Number(d.amount) || 0;
+          const ok = (metric === 'income' && isIncome(d)) ||
+            (metric === 'expenses' && isExpense(d));
+          if (!ok) continue;
+          const tags = Array.isArray(d.tags) ? d.tags : [];
+          if (!tags.length) {
+            // Optional: attribute untagged to "(No tag)"
+            const prev = map.get('(No tag)') || 0;
+            map.set('(No tag)', prev + val);
+          } else {
+            for (const raw of tags) {
+              const t = String(raw || '').trim();
+              if (!t) continue;
+              const prev = map.get(t) || 0;
+              map.set(t, prev + val);
+            }
+          }
+        }
+      }
+      const entries = Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+      const top = entries.slice(0, topN);
+      const rest = entries.slice(topN);
+      const otherSum = rest.reduce((s, [, v]) => s + v, 0);
+
+      const labels = top.map(([k]) => k);
+      const values = top.map(([, v]) => v);
+      if (otherSum > 0) { labels.push('Other'); values.push(otherSum); }
+      if (!labels.length) return { labels: ['(No data)'], values: [0] };
+      return { labels, values };
+    }
+
+    // Build dataset by years (across all data you have)
+    function groupByYears(savedData, metric) {
+      const map = new Map(); // year -> total
+      for (const bucket of Object.values(savedData || {})) {
+        const items = Array.isArray(bucket?.details) ? bucket.details : [];
+        for (const d of items) {
+          if (!d?.date) continue;
+          const y = new Date(d.date).getFullYear();
+          const val = Number(d.amount) || 0;
+          if (metric === 'income' && isIncome(d)) map.set(y, (map.get(y) || 0) + val);
+          if (metric === 'expenses' && isExpense(d)) map.set(y, (map.get(y) || 0) + val);
+        }
+      }
+      const years = Array.from(map.keys()).sort((a, b) => a - b);
+      const values = years.map(y => map.get(y));
+      if (!years.length) return { labels: ['(No data)'], values: [0] };
+      return { labels: years.map(String), values };
+    }
+
+    function currentPieControls() {
+      const breakdown = (document.getElementById('pie-breakdown')?.value || 'months').toLowerCase();
+      const metric = (document.getElementById('pie-metric')?.value || 'expenses').toLowerCase();
+      return { breakdown, metric };
+    }
+
+    function renderPie() {
+      const { breakdown, metric } = currentPieControls();
       const pieCtx = document.getElementById('yearPie');
+      if (!pieCtx) return;
+
+      // Build data based on selection
+      let labels = [], values = [];
+      if (breakdown === 'months') {
+        ({ labels, values } = groupByMonths(_lastSavedData, metric));
+      } else if (breakdown === 'tags') {
+        ({ labels, values } = groupByTags(_lastSavedData, metric, 12));
+      } else if (breakdown === 'years') {
+        ({ labels, values } = groupByYears(_lastSavedData, metric));
+      }
+
+      // Title text
+      let title = '';
+      if (breakdown === 'months') {
+        title = `${capitalize(metric)} by Month — ${currentYear}`;
+      } else if (breakdown === 'tags') {
+        title = `${capitalize(metric)} by Tag — ${currentYear}`;
+      } else {
+        title = `${capitalize(metric)} by Year`;
+      }
+
+      // (Re)create chart
       if (yearPieChart) yearPieChart.destroy();
       yearPieChart = new Chart(pieCtx, {
         type: 'pie',
         data: {
-          labels: months,
-          datasets: [
-            {
-              label: 'Expenses by Month',
-              data: expenses
-            }
-          ]
+          labels,
+          datasets: [{ label: title, data: values }]
         },
         options: {
           responsive: true,
           plugins: {
-            title: { display: true, text: `Expenses by Month — ${currentYear}` },
+            title: { display: true, text: title },
             legend: { position: 'right' },
             tooltip: {
               callbacks: {
-                label: (ctx) => `${ctx.label}: $${(ctx.parsed || 0).toFixed(2)}`
+                label: (ctx) => {
+                  const v = Number(ctx.parsed) || 0;
+                  return `${ctx.label}: $${v.toFixed(2)}`;
+                }
               }
             }
           }
@@ -415,9 +543,12 @@
       });
     }
 
+    function capitalize(s) { return String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1); }
+
     function handleYearChange() {
       currentYear = parseInt(document.getElementById('yearSelect').value, 10);
       fetchSavedData().then(savedData => {
+        _lastSavedData = savedData;
         yearlyDetails = aggregateMonthlyData(savedData, currentYear);
         populateMonths();
         calculateYearlyTotals();
@@ -805,6 +936,15 @@
             savedData[dateKey].details[globalIndex][field] = newValue;
 
             await saveData(savedData);
+
+            const fresh = await fetchSavedData();
+            _lastSavedData = fresh;
+            fetchOverallTotals(fresh);
+            yearlyDetails = aggregateMonthlyData(fresh, currentYear);
+            renderTagBar(fresh);
+            renderCharts();
+            displayAllTransactions();
+            generateYearGrid(fresh);
           }
         }
       }
@@ -1251,15 +1391,12 @@
       });
     }
 
-    // Set the search box to tags:"<clicked>" and filter
     function applyTagFilter(tag) {
       const input = document.getElementById('global-search');
       if (!input) return;
       input.value = `tags:${quoteForQuery(tag)}`;
-      // Even if SearchEngine isn't loaded, we'll still try a simple fallback filter (see step 4)
       filterGlobalEntries();
-      // Optional: bring the search box into view
-      // input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      input.focus(); // 👈 add this
     }
 
   </script>
