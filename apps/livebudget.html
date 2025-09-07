@@ -244,6 +244,20 @@
     let _engine = null;
     let handlersBound = false;
     let _lastSavedData = {};
+    let budgetUnsub = null;
+
+    function renderAll(savedData) {
+      _lastSavedData = savedData || {};
+      populateYearDropdown(_lastSavedData);
+      fetchOverallTotals(_lastSavedData);
+      renderTagBar(_lastSavedData);
+      yearlyDetails = aggregateMonthlyData(_lastSavedData, currentYear);
+      populateMonths();
+      calculateYearlyTotals();
+      generateYearGrid(_lastSavedData);
+      displayAllTransactions();
+      renderCharts();
+    }
 
     // --- Tag helpers ---
     function parseTags(input) {
@@ -288,8 +302,30 @@
 
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
-      initApp();
+
+      if (typeof budgetUnsub === 'function') {
+        budgetUnsub();
+        budgetUnsub = null;
+      }
+
+      setupEventListeners();
+      wireSearchEngine();
+
+      attachBudgetListener();
     });
+
+    function attachBudgetListener() {
+      if (budgetUnsub) return;
+
+      const budgetRef = ref(database, `${DATABASE_BASE_PATH}/budget`);
+
+      budgetUnsub = onValue(budgetRef, (snapshot) => {
+        const savedData = snapshot.exists() ? snapshot.val() : {};
+        renderAll(savedData);
+      }, (err) => {
+        console.error('❌ onValue error:', err);
+      });
+    }
 
     function initApp() {
       setupEventListeners();
@@ -547,16 +583,13 @@
 
     function handleYearChange() {
       currentYear = parseInt(document.getElementById('yearSelect').value, 10);
-      fetchSavedData().then(savedData => {
-        _lastSavedData = savedData;
-        yearlyDetails = aggregateMonthlyData(savedData, currentYear);
-        populateMonths();
-        calculateYearlyTotals();
-        generateYearGrid(savedData);
-        displayAllTransactions();
-        renderCharts();
-        renderTagBar(savedData);
-      });
+      yearlyDetails = aggregateMonthlyData(_lastSavedData, currentYear);
+      populateMonths();
+      calculateYearlyTotals();
+      generateYearGrid(_lastSavedData);
+      displayAllTransactions();
+      renderCharts();
+      renderTagBar(_lastSavedData);
     }
 
     function populateYearDropdown(savedData) {
@@ -691,7 +724,6 @@
         }
         savedData[dateKey].details.push(newEntry);
         saveData(savedData);
-        initApp();
       });
     }
 
@@ -777,73 +809,69 @@
     }
 
     function displayDayDetails(dateKey) {
-      fetchSavedData().then(savedData => {
-        const details = savedData[dateKey] || { details: [] };
-        const modalContentElement = document.getElementById('modalContent');
-        modalContentElement.innerHTML = '';
+      const savedData = _lastSavedData || {};
+      const details = savedData[dateKey] || { details: [] };
+      const modalContentElement = document.getElementById('modalContent');
+      modalContentElement.innerHTML = '';
 
-        const [month, day] = dateKey.split('-');
-        const formattedDate = `${month} ${day}, ${currentYear}`;
+      const [month, day] = dateKey.split('-');
+      const formattedDate = `${month} ${day}, ${currentYear}`;
+      document.getElementById('date-selected').textContent = formattedDate;
 
-        document.getElementById('date-selected').textContent = formattedDate;
+      const filteredDetails = (details.details || []).filter(
+        detail => new Date(detail.date).getFullYear() === currentYear
+      );
 
-        if (details.details.length > 0) {
-          const filteredDetails = details.details.filter(detail => new Date(detail.date).getFullYear() === currentYear);
+      if (filteredDetails.length > 0) {
+        const table = document.createElement('table');
+        table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Amount</th>
+          <th>Tags</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody><br>
+    `;
+        const tbody = table.querySelector('tbody');
 
-          const table = document.createElement('table');
-          table.innerHTML = `
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Amount</th>
-                  <th>Tags</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody></tbody><br>
-            `;
-
-          const tbody = table.querySelector('tbody');
-
-          filteredDetails.forEach((detail, index) => {
-            const row = document.createElement('tr');
-
-            row.innerHTML = `
-                <td contenteditable="true" data-key="name">${detail.name ?? ''}</td>
-                <td>${detail.type ?? ''}</td>
-                <td contenteditable="true" data-key="amount">${(detail.amount ?? 0)}</td>
-                <td contenteditable="true" data-key="tags">${formatTags(detail.tags || [])}</td>
-                <td><button class="clear-button" onclick="deleteEntry('${dateKey}', ${index})">Delete</button></td>
-              `;
-
-            row.querySelectorAll('[contenteditable="true"]').forEach(cell => {
-              cell.addEventListener('blur', (event) => {
-                const key = event.target.dataset.key;
-                let val = event.target.innerText;
-                if (key === 'amount') {
-                  updateEntry(dateKey, index, 'amount', val);
-                } else if (key === 'tags') {
-                  updateEntry(dateKey, index, 'tags', parseTags(val));
-                } else {
-                  updateEntry(dateKey, index, key, val);
-                }
-              });
+        filteredDetails.forEach((detail, index) => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+        <td contenteditable="true" data-key="name">${detail.name ?? ''}</td>
+        <td>${detail.type ?? ''}</td>
+        <td contenteditable="true" data-key="amount">${(detail.amount ?? 0)}</td>
+        <td contenteditable="true" data-key="tags">${formatTags(detail.tags || [])}</td>
+        <td><button class="clear-button" onclick="deleteEntry('${dateKey}', ${index})">Delete</button></td>
+      `;
+          row.querySelectorAll('[contenteditable="true"]').forEach(cell => {
+            cell.addEventListener('blur', (event) => {
+              const key = event.target.dataset.key;
+              let val = event.target.innerText;
+              if (key === 'amount') {
+                updateEntry(dateKey, index, 'amount', val);
+              } else if (key === 'tags') {
+                updateEntry(dateKey, index, 'tags', parseTags(val));
+              } else {
+                updateEntry(dateKey, index, key, val);
+              }
             });
-
-            tbody.appendChild(row);
           });
+          tbody.appendChild(row);
+        });
 
-          modalContentElement.appendChild(table);
-        } else {
-          modalContentElement.innerHTML = "<p>No details available for this date.</p>";
-        }
+        modalContentElement.appendChild(table);
+      } else {
+        modalContentElement.innerHTML = "<p>No details available for this date.</p>";
+      }
 
-        modalContentElement.appendChild(createButton('', 'Add Income', null, () => addEntryFromModal(dateKey, 'Income')));
-        modalContentElement.appendChild(createButton('', 'Add Expense', null, () => addEntryFromModal(dateKey, 'Expenses')));
+      modalContentElement.appendChild(createButton('', 'Add Income', null, () => addEntryFromModal(dateKey, 'Income')));
+      modalContentElement.appendChild(createButton('', 'Add Expense', null, () => addEntryFromModal(dateKey, 'Expenses')));
 
-        document.getElementById('detailsModal').style.display = 'block';
-      });
+      document.getElementById('detailsModal').style.display = 'block';
     }
 
     function addEntryFromModal(dateKey, type) {
@@ -872,7 +900,6 @@
         if (!savedData[dateKey]) savedData[dateKey] = { details: [] };
         savedData[dateKey].details.push(newEntry);
         saveData(savedData);
-        initApp();
         displayDayDetails(dateKey);
       });
     }
@@ -901,7 +928,6 @@
             await saveData(savedData);
             console.log(`✅ Successfully deleted entry from ${dateKey} (${currentYear})`);
 
-            initApp();
             displayDayDetails(dateKey);
           } else {
             console.warn("⚠️ No entry found for deletion in the current year.");
@@ -936,15 +962,6 @@
             savedData[dateKey].details[globalIndex][field] = newValue;
 
             await saveData(savedData);
-
-            const fresh = await fetchSavedData();
-            _lastSavedData = fresh;
-            fetchOverallTotals(fresh);
-            yearlyDetails = aggregateMonthlyData(fresh, currentYear);
-            renderTagBar(fresh);
-            renderCharts();
-            displayAllTransactions();
-            generateYearGrid(fresh);
           }
         }
       }
@@ -981,7 +998,6 @@
       if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
         set(ref(database, `${DATABASE_BASE_PATH}/budget`), {});
         alert("All data has been cleared.");
-        initApp();
       }
     }
 
@@ -1005,7 +1021,7 @@
 
     async function displayAllTransactions() {
 
-      const savedData = await fetchSavedData();
+      const savedData = _lastSavedData || {};
       const tbody = document.querySelector('#transactions-table tbody');
       tbody.innerHTML = '';
 
@@ -1144,10 +1160,6 @@
             savedData[dateKey].details[globalIndex][field] = newValue;
 
             await saveData(savedData);
-
-            const fresh = await fetchSavedData();
-            fetchOverallTotals(fresh);
-            handleYearChange();
           }
         }
       }
@@ -1254,7 +1266,6 @@
 
     /**
      * Import a JSON file and REPLACE existing data at `${DATABASE_BASE_PATH}/budget`.
-     * Shows strong warnings and double confirmation.
      */
     async function importJSONReplaceExisting(event) {
       const file = event.target.files?.[0];
@@ -1304,7 +1315,6 @@
       try {
         await set(ref(database, `${DATABASE_BASE_PATH}/budget`), parsed);
         alert("✅ Import complete. Data has been replaced.");
-        initApp();
       } catch (err) {
         console.error("Error writing imported data:", err);
         alert("❌ Failed to write imported data. See console for details.");
@@ -1321,7 +1331,7 @@
 
     // Build a tag index for the CURRENT YEAR from savedData
     function buildTagIndex(savedData) {
-      const map = new Map(); // key: lower-case tag, val: {label, count}
+      const map = new Map();
       for (const [dateKey, bucket] of Object.entries(savedData || {})) {
         const details = Array.isArray(bucket?.details) ? bucket.details : [];
         for (const d of details) {
