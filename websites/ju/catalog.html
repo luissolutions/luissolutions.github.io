@@ -160,6 +160,7 @@
 
         const includeNoLink = document.getElementById('includeNoLink');
 
+        // Replace your current normalize() with this:
         function normalize(data) {
             const items = [];
             const catSet = new Set();
@@ -167,12 +168,22 @@
 
             for (const category in data) {
                 for (const component in data[category]) {
-                    for (const partName in data[category][component]) {
-                        const e = data[category][component][partName] || {};
+                    for (const partKey in data[category][component]) {
+                        const e = data[category][component][partKey] || {};
+
+                        // Prefer explicit display name from e.part; fall back to the key
+                        const displayName = (e.part && String(e.part).trim()) || partKey;
+
                         catSet.add(category);
                         compSet.add(component);
+
                         items.push({
-                            name: partName,
+                            // what you show everywhere
+                            name: displayName,
+
+                            // keep the original key for reference/search if useful
+                            rawKey: partKey,
+
                             category,
                             component,
                             description: e.description || "",
@@ -181,13 +192,19 @@
                             asin: e.asin || "",
                             imageUrl: (e.imageUrl && e.imageUrl.trim())
                                 ? e.imageUrl
-                                : `assets/img/database/${encodeURIComponent(partName)}.png`,
-                            tags: e.tags || []
+                                // default image now based on the display name
+                                : `assets/img/database/${encodeURIComponent(displayName)}.png`,
+                            tags: Array.isArray(e.tags) ? e.tags : (e.tags ? [e.tags] : [])
                         });
                     }
                 }
             }
-            return { items, categories: [...catSet].sort(), components: [...compSet].sort() };
+
+            return {
+                items,
+                categories: [...catSet].sort(),
+                components: [...compSet].sort()
+            };
         }
 
         includeNoLink?.addEventListener('change', render);
@@ -213,7 +230,7 @@
                 if (!showNoLink && !it.affiliateUrl) return false; // <-- filter here
                 const hitCat = !cat || it.category === cat;
                 const hitComp = !comp || it.component === comp;
-                const hay = `${it.name} ${it.category} ${it.component} ${it.description} ${(it.tags || []).join(" ")}`.toLowerCase();
+                const hay = `${it.name} ${it.rawKey || ""} ${it.category} ${it.component} ${it.description} ${(it.tags || []).join(" ")}`.toLowerCase();
                 const hitQ = !q || hay.includes(q);
                 return hitCat && hitComp && hitQ;
             });
