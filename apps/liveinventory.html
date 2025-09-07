@@ -189,6 +189,14 @@
                 <input type="text" id="search-input" placeholder="Search Items / Desc / Link">
 
                 <button id="exportCsvBtn" type="button" title="Export currently shown items">Export CSV</button>
+
+                <div style="display: none;">
+                    <button id="autoNameFromNodeBtn" type="button">Auto-name from node</button>
+                    <label title="Preview without saving">
+                        <input type="checkbox" id="dryRunNode" checked> Preview only
+                    </label>
+                </div>
+
             </div>
 
             <div class="checkbox">
@@ -845,6 +853,61 @@
         a.remove();
         URL.revokeObjectURL(url);
     });
+
+
+    // --- Auto-name missing items using their node key (uniqueKey) ---
+    document.getElementById('autoNameFromNodeBtn').addEventListener('click', autoNameFromNode);
+
+    async function autoNameFromNode() {
+        try {
+            const dryRun = document.getElementById('dryRunNode')?.checked ?? true;
+
+            // Pull current inventory tree
+            const rootRef = ref(database, `${DATABASE_BASE_PATH}/inventory`);
+            const snap = await get(rootRef);
+            const inv = snap.val() || {};
+
+            const updates = {};
+            const preview = [];
+
+            // Walk: category -> component -> uniqueKey -> data
+            for (const [category, components] of Object.entries(inv)) {
+                for (const [component, items] of Object.entries(components || {})) {
+                    for (const [uniqueKey, data] of Object.entries(items || {})) {
+                        const currentName = String(data?.part || '').trim();
+                        if (currentName) continue; // skip items that already have a name
+
+                        // Use the node key directly as the name
+                        const candidate = String(uniqueKey);
+
+                        const path = `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}/part`;
+                        updates[path] = candidate;
+                        preview.push({ category, component, uniqueKey, name: candidate });
+                    }
+                }
+            }
+
+            if (preview.length === 0) {
+                alert('No unnamed items found.');
+                return;
+            }
+
+            if (dryRun) {
+                console.table(preview);
+                alert(`Preview: ${preview.length} items would be named from their node key. Open the console for details. Uncheck "Preview only" to apply.`);
+                return;
+            }
+
+            // One atomic fan-out update
+            await update(ref(database), updates);
+            alert(`Named ${preview.length} items from their node key.`);
+            // Re-apply your current filters/render
+            filterEntries?.();
+        } catch (err) {
+            console.error('Auto-name from node failed:', err);
+            alert(`Auto-name from node failed: ${err?.message || err}`);
+        }
+    }
 
 </script>
 
