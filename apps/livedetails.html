@@ -221,6 +221,68 @@
             display: none;
             position: relative;
         }
+
+        #missingList li.missing-sensor {
+            cursor: pointer;
+        }
+
+        #missingList li.missing-sensor:focus {
+            outline: 2px solid #000;
+            outline-offset: 2px;
+        }
+
+        .file-input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .file-btn {
+            display: inline-block;
+            padding: 10px 14px;
+            border-radius: 4px;
+            background: var(--buttonColor);
+            color: whitesmoke;
+            cursor: pointer;
+            user-select: none;
+            transition: transform .06s ease, background .15s ease;
+            margin-bottom: 8px;
+        }
+
+        .file-btn:hover {
+            background: var(--primaryColor);
+            color: black;
+        }
+
+        .file-btn:active {
+            transform: scale(0.98);
+        }
+
+        @media (max-width: 768px) {
+            .file-btn {
+                padding: 14px 18px;
+                border-radius: 14px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .file-btn {
+                padding: 16px 22px;
+                border-radius: 16px;
+            }
+        }
+
+        @media (max-width: 439px) {
+            .file-btn {
+                padding: 18px 24px;
+            }
+        }
     </style>
 </head>
 
@@ -312,7 +374,8 @@
 
         <section id="siteImagesSection">
             <h3>Site Images</h3>
-            <input type="file" id="siteImageUploader" accept="image/*" />
+            <input type="file" id="siteImageUploader" accept="image/*" capture="environment" class="file-input" />
+            <label for="siteImageUploader" class="file-btn">📷 Take/Choose Picture</label>
             <button id="uploadSiteImage">Upload Site Image</button>
 
             <div id="siteImageNavTop" class="site-image-controls">
@@ -366,8 +429,9 @@
 
         <section id="sensorUploadSection">
             <h3>Upload Device Image Below</h3>
-            <input type="file" id="sensorImage" /><br />
-
+            <input type="file" id="sensorImage" accept="image/*" capture="environment" class="file-input" />
+            <label for="sensorImage" class="file-btn">📷 Take/Choose Picture</label>
+            <br>
             <label>Device #:
                 <select id="sensorNumberDropdown">
                     <option value="">Select a Device</option>
@@ -385,7 +449,9 @@
 
         <section id="deliverableUploadSection" style="display:none;">
             <h3>Upload Deliverable Image</h3>
-            <input type="file" id="fileUploader" accept="image/*" /><br />
+            <input type="file" id="fileUploader" accept="image/*" capture="environment" class="file-input" />
+            <label for="fileUploader" class="file-btn">📷 Take/Choose Picture</label>
+            <br>
             <label>Name: <input type="text" id="imageNameInput" /></label> <br>
             <label>Markup: <input type="text" id="markupTextInput" /></label>
             <button id="uploadDeliverableImage">Upload Image</button>
@@ -766,9 +832,53 @@
                     if (have < 2) {
                         const li = document.createElement('li');
                         li.textContent = `Sensor ${padded} - Missing ${2 - have} image(s)`;
+                        li.dataset.sensor = String(i);
+                        li.className = 'missing-sensor';
+                        li.setAttribute('role', 'button');
+                        li.setAttribute('tabindex', '0'); // keyboard focusable
                         missingList.appendChild(li);
                     }
                 }
+
+                // Click/keyboard: pick sensor, show the upload UI, and focus serial input
+                const handlePickMissing = (sensorNum) => {
+                    // Ensure "Device Images" mode is active
+                    const sensorsRadio = document.querySelector('input[name="viewMode"][value="sensors"]');
+                    if (sensorsRadio && !sensorsRadio.checked) {
+                        sensorsRadio.checked = true;
+                        // Toggle sections to match current code’s behavior
+                        document.getElementById('sensorUploadSection').style.display = 'block';
+                        document.getElementById('deliverableUploadSection').style.display = 'none';
+                    }
+
+                    // Select in both dropdowns (upload + meta)
+                    const uploadDd = document.getElementById('sensorNumberDropdown');
+                    const metaDd = document.getElementById('sensorMetaNumberDropdown');
+                    if (uploadDd) uploadDd.value = sensorNum;
+                    if (metaDd) metaDd.value = sensorNum;
+
+                    // Scroll and focus for quick entry
+                    const serialInput = document.getElementById('serialNumber');
+                    document.getElementById('sensorUploadSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    setTimeout(() => serialInput?.focus(), 250);
+                };
+
+                // Event delegation so it works for all items we just added
+                missingList.onclick = (e) => {
+                    const li = e.target.closest('li[data-sensor]');
+                    if (!li) return;
+                    handlePickMissing(li.dataset.sensor);
+                };
+
+                // Keyboard: Enter/Space activates the item
+                missingList.onkeydown = (e) => {
+                    const li = e.target.closest('li[data-sensor]');
+                    if (!li) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handlePickMissing(li.dataset.sensor);
+                    }
+                };
             }
         }
 
@@ -1405,7 +1515,7 @@
 
                         const csvContent = rows.map(row => row.join(",")).join("\n");
                         const blob = new Blob([csvContent], { type: "text/csv" });
-                        const filename = `${sanitize(currentProjectName || currentProject)}_sensorData.csv`;
+                        const filename = `${sanitize(currentProjectName || currentProject)}_DeviceData.csv`;
                         const csvUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${oneDriveFolder}/${filename}:/content`;
 
                         const csvRes = await fetch(csvUrl, {
