@@ -229,6 +229,7 @@
       <div id="year-grid" class="year-grid"></div>
     </section>
 
+    <button id="export-tags-csv">Export CSV (Summary)</button>
     <button id="export-details">Export Data (Backup)</button>
     <button id="trigger-import">Import JSON (Overwrite)</button>
     <input type="file" id="load-data" accept=".json" style="display:none">
@@ -360,6 +361,8 @@
       handlersBound = true;
 
       document.getElementById('export-details')?.addEventListener('click', exportDetailsToJSON);
+      document.getElementById('export-details')?.addEventListener('click', exportDetailsToJSON);
+      +  document.getElementById('export-tags-csv')?.addEventListener('click', exportTagsCSV);
 
       const triggerImportBtn = document.getElementById('trigger-import');
       if (triggerImportBtn) {
@@ -1411,6 +1414,115 @@
       input.value = `tags:${quoteForQuery(tag)}`;
       filterGlobalEntries();
       input.focus();
+    }
+
+    function exportTagsCSV() {
+      const savedData = _lastSavedData || {};
+      const monthNames = months;
+      const FILTER_YEAR = currentYear; // 👈 only export for the selected year
+
+      // tagKey -> aggregate
+      const map = new Map();
+
+      for (const bucket of Object.values(savedData)) {
+        const details = Array.isArray(bucket?.details) ? bucket.details : [];
+        for (const d of details) {
+          if (!d?.date) continue;
+          const dt = new Date(d.date);
+          if (Number.isNaN(dt.getTime())) continue;
+
+          // year filter
+          if (dt.getFullYear() !== FILTER_YEAR) continue;
+
+          const tags = Array.isArray(d.tags) ? d.tags : [];
+          if (!tags.length) continue;
+
+          const isInc = String(d.type || '').toLowerCase() === 'income';
+          const isExp = ['expenses', 'expense'].includes(String(d.type || '').toLowerCase());
+          const amt = Number(d.amount) || 0;
+          const monthAbbr = monthNames[dt.getMonth()];
+
+          for (const rawTag of tags) {
+            const t = String(rawTag || '').trim();
+            if (!t) continue;
+
+            const key = t.toLowerCase();
+            let agg = map.get(key);
+            if (!agg) {
+              agg = {
+                tagLabel: t,
+                latestDate: null,
+                latestName: '',
+                monthsSet: new Set(),
+                income: 0,
+                expenses: 0,
+                count: 0
+              };
+              map.set(key, agg);
+            }
+
+            if (isInc) agg.income += amt;
+            if (isExp) agg.expenses += amt;
+            agg.count += 1;
+            agg.monthsSet.add(monthAbbr);
+
+            if (!agg.latestDate || dt > agg.latestDate) {
+              agg.latestDate = dt;
+              agg.latestName = String(d.name ?? '').trim();
+            }
+          }
+        }
+      }
+
+      if (map.size === 0) {
+        alert(`No tagged entries found for ${FILTER_YEAR}.`);
+        return;
+      }
+
+      const rows = [];
+      rows.push(['Tag', 'Year', 'LatestDate', 'NameWithMonths', 'IncomeTotal', 'ExpensesTotal', 'NetTotal', 'Occurrences']);
+
+      const sorted = Array.from(map.values()).sort((a, b) => {
+        const at = a.latestDate ? a.latestDate.getTime() : 0;
+        const bt = b.latestDate ? b.latestDate.getTime() : 0;
+        if (bt !== at) return bt - at;
+        return a.tagLabel.localeCompare(b.tagLabel);
+      });
+
+      for (const agg of sorted) {
+        const monthsList = monthNames.filter(m => agg.monthsSet.has(m));
+        const latestDateStr = agg.latestDate ? agg.latestDate.toISOString().slice(0, 10) : '';
+        const nameWithMonths = `${agg.latestName || ''} (${monthsList.join(', ')})`.trim();
+        const net = agg.income - agg.expenses;
+
+        rows.push([
+          agg.tagLabel,
+          String(FILTER_YEAR),
+          latestDateStr,
+          nameWithMonths,
+          agg.income.toFixed(2),
+          agg.expenses.toFixed(2),
+          net.toFixed(2),
+          String(agg.count)
+        ]);
+      }
+
+      const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tags_summary_${FILTER_YEAR}.csv`; // 👈 year in filename
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function csvEscape(v) {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     }
 
   </script>
