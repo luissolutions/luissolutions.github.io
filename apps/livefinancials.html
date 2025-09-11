@@ -361,8 +361,7 @@
       handlersBound = true;
 
       document.getElementById('export-details')?.addEventListener('click', exportDetailsToJSON);
-      document.getElementById('export-details')?.addEventListener('click', exportDetailsToJSON);
-      +  document.getElementById('export-tags-csv')?.addEventListener('click', exportTagsCSV);
+      document.getElementById('export-tags-csv')?.addEventListener('click', exportTagsCSV);
 
       const triggerImportBtn = document.getElementById('trigger-import');
       if (triggerImportBtn) {
@@ -646,25 +645,81 @@
       return button;
     }
 
-    function populateMonths() {
+    function populateMonths(records /* optional: filtered records */) {
       const monthsContainer = document.querySelector('#months-container tbody');
       monthsContainer.innerHTML = '';
 
-      months.forEach(month => {
-        const monthData = yearlyDetails[month];
-        const income = calculateTotal(monthData.details, 'Income');
-        const expenses = calculateTotal(monthData.details, 'Expenses');
+      // Build records if not provided (initial/full render)
+      if (!records) {
+        records = [];
+        const savedData = _lastSavedData || {};
+        const yr = currentYear;
+
+        Object.entries(savedData).forEach(([dateKey, data]) => {
+          const [monthName, dayStr] = dateKey.split('-');
+          const mIdx = months.indexOf(monthName);
+          const baseDate = new Date(yr, mIdx, parseInt(dayStr, 10)); // <- UI date
+
+          const details = (data.details || []).filter(d =>
+            new Date(d.date).getFullYear() === yr
+          );
+
+          details.forEach(d => {
+            records.push({
+              name: d.name ?? '',
+              type: d.type ?? '',
+              amount: Number(d.amount ?? 0),
+              // IMPORTANT: use the UI date, not d.date
+              _dateObject: baseDate,
+              dateKey,
+              tags: Array.isArray(d.tags) ? d.tags : []
+            });
+          });
+        });
+      }
+
+      // Sum by the UI date (prefer _dateObject; fall back to dateKey)
+      const sums = Array.from({ length: 12 }, () => ({ income: 0, expenses: 0 }));
+
+      for (const r of records) {
+        let dt = r._dateObject instanceof Date ? r._dateObject : null;
+
+        if (!dt && r.dateKey) {
+          const [mName, dayStr] = String(r.dateKey).split('-');
+          const mIdx = months.indexOf(mName);
+          const dNum = parseInt(dayStr, 10) || 1;
+          dt = new Date(currentYear, mIdx, dNum);
+        }
+        if (!dt) {
+          // last-resort fallback (shouldn't be needed now)
+          dt = new Date(r.date);
+        }
+
+        if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) continue;
+        if (dt.getFullYear() !== currentYear) continue;
+
+        const mi = dt.getMonth();
+        const amt = Number(r.amount) || 0;
+        const t = String(r.type || '').toLowerCase();
+        if (t === 'income') sums[mi].income += amt;
+        if (t === 'expenses' || t === 'expense') sums[mi].expenses += amt;
+      }
+
+      // Render rows
+      months.forEach((month, i) => {
+        const income = sums[i].income;
+        const expenses = sums[i].expenses;
         const balance = income - expenses;
 
         const row = monthsContainer.insertRow();
         row.innerHTML = `
-            <td>${month}</td>
-            <td>${income.toFixed(2)}</td>
-            <td>${expenses.toFixed(2)}</td>
-            <td>${balance.toFixed(2)}</td>
-            <td></td>
-            <td></td>
-          `;
+          <td>${month}</td>
+          <td>${income.toFixed(2)}</td>
+          <td>${expenses.toFixed(2)}</td>
+          <td>${balance.toFixed(2)}</td>
+          <td></td>
+          <td></td>
+        `;
 
         row.cells[4].appendChild(createButton('add-income', 'Add Income', month, () => addEntry('Income', month)));
         row.cells[5].appendChild(createButton('add-expense', 'Add Expense', month, () => addEntry('Expenses', month)));
@@ -1139,6 +1194,7 @@
         tr.append(tdDate, tdName, tdType, tdAmount, tdTags, tdActions);
         tbody.appendChild(tr);
       });
+      populateMonths(filtered);
     }
 
     window.filterGlobalEntries = function filterGlobalEntries() {
