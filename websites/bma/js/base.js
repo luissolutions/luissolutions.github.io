@@ -66,7 +66,7 @@ const appNamesMap = {
   "Analytics": { filename: "liveanalytics", tags: ["analytics", "stats", "charts", "data"] },
   "Mileage Logging": { filename: "livemileage", tags: ["mileage", "miles", "trip"] },
   "Quote/Invoice Maker": { filename: "liveinvoice", tags: ["invoice", "billing", "quote", "finance"] },
-  "Financial Logging": { filename: "livebudget", tags: ["budget", "money", "expenses", "finance"] },
+  "Financial Logging": { filename: "livefinancials", tags: ["budget", "money", "expenses", "finance"] },
   "Contacts": { filename: "livecontacts", tags: ["contacts", "phone", "address", "people"] },
   "Job Details": { filename: "livedetails", tags: ["details", "jobnotes", "job"] },
   "Password Generator": { filename: "password", tags: ["password", "security", "generator"] },
