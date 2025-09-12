@@ -3,8 +3,8 @@
 
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Budget Planner (2026+)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Budget Planner</title>
   <link rel="stylesheet" href="../assets/css/app-styles.css" />
   <style>
     .grid {
@@ -57,7 +57,6 @@
       background: #fff;
     }
 
-
     thead th:first-child {
       background: #fafafa;
     }
@@ -102,22 +101,16 @@
     }
 
     .btn {
-      padding: 8px 10px;
+      padding: 2px 10px;
       border-radius: 8px;
       cursor: pointer;
     }
 
     .btn.primary {
       background: #2563eb;
-      color: #fff;
       border-color: #1d4ed8;
     }
 
-    .btn.danger {
-      background: #ef4444;
-      color: #fff;
-      border-color: #dc2626;
-    }
 
     .totals {
       font-weight: 700;
@@ -158,14 +151,11 @@
     <div class="card">
       <div class="toolbar">
         <label>Year:
-          <select id="year">
-            <option value="2025">2025</option>
-            <option value="2026">2026</option>
-            <option value="2027">2027</option>
-          </select>
+          <select id="year"></select>
         </label>
+        <button id="add-year" class="btn">+ Add Year</button>
 
-        <!-- 👇 Add this -->
+
         <label title="Gross income you expect for this year">
           Expected Yearly Income:
           <input id="incomeYear" type="number" min="0" step="0.01" style="width:12ch;" />
@@ -173,7 +163,9 @@
 
         <button id="save" class="btn primary">Save now</button>
         <button id="export-csv" class="btn">Export CSV</button>
-        <button id="reset-defaults" class="btn danger">Reset to defaults</button>
+        <button id="reset-defaults" class="btn clear-button" style="display: none;">Reset to defaults</button>
+        <button id="sync-from-tracker" class="btn">Sync from Financial Data</button>
+
       </div>
       <div id="yearTotals" style="margin-top:8px"></div>
     </div>
@@ -258,11 +250,41 @@
   const buildNameMap = (state) =>
     Object.fromEntries((state.categories || []).map(c => [safeKey(c.name), c.name]));
 
+
+  /* ======== Financial Tracker integration (read-only) ======== */
+  // Path of your Financial Tracker data (unchanged on that side)
+  const FIN_TRACKER_PATH = () => `${DATABASE_BASE_PATH}/budget`;
+
+  // How to handle entries with MULTIPLE tags:
+  // - "split": split the amount evenly across tags (prevents double counting)
+  // - "duplicate": count full amount into each tag (can inflate totals)
+  const MULTITAG_MODE = "split";
+
+  // Where to put untagged expenses (null/empty tags)
+  const UNTITLED_CATEGORY = "Uncategorized";
+
+  /** Parse ISO or parseable date -> {y, m} or null */
+  function ymFromDate(dateStr) {
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return null;
+    return { y: d.getFullYear(), m: d.getMonth() }; // 0..11
+  }
+
+  /** Ensure a category exists in STATE (exact match by name) */
+  function ensureCategory(catName) {
+    if (!catName) return;
+    if (!STATE.categories.some(c => c.name === catName)) {
+      STATE.categories.push({ name: catName, monthly: 0 });
+    }
+  }
+
+
+
   // Convert STATE -> object with sanitized keys for DB
   function encodeForDB(state) {
     const out = structuredClone(state);
     const nameMap = buildNameMap(state);
-    out._nameMap = nameMap; // store so we can restore names on load
+    out._nameMap = nameMap;
 
     // Sanitize actuals: actuals[month][safeCat] = value
     const encActuals = {};
@@ -429,15 +451,18 @@
       const row = document.createElement('div');
       row.className = 'grid two';
       row.innerHTML = `
+        <div>
+          <label class="small">Category</label>
           <div>
-            <label class="small">Category</label>
             <input type="text" value="${c.name}" />
+            <button type="button" class="btn clear-button small del-cat" title="Delete category">X</button>
           </div>
-          <div>
-            <label class="small">Monthly Budget</label>
-            <input type="number" min="0" step="0.01" value="${c.monthly}" />
-          </div>
-        `;
+        </div>
+        <div>
+          <label class="small">Monthly Budget</label>
+          <input type="number" min="0" step="0.01" value="${c.monthly}" />
+        </div>
+      `;
       const [nameEl, monthlyEl] = row.querySelectorAll('input');
 
       nameEl.addEventListener('blur', () => {
@@ -469,6 +494,9 @@
         renderMonthTotals();
         renderYearTotals();
       });
+
+      const delBtn = row.querySelector('.del-cat');
+      delBtn.addEventListener('click', () => deleteCategory(c.name));
 
       wrap.appendChild(row);
     });
@@ -685,11 +713,219 @@
   }
 
   /* ======== Helpers ======== */
-  // define this ABOVE maybeInit()
   const debounce = (fn, ms = 400) => {
     let t;
     return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
   };
+
+  /** Get all numeric years that exist in DB under /budgetPlan */
+  async function fetchAvailableYears() {
+    const baseRef = ref(database, `${DATABASE_BASE_PATH}/budgetPlan`);
+    const snap = await get(baseRef);
+    const out = [];
+    if (snap.exists()) {
+      for (const key of Object.keys(snap.val() || {})) {
+        const n = Number(key);
+        if (!Number.isNaN(n)) out.push(n);
+      }
+    }
+    // Oldest -> newest for dropdown
+    out.sort((a, b) => a - b);
+    return out;
+  }
+
+  /** Populate the <select id="year"> with existing years; optionally select a specific year */
+  async function populateYearSelect(selectYear = null) {
+    const yearEl = document.getElementById('year');
+    if (!yearEl) return;
+
+    const years = await fetchAvailableYears();
+
+    // Build options
+    yearEl.innerHTML = '';
+    if (years.length === 0) {
+      // Nothing exists yet — leave empty and nudge user to Add Year
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '(no years yet — click "Add Year")';
+      yearEl.appendChild(opt);
+      yearEl.disabled = true;
+      return;
+    }
+
+    yearEl.disabled = false;
+    years.forEach(y => {
+      const opt = document.createElement('option');
+      opt.value = String(y);
+      opt.textContent = String(y);
+      yearEl.appendChild(opt);
+    });
+
+    // Choose a year:
+    const desired = selectYear != null ? Number(selectYear) : (
+      // If STATE.year is in list, keep it; else pick the latest available.
+      years.includes(Number(STATE?.year)) ? Number(STATE.year) : years[years.length - 1]
+    );
+
+    yearEl.value = String(desired);
+    STATE.year = desired;  // keep STATE in sync
+  }
+
+  /** Create a new year in DB.
+   *  - By default, clone current categories & monthly budgets (no actuals, no overrides, income=0).
+   *  - If no current state yet, use DEFAULT_BASE.
+   */
+  async function addYearFlow() {
+    const suggested = new Date().getFullYear();
+    const input = prompt(`Enter the year to add (e.g., ${suggested}):`, String(suggested));
+    const y = Number(input);
+    if (!y || Number.isNaN(y)) return;
+
+    const existing = await fetchAvailableYears();
+    if (existing.includes(y)) {
+      alert(`Year ${y} already exists.`);
+      await populateYearSelect(y);
+      await loadFromDB();
+      renderAll();
+      return;
+    }
+
+    // Use current categories if we have any; otherwise DEFAULT_BASE
+    const base = Array.isArray(STATE?.categories) && STATE.categories.length
+      ? {
+        year: y,
+        incomeYear: 0,
+        categories: STATE.categories.map(c => ({ name: c.name, monthly: Number(c.monthly) || 0 })),
+        budgetOverrides: {},
+        actuals: {}
+      }
+      : (() => {
+        const b = structuredClone(DEFAULT_BASE);
+        b.year = y;
+        b.incomeYear = 0;
+        b.budgetOverrides = {};
+        b.actuals = {};
+        return b;
+      })();
+
+    // Save new year
+    await set(ref(database, `${DATABASE_BASE_PATH}/budgetPlan/${y}`), encodeForDB(base));
+
+    // Refresh picker and UI onto the newly-created year
+    await populateYearSelect(y);
+    await loadFromDB();
+    renderAll();
+    alert(`Year ${y} added.`);
+  }
+
+
+  async function syncFromFinancialTracker() {
+    // 1) Read raw tracker data
+    const snap = await get(ref(database, FIN_TRACKER_PATH()));
+    if (!snap.exists()) {
+      alert('No financial data found at: ' + FIN_TRACKER_PATH());
+      return;
+    }
+    const raw = snap.val(); // structure: { "Jan-3": { details: [ ... ] }, ... }
+
+    // 2) Filter entries for the selected year and flatten
+    const wantYear = Number(STATE.year);
+    const entries = [];
+    for (const bucket of Object.values(raw)) {
+      const details = Array.isArray(bucket?.details) ? bucket.details : [];
+      for (const d of details) {
+        if (!d?.date) continue;
+        const ym = ymFromDate(d.date);
+        if (!ym || ym.y !== wantYear) continue;
+        entries.push({
+          monthIndex: ym.m,
+          type: String(d.type || ''),
+          amount: Number(d.amount) || 0,
+          tags: Array.isArray(d.tags) ? d.tags.filter(t => String(t).trim()) : []
+        });
+      }
+    }
+
+    // 3) Aggregate income + expenses-by-tag-per-month
+    let incomeYearSum = 0;
+    const monthTagSums = Array.from({ length: 12 }, () => new Map()); // [m] Map<tag, sum>
+
+    for (const e of entries) {
+      const t = e.type.toLowerCase();
+      if (t === 'income') {
+        incomeYearSum += e.amount;
+        continue;
+      }
+      if (t === 'expenses' || t === 'expense') {
+        let tags = e.tags.length ? e.tags.map(s => String(s).trim()) : [UNTITLED_CATEGORY];
+        // Split or duplicate across tags
+        const share = (MULTITAG_MODE === 'split' && tags.length > 0) ? (e.amount / tags.length) : e.amount;
+
+        const mMap = monthTagSums[e.monthIndex];
+        for (const tag of tags) {
+          const prev = mMap.get(tag) || 0;
+          mMap.set(tag, prev + (MULTITAG_MODE === 'split' ? share : e.amount));
+        }
+      }
+    }
+
+    // 4) Ensure categories exist for all seen tags
+    const seenTags = new Set();
+    monthTagSums.forEach(mMap => mMap.forEach((_, tag) => seenTags.add(tag)));
+    seenTags.forEach(tag => ensureCategory(tag));
+
+    // 5) Write into STATE.actuals[Month][Category] using tag names as categories
+    for (let mi = 0; mi < 12; mi++) {
+      const mKey = months[mi];
+      STATE.actuals[mKey] ??= {};
+      const mMap = monthTagSums[mi];
+      // Preserve any categories not present in the financial data; overwrite those that are
+      mMap.forEach((sum, tag) => {
+        STATE.actuals[mKey][tag] = Math.max(0, Number(sum) || 0);
+      });
+    }
+
+    // 6) Update income
+    STATE.incomeYear = Math.max(0, Number(incomeYearSum) || 0);
+
+    // 7) Refresh UI + persist
+    renderAll();
+    await saveToDB();
+    alert('Budget actuals and income synced from Financial Tracker tags.');
+  }
+
+  function deleteCategory(catName) {
+    if (!catName) return;
+    if (!confirm(`Delete category "${catName}" and all its data? This cannot be undone.`)) return;
+
+    // 1) Remove from category list
+    STATE.categories = STATE.categories.filter(c => c.name !== catName);
+
+    // 2) Remove budget overrides for all months (catName::0..11)
+    for (let mi = 0; mi < 12; mi++) {
+      delete STATE.budgetOverrides[`${catName}::${mi}`];
+    }
+    // Safety: if any stray keys exist (old names), remove by prefix too
+    for (const k of Object.keys(STATE.budgetOverrides)) {
+      if (k.startsWith(`${catName}::`)) delete STATE.budgetOverrides[k];
+    }
+
+    // 3) Remove actuals for every month
+    for (const mKey of months) {
+      if (STATE.actuals?.[mKey]) {
+        delete STATE.actuals[mKey][catName];
+        // Optional cleanup: remove empty month objects
+        if (Object.keys(STATE.actuals[mKey]).length === 0) {
+          // keep the object to preserve shape; skip if you prefer deletion:
+          // delete STATE.actuals[mKey];
+        }
+      }
+    }
+
+    // 4) Re-render + save
+    renderAll();
+    saveToDB();
+  }
 
   /* ======== Rendering ======== */
   function renderAll() {
@@ -711,7 +947,6 @@
   function maybeInit() {
     if (!(DOM_READY && AUTH_READY)) return;
 
-    // wire income input once
     const incomeEl = document.getElementById('incomeYear');
     if (incomeEl && !incomeEl._wired) {
       incomeEl.addEventListener('input', debounce(() => {
@@ -723,13 +958,23 @@
     }
 
     // buttons (save/reset/export)
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', async (e) => {
+      if (e.target.matches('#add-year')) {
+        try {
+          await addYearFlow();
+        } catch (err) {
+          console.error(err);
+          alert('Failed to add year. See console for details.');
+        }
+      }
+
       if (e.target.matches('#save')) saveToDB();
+      if (e.target.matches('#export-csv')) exportCSV();
 
       if (e.target.matches('#reset-defaults')) {
         if (!confirm('Reset this year to default baseline?')) return;
         const keepYear = STATE.year;
-        const keepIncome = STATE.incomeYear; // preserve income on reset
+        const keepIncome = STATE.incomeYear;
         STATE = structuredClone(DEFAULT_BASE);
         STATE.year = keepYear;
         STATE.incomeYear = keepIncome;
@@ -738,7 +983,14 @@
         saveToDB();
       }
 
-      if (e.target.matches('#export-csv')) exportCSV();
+      if (e.target.matches('#sync-from-tracker')) {
+        try {
+          await syncFromFinancialTracker();
+        } catch (err) {
+          console.error(err);
+          alert('Sync failed. See console for details.');
+        }
+      }
     });
 
     // year select
@@ -754,8 +1006,13 @@
 
     // initial load after both DOM + Auth are ready
     (async () => {
-      await loadFromDB();
-      renderAll();
+      await populateYearSelect(); // fill dropdown with what's in DB
+      // If there are no years, user must click "Add Year"; otherwise load the selected year
+      const selectedValue = document.getElementById('year')?.value;
+      if (selectedValue) {
+        await loadFromDB();
+        renderAll();
+      }
     })();
 
     window.addEventListener('beforeunload', () => saveToDB());
