@@ -203,6 +203,26 @@
   /* ============ Helpers ============ */
   const fmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' });
 
+  function avgBudgetForCategory(catName) {
+    let sum = 0;
+    for (let mi = 0; mi < 12; mi++) sum += planForMonth(catName, mi);
+    return sum / 12;
+  }
+
+  // Only average months the user actually entered (non-empty) values for
+  function avgActualForCategory(catName) {
+    let sum = 0, count = 0;
+    for (let mi = 0; mi < 12; mi++) {
+      const mKey = months[mi];
+      const raw = STATE.actuals?.[mKey]?.[catName];
+      if (raw != null) { // treat present 0 as present; empty cells are null/undefined
+        sum += toMoney(raw);
+        count++;
+      }
+    }
+    return count ? (sum / count) : null; // null => show "—"
+  }
+
   // robust money parser: strips commas, spaces, currency signs, etc. and rounds to 2dp
   function toMoney(v) {
     const n = Number(String(v ?? '').replace(/[^0-9.\-]/g, ''));
@@ -389,7 +409,10 @@
   function renderHeader() {
     const hdr = document.getElementById('budget-header-row');
     if (!hdr) return;
-    hdr.innerHTML = '<th class="sticky">Category</th>' + months.map(m => `<th class="sticky">${m}</th>`).join('');
+    hdr.innerHTML =
+      '<th class="sticky">Category</th>' +
+      months.map(m => `<th class="sticky">${m}</th>`).join('') +
+      `<th class="sticky">Avg</th>`;
   }
 
   function setActualCellColor(td, catName, mi) {
@@ -491,7 +514,7 @@
     STATE.categories.forEach((c, idx) => {
       const { budget, actual } = categoryTotals(c.name);
 
-      // Budget row
+      // ===== Budget row =====
       const tr = document.createElement('tr');
       tr.dataset.idx = idx;
       tr.dataset.kind = 'budget';
@@ -515,12 +538,19 @@
           if (actualCell) setActualCellColor(actualCell, c.name, mi);
           renderMonthTotals();
           renderYearTotals();
+          // update the Budget Avg cell live
+          avgBudTd.textContent = fmt.format(avgBudgetForCategory(c.name));
         });
         td.appendChild(input);
         tr.appendChild(td);
       });
 
-      // Actuals row
+      // Budget Avg cell
+      const avgBudTd = document.createElement('td');
+      avgBudTd.textContent = fmt.format(avgBudgetForCategory(c.name));
+      tr.appendChild(avgBudTd);
+
+      // ===== Actuals row =====
       const tr2 = document.createElement('tr');
       tr2.dataset.idx = idx;
       tr2.dataset.kind = 'actual';
@@ -538,16 +568,32 @@
         input.value = v ? v : '';
         input.placeholder = '0.00';
         input.addEventListener('input', () => {
-          setActual(c.name, mi, input.value);
+          // empty => remove key so it doesn't count toward avg
+          const val = input.value;
+          const mKey = months[mi];
+          if (val === '') {
+            if (STATE.actuals?.[mKey]) delete STATE.actuals[mKey][c.name];
+          } else {
+            setActual(c.name, mi, val);
+          }
           setActualCellColor(td, c.name, mi);
           updateCategoryLabelByIndex(idx);
           renderMonthTotals();
           renderYearTotals();
+          // update the Actual Avg cell live
+          const a = avgActualForCategory(c.name);
+          avgActTd.textContent = (a == null) ? '—' : fmt.format(a);
         });
         td.appendChild(input);
         setActualCellColor(td, c.name, mi);
         tr2.appendChild(td);
       });
+
+      // Actual Avg cell
+      const avgActTd = document.createElement('td');
+      const initialAvgActual = avgActualForCategory(c.name);
+      avgActTd.textContent = (initialAvgActual == null) ? '—' : fmt.format(initialAvgActual);
+      tr2.appendChild(avgActTd);
 
       tbody.appendChild(tr);
       tbody.appendChild(tr2);
@@ -558,22 +604,31 @@
     const tfoot = document.querySelector('#budget-table tfoot');
     if (!tfoot) return;
     tfoot.innerHTML = '';
-    const { perMonth } = totals();
+    const { perMonth, yearBudget, yearActual } = totals();
 
     const trBudget = document.createElement('tr');
     trBudget.className = 'totals';
-    trBudget.innerHTML = `<td>Monthly Budget Total</td>` + perMonth.map(m => `<td>${fmt.format(m.budget)}</td>`).join('');
+    trBudget.innerHTML =
+      `<td>Monthly Budget Total</td>` +
+      perMonth.map(m => `<td>${fmt.format(m.budget)}</td>`).join('') +
+      `<td>${fmt.format(yearBudget / 12)}</td>`;
 
     const trActual = document.createElement('tr');
     trActual.className = 'totals';
-    trActual.innerHTML = `<td>Monthly Actual Total</td>` + perMonth.map(m => `<td>${fmt.format(m.actual)}</td>`).join('');
+    trActual.innerHTML =
+      `<td>Monthly Actual Total</td>` +
+      perMonth.map(m => `<td>${fmt.format(m.actual)}</td>`).join('') +
+      `<td>${fmt.format(yearActual / 12)}</td>`;
 
     const trVar = document.createElement('tr');
     trVar.className = 'totals';
-    trVar.innerHTML = `<td>Variance (Actual - Budget)</td>` + perMonth.map(m => {
-      const cls = m.variance <= 0 ? 'ok' : 'warn';
-      return `<td class="${cls}">${fmt.format(m.variance)}</td>`;
-    }).join('');
+    trVar.innerHTML =
+      `<td>Variance (Actual - Budget)</td>` +
+      perMonth.map(m => {
+        const cls = m.variance <= 0 ? 'ok' : 'warn';
+        return `<td class="${cls}">${fmt.format(m.variance)}</td>`;
+      }).join('') +
+      `<td class="${(yearActual - yearBudget) <= 0 ? 'ok' : 'warn'}">${fmt.format((yearActual - yearBudget) / 12)}</td>`;
 
     tfoot.appendChild(trBudget);
     tfoot.appendChild(trActual);
