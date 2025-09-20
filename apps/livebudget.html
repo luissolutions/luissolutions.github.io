@@ -179,8 +179,8 @@
       { name: 'Entertainment', monthly: 50.00 },
       { name: 'Insurance', monthly: 170.00 },
     ],
-    budgetOverrides: {},   // key: `${catName}::${mIndex}` -> number
-    actuals: {}            // actuals['Jan'][catName] -> number
+    budgetOverrides: {},
+    actuals: {}
   };
 
   // Optional: where the Financial Tracker lives (only used by sync function)
@@ -200,17 +200,16 @@
 
   /* ============ Helpers ============ */
   const fmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' });
+  const yearPrefKey = () => `${DATABASE_BASE_PATH}:budget:lastYear`;
 
-  // Current-year month counting (UTC)
   function monthsElapsedForYear(y) {
     const now = new Date();
     const currY = now.getUTCFullYear();
     if (y < currY) return 12;
     if (y > currY) return 0;
-    return now.getUTCMonth() + 1; // 1..12
+    return now.getUTCMonth() + 1;
   }
 
-  // Does this month have an actual (treat 0 as “present”, empty as missing)?
   function hasActual(catName, mi) {
     const mKey = months[mi];
     const v = STATE.actuals?.[mKey]?.[catName];
@@ -223,20 +222,15 @@
     return sum / 12;
   }
 
-  // Average Actuals with your rule:
-  // - Past & current months (UTC): always counted; missing treated as 0
-  // - Future months: counted only if there’s a value entered
   function avgActualForCategory(catName) {
     const limit = monthsElapsedForYear(Number(STATE.year)); // 0..12
     let sum = 0, count = 0;
 
-    // Past/current months
     for (let mi = 0; mi < limit; mi++) {
       sum += toMoney(actualForMonth(catName, mi)); // missing -> 0
       count++;
     }
 
-    // Future months with values
     for (let mi = limit; mi < 12; mi++) {
       if (hasActual(catName, mi)) {
         sum += toMoney(actualForMonth(catName, mi));
@@ -244,7 +238,19 @@
       }
     }
 
-    return count ? (sum / count) : null; // null => display "—"
+    return count ? (sum / count) : null;
+  }
+
+  function saveLastYear(y) {
+    try { localStorage.setItem(yearPrefKey(), String(y)); } catch { }
+  }
+
+  function loadLastYear() {
+    try {
+      const v = localStorage.getItem(yearPrefKey());
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    } catch { return null; }
   }
 
   // Footer avg denominator: elapsed months + future months that have ANY actual value (across any category)
@@ -452,16 +458,16 @@
     const a = actualForMonth(catName, mi);
     const b = planForMonth(catName, mi);
     td.classList.remove('light-under', 'light-over');
-    if (td.querySelector('input')?.value === '') return; // empty = no color
+    if (td.querySelector('input')?.value === '') return;
     td.classList.add(a <= b ? 'light-under' : 'light-over');
   }
 
   // NEW: color the Avg (Actual) cell vs Avg (Budget)
   function setAvgActualCellColor(td, catName) {
-    const a = avgActualForCategory(catName); // may be null
+    const a = avgActualForCategory(catName);
     const b = avgBudgetForCategory(catName);
     td.classList.remove('ok', 'warn');
-    if (a == null) return; // neutral when no denominator
+    if (a == null) return;
     td.classList.add(a <= b ? 'ok' : 'warn');
   }
 
@@ -501,7 +507,6 @@
 
       const [nameEl, monthlyEl] = row.querySelectorAll('input');
 
-      // rename category (migrate keys)
       nameEl.addEventListener('blur', () => {
         const newName = nameEl.value.trim() || `Category ${idx + 1}`;
         if (newName !== c.name) {
@@ -580,9 +585,7 @@
           if (actualCell) setActualCellColor(actualCell, c.name, mi);
           renderMonthTotals();
           renderYearTotals();
-          // update the Budget Avg cell live
           avgBudTd.textContent = fmt.format(avgBudgetForCategory(c.name));
-          // re-evaluate Avg (Actual) color since the budget avg changed
           const avgActTdRef = tbody.querySelector(`tr[data-idx="${idx}"][data-kind="actual"] td:last-child`);
           if (avgActTdRef) setAvgActualCellColor(avgActTdRef, c.name);
         });
@@ -616,7 +619,6 @@
         input.value = hasVal ? STATE.actuals[mKey][c.name] : '';
         input.placeholder = '0.00';
         input.addEventListener('input', () => {
-          // empty => remove key so it doesn't count toward future-month inclusion
           const val = input.value;
           const mKey = months[mi];
           if (val === '') {
@@ -628,7 +630,6 @@
           updateCategoryLabelByIndex(idx);
           renderMonthTotals();
           renderYearTotals();
-          // update the Actual Avg cell live + color it
           const a = avgActualForCategory(c.name);
           avgActTd.textContent = (a == null) ? '—' : fmt.format(a);
           setAvgActualCellColor(avgActTd, c.name);
@@ -638,7 +639,6 @@
         tr2.appendChild(td);
       });
 
-      // Actual Avg cell (with color)
       const avgActTd = document.createElement('td');
       const initialAvgActual = avgActualForCategory(c.name);
       avgActTd.textContent = (initialAvgActual == null) ? '—' : fmt.format(initialAvgActual);
@@ -656,7 +656,7 @@
     tfoot.innerHTML = '';
     const { perMonth, yearBudget, yearActual } = totals();
 
-    const monthsCount = countMonthsForTotalsAvg(); // elapsed + future months with any actuals
+    const monthsCount = countMonthsForTotalsAvg();
 
     const trBudget = document.createElement('tr');
     trBudget.className = 'totals';
@@ -768,8 +768,12 @@
       yearEl.appendChild(opt);
     });
 
-    const desired = selectYear != null ? Number(selectYear)
-      : (years.includes(Number(STATE?.year)) ? Number(STATE.year) : years[years.length - 1]);
+    const saved = loadLastYear();
+    const desired = (selectYear != null && years.includes(Number(selectYear))) ? Number(selectYear)
+      : (saved != null && years.includes(saved)) ? saved
+        : (years.includes(Number(STATE?.year)) ? Number(STATE.year)
+          : years[years.length - 1]);
+
     yearEl.value = String(desired);
     STATE.year = desired;
   }
@@ -825,7 +829,7 @@
 
     // Aggregate
     let incomeYearSum = 0;
-    const monthTagSums = Array.from({ length: 12 }, () => new Map()); // [m] Map<tag, sum>
+    const monthTagSums = Array.from({ length: 12 }, () => new Map());
 
     for (const bucket of Object.values(raw)) {
       const details = Array.isArray(bucket?.details) ? bucket.details : [];
@@ -886,7 +890,10 @@
     for (const c of STATE.categories) {
       const bRow = [c.name];
       for (let mi = 0; mi < 12; mi++) bRow.push(planForMonth(c.name, mi));
+      bRow.push(avgBudgetForCategory(c.name));
+
       for (let mi = 0; mi < 12; mi++) bRow.push(actualForMonth(c.name, mi));
+      bRow.push(avgActualForCategory(c.name) ?? '');
       rows.push(bRow);
     }
 
@@ -904,6 +911,7 @@
     a.href = url; a.download = `budget_${STATE.year}.csv`; a.click();
     URL.revokeObjectURL(url);
   }
+
   const csvEscape = (v) => {
     const s = String(v ?? '');
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -986,6 +994,7 @@
     if (yearSelEl && !yearSelEl._wired) {
       yearSelEl.addEventListener('change', async (e) => {
         STATE.year = Number(e.target.value);
+        saveLastYear(STATE.year);
         await loadFromDB();
         renderAll();
       });
