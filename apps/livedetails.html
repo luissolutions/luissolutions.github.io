@@ -659,51 +659,46 @@
 
             const tasks = snap.val();
 
-            // helper: best "freshness" timestamp for a task
+            // Choose best/freshest timestamp for a task
             const bestTime = (task, id) => {
                 const candidates = [
                     Number(task.updatedAt) || 0,
                     Number(task.createdAt) || 0,
                     Number(task.startTime) || 0,
                     Number(task.timestamp) || 0,
-                    Number(id) || 0, // many of your IDs are Date.now()
+                    Number(id) || 0, // many IDs are Date.now()
                 ];
                 return Math.max(...candidates);
             };
 
-            // Group by normalized project name, pick the freshest per group
-            const groups = new Map(); // key: normalized project, value: {id, task}
+            // Group by (project, customerName)
+            const groups = new Map(); // key: `${projKey}||${custKey}` -> { id, task }
             for (const [id, task] of Object.entries(tasks)) {
                 const projectRaw = (task.project || '').trim();
-                if (!projectRaw) continue; // skip truly unnamed
+                const customerRaw = (task.customerName || '').trim();
 
-                const key = projectRaw.toLowerCase();
+                // if there's truly no project and no customer, skip
+                if (!projectRaw && !customerRaw) continue;
+
+                const projKey = projectRaw.toLowerCase();
+                const custKey = customerRaw.toLowerCase();
+                const key = `${projKey}||${custKey}`;
+
                 const current = groups.get(key);
-
-                if (!current) {
+                if (!current || bestTime(task, id) > bestTime(current.task, current.id)) {
                     groups.set(key, { id, task });
-                } else {
-                    const newer =
-                        bestTime(task, id) > bestTime(current.task, current.id)
-                            ? { id, task }
-                            : current;
-                    groups.set(key, newer);
                 }
             }
 
-            // Turn into a list, sort alphabetically by project label
-            const deduped = [...groups.values()].sort((a, b) => {
-                const A = (a.task.project || '').toLowerCase();
-                const B = (b.task.project || '').toLowerCase();
-                return A.localeCompare(B);
-            });
+            // Sort groups by newest first
+            const newestFirst = [...groups.values()]
+                .sort((a, b) => bestTime(b.task, b.id) - bestTime(a.task, a.id));
 
-            // Build options (one per project)
-            for (const { id, task } of deduped) {
-                let label = task.project || `(Unnamed - ${id})`;
-                if (task.customerName && task.customerName.trim() !== '') {
-                    label += ` — ${task.customerName}`;
-                }
+            // Build options: "CustomerName — Project"
+            for (const { id, task } of newestFirst) {
+                const customer = (task.customerName && task.customerName.trim()) ? task.customerName.trim() : '(No Customer)';
+                const project = (task.project && task.project.trim()) ? task.project.trim() : '(No Project)';
+                const label = `${customer} — ${project}`;
                 dropdown.appendChild(new Option(label, id));
             }
         }
