@@ -28,6 +28,24 @@
         .collapsible[hidden] {
             display: none !important;
         }
+
+        .crypto-change {
+            min-width: 90px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .change-up {
+            color: #1a7f37;
+        }
+
+        .change-down {
+            color: #b42318;
+        }
+
+        .change-flat {
+            opacity: .75;
+        }
     </style>
 </head>
 
@@ -121,11 +139,13 @@
             function liTemplate(coin) {
                 const li = document.createElement('li');
                 li.innerHTML = `
-        <span class="crypto-name">${coin.name} (${coin.symbol.toUpperCase()}):</span>
-        <span class="crypto-price" id="${coin.id}-price">Loading...</span>
-      `;
+                    <span class="crypto-name">${coin.name} (${coin.symbol.toUpperCase()}):</span>
+                    <span class="crypto-price" id="${coin.id}-price">Loading...</span>
+                    <span class="crypto-change" id="${coin.id}-change">—</span>
+                `;
                 return li;
             }
+
             $primaryList.innerHTML = '';
             primaryCoins.forEach(c => $primaryList.appendChild(liTemplate(c)));
 
@@ -139,23 +159,43 @@
 
             try {
                 const res = await fetch(
-                    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids)}&vs_currencies=usd`
+                    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids)}&vs_currencies=usd&include_24hr_change=true`
                 );
                 const data = await res.json();
 
                 allCoins.forEach(c => {
-                    const el = document.getElementById(`${c.id}-price`);
-                    if (!el) return;
-                    const val = data?.[c.id]?.usd;
-                    el.textContent = (typeof val === 'number')
-                        ? `$${val.toLocaleString()}`
-                        : '—';
+                    const priceEl = document.getElementById(`${c.id}-price`);
+                    const chgEl = document.getElementById(`${c.id}-change`);
+                    if (!priceEl || !chgEl) return;
+
+                    const usd = data?.[c.id]?.usd;
+                    const pct = data?.[c.id]?.usd_24h_change;
+
+                    // Price
+                    priceEl.textContent = (typeof usd === 'number') ? `$${usd.toLocaleString()}` : '—';
+
+                    // Change (▲/▼ and percent with 2 decimals)
+                    if (typeof pct === 'number') {
+                        const rounded = Math.abs(pct).toFixed(2);
+                        let cls = 'change-flat', arrow = '•';
+                        if (pct > 0.05) { cls = 'change-up'; arrow = '▲'; }
+                        else if (pct < -0.05) { cls = 'change-down'; arrow = '▼'; }
+
+                        chgEl.className = `crypto-change ${cls}`;
+                        chgEl.textContent = `${arrow} ${pct >= 0 ? '' : '-'}${rounded}%`;
+                        chgEl.title = '24h change';
+                    } else {
+                        chgEl.className = 'crypto-change change-flat';
+                        chgEl.textContent = '—';
+                    }
                 });
             } catch (err) {
                 console.error('Error fetching cryptocurrency prices:', err);
                 [...primaryCoins, ...extraCoins].forEach(c => {
-                    const el = document.getElementById(`${c.id}-price`);
-                    if (el) el.textContent = 'Error';
+                    const priceEl = document.getElementById(`${c.id}-price`);
+                    const chgEl = document.getElementById(`${c.id}-change`);
+                    if (priceEl) priceEl.textContent = 'Error';
+                    if (chgEl) chgEl.textContent = '—';
                 });
             }
         }
@@ -178,7 +218,6 @@
         fetchCryptoPrices();
         setInterval(fetchCryptoPrices, 60_000);
     </script>
-
 
     <script type="module">
         import { getDatabase, database, ref, push, set, onValue, remove, update } from '../../apps/assets/js/firebase-init.js';
