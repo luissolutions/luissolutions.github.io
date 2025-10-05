@@ -215,6 +215,7 @@
         const uploadButton = document.getElementById('uploadButton');
         const loadingIndicator = document.getElementById('loadingIndicator');
         const markupTextInput = document.getElementById('markupTextInput');
+        const CALC_DEADLINE_MS = 60_000;
 
         let sortOrder = 'asc';
         let currentTask = null;
@@ -224,6 +225,16 @@
         let currentPage = 1;
         let imagesPerPage = 6;
         let totalPages = 0;
+
+        // === Watchdog / Date helpers ===
+
+        function isValidDate(d) {
+            return d instanceof Date && !isNaN(d.getTime());
+        }
+        function safeDate(value) {
+            const d = new Date(value);
+            return isValidDate(d) ? d : null;
+        }
 
         document.querySelectorAll('.toggle-column').forEach(checkbox => {
             checkbox.addEventListener('change', toggleColumnVisibility);
@@ -729,33 +740,74 @@
 
         function calculateDailyTimeSpent(tasks) {
             const dailyTimeSpent = {};
+            const t0 = performance.now();
 
-            tasks.forEach(task => {
-                if (task.startTime && task.endTime) {
-                    let startTime = new Date(task.startTime);
-                    let endTime = new Date(task.endTime);
-
-                    startTime = new Date(startTime.getTime() - (startTime.getTimezoneOffset() * 60000));
-                    endTime = new Date(endTime.getTime() - (endTime.getTimezoneOffset() * 60000));
-
-                    while (startTime < endTime) {
-                        const currentDate = startTime.toISOString().split('T')[0];
-                        const nextDay = new Date(currentDate);
-                        nextDay.setDate(nextDay.getDate() + 1);
-
-                        const endOfDay = nextDay < endTime ? nextDay : endTime;
-
-                        const durationInSeconds = (endOfDay - startTime) / 1000;
-
-                        if (!dailyTimeSpent[currentDate]) {
-                            dailyTimeSpent[currentDate] = 0;
-                        }
-                        dailyTimeSpent[currentDate] += durationInSeconds;
-
-                        startTime = endOfDay;
-                    }
+            for (const task of tasks) {
+                // Deadline: stop processing this function after 60s total
+                if (performance.now() - t0 > CALC_DEADLINE_MS) {
+                    console.warn("⏳ Daily time calc hit 60s deadline — continuing without remaining tasks.");
+                    break;
                 }
-            });
+
+                if (!task.startTime || !task.endTime) continue;
+                let startTime = safeDate(task.startTime);
+                let endTime = safeDate(task.endTime);
+
+                if (!startTime || !endTime) continue;
+                if (endTime < startTime) {
+                    // Swap if reversed (odd entry)
+                    const tmp = startTime; startTime = endTime; endTime = tmp;
+                }
+
+                // Hard cap to avoid absurd spans
+                const maxSpanMs = 10 * 365 * 24 * 60 * 60 * 1000; // 10 years
+                if ((endTime - startTime) > maxSpanMs) {
+                    console.warn("⚠️ Skipping task >10 years:", task.id);
+                    continue;
+                }
+
+                // Normalize to local-time boundaries by working in UTC but stepping by days safely
+                // Safety: ensure the loop always advances; if not, break to avoid infinite loops.
+                let guardSteps = 0;
+                const GUARD_MAX_STEPS = 4000; // ~11 years of days; well under our 10y cap
+
+                while (startTime < endTime) {
+                    // Check the global deadline inside the loop
+                    if (performance.now() - t0 > CALC_DEADLINE_MS) {
+                        console.warn("⏳ Per-task loop hit 30s deadline — breaking out.");
+                        break;
+                    }
+                    if (++guardSteps > GUARD_MAX_STEPS) {
+                        console.warn("🧯 Loop guard tripped (too many day-steps) for task:", task.id);
+                        break;
+                    }
+
+                    const currentDate = new Date(startTime);
+                    const dateKey = currentDate.toISOString().split('T')[0];
+
+                    const nextDay = new Date(Date.UTC(
+                        currentDate.getUTCFullYear(),
+                        currentDate.getUTCMonth(),
+                        currentDate.getUTCDate() + 1, 0, 0, 0, 0
+                    ));
+
+                    let endOfSlice = (nextDay < endTime) ? nextDay : endTime;
+
+                    // Safety: ensure forward progress (timezone / NaN edge cases)
+                    if (!isValidDate(endOfSlice) || endOfSlice <= startTime) {
+                        // Nudge by 1 second to guarantee progress
+                        endOfSlice = new Date(startTime.getTime() + 1000);
+                        if (endOfSlice > endTime) endOfSlice = endTime;
+                    }
+
+                    const durationInSeconds = Math.max(0, (endOfSlice - startTime) / 1000);
+                    if (durationInSeconds > 0) {
+                        dailyTimeSpent[dateKey] = (dailyTimeSpent[dateKey] || 0) + durationInSeconds;
+                    }
+
+                    startTime = endOfSlice;
+                }
+            }
 
             return dailyTimeSpent;
         }
@@ -785,32 +837,26 @@
                 dailyTimeContainer.appendChild(dateElement);
             });
         }
-
         function processTasksForDailyTimeSpent() {
             const tasks = [];
+            const t0 = performance.now();
 
             const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
             onValue(taskRef, snapshot => {
-                tasks.length = 0;
-                snapshot.forEach(taskSnapshot => {
-                    tasks.push(taskSnapshot.val());
-                });
+                try {
+                    tasks.length = 0;
+                    snapshot.forEach(taskSnapshot => {
+                        // Stop collecting if we’re already over 60s (extreme dataset)
+                        if (performance.now() - t0 > CALC_DEADLINE_MS) return;
+                        tasks.push(taskSnapshot.val());
+                    });
 
-                const dailyTimeSpent = calculateDailyTimeSpent(tasks);
-                displayDailyTimeSpent(dailyTimeSpent);
+                    const dailyTimeSpent = calculateDailyTimeSpent(tasks);
+                    displayDailyTimeSpent(dailyTimeSpent);
+                } catch (err) {
+                    console.error("Daily time processing failed (skipping):", err);
+                }
             });
-        }
-
-        function sortTableByColumn(columnIndex, sortOrder = 'desc') {
-            const rows = Array.from(taskLogTable.rows);
-
-            rows.sort((a, b) => {
-                const dateA = new Date(a.cells[columnIndex].innerText);
-                const dateB = new Date(b.cells[columnIndex].innerText);
-                return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
-            });
-
-            rows.forEach(row => taskLogTable.appendChild(row));
         }
 
         function saveData() {
@@ -967,35 +1013,39 @@
             const startDateInput = document.getElementById('startDate').value;
             const endDateInput = document.getElementById('endDate').value;
 
-            const startDate = new Date(startDateInput);
-            const endDate = new Date(endDateInput);
-            endDate.setHours(23, 59, 59, 999);
-
-            if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+            const startDate = safeDate(startDateInput);
+            const endDate = safeDate(endDateInput);
+            if (!startDate || !endDate) {
                 alert('Please select valid start and end dates.');
                 return;
             }
+            endDate.setHours(23, 59, 59, 999);
 
             const rows = Array.from(document.querySelectorAll('#task-log tbody tr'));
             let totalSeconds = 0;
+            const t0 = performance.now();
 
-            rows.forEach(row => {
+            for (const row of rows) {
+                if (performance.now() - t0 > CALC_DEADLINE_MS) {
+                    console.warn("⏳ Hours-between-dates hit 30s deadline — using partial results.");
+                    break;
+                }
+
                 const startCell = row.querySelector('.start-time-column');
                 const endCell = row.querySelector('.end-time-column');
 
                 if (!startCell || !endCell) {
                     row.classList.add('excluded-by-date');
                     row.style.display = 'none';
-                    return;
+                    continue;
                 }
 
-                const taskStart = new Date(startCell.innerText);
-                const taskEnd = new Date(endCell.innerText);
-
-                if (isNaN(taskStart.getTime()) || isNaN(taskEnd.getTime())) {
+                const taskStart = safeDate(startCell.innerText);
+                const taskEnd = safeDate(endCell.innerText);
+                if (!taskStart || !taskEnd) {
                     row.classList.add('excluded-by-date');
                     row.style.display = 'none';
-                    return;
+                    continue;
                 }
 
                 const effectiveStart = taskStart < startDate ? startDate : taskStart;
@@ -1007,13 +1057,14 @@
                 } else {
                     row.classList.add('excluded-by-date');
                 }
-            });
+            }
 
             const hours = Math.floor(totalSeconds / 3600);
             const minutes = Math.floor((totalSeconds % 3600) / 60);
             const decimalHours = (totalSeconds / 3600).toFixed(2);
 
-            document.getElementById('calculatedHours').innerText = `${hours} hours, ${minutes} minutes (${decimalHours})`;
+            document.getElementById('calculatedHours').innerText =
+                `${hours} hours, ${minutes} minutes (${decimalHours})`;
 
             applySearchFilter();
         }
