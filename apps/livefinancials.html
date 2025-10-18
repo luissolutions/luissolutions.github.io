@@ -273,6 +273,16 @@
       return new Date(Date.UTC(y, mIndex, d, 12, 0, 0)).toISOString();
     }
 
+    function normalizeTags(tags) {
+      if (Array.isArray(tags)) {
+        return tags.map(t => String(t).trim()).filter(Boolean);
+      }
+      if (typeof tags === 'string') {
+        return tags.split(',').map(t => t.trim()).filter(Boolean);
+      }
+      return [];
+    }
+
     /* =========================
        App state
     ========================== */
@@ -1547,8 +1557,8 @@
     function exportTagsCSV() {
       const savedData = _lastSavedData || {};
       const monthNames = months;
-      const FILTER_YEAR = currentYear;
 
+      // Aggregate by (tagLower | year)
       const map = new Map();
 
       for (const bucket of Object.values(savedData)) {
@@ -1557,31 +1567,33 @@
           if (!d?.date) continue;
           const dt = new Date(d.date);
           if (Number.isNaN(dt.getTime())) continue;
-          if (dt.getUTCFullYear() !== FILTER_YEAR) continue;
 
-          const tags = Array.isArray(d.tags) ? d.tags : [];
-          if (!tags.length) continue;
+          const year = dt.getUTCFullYear();
+          let tags = normalizeTags(d.tags);
+          if (!tags.length) tags = ['(No tag)']; // <-- include untagged rows
 
-          const isInc = String(d.type || '').toLowerCase() === 'income';
-          const isExp = ['expenses', 'expense'].includes(String(d.type || '').toLowerCase());
+          const type = String(d.type || '').toLowerCase();
+          const isInc = type === 'income';
+          const isExp = (type === 'expenses' || type === 'expense');
           const amt = Number(d.amount) || 0;
           const monthAbbr = monthNames[dt.getUTCMonth()];
 
-          for (const rawTag of tags) {
-            const t = String(rawTag || '').trim();
+          for (const raw of tags) {
+            const t = String(raw || '').trim();
             if (!t) continue;
 
-            const key = t.toLowerCase();
+            const key = `${t.toLowerCase()}|${year}`;
             let agg = map.get(key);
             if (!agg) {
               agg = {
                 tagLabel: t,
+                year,
                 latestDate: null,
                 latestName: '',
                 monthsSet: new Set(),
                 income: 0,
                 expenses: 0,
-                count: 0
+                count: 0,
               };
               map.set(key, agg);
             }
@@ -1600,14 +1612,16 @@
       }
 
       if (map.size === 0) {
-        alert(`No tagged entries found for ${FILTER_YEAR}.`);
+        alert(`No transactions found to export.`);
         return;
       }
 
       const rows = [];
       rows.push(['Tag', 'Year', 'LatestDate', 'NameWithMonths', 'IncomeTotal', 'ExpensesTotal', 'NetTotal', 'Occurrences']);
 
+      // Sort: Year desc, then LatestDate desc, then Tag asc
       const sorted = Array.from(map.values()).sort((a, b) => {
+        if (b.year !== a.year) return b.year - a.year;
         const at = a.latestDate ? a.latestDate.getTime() : 0;
         const bt = b.latestDate ? b.latestDate.getTime() : 0;
         if (bt !== at) return bt - at;
@@ -1622,27 +1636,33 @@
 
         rows.push([
           agg.tagLabel,
-          String(FILTER_YEAR),
+          String(agg.year),
           latestDateStr,
           nameWithMonths,
           agg.income.toFixed(2),
           agg.expenses.toFixed(2),
           net.toFixed(2),
-          String(agg.count)
+          String(agg.count),
         ]);
       }
 
-      const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n');
+      const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
 
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `tags_summary_${FILTER_YEAR}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      try {
+        // Add BOM so Excel opens UTF-8 cleanly
+        const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `tags_summary_all_years.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.error('CSV export failed:', e);
+        alert('CSV export failed. Check console for details.');
+      }
     }
 
     function csvEscape(v) {
