@@ -880,35 +880,94 @@
   /* ============ Export CSV (optional) ============ */
   function exportCSV() {
     const { perMonth, yearBudget, yearActual, yearVariance } = totals();
-    const yearIncome = Math.max(0, toMoney(STATE.incomeYear));
-    const netVsBudget = yearIncome - yearBudget;
-    const netVsActual = yearIncome - yearActual;
+    const monthsCount = countMonthsForTotalsAvg();
 
-    const header = ['Category', ...months.map(m => `${m} Budget`), ...months.map(m => `${m} Actual`)];
+    // ----- Header: add Avg columns so counts match -----
+    const header = [
+      'Category',
+      ...months.map(m => `${m} Budget`),
+      'Avg Budget',
+      ...months.map(m => `${m} Actual`),
+      'Avg Actual'
+    ];
+
     const rows = [header];
 
+    // ----- Category rows (12 budget + 1 avg + 12 actual + 1 avg) -----
     for (const c of STATE.categories) {
-      const bRow = [c.name];
-      for (let mi = 0; mi < 12; mi++) bRow.push(planForMonth(c.name, mi));
-      bRow.push(avgBudgetForCategory(c.name));
+      const row = [c.name];
 
-      for (let mi = 0; mi < 12; mi++) bRow.push(actualForMonth(c.name, mi));
-      bRow.push(avgActualForCategory(c.name) ?? '');
-      rows.push(bRow);
+      // Budgets
+      for (let mi = 0; mi < 12; mi++) row.push(planForMonth(c.name, mi));
+      row.push(avgBudgetForCategory(c.name));
+
+      // Actuals
+      for (let mi = 0; mi < 12; mi++) row.push(actualForMonth(c.name, mi));
+      row.push(avgActualForCategory(c.name) ?? '');
+
+      rows.push(row);
     }
 
-    rows.push(['Totals (Budget)', ...perMonth.map(m => m.budget), ...Array(12).fill('')]);
-    rows.push(['Totals (Actual)', ...perMonth.map(m => m.actual), ...Array(12).fill('')]);
-    rows.push(['Year Income', yearIncome]);
-    rows.push(['Year Net (Income − Budget)', netVsBudget]);
-    rows.push(['Year Net (Income − Actual)', netVsActual]);
+    // Helper to pad a row to header length
+    const padToHeader = (arr) => {
+      while (arr.length < header.length) arr.push('');
+      return arr;
+    };
+
+    // ----- Totals rows (match header length exactly) -----
+    const budgetTotals = ['Totals (Budget)'];
+    perMonth.forEach(m => budgetTotals.push(m.budget));
+    budgetTotals.push(monthsCount ? (yearBudget / monthsCount) : ''); // Avg Budget
+    for (let i = 0; i < 12; i++) budgetTotals.push('');               // Actual columns
+    budgetTotals.push('');                                            // Avg Actual
+    rows.push(padToHeader(budgetTotals));
+
+    const actualTotals = ['Totals (Actual)'];
+    perMonth.forEach(m => actualTotals.push(m.actual));
+    actualTotals.push(monthsCount ? (yearActual / monthsCount) : ''); // Avg Actual (we’ll place in the Actual avg slot)
+    for (let i = 0; i < 12; i++) actualTotals.push('');               // Actual months will be placed later
+    actualTotals.push('');                                            // temp
+    // Rebuild to align correctly: budget side blank, actual side filled
+    const actualRow = ['Totals (Actual)'];
+    // Budget months blank
+    for (let i = 0; i < 12; i++) actualRow.push('');
+    // Avg Budget blank
+    actualRow.push('');
+    // Actual months
+    perMonth.forEach(m => actualRow.push(m.actual));
+    // Avg Actual
+    actualRow.push(monthsCount ? (yearActual / monthsCount) : '');
+    rows.push(padToHeader(actualRow));
+
+    const varianceRow = ['Variance (Actual - Budget)'];
+    perMonth.forEach(m => varianceRow.push(m.variance));
+    varianceRow.push(monthsCount ? ((yearActual - yearBudget) / monthsCount) : ''); // Avg variance in Budget avg slot
+    // Keep Actual side blank to avoid double-reporting
+    for (let i = 0; i < 12; i++) varianceRow.push('');
+    varianceRow.push('');
+    rows.push(padToHeader(varianceRow));
+
+    // ----- Optional: a short metrics block after a blank line -----
+    rows.push([]);
+    rows.push(['Metric', 'Value']);
+    rows.push(['Year Income', Math.max(0, toMoney(STATE.incomeYear))]);
+    rows.push(['Year Net (Income − Budget)', Math.max(0, toMoney(STATE.incomeYear)) - yearBudget]);
+    rows.push(['Year Net (Income − Actual)', Math.max(0, toMoney(STATE.incomeYear)) - yearActual]);
     rows.push(['Year Expense Variance (Actual − Budget)', yearVariance]);
 
+    // ----- Serialize -----
+    const csvEscape = (v) => {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
     const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n');
+
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `budget_${STATE.year}.csv`; a.click();
+    a.href = url;
+    a.download = `budget_${STATE.year}.csv`;
+    a.click();
     URL.revokeObjectURL(url);
   }
 
