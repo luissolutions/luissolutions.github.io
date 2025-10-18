@@ -273,16 +273,6 @@
       return new Date(Date.UTC(y, mIndex, d, 12, 0, 0)).toISOString();
     }
 
-    function normalizeTags(tags) {
-      if (Array.isArray(tags)) {
-        return tags.map(t => String(t).trim()).filter(Boolean);
-      }
-      if (typeof tags === 'string') {
-        return tags.split(',').map(t => t.trim()).filter(Boolean);
-      }
-      return [];
-    }
-
     /* =========================
        App state
     ========================== */
@@ -1554,11 +1544,17 @@
       input.focus();
     }
 
+    function normalizeTags(tags) {
+      if (Array.isArray(tags)) return tags.map(t => String(t).trim()).filter(Boolean);
+      if (typeof tags === 'string') return tags.split(',').map(t => t.trim()).filter(Boolean);
+      return [];
+    }
+
     function exportTagsCSV() {
       const savedData = _lastSavedData || {};
+      const FILTER_YEAR = currentYear;
       const monthNames = months;
 
-      // Aggregate by (tagLower | year)
       const map = new Map();
 
       for (const bucket of Object.values(savedData)) {
@@ -1567,10 +1563,10 @@
           if (!d?.date) continue;
           const dt = new Date(d.date);
           if (Number.isNaN(dt.getTime())) continue;
+          if (dt.getUTCFullYear() !== FILTER_YEAR) continue;
 
-          const year = dt.getUTCFullYear();
           let tags = normalizeTags(d.tags);
-          if (!tags.length) tags = ['(No tag)']; // <-- include untagged rows
+          if (!tags.length) tags = ['(No tag)'];
 
           const type = String(d.type || '').toLowerCase();
           const isInc = type === 'income';
@@ -1582,18 +1578,17 @@
             const t = String(raw || '').trim();
             if (!t) continue;
 
-            const key = `${t.toLowerCase()}|${year}`;
+            const key = `${t.toLowerCase()}|${FILTER_YEAR}`;
             let agg = map.get(key);
             if (!agg) {
               agg = {
                 tagLabel: t,
-                year,
                 latestDate: null,
                 latestName: '',
                 monthsSet: new Set(),
                 income: 0,
                 expenses: 0,
-                count: 0,
+                count: 0
               };
               map.set(key, agg);
             }
@@ -1612,16 +1607,14 @@
       }
 
       if (map.size === 0) {
-        alert(`No transactions found to export.`);
+        alert(`No transactions found for ${FILTER_YEAR}.`);
         return;
       }
 
       const rows = [];
       rows.push(['Tag', 'Year', 'LatestDate', 'NameWithMonths', 'IncomeTotal', 'ExpensesTotal', 'NetTotal', 'Occurrences']);
 
-      // Sort: Year desc, then LatestDate desc, then Tag asc
       const sorted = Array.from(map.values()).sort((a, b) => {
-        if (b.year !== a.year) return b.year - a.year;
         const at = a.latestDate ? a.latestDate.getTime() : 0;
         const bt = b.latestDate ? b.latestDate.getTime() : 0;
         if (bt !== at) return bt - at;
@@ -1636,25 +1629,24 @@
 
         rows.push([
           agg.tagLabel,
-          String(agg.year),
+          String(FILTER_YEAR),
           latestDateStr,
           nameWithMonths,
           agg.income.toFixed(2),
           agg.expenses.toFixed(2),
           net.toFixed(2),
-          String(agg.count),
+          String(agg.count)
         ]);
       }
 
       const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
 
       try {
-        // Add BOM so Excel opens UTF-8 cleanly
         const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `tags_summary_all_years.csv`;
+        a.download = `tags_summary_${FILTER_YEAR}.csv`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -1664,7 +1656,7 @@
         alert('CSV export failed. Check console for details.');
       }
     }
-
+    
     function csvEscape(v) {
       const s = String(v ?? '');
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
