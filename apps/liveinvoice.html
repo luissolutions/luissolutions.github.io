@@ -680,9 +680,10 @@
         async function saveInvoice() {
             const projectInput = document.getElementById('invoice-number');
             let invoiceId = projectInput.dataset.id;
+
             if (!invoiceId) {
-                alert("Invoice ID is required.");
-                return;
+                invoiceId = String(Date.now());
+                projectInput.dataset.id = invoiceId;
             }
 
             const invoiceType = document.getElementById('invoice-type').value;
@@ -695,6 +696,8 @@
                 price: row.querySelector('input[name="part-price"]').value || 0,
                 actualPrice: row.querySelector('input[name="part-actual-price"]').value || 0,
                 total: row.querySelector('input[name="part-total"]').value || 0,
+                category: row.dataset.category || '',
+                component: row.dataset.component || '',
             }));
 
             const laborData = Array.from(laborTableBody.querySelectorAll('tr')).map(row => ({
@@ -890,28 +893,26 @@
             }).catch(error => console.error('❌ Error fetching parts:', error));
         }
 
-        function addLaborRow() {
+        function addLaborRow(description = '', hours = 0, rate = 0) {
             const newRow = document.createElement('tr');
             newRow.innerHTML = `
-                <td><input type="text" name="labor-description"></td>
-                <td><input type="number" name="labor-hours" min="0"></td>
-                <td><input type="number" name="labor-rate" min="0"></td>
+                <td><input type="text" name="labor-description" value="${description}"></td>
+                <td><input type="number" name="labor-hours" min="0" value="${hours}"></td>
+                <td><input type="number" name="labor-rate" min="0" value="${rate}"></td>
                 <td><input type="number" name="labor-total" readonly></td>
             `;
-
             laborTableBody.appendChild(newRow);
 
             const hoursInput = newRow.querySelector('input[name="labor-hours"]');
             const rateInput = newRow.querySelector('input[name="labor-rate"]');
             const totalInput = newRow.querySelector('input[name="labor-total"]');
 
-            hoursInput.addEventListener('input', () => {
-                updateLaborTotal(hoursInput, rateInput, totalInput);
-            });
+            const recalc = () => updateLaborTotal(hoursInput, rateInput, totalInput);
+            hoursInput.addEventListener('input', recalc);
+            rateInput.addEventListener('input', recalc);
 
-            rateInput.addEventListener('input', () => {
-                updateLaborTotal(hoursInput, rateInput, totalInput);
-            });
+            // initialize total
+            recalc();
         }
 
         function updatePriceDifference() {
@@ -1149,22 +1150,7 @@
                     }
 
                     if (invoiceData.labor && Array.isArray(invoiceData.labor)) {
-                        invoiceData.labor.forEach((labor) => {
-                            addLaborRow(labor.description, labor.hours, labor.rate);
-                            const newRow = laborTableBody.querySelector('tr:last-child');
-
-                            if (newRow) {
-                                newRow.querySelector('input[name="labor-description"]').value = labor.description || '';
-                                newRow.querySelector('input[name="labor-hours"]').value = labor.hours || 0;
-                                newRow.querySelector('input[name="labor-rate"]').value = labor.rate || 0;
-
-                                const hoursInput = newRow.querySelector('input[name="labor-hours"]');
-                                const rateInput = newRow.querySelector('input[name="labor-rate"]');
-                                const totalInput = newRow.querySelector('input[name="labor-total"]');
-
-                                updateLaborTotal(hoursInput, rateInput, totalInput);
-                            }
-                        });
+                        invoiceData.labor.forEach(l => addLaborRow(l.description || '', l.hours || 0, l.rate || 0));
                     }
 
                     updateTotals();
