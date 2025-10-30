@@ -1270,6 +1270,7 @@
         let siteImages = [];
         let currentSiteIndex = 0;
         let siteImageRotation = 0;
+        let isSiteImageLoading = false;
 
         function getSiteIndex() {
             return parseInt(localStorage.getItem(`${currentProject}_siteIdx`) || '0', 10);
@@ -1312,51 +1313,59 @@
             const nextBtns = document.querySelectorAll('.nextSiteImage');
             const rotBtns = document.querySelectorAll('.rotateSiteImage');
 
+            // No images? reset UI
             if (!siteImages.length) {
                 wrapper.style.height = 'auto';
-                prevBtns.forEach(btn => btn.disabled = true);
-                nextBtns.forEach(btn => btn.disabled = true);
-                rotBtns.forEach(btn => btn.disabled = true);
+                [...prevBtns, ...nextBtns, ...rotBtns].forEach(b => b.disabled = true);
                 img.src = '';
                 img.alt = '';
                 img.style.opacity = 1;
+                isSiteImageLoading = false; // ensure we clear lock
                 return;
             }
 
             const multi = siteImages.length > 1;
-            prevBtns.forEach(btn => btn.disabled = !multi);
-            nextBtns.forEach(btn => btn.disabled = !multi);
-            rotBtns.forEach(btn => btn.disabled = false);
+
+            [...prevBtns, ...nextBtns].forEach(b => b.disabled = true);
+            rotBtns.forEach(b => b.disabled = true);
 
             const { url, name } = siteImages[currentSiteIndex];
             img.alt = name;
             siteImageRotation = 0;
             img.style.transform = 'rotate(0deg)';
-
             img.style.opacity = 0.01;
-            img.src = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
 
+            const src = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+
+            const pre = new Image();
             let safetyTimer = setTimeout(() => {
-                console.warn('[siteImages] load timeout; advancing…', name);
                 tryNextImage();
             }, 2000);
 
-            img.onload = () => {
+            pre.onload = () => {
                 clearTimeout(safetyTimer);
-                img.style.opacity = 1;
+                img.src = src;          // swap in decoded image
                 requestAnimationFrame(() => {
                     wrapper.style.height = `${img.clientHeight}px`;
+                    // ✅ Re-enable controls now that the new image is visible
+                    [...prevBtns, ...nextBtns].forEach(b => b.disabled = !multi ? true : false);
+                    rotBtns.forEach(b => b.disabled = false);
+                    img.style.opacity = 1;
+                    isSiteImageLoading = false;  // 🔓 unlock
                 });
             };
 
-            img.onerror = () => {
+            pre.onerror = () => {
                 clearTimeout(safetyTimer);
-                console.warn('[siteImages] decode error; advancing…', name);
                 tryNextImage();
             };
 
+            pre.src = src;
+
             function tryNextImage() {
                 if (siteImages.length <= 1) {
+                    rotBtns.forEach(b => b.disabled = false);
+                    isSiteImageLoading = false;
                     img.style.opacity = 1;
                     wrapper.style.height = 'auto';
                     return;
@@ -1387,13 +1396,16 @@
         }
 
         function nextSiteImage() {
-            if (!siteImages.length) return;
+            if (!siteImages.length || isSiteImageLoading) return;
+            isSiteImageLoading = true;
             currentSiteIndex = (currentSiteIndex + 1) % siteImages.length;
             saveSiteIndex(currentSiteIndex);
             renderSiteImage();
         }
+
         function prevSiteImage() {
-            if (!siteImages.length) return;
+            if (!siteImages.length || isSiteImageLoading) return;
+            isSiteImageLoading = true;
             currentSiteIndex = (currentSiteIndex - 1 + siteImages.length) % siteImages.length;
             saveSiteIndex(currentSiteIndex);
             renderSiteImage();
