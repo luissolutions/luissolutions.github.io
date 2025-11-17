@@ -6,6 +6,7 @@
   <title>Walmart Security Technology – Project Tracker</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
+  <!-- Auth / login -->
   <script type="module" src="../apps/assets/js/login.js" defer></script>
   <!-- <link rel="stylesheet" href="../assets/css/app-styles.css"> -->
 
@@ -383,7 +384,6 @@
       display: none;
     }
 
-
     .thumb-strip {
       display: flex;
       flex-wrap: wrap;
@@ -536,7 +536,7 @@
       <!-- Alarm points panel -->
       <div id="alarmPanel" class="detail-panel hidden">
         <div style="font-size:13px;margin-bottom:6px;color:#9aa3b5;">
-          Track each alarm point: number, name, completed, and an optional photo.
+          Track each alarm point: number, name, completed, and optional photos with notes.
         </div>
 
         <form id="alarmForm" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
@@ -553,7 +553,7 @@
               <th>Point #</th>
               <th>Name</th>
               <th>Done</th>
-              <th>Image</th>
+              <th>Image(s)</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -563,7 +563,7 @@
       <!-- Cameras panel -->
       <div id="cameraPanel" class="detail-panel hidden">
         <div style="font-size:13px;margin-bottom:6px;color:#9aa3b5;">
-          Track each camera: ID, name/location, completion, and a photo for documentation.
+          Track each camera: ID, name/location, completion, and photos with notes.
         </div>
 
         <form id="cameraForm" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
@@ -580,7 +580,7 @@
               <th>Camera ID</th>
               <th>Name</th>
               <th>Done</th>
-              <th>Image</th>
+              <th>Image(s)</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -1074,10 +1074,10 @@
         chk.type = "checkbox";
         chk.checked = !!info.done;
         chk.addEventListener("change", () => {
-          const proj = getCurrentProjectObj();
-          if (!proj.alarmPoints[pointNum]) proj.alarmPoints[pointNum] = {};
-          proj.alarmPoints[pointNum].name = info.name;
-          proj.alarmPoints[pointNum].done = chk.checked;
+          const projNow = getCurrentProjectObj();
+          if (!projNow.alarmPoints[pointNum]) projNow.alarmPoints[pointNum] = {};
+          projNow.alarmPoints[pointNum].name = info.name;
+          projNow.alarmPoints[pointNum].done = chk.checked;
           scheduleSave();
           renderAlarmPanel();
         });
@@ -1085,7 +1085,7 @@
 
         const tdImg = document.createElement("td");
 
-        // Always allow adding images
+        // Add Image button (always available)
         const addBtn = document.createElement("button");
         addBtn.textContent = "Add Image";
         addBtn.addEventListener("click", () => {
@@ -1099,11 +1099,15 @@
         });
         tdImg.appendChild(addBtn);
 
-        // Normalize to array of images, with optional notes
+        // Normalize images to array (legacy support)
         const images = Array.isArray(info.images)
           ? info.images
           : info.imageUrl
-            ? [{ url: info.imageUrl, path: info.imagePath || null }]
+            ? [{
+              url: info.imageUrl,
+              path: info.imagePath || null,
+              note: info.imageNote || ""
+            }]
             : [];
 
         if (images.length) {
@@ -1133,26 +1137,38 @@
                 return;
               }
               if (!confirm("Delete this image for this alarm point?")) return;
-              try {
-                if (img.path) {
-                  await deleteObject(storageRef(storage, img.path));
-                }
-                const proj = getCurrentProjectObj();
-                if (!proj.alarmPoints[pointNum]) proj.alarmPoints[pointNum] = {};
-                const target = proj.alarmPoints[pointNum];
 
-                if (!Array.isArray(target.images)) {
-                  target.images = images.slice();
-                }
-                target.images.splice(index, 1);
-                target.imageUrl = null;
-                target.imagePath = null;
+              const projNow = getCurrentProjectObj();
+              if (!projNow.alarmPoints[pointNum]) projNow.alarmPoints[pointNum] = {};
+              const target = projNow.alarmPoints[pointNum];
 
-                scheduleSave();
-                renderAlarmPanel();
-              } catch (e) {
-                console.error("Failed to delete alarm image", e);
-                alert("Failed to delete image. Check console for details.");
+              if (!Array.isArray(target.images)) {
+                target.images = [];
+                if (target.imageUrl) {
+                  target.images.push({
+                    url: target.imageUrl,
+                    path: target.imagePath || null,
+                    note: target.imageNote || ""
+                  });
+                }
+              }
+
+              const [removed] = target.images.splice(index, 1);
+
+              // Clear legacy single-image fields
+              target.imageUrl = null;
+              target.imagePath = null;
+              target.imageNote = null;
+
+              scheduleSave();
+              renderAlarmPanel();
+
+              if (removed && removed.path) {
+                try {
+                  await deleteObject(storageRef(storage, removed.path));
+                } catch (e) {
+                  console.warn("Storage delete failed (maybe already removed):", e);
+                }
               }
             });
 
@@ -1164,12 +1180,30 @@
             note.readOnly = !editingUnlocked;
             note.addEventListener("input", () => {
               if (!editingUnlocked) return;
-              const proj = getCurrentProjectObj();
-              if (!proj.alarmPoints[pointNum]) proj.alarmPoints[pointNum] = {};
-              const target = proj.alarmPoints[pointNum];
+
+              const projNow = getCurrentProjectObj();
+              if (!projNow.alarmPoints[pointNum]) projNow.alarmPoints[pointNum] = {};
+              const target = projNow.alarmPoints[pointNum];
+
               if (!Array.isArray(target.images)) {
-                target.images = images.slice();
+                target.images = [];
+                if (target.imageUrl) {
+                  target.images.push({
+                    url: target.imageUrl,
+                    path: target.imagePath || null,
+                    note: target.imageNote || ""
+                  });
+                }
               }
+
+              if (!target.images[index]) {
+                target.images[index] = {
+                  url: img.url,
+                  path: img.path || null,
+                  note: ""
+                };
+              }
+
               target.images[index].note = note.value;
               scheduleSave();
             });
@@ -1215,10 +1249,10 @@
         chk.type = "checkbox";
         chk.checked = !!info.done;
         chk.addEventListener("change", () => {
-          const proj = getCurrentProjectObj();
-          if (!proj.cameras[camId]) proj.cameras[camId] = {};
-          proj.cameras[camId].name = info.name;
-          proj.cameras[camId].done = chk.checked;
+          const projNow = getCurrentProjectObj();
+          if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
+          projNow.cameras[camId].name = info.name;
+          projNow.cameras[camId].done = chk.checked;
           scheduleSave();
           renderCameraPanel();
         });
@@ -1242,7 +1276,11 @@
         const images = Array.isArray(info.images)
           ? info.images
           : info.imageUrl
-            ? [{ url: info.imageUrl, path: info.imagePath || null }]
+            ? [{
+              url: info.imageUrl,
+              path: info.imagePath || null,
+              note: info.imageNote || ""
+            }]
             : [];
 
         if (images.length) {
@@ -1272,26 +1310,37 @@
                 return;
               }
               if (!confirm("Delete this image for this camera?")) return;
-              try {
-                if (img.path) {
-                  await deleteObject(storageRef(storage, img.path));
-                }
-                const proj = getCurrentProjectObj();
-                if (!proj.cameras[camId]) proj.cameras[camId] = {};
-                const target = proj.cameras[camId];
 
-                if (!Array.isArray(target.images)) {
-                  target.images = images.slice();
-                }
-                target.images.splice(index, 1);
-                target.imageUrl = null;
-                target.imagePath = null;
+              const projNow = getCurrentProjectObj();
+              if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
+              const target = projNow.cameras[camId];
 
-                scheduleSave();
-                renderCameraPanel();
-              } catch (e) {
-                console.error("Failed to delete camera image", e);
-                alert("Failed to delete image. Check console for details.");
+              if (!Array.isArray(target.images)) {
+                target.images = [];
+                if (target.imageUrl) {
+                  target.images.push({
+                    url: target.imageUrl,
+                    path: target.imagePath || null,
+                    note: target.imageNote || ""
+                  });
+                }
+              }
+
+              const [removed] = target.images.splice(index, 1);
+
+              target.imageUrl = null;
+              target.imagePath = null;
+              target.imageNote = null;
+
+              scheduleSave();
+              renderCameraPanel();
+
+              if (removed && removed.path) {
+                try {
+                  await deleteObject(storageRef(storage, removed.path));
+                } catch (e) {
+                  console.warn("Storage delete failed (maybe already removed):", e);
+                }
               }
             });
 
@@ -1303,12 +1352,30 @@
             note.readOnly = !editingUnlocked;
             note.addEventListener("input", () => {
               if (!editingUnlocked) return;
-              const proj = getCurrentProjectObj();
-              if (!proj.cameras[camId]) proj.cameras[camId] = {};
-              const target = proj.cameras[camId];
+
+              const projNow = getCurrentProjectObj();
+              if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
+              const target = projNow.cameras[camId];
+
               if (!Array.isArray(target.images)) {
-                target.images = images.slice();
+                target.images = [];
+                if (target.imageUrl) {
+                  target.images.push({
+                    url: target.imageUrl,
+                    path: target.imagePath || null,
+                    note: target.imageNote || ""
+                  });
+                }
               }
+
+              if (!target.images[index]) {
+                target.images[index] = {
+                  url: img.url,
+                  path: img.path || null,
+                  note: ""
+                };
+              }
+
               target.images[index].note = note.value;
               scheduleSave();
             });
@@ -1331,7 +1398,7 @@
       });
     }
 
-    // -------- localStorage helpers for last project --------
+    // localStorage helpers for last project
     function saveLastProjectToLocalStorage() {
       if (!state.currentProjectKey || !state.currentProjectName) return;
       const payload = {
@@ -1384,7 +1451,7 @@
       }
     }
 
-    // -------- Image resize helper (HEIC-aware-ish, always JPG) --------
+    // Image resize helper (HEIC-aware-ish, always JPG)
     function resizeImageToJpeg(file, maxWidth = 2048, quality = 0.9) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -1414,7 +1481,6 @@
                   reject(new Error("Canvas toBlob() returned null"));
                   return;
                 }
-                // Always jpg going forward
                 resolve(blob);
               },
               "image/jpeg",
@@ -1441,7 +1507,7 @@
       });
     }
 
-    // -------- Events --------
+    // Tab switching
     detailTabButtons.forEach(btn => {
       btn.addEventListener("click", () => {
         detailTabButtons.forEach(b => b.classList.remove("active"));
@@ -1454,6 +1520,7 @@
       });
     });
 
+    // Set project
     setProjectBtn.addEventListener("click", async () => {
       const name = projectNameInput.value.trim();
       if (!name) {
@@ -1483,6 +1550,7 @@
       renderCameraPanel();
     });
 
+    // Clear checklist (keep notes + images)
     clearProjectBtn.addEventListener("click", () => {
       if (!state.currentProjectKey) {
         alert("No project selected.");
@@ -1496,6 +1564,7 @@
       renderSection(activeSectionId);
     });
 
+    // Section notes
     sectionNotesEl.addEventListener("input", () => {
       const proj = getCurrentProjectObj();
       if (!proj || !activeSectionId) return;
@@ -1503,6 +1572,7 @@
       scheduleSave();
     });
 
+    // Alarm form
     alarmFormEl.addEventListener("submit", e => {
       e.preventDefault();
       const proj = getCurrentProjectObj();
@@ -1525,6 +1595,7 @@
       renderAlarmPanel();
     });
 
+    // Camera form
     cameraFormEl.addEventListener("submit", e => {
       e.preventDefault();
       const proj = getCurrentProjectObj();
@@ -1553,7 +1624,6 @@
         const pwd = prompt("Enter admin password to enable editing of image notes:");
         if (pwd === "telaidadmin") {
           editingUnlocked = true;
-          alert("Image note editing enabled until you uncheck or refresh the page.");
           renderAlarmPanel();
           renderCameraPanel();
         } else {
@@ -1563,7 +1633,6 @@
         }
       } else {
         editingUnlocked = false;
-        alert("Image note editing disabled.");
         renderAlarmPanel();
         renderCameraPanel();
       }
@@ -1609,7 +1678,11 @@
           if (!Array.isArray(target.images)) {
             target.images = [];
             if (target.imageUrl) {
-              target.images.push({ url: target.imageUrl, path: target.imagePath || null, note: target.imageNote || "" });
+              target.images.push({
+                url: target.imageUrl,
+                path: target.imagePath || null,
+                note: target.imageNote || ""
+              });
             }
           }
           target.images.push({ url, path, note: "" });
@@ -1626,7 +1699,11 @@
           if (!Array.isArray(target.images)) {
             target.images = [];
             if (target.imageUrl) {
-              target.images.push({ url: target.imageUrl, path: target.imagePath || null, note: target.imageNote || "" });
+              target.images.push({
+                url: target.imageUrl,
+                path: target.imagePath || null,
+                note: target.imageNote || ""
+              });
             }
           }
           target.images.push({ url, path, note: "" });
@@ -1653,7 +1730,7 @@
       }
     });
 
-    // -------- Auth listener --------
+    // Auth listener
     onAuthStateChanged(auth, async (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
       console.log("[auth] DATABASE_BASE_PATH:", DATABASE_BASE_PATH);
@@ -1673,7 +1750,7 @@
       }
     });
 
-    // -------- Initial render --------
+    // Initial render
     if (SECTIONS.length) {
       activeSectionId = SECTIONS[0].id;
     }
