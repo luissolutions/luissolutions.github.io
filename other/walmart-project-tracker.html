@@ -5,7 +5,7 @@
   <title>Walmart Security Technology – Project Tracker</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <!-- Optional: your global styles -->
+  <script type="module" src="../apps/assets/js/login.js" defer></script>
   <!-- <link rel="stylesheet" href="../assets/css/app-styles.css"> -->
 
   <style>
@@ -392,7 +392,7 @@
       </div>
 
       <div class="project-row">
-        <input id="projectNameInput" placeholder="Project (e.g. 1234 – City)">
+        <input id="projectNameInput" placeholder="Project (e.g. WM1234 – City)">
         <button id="setProjectBtn" type="button">Set</button>
         <button id="clearProjectBtn" type="button">Clear</button>
       </div>
@@ -507,37 +507,28 @@
 
 <script type="module">
   // -------- Firebase imports --------
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import {
-    getDatabase,
+    auth,
+    onAuthStateChanged,
+    database,
+    storage,
     ref,
-    get,
     set,
-    update
-  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-  import {
-    getStorage,
-    ref as storageRef,
+    update,
+    get,
+    storageRef,
     uploadBytes,
     getDownloadURL
-  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+  } from '../assets/js/firebase-init.js';
 
-const firebaseConfig = {
-  apiKey: "AIzaSyBUq3vdvQFgyW_Py6r6zCgQyeIzfZq-ZUU",
-  authDomain: "playground-e3690.firebaseapp.com",
-  databaseURL: "https://playground-e3690-default-rtdb.firebaseio.com",
-  projectId: "playground-e3690",
-  storageBucket: "playground-e3690.appspot.com",
-  messagingSenderId: "803825556227",
-  appId: "1:803825556227:web:556a3db8526287763aa736"
-};
+  // -------- Dynamic base path --------
+  let DATABASE_BASE_PATH = 'public';
 
-  const app = initializeApp(firebaseConfig);
-  const db = getDatabase(app);
-  const storage = getStorage(app);
-  const BASE_PATH = "walmartProjectTracker/projects";
+  function getProjectBasePath() {
+    return `${DATABASE_BASE_PATH}/walmartProjectTracker/projects`;
+  }
 
-  // -------- Scope-driven sections/tasks --------
+  // -------- Scope-driven sections --------
   const SECTIONS = [
     {
       id: "pre_admin",
@@ -686,7 +677,7 @@ const firebaseConfig = {
     }
   ];
 
-  // -------- STATE (Firebase-backed) --------
+  // -------- STATE --------
   let state = {
     currentProjectName: "",
     currentProjectKey: "",
@@ -737,6 +728,11 @@ const firebaseConfig = {
       .replace(/\s+/g, "_");
   }
 
+  // ✅ Safe task key for Firebase (handles "1.05" etc.)
+  function makeTaskKey(sectionId, taskId) {
+    return `${sectionId}:${String(taskId)}`.replace(/[.#$/\[\]]/g, "_");
+  }
+
   function getCurrentProjectObj() {
     if (!state.currentProjectKey) return null;
     if (!state.projects[state.currentProjectKey]) {
@@ -758,7 +754,7 @@ const firebaseConfig = {
   }
 
   async function loadProjectFromFirebase(projectKey, displayName) {
-    const projectRef = ref(db, `${BASE_PATH}/${projectKey}`);
+    const projectRef = ref(database, `${getProjectBasePath()}/${projectKey}`);
     const snap = await get(projectRef);
     if (snap.exists()) {
       const data = snap.val();
@@ -786,7 +782,7 @@ const firebaseConfig = {
     if (!state.currentProjectKey) return;
     const proj = getCurrentProjectObj();
     if (!proj) return;
-    const projectRef = ref(db, `${BASE_PATH}/${state.currentProjectKey}`);
+    const projectRef = ref(database, `${getProjectBasePath()}/${state.currentProjectKey}`);
     await update(projectRef, {
       name: state.currentProjectName,
       tasks: proj.tasks || {},
@@ -813,7 +809,8 @@ const firebaseConfig = {
     SECTIONS.forEach(sec => {
       sec.tasks.forEach(t => {
         total++;
-        if (proj.tasks[`${sec.id}:${t.id}`]) done++;
+        const key = makeTaskKey(sec.id, t.id);
+        if (proj.tasks[key]) done++;
       });
     });
     return {
@@ -830,7 +827,11 @@ const firebaseConfig = {
     if (!section) return { done: 0, total: 0, percent: 0 };
 
     const total = section.tasks.length;
-    const done = section.tasks.filter(t => proj.tasks[`${section.id}:${t.id}`]).length;
+    const done = section.tasks.filter(t => {
+      const key = makeTaskKey(section.id, t.id);
+      return proj.tasks[key];
+    }).length;
+
     return {
       done,
       total,
@@ -905,7 +906,7 @@ const firebaseConfig = {
 
     section.tasks.forEach(task => {
       const li = document.createElement("li");
-      const key = `${section.id}:${task.id}`;
+      const key = makeTaskKey(section.id, task.id);
       const done = project && project.tasks[key];
 
       li.className = "task-item" + (done ? " done" : "");
@@ -1102,7 +1103,7 @@ const firebaseConfig = {
   setProjectBtn.addEventListener("click", async () => {
     const name = projectNameInput.value.trim();
     if (!name) {
-      alert("Enter a project name or store ID (e.g. 1234 – City).");
+      alert("Enter a project name or store ID (e.g. WM1234 – City).");
       return;
     }
     const key = sanitizeProjectKey(name);
@@ -1217,6 +1218,24 @@ const firebaseConfig = {
     } catch (err) {
       console.error("Image upload failed", err);
       alert("Image upload failed. Check console for details.");
+    }
+  });
+
+  // -------- Auth listener --------
+  onAuthStateChanged(auth, async (user) => {
+    DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
+    console.log("[auth] DATABASE_BASE_PATH:", DATABASE_BASE_PATH);
+
+    if (state.currentProjectKey && state.currentProjectName) {
+      try {
+        await loadProjectFromFirebase(state.currentProjectKey, state.currentProjectName);
+        renderSidebar();
+        renderSection(activeSectionId);
+        renderAlarmPanel();
+        renderCameraPanel();
+      } catch (err) {
+        console.error("Error reloading project after auth change:", err);
+      }
     }
   });
 
