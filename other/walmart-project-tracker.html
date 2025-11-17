@@ -401,6 +401,7 @@
       <button id="logout" style="display: none;">Logout</button>
     </section>
   </header>
+
   <div class="app-shell">
     <!-- SIDEBAR -->
     <aside class="sidebar card">
@@ -1025,6 +1026,7 @@
           imageUploadInputEl.click();
         });
         tdImg.appendChild(btn);
+
         if (info.imageUrl) {
           const viewLink = document.createElement("button");
           viewLink.textContent = "Open";
@@ -1033,6 +1035,18 @@
             window.open(info.imageUrl, "_blank");
           });
           tdImg.appendChild(viewLink);
+
+          const clearBtn = document.createElement("button");
+          clearBtn.textContent = "Remove";
+          clearBtn.style.marginLeft = "4px";
+          clearBtn.addEventListener("click", () => {
+            const proj = getCurrentProjectObj();
+            if (!proj.alarmPoints[pointNum]) proj.alarmPoints[pointNum] = {};
+            delete proj.alarmPoints[pointNum].imageUrl;
+            scheduleSave();
+            renderAlarmPanel();
+          });
+          tdImg.appendChild(clearBtn);
         }
 
         tr.appendChild(tdNum);
@@ -1089,6 +1103,7 @@
           imageUploadInputEl.click();
         });
         tdImg.appendChild(btn);
+
         if (info.imageUrl) {
           const viewLink = document.createElement("button");
           viewLink.textContent = "Open";
@@ -1097,6 +1112,18 @@
             window.open(info.imageUrl, "_blank");
           });
           tdImg.appendChild(viewLink);
+
+          const clearBtn = document.createElement("button");
+          clearBtn.textContent = "Remove";
+          clearBtn.style.marginLeft = "4px";
+          clearBtn.addEventListener("click", () => {
+            const proj = getCurrentProjectObj();
+            if (!proj.cameras[camId]) proj.cameras[camId] = {};
+            delete proj.cameras[camId].imageUrl;
+            scheduleSave();
+            renderCameraPanel();
+          });
+          tdImg.appendChild(clearBtn);
         }
 
         tr.appendChild(tdId);
@@ -1260,7 +1287,7 @@
       scheduleSave();
       renderSidebar();
       renderSection(activeSectionId);
-      // if you ever want Clear to also forget last project, you could also:
+      // If you ever want Clear to also forget last project:
       // try { localStorage.removeItem(LAST_PROJECT_STORAGE_KEY); } catch {}
     });
 
@@ -1315,6 +1342,7 @@
       renderCameraPanel();
     });
 
+    // ---- Image upload: resize to JPEG 2048px wide, fallback to original ----
     imageUploadInputEl.addEventListener("change", async () => {
       const file = imageUploadInputEl.files[0];
       if (!file || !pendingUploadTarget || !state.currentProjectKey) return;
@@ -1324,15 +1352,33 @@
       pendingUploadTarget = null;
 
       try {
-        // Resize & convert to JPEG, max width 2048
-        const resizedBlob = await resizeImageToJpeg(file, 2048, 0.9);
+        if (!file.type.startsWith("image/")) {
+          alert("Please select an image file.");
+          return;
+        }
 
         const originalBase = file.name.replace(/\.[^/.]+$/, "");
-        const fileName = `${key}_${originalBase}.jpg`;
-        const path = `${DATABASE_BASE_PATH}/walmartProjectTracker/${projKey}/${kind}/${fileName}`;
+        let blobToUpload;
+        let uploadFileName;
+        let contentType;
 
+        try {
+          // Try to resize & convert to JPEG, max width 2048
+          const resizedBlob = await resizeImageToJpeg(file, 2048, 0.9);
+          blobToUpload = resizedBlob;
+          uploadFileName = `${key}_${originalBase}.jpg`;
+          contentType = "image/jpeg";
+        } catch (resizeErr) {
+          console.warn("Resize/convert failed, uploading original file instead:", resizeErr);
+          // Fallback: upload original as-is
+          blobToUpload = file;
+          uploadFileName = `${key}_${file.name}`;
+          contentType = file.type || "application/octet-stream";
+        }
+
+        const path = `${DATABASE_BASE_PATH}/walmartProjectTracker/${projKey}/${kind}/${uploadFileName}`;
         const sRef = storageRef(storage, path);
-        await uploadBytes(sRef, resizedBlob, { contentType: "image/jpeg" });
+        await uploadBytes(sRef, blobToUpload, { contentType });
         const url = await getDownloadURL(sRef);
 
         const proj = getCurrentProjectObj();
