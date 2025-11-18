@@ -1815,8 +1815,34 @@
 
         const resizedBlob = await resizeImageToJpeg(file, 2048, 0.9);
 
+        // Figure out how many images this device already has
+        const proj = getCurrentProjectObj();
+        let target;
+
+        if (kind === "alarm") {
+          if (!proj.alarmPoints[key]) proj.alarmPoints[key] = {};
+          target = proj.alarmPoints[key];
+        } else {
+          if (!proj.cameras[key]) proj.cameras[key] = {};
+          target = proj.cameras[key];
+        }
+
+        // Normalize legacy single-image fields into an array for counting
+        let existingCount = 0;
+        if (Array.isArray(target.images)) {
+          existingCount = target.images.length;
+        } else if (target.imageUrl) {
+          existingCount = 1;
+        }
+
         const originalBase = file.name.replace(/\.[^/.]+$/, "");
-        const fileName = `${key}_${originalBase}.jpg`;
+
+        // First image → `POINT1_original.jpg`
+        // Second → `POINT1_original_2.jpg`
+        // Third → `POINT1_original_3.jpg`, etc.
+        const indexSuffix = existingCount > 0 ? `_${existingCount + 1}` : "";
+        const fileName = `${key}_${originalBase}${indexSuffix}.jpg`;
+
         const path = `${DATABASE_BASE_PATH}/images/walmartProjectTracker/${projKey}/${kind}/${fileName}`;
 
         console.log("[upload] storage path:", path);
