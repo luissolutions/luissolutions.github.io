@@ -439,6 +439,7 @@
 
     header {
       overflow: auto;
+      height: 60px;
     }
   </style>
 </head>
@@ -557,10 +558,12 @@
               <th>Name</th>
               <th>Done</th>
               <th>Image(s)</th>
+              <th>Actions</th> <!-- NEW -->
             </tr>
           </thead>
           <tbody></tbody>
         </table>
+
       </div>
 
       <!-- Cameras panel -->
@@ -584,10 +587,12 @@
               <th>Name</th>
               <th>Done</th>
               <th>Image(s)</th>
+              <th>Actions</th> <!-- NEW -->
             </tr>
           </thead>
           <tbody></tbody>
         </table>
+
       </div>
 
       <!-- hidden file input for both alarm + camera uploads -->
@@ -616,6 +621,8 @@
     let DATABASE_BASE_PATH = 'public';
     const LAST_PROJECT_STORAGE_KEY = "walmartProjectTracker:lastProject";
 
+    // NEW: localStorage key for section order
+    const SECTION_ORDER_STORAGE_KEY = "walmartProjectTracker:sectionOrder";
 
     function getProjectBasePath() {
       return `${DATABASE_BASE_PATH}/walmartProjectTracker/projects`;
@@ -856,6 +863,9 @@
       projects: {} // { [projectKey]: { name, tasks, notes, alarmPoints, cameras } }
     };
 
+    // NEW: section order (list of section IDs)
+    let sectionOrder = loadSectionOrderFromLocalStorage();
+
     // DOM refs
     const sectionListEl = document.getElementById("sectionList");
     const overallPercentEl = document.getElementById("overallPercent");
@@ -895,6 +905,7 @@
     let saveTimeout = null;
     let pendingUploadTarget = null; // { kind: 'alarm' | 'camera', key: string }
     let editingUnlocked = false;
+    let draggedSectionId = null; // NEW: for drag & drop
 
     function sanitizeProjectKey(name) {
       return name
@@ -907,6 +918,41 @@
     // Safe task key for Firebase (handles "1.05" etc.)
     function makeTaskKey(sectionId, taskId) {
       return `${sectionId}:${String(taskId)}`.replace(/[.#$/\[\]]/g, "_");
+    }
+
+    // NEW: helper to get a section by its id
+    function getSectionById(id) {
+      return SECTIONS.find(s => s.id === id) || null;
+    }
+
+    // NEW: load section order from localStorage
+    function loadSectionOrderFromLocalStorage() {
+      try {
+        const raw = localStorage.getItem(SECTION_ORDER_STORAGE_KEY);
+        const defaultOrder = SECTIONS.map(s => s.id);
+        if (!raw) return defaultOrder;
+
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return defaultOrder;
+
+        // Only keep IDs that still exist
+        const valid = parsed.filter(id => getSectionById(id));
+        // Add any new sections that weren't in stored order
+        const missing = SECTIONS.map(s => s.id).filter(id => !valid.includes(id));
+        return [...valid, ...missing];
+      } catch (e) {
+        console.warn("Could not load section order from localStorage:", e);
+        return SECTIONS.map(s => s.id);
+      }
+    }
+
+    // NEW: save section order to localStorage
+    function saveSectionOrderToLocalStorage() {
+      try {
+        localStorage.setItem(SECTION_ORDER_STORAGE_KEY, JSON.stringify(sectionOrder));
+      } catch (e) {
+        console.warn("Could not save section order to localStorage:", e);
+      }
     }
 
     function getCurrentProjectObj() {
@@ -999,7 +1045,7 @@
     function computeSectionProgress(sectionId) {
       const proj = getCurrentProjectObj();
       if (!proj) return { done: 0, total: 0, percent: 0 };
-      const section = SECTIONS.find(s => s.id === sectionId);
+      const section = getSectionById(sectionId);
       if (!section) return { done: 0, total: 0, percent: 0 };
 
       const total = section.tasks.length;
@@ -1025,12 +1071,21 @@
         currentBasePathLabelEl.textContent = DATABASE_BASE_PATH;
       }
 
-      SECTIONS.forEach(sec => {
+      // Make sure activeSectionId is valid
+      if (!activeSectionId || !getSectionById(activeSectionId)) {
+        activeSectionId = sectionOrder[0] || (SECTIONS[0] && SECTIONS[0].id);
+      }
+
+      sectionOrder.forEach(secId => {
+        const sec = getSectionById(secId);
+        if (!sec) return;
+
         const secProgress = computeSectionProgress(sec.id);
         const pill = document.createElement("button");
         pill.type = "button";
         pill.className = "section-pill" + (sec.id === activeSectionId ? " active" : "");
         pill.dataset.sectionId = sec.id;
+        pill.draggable = true; // NEW: make draggable
 
         const labelSpan = document.createElement("span");
         labelSpan.className = "label";
@@ -1051,10 +1106,40 @@
         pill.appendChild(labelSpan);
         pill.appendChild(rightSpan);
 
+        // Click to select section
         pill.addEventListener("click", () => {
           activeSectionId = sec.id;
           renderSidebar();
           renderSection(sec.id);
+        });
+
+        // Drag & drop events
+        pill.addEventListener("dragstart", (e) => {
+          draggedSectionId = sec.id;
+          e.dataTransfer.effectAllowed = "move";
+        });
+
+        pill.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        });
+
+        pill.addEventListener("drop", (e) => {
+          e.preventDefault();
+          if (!draggedSectionId || draggedSectionId === sec.id) return;
+
+          const fromIndex = sectionOrder.indexOf(draggedSectionId);
+          const toIndex = sectionOrder.indexOf(sec.id);
+          if (fromIndex === -1 || toIndex === -1) return;
+
+          sectionOrder.splice(fromIndex, 1);
+          sectionOrder.splice(toIndex, 0, draggedSectionId);
+
+          saveSectionOrderToLocalStorage();
+          draggedSectionId = null;
+
+          renderSidebar();
+          renderSection(activeSectionId);
         });
 
         sectionListEl.appendChild(pill);
@@ -1062,7 +1147,7 @@
     }
 
     function renderSection(sectionId) {
-      const section = SECTIONS.find(s => s.id === sectionId);
+      const section = getSectionById(sectionId);
       if (!section) {
         sectionTitleEl.textContent = "Select a section";
         sectionMetaEl.textContent = "";
@@ -1304,10 +1389,60 @@
           tdImg.appendChild(strip);
         }
 
+        // --- NEW: Actions cell (Delete point) ---
+        const tdActions = document.createElement("td");
+        const deletePointBtn = document.createElement("button");
+        deletePointBtn.textContent = "Delete";
+        deletePointBtn.title = "Delete this alarm point and all its images";
+
+        deletePointBtn.addEventListener("click", async () => {
+          if (!editingUnlocked) {
+            alert("Enable admin editing to delete alarm points.");
+            return;
+          }
+
+          if (!confirm(`Delete alarm point ${pointNum} and all associated images?`)) return;
+
+          const projNow = getCurrentProjectObj();
+          if (!projNow || !projNow.alarmPoints || !projNow.alarmPoints[pointNum]) {
+            return;
+          }
+
+          const entry = projNow.alarmPoints[pointNum];
+
+          // Collect all storage paths (array + legacy single image)
+          const pathsToDelete = [];
+          if (Array.isArray(entry.images)) {
+            entry.images.forEach(img => {
+              if (img && img.path) pathsToDelete.push(img.path);
+            });
+          }
+          if (entry.imagePath) {
+            pathsToDelete.push(entry.imagePath);
+          }
+
+          // Remove from database state
+          delete projNow.alarmPoints[pointNum];
+          scheduleSave();
+          renderAlarmPanel();
+
+          // Try to delete from Storage (non-blocking for UI)
+          for (const p of pathsToDelete) {
+            try {
+              await deleteObject(storageRef(storage, p));
+            } catch (e) {
+              console.warn("Failed to delete alarm image from storage:", p, e);
+            }
+          }
+        });
+
+        tdActions.appendChild(deletePointBtn);
+
         tr.appendChild(tdNum);
         tr.appendChild(tdName);
         tr.appendChild(tdDone);
         tr.appendChild(tdImg);
+        tr.appendChild(tdActions);
 
         alarmTableBodyEl.appendChild(tr);
       });
@@ -1527,8 +1662,8 @@
       try {
         await loadProjectFromFirebase(parsed.key, parsed.name);
         renderSidebar();
-        if (!activeSectionId && SECTIONS.length) {
-          activeSectionId = SECTIONS[0].id;
+        if (!activeSectionId && sectionOrder.length) {
+          activeSectionId = sectionOrder[0];
         }
         renderSection(activeSectionId);
         renderAlarmPanel();
@@ -1647,7 +1782,6 @@
       renderCameraPanel();
     }
 
-
     // Tab switching
     detailTabButtons.forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1683,8 +1817,8 @@
       saveLastProjectToLocalStorage();
 
       renderSidebar();
-      if (!activeSectionId && SECTIONS.length) {
-        activeSectionId = SECTIONS[0].id;
+      if (!activeSectionId && sectionOrder.length) {
+        activeSectionId = sectionOrder[0];
       }
       renderSection(activeSectionId);
       renderAlarmPanel();
@@ -1807,7 +1941,6 @@
       }
     });
 
-
     // Upload alarm/camera image, with resize + JPG conversion and note support
     imageUploadInputEl.addEventListener("change", async () => {
       const file = imageUploadInputEl.files[0];
@@ -1926,7 +2059,9 @@
     console.log("[auth] DATABASE_BASE_PATH:", DATABASE_BASE_PATH);
 
     // Initial render
-    if (SECTIONS.length) {
+    if (sectionOrder.length) {
+      activeSectionId = sectionOrder[0];
+    } else if (SECTIONS.length) {
       activeSectionId = SECTIONS[0].id;
     }
     renderSidebar();
