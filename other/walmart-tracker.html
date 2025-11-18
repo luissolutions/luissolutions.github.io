@@ -1458,12 +1458,15 @@
       entries.forEach(([camId, info]) => {
         const tr = document.createElement("tr");
 
+        // --- Camera ID ---
         const tdId = document.createElement("td");
         tdId.textContent = camId;
 
+        // --- Name / location ---
         const tdName = document.createElement("td");
         tdName.textContent = info.name || "";
 
+        // --- Done checkbox ---
         const tdDone = document.createElement("td");
         const chk = document.createElement("input");
         chk.type = "checkbox";
@@ -1478,6 +1481,7 @@
         });
         tdDone.appendChild(chk);
 
+        // --- Image(s) + Add Image button ---
         const tdImg = document.createElement("td");
 
         const addBtn = document.createElement("button");
@@ -1493,6 +1497,7 @@
         });
         tdImg.appendChild(addBtn);
 
+        // Normalize images to array (backward compatible)
         const images = Array.isArray(info.images)
           ? info.images
           : info.imageUrl
@@ -1548,6 +1553,7 @@
 
               const [removed] = target.images.splice(index, 1);
 
+              // Clear legacy single-image fields
               target.imageUrl = null;
               target.imagePath = null;
               target.imageNote = null;
@@ -1609,10 +1615,61 @@
           tdImg.appendChild(strip);
         }
 
+        // --- NEW: Actions column – delete camera record ---
+        const tdActions = document.createElement("td");
+        const deleteCamBtn = document.createElement("button");
+        deleteCamBtn.textContent = "Delete";
+        deleteCamBtn.title = "Delete this camera and all its images";
+
+        deleteCamBtn.addEventListener("click", async () => {
+          if (!editingUnlocked) {
+            alert("Enable admin editing to delete cameras.");
+            return;
+          }
+
+          if (!confirm(`Delete camera ${camId} and all associated images?`)) return;
+
+          const projNow = getCurrentProjectObj();
+          if (!projNow || !projNow.cameras || !projNow.cameras[camId]) {
+            return;
+          }
+
+          const entry = projNow.cameras[camId];
+
+          // Collect all storage paths (array + legacy single image)
+          const pathsToDelete = [];
+          if (Array.isArray(entry.images)) {
+            entry.images.forEach(img => {
+              if (img && img.path) pathsToDelete.push(img.path);
+            });
+          }
+          if (entry.imagePath) {
+            pathsToDelete.push(entry.imagePath);
+          }
+
+          // Remove camera from DB state
+          delete projNow.cameras[camId];
+          scheduleSave();
+          renderCameraPanel();
+
+          // Fire-and-forget delete in Storage
+          for (const p of pathsToDelete) {
+            try {
+              await deleteObject(storageRef(storage, p));
+            } catch (e) {
+              console.warn("Failed to delete camera image from storage:", p, e);
+            }
+          }
+        });
+
+        tdActions.appendChild(deleteCamBtn);
+
+        // Append all tds
         tr.appendChild(tdId);
         tr.appendChild(tdName);
         tr.appendChild(tdDone);
         tr.appendChild(tdImg);
+        tr.appendChild(tdActions);
 
         cameraTableBodyEl.appendChild(tr);
       });
