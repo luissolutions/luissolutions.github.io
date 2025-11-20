@@ -59,6 +59,7 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
+      max-height: calc(100vh - 24px);
       overflow: hidden;
     }
 
@@ -481,26 +482,17 @@
           Current project: <code id="currentProjectLabel">(none)</code>
         </div>
 
-        <!-- Project links section (under current project, above overall scope) -->
-        <div id="projectLinksContainer" style="margin-top:8px;">
-          <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px;">
-            Project links
-          </div>
+        <div class="project-links-card">
+          <div class="project-links-header">Project links</div>
 
-          <ul id="projectLinksList"
-              style="list-style:none;padding-left:0;margin:0 0 6px 0;font-size:13px;"></ul>
+          <!-- This UL is always visible (for everyone) -->
+          <ul id="projectLinksList" class="project-links-list"></ul>
 
-          <!-- Inputs only visible in admin mode -->
-          <form id="projectLinksForm" class="hidden"
-                style="display:flex;gap:4px;flex-wrap:wrap;">
-            <input id="linkTitleInput" type="text" placeholder="Title"
-                   style="flex:1 1 120px;padding:3px 6px;border-radius:8px;border:1px solid var(--border-subtle);background:#050814;color:var(--text);">
-            <input id="linkUrlInput" type="url" placeholder="URL (https://...)"
-                   style="flex:2 1 160px;padding:3px 6px;border-radius:8px;border:1px solid var(--border-subtle);background:#050814;color:var(--text);">
-            <button type="submit"
-                    style="padding:3px 8px;border-radius:8px;border:1px solid var(--border-subtle);background:#050814;color:var(--text);cursor:pointer;">
-              Add
-            </button>
+          <!-- This form should ONLY show in admin mode -->
+          <form id="projectLinksForm" class="project-links-form hidden">
+            <input type="text" id="projectLinkTitle" placeholder="Title" class="project-link-input">
+            <input type="url" id="projectLinkUrl" placeholder="URL (https://...)" class="project-link-input">
+            <button type="submit" class="project-link-add-btn">Add</button>
           </form>
         </div>
 
@@ -1523,80 +1515,74 @@
     }
 
     // Render project links
-function renderProjectLinks() {
-  projectLinksList.innerHTML = "";
-  const proj = getCurrentProjectObj();
-  if (!proj) {
-    // No project selected – for non-admin, don't show anything.
-    if (editingUnlocked) {
-      const li = document.createElement("li");
-      li.style.color = "var(--text-muted)";
-      li.textContent = "(No project selected)";
-      projectLinksList.appendChild(li);
-    }
-    return;
-  }
+    function renderProjectLinks() {
+      projectLinksList.innerHTML = "";
+      const proj = getCurrentProjectObj();
+      if (!proj) {
+        const li = document.createElement("li");
+        li.style.color = "var(--text-muted)";
+        li.textContent = "(No project selected)";
+        projectLinksList.appendChild(li);
+        return;
+      }
 
-  const links = Array.isArray(proj.links) ? proj.links : [];
-  if (!links.length) {
-    // Only show the "No links added yet" message in admin mode
-    if (editingUnlocked) {
-      const li = document.createElement("li");
-      li.style.color = "var(--text-muted)";
-      li.textContent = "(No links added yet)";
-      projectLinksList.appendChild(li);
-    }
-    return;
-  }
+      const links = Array.isArray(proj.links) ? proj.links : [];
+      if (!links.length) {
+        const li = document.createElement("li");
+        li.style.color = "var(--text-muted)";
+        li.textContent = "(No links added yet)";
+        projectLinksList.appendChild(li);
+        return;
+      }
 
-  links.forEach((link, index) => {
-    const li = document.createElement("li");
-    li.style.display = "flex";
-    li.style.alignItems = "center";
-    li.style.justifyContent = "space-between";
-    li.style.gap = "6px";
-    li.style.marginBottom = "2px";
+      links.forEach((link, index) => {
+        const li = document.createElement("li");
+        li.style.display = "flex";
+        li.style.alignItems = "center";
+        li.style.justifyContent = "space-between";
+        li.style.gap = "6px";
+        li.style.marginBottom = "2px";
 
-    const a = document.createElement("a");
-    a.href = link.url;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    a.textContent = link.title || link.url;
-    a.style.color = "var(--accent)";
-    a.style.textDecoration = "none";
+        const a = document.createElement("a");
+        a.href = link.url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.textContent = link.title || link.url;
+        a.style.color = "var(--accent)";
+        a.style.textDecoration = "none";
 
-    const btnWrap = document.createElement("span");
+        const btnWrap = document.createElement("span");
 
-    if (editingUnlocked) {
-      const delBtn = document.createElement("button");
-      delBtn.textContent = "×";
-      delBtn.title = "Remove this link";
-      delBtn.style.fontSize = "11px";
-      delBtn.style.borderRadius = "999px";
-      delBtn.style.border = "1px solid var(--border-subtle)";
-      delBtn.style.background = "#050814";
-      delBtn.style.color = "var(--text)";
-      delBtn.style.cursor = "pointer";
-      delBtn.style.padding = "0 6px";
-      delBtn.style.lineHeight = "16px";
+        if (editingUnlocked) {
+          const delBtn = document.createElement("button");
+          delBtn.textContent = "×";
+          delBtn.title = "Remove this link";
+          delBtn.style.fontSize = "11px";
+          delBtn.style.borderRadius = "999px";
+          delBtn.style.border = "1px solid var(--border-subtle)";
+          delBtn.style.background = "#050814";
+          delBtn.style.color = "var(--text)";
+          delBtn.style.cursor = "pointer";
+          delBtn.style.padding = "0 6px";
+          delBtn.style.lineHeight = "16px";
 
-      delBtn.addEventListener("click", () => {
-        const projNow = getCurrentProjectObj();
-        if (!projNow) return;
-        projNow.links = (projNow.links || []).slice();
-        projNow.links.splice(index, 1);
-        scheduleSave();
-        renderProjectLinks();
+          delBtn.addEventListener("click", () => {
+            const projNow = getCurrentProjectObj();
+            if (!projNow) return;
+            projNow.links = (projNow.links || []).slice();
+            projNow.links.splice(index, 1);
+            scheduleSave();
+            renderProjectLinks();
+          });
+
+          btnWrap.appendChild(delBtn);
+        }
+
+        li.appendChild(a);
+        li.appendChild(btnWrap);
+        projectLinksList.appendChild(li);
       });
-
-      btnWrap.appendChild(delBtn);
     }
-
-    li.appendChild(a);
-    li.appendChild(btnWrap);
-    projectLinksList.appendChild(li);
-  });
-}
 
     // localStorage helpers for last project
     function saveLastProjectToLocalStorage() {
