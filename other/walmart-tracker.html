@@ -59,7 +59,6 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
-      max-height: calc(100vh - 24px);
       overflow: hidden;
     }
 
@@ -482,6 +481,29 @@
           Current project: <code id="currentProjectLabel">(none)</code>
         </div>
 
+        <!-- Project links section (under current project, above overall scope) -->
+        <div id="projectLinksContainer" style="margin-top:8px;">
+          <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px;">
+            Project links
+          </div>
+
+          <ul id="projectLinksList"
+              style="list-style:none;padding-left:0;margin:0 0 6px 0;font-size:13px;"></ul>
+
+          <!-- Inputs only visible in admin mode -->
+          <form id="projectLinksForm" class="hidden"
+                style="display:flex;gap:4px;flex-wrap:wrap;">
+            <input id="linkTitleInput" type="text" placeholder="Title"
+                   style="flex:1 1 120px;padding:3px 6px;border-radius:8px;border:1px solid var(--border-subtle);background:#050814;color:var(--text);">
+            <input id="linkUrlInput" type="url" placeholder="URL (https://...)"
+                   style="flex:2 1 160px;padding:3px 6px;border-radius:8px;border:1px solid var(--border-subtle);background:#050814;color:var(--text);">
+            <button type="submit"
+                    style="padding:3px 8px;border-radius:8px;border:1px solid var(--border-subtle);background:#050814;color:var(--text);cursor:pointer;">
+              Add
+            </button>
+          </form>
+        </div>
+
         <div class="progress-row">
           <span>Overall scope complete</span>
           <span id="overallPercent">0%</span>
@@ -555,7 +577,7 @@
               <th>Name</th>
               <th>Done</th>
               <th>Image(s)</th>
-              <th>Actions</th> <!-- NEW -->
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -584,7 +606,7 @@
               <th>Name</th>
               <th>Done</th>
               <th>Image(s)</th>
-              <th>Actions</th> <!-- NEW -->
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -652,6 +674,7 @@
         renderSection(activeSectionId);
         renderAlarmPanel();
         renderCameraPanel();
+        renderProjectLinks();
       } catch (err) {
         console.error('Failed to load sections JSON:', err);
         alert('Could not load sections configuration. Check the JSON path / syntax.');
@@ -662,7 +685,7 @@
     let state = {
       currentProjectName: "",
       currentProjectKey: "",
-      projects: {} // { [projectKey]: { name, tasks, notes, alarmPoints, cameras } }
+      projects: {} // { [projectKey]: { name, tasks, notes, alarmPoints, cameras, links } }
     };
 
     // NEW: section order (list of section IDs)
@@ -700,6 +723,14 @@
     const setProjectBtn = document.getElementById("setProjectBtn");
     const clearProjectBtn = document.getElementById("clearProjectBtn");
     const projectNameInput = document.getElementById("projectNameInput");
+
+    // Project links DOM
+    const projectLinksContainer = document.getElementById("projectLinksContainer");
+    const projectLinksList = document.getElementById("projectLinksList");
+    const projectLinksForm = document.getElementById("projectLinksForm");
+    const linkTitleInput = document.getElementById("linkTitleInput");
+    const linkUrlInput = document.getElementById("linkUrlInput");
+
     // Allow pressing Enter to trigger "Set"
     projectNameInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
@@ -714,7 +745,7 @@
     let saveTimeout = null;
     let pendingUploadTarget = null; // { kind: 'alarm' | 'camera', key: string }
     let editingUnlocked = false;
-    let draggedSectionId = null; // NEW: for drag & drop
+    let draggedSectionId = null; // for drag & drop
 
     function sanitizeProjectKey(name) {
       return name
@@ -729,12 +760,12 @@
       return `${sectionId}:${String(taskId)}`.replace(/[.#$/\[\]]/g, "_");
     }
 
-    // NEW: helper to get a section by its id
+    // helper to get a section by its id
     function getSectionById(id) {
       return SECTIONS.find(s => s.id === id) || null;
     }
 
-    // NEW: load section order from localStorage
+    // load section order from localStorage
     function loadSectionOrderFromLocalStorage() {
       try {
         const raw = localStorage.getItem(SECTION_ORDER_STORAGE_KEY);
@@ -755,7 +786,7 @@
       }
     }
 
-    // NEW: save section order to localStorage
+    // save section order to localStorage
     function saveSectionOrderToLocalStorage() {
       try {
         localStorage.setItem(SECTION_ORDER_STORAGE_KEY, JSON.stringify(sectionOrder));
@@ -772,7 +803,8 @@
           tasks: {},
           notes: {},
           alarmPoints: {},
-          cameras: {}
+          cameras: {},
+          links: []
         };
       } else {
         const proj = state.projects[state.currentProjectKey];
@@ -780,6 +812,7 @@
         proj.notes = proj.notes || {};
         proj.alarmPoints = proj.alarmPoints || {};
         proj.cameras = proj.cameras || {};
+        proj.links = proj.links || [];
       }
       return state.projects[state.currentProjectKey];
     }
@@ -794,7 +827,8 @@
           tasks: data.tasks || {},
           notes: data.notes || {},
           alarmPoints: data.alarmPoints || {},
-          cameras: data.cameras || {}
+          cameras: data.cameras || {},
+          links: data.links || []
         };
       } else {
         const newData = {
@@ -802,7 +836,8 @@
           tasks: {},
           notes: {},
           alarmPoints: {},
-          cameras: {}
+          cameras: {},
+          links: []
         };
         await set(projectRef, newData);
         state.projects[projectKey] = newData;
@@ -819,7 +854,8 @@
         tasks: proj.tasks || {},
         notes: proj.notes || {},
         alarmPoints: proj.alarmPoints || {},
-        cameras: proj.cameras || {}
+        cameras: proj.cameras || {},
+        links: proj.links || []
       });
     }
 
@@ -894,7 +930,7 @@
         pill.type = "button";
         pill.className = "section-pill" + (sec.id === activeSectionId ? " active" : "");
         pill.dataset.sectionId = sec.id;
-        pill.draggable = true; // NEW: make draggable
+        pill.draggable = true;
 
         const labelSpan = document.createElement("span");
         labelSpan.className = "label";
@@ -1198,7 +1234,7 @@
           tdImg.appendChild(strip);
         }
 
-        // --- NEW: Actions cell (Delete point) ---
+        // Actions cell (Delete point)
         const tdActions = document.createElement("td");
         const deletePointBtn = document.createElement("button");
         deletePointBtn.textContent = "Delete";
@@ -1269,15 +1305,15 @@
       entries.forEach(([camId, info]) => {
         const tr = document.createElement("tr");
 
-        // --- Camera ID ---
+        // Camera ID
         const tdId = document.createElement("td");
         tdId.textContent = camId;
 
-        // --- Name / location ---
+        // Name / location
         const tdName = document.createElement("td");
         tdName.textContent = info.name || "";
 
-        // --- Done checkbox ---
+        // Done checkbox
         const tdDone = document.createElement("td");
         const chk = document.createElement("input");
         chk.type = "checkbox";
@@ -1292,7 +1328,7 @@
         });
         tdDone.appendChild(chk);
 
-        // --- Image(s) + Add Image button ---
+        // Image(s) + Add Image button
         const tdImg = document.createElement("td");
 
         const addBtn = document.createElement("button");
@@ -1426,7 +1462,7 @@
           tdImg.appendChild(strip);
         }
 
-        // --- NEW: Actions column – delete camera record ---
+        // Actions column – delete camera record
         const tdActions = document.createElement("td");
         const deleteCamBtn = document.createElement("button");
         deleteCamBtn.textContent = "Delete";
@@ -1486,6 +1522,82 @@
       });
     }
 
+    // Render project links
+function renderProjectLinks() {
+  projectLinksList.innerHTML = "";
+  const proj = getCurrentProjectObj();
+  if (!proj) {
+    // No project selected – for non-admin, don't show anything.
+    if (editingUnlocked) {
+      const li = document.createElement("li");
+      li.style.color = "var(--text-muted)";
+      li.textContent = "(No project selected)";
+      projectLinksList.appendChild(li);
+    }
+    return;
+  }
+
+  const links = Array.isArray(proj.links) ? proj.links : [];
+  if (!links.length) {
+    // Only show the "No links added yet" message in admin mode
+    if (editingUnlocked) {
+      const li = document.createElement("li");
+      li.style.color = "var(--text-muted)";
+      li.textContent = "(No links added yet)";
+      projectLinksList.appendChild(li);
+    }
+    return;
+  }
+
+  links.forEach((link, index) => {
+    const li = document.createElement("li");
+    li.style.display = "flex";
+    li.style.alignItems = "center";
+    li.style.justifyContent = "space-between";
+    li.style.gap = "6px";
+    li.style.marginBottom = "2px";
+
+    const a = document.createElement("a");
+    a.href = link.url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = link.title || link.url;
+    a.style.color = "var(--accent)";
+    a.style.textDecoration = "none";
+
+    const btnWrap = document.createElement("span");
+
+    if (editingUnlocked) {
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "×";
+      delBtn.title = "Remove this link";
+      delBtn.style.fontSize = "11px";
+      delBtn.style.borderRadius = "999px";
+      delBtn.style.border = "1px solid var(--border-subtle)";
+      delBtn.style.background = "#050814";
+      delBtn.style.color = "var(--text)";
+      delBtn.style.cursor = "pointer";
+      delBtn.style.padding = "0 6px";
+      delBtn.style.lineHeight = "16px";
+
+      delBtn.addEventListener("click", () => {
+        const projNow = getCurrentProjectObj();
+        if (!projNow) return;
+        projNow.links = (projNow.links || []).slice();
+        projNow.links.splice(index, 1);
+        scheduleSave();
+        renderProjectLinks();
+      });
+
+      btnWrap.appendChild(delBtn);
+    }
+
+    li.appendChild(a);
+    li.appendChild(btnWrap);
+    projectLinksList.appendChild(li);
+  });
+}
+
     // localStorage helpers for last project
     function saveLastProjectToLocalStorage() {
       if (!state.currentProjectKey || !state.currentProjectName) return;
@@ -1534,6 +1646,7 @@
         renderSection(activeSectionId);
         renderAlarmPanel();
         renderCameraPanel();
+        renderProjectLinks();
       } catch (err) {
         console.error("Error restoring last project from Firebase:", err);
       }
@@ -1646,6 +1759,7 @@
       renderSection(activeSectionId);
       renderAlarmPanel();
       renderCameraPanel();
+      renderProjectLinks();
     }
 
     // Tab switching
@@ -1689,6 +1803,7 @@
       renderSection(activeSectionId);
       renderAlarmPanel();
       renderCameraPanel();
+      renderProjectLinks();
     });
 
     // Clear checklist (keep notes + images)
@@ -1759,11 +1874,48 @@
       renderCameraPanel();
     });
 
+    // Project links form – add link (admin only)
+    if (projectLinksForm) {
+      projectLinksForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const proj = getCurrentProjectObj();
+        if (!proj) {
+          alert("Set a project first.");
+          return;
+        }
+        const title = linkTitleInput.value.trim();
+        const url = linkUrlInput.value.trim();
+        if (!title || !url) {
+          alert("Title and URL are required.");
+          return;
+        }
+
+        try {
+          new URL(url);
+        } catch {
+          alert("Please enter a valid URL (include https://).");
+          return;
+        }
+
+        proj.links = proj.links || [];
+        proj.links.push({ title, url });
+        linkTitleInput.value = "";
+        linkUrlInput.value = "";
+        scheduleSave();
+        renderProjectLinks();
+      });
+    }
+
     enableImageEditCheckbox.addEventListener("change", async () => {
       if (enableImageEditCheckbox.checked) {
         const pwd = prompt("Enter admin password to enable editing and select data owner:");
         if (pwd === "telaidadmin") {
           editingUnlocked = true;
+
+          // Show the project links input section in admin mode
+          if (projectLinksForm) {
+            projectLinksForm.classList.remove("hidden");
+          }
 
           // Fetch available base paths dynamically from Firebase
           let options = await fetchAvailableBasePaths();
@@ -1794,16 +1946,30 @@
 
           renderAlarmPanel();
           renderCameraPanel();
+          renderProjectLinks();
         } else {
           editingUnlocked = false;
           enableImageEditCheckbox.checked = false;
+
+          // Hide the form again on wrong password
+          if (projectLinksForm) {
+            projectLinksForm.classList.add("hidden");
+          }
+
           alert("Incorrect password. Image note editing remains locked.");
         }
       } else {
         // Turn admin mode off – just lock editing; path stays as-is until auth listener runs
         editingUnlocked = false;
+
+        // Hide the project links input section when admin is off
+        if (projectLinksForm) {
+          projectLinksForm.classList.add("hidden");
+        }
+
         renderAlarmPanel();
         renderCameraPanel();
+        renderProjectLinks();
       }
     });
 
@@ -1939,6 +2105,7 @@
           renderSection(activeSectionId);
           renderAlarmPanel();
           renderCameraPanel();
+          renderProjectLinks();
         } catch (err) {
           console.error("Error reloading project after auth change:", err);
         }
