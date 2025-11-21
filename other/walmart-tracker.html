@@ -417,18 +417,20 @@
       line-height: 14px;
     }
 
-    /* Header */
     header {
+      display: flex;
       overflow: auto;
-      max-height: 60px;
     }
+
   </style>
 </head>
 
 <body>
 
   <header>
+    <img src="assets/img/walmart-logo.webp" alt="">
     <div>
+      <br>
       <section id="login-section">
         <form id="login-form">
           <label for="username" style="width: auto;">Email:</label>
@@ -443,7 +445,7 @@
       </section>
     </div>
     <div class="current-project-tag">
-      Data owner path: <code id="currentBasePathLabel">public</code>
+      Data path: <code id="currentBasePathLabel">public</code>
     </div>
   </header>
 
@@ -587,6 +589,12 @@
             </thead>
             <tbody></tbody>
           </table>
+
+          <!-- Export button -->
+          <button type="button" id="exportCameraCsvBtn" style="margin-bottom:8px;">
+            Export Camera Table (Cable Sheet CSV)
+          </button>
+
         </div>
 
         <!-- hidden file input for both alarm + camera uploads -->
@@ -704,6 +712,8 @@
     const projectLinksForm = document.getElementById("projectLinksForm");
     const linkTitleInput = document.getElementById("projectLinkTitle");
     const linkUrlInput = document.getElementById("projectLinkUrl");
+    const exportCameraCsvBtn = document.getElementById("exportCameraCsvBtn");
+
 
     // Allow pressing Enter to trigger "Set"
     projectNameInput.addEventListener("keydown", (e) => {
@@ -789,6 +799,91 @@
         proj.links = proj.links || [];
       }
       return state.projects[state.currentProjectKey];
+    }
+
+    if (exportCameraCsvBtn) {
+      exportCameraCsvBtn.addEventListener("click", exportCameraCableSheet);
+    }
+
+    function exportCameraCableSheet() {
+      const proj = getCurrentProjectObj();
+      if (!proj) {
+        alert("Set a project first.");
+        return;
+      }
+
+      // Header row copied from your Cable Assignment Sheet, with the last column used for Notes
+      const header = [
+        "Cable #",
+        "Location Name",
+        "IP Address",
+        "Subnet",
+        "MAC address",
+        "Switch",
+        "Switch Port",
+        "Camera Model",
+        "Camera to be displayed ",
+        "Camera Recording Profile",
+        "Camera Group",
+        "ID",
+        "IP",
+        "Switch-Port",
+        "Named Ranges",
+        "",
+        "Notes"   // using last column for camera-level notes
+      ];
+
+      const rows = [];
+
+      // Sort cameras by ID so the CSV is neat
+      const entries = Object.entries(proj.cameras || {}).sort(([a], [b]) =>
+        a.localeCompare(b, undefined, { numeric: true })
+      );
+
+      entries.forEach(([camId, info]) => {
+        const row = new Array(header.length).fill("");
+
+        // Map your fields
+        row[0] = camId || "";              // Cable #
+        row[1] = info.name || "";          // Location Name
+        // row[2]..row[21] remain "" (blank for now)
+
+        // Flatten multi-line notes to a single line for CSV
+        const flatNote = (info.note || "").replace(/\r?\n|\r/g, " | ");
+        row[22] = flatNote;
+
+        rows.push(row);
+      });
+
+      // CSV escaping
+      function esc(val) {
+        const s = String(val ?? "");
+        if (s.includes('"') || s.includes(",") || s.includes("\n")) {
+          return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+      }
+
+      const lines = [];
+      lines.push(header.map(esc).join(","));
+      rows.forEach(r => lines.push(r.map(esc).join(",")));
+
+      const csvContent = lines.join("\r\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+
+      const baseName =
+        (state.currentProjectName || state.currentProjectKey || "project")
+          .replace(/[^a-z0-9_\-]+/gi, "_");
+
+      a.href = url;
+      a.download = `${baseName}_Camera_Cable_Assignment.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     }
 
     async function loadProjectFromFirebase(projectKey, displayName) {
