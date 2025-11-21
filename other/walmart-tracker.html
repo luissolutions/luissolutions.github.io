@@ -598,7 +598,6 @@
               <th>Name</th>
               <th>Done</th>
               <th>Image(s)</th>
-              <th>Notes</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -1294,15 +1293,15 @@
       );
 
       entries.forEach(([camId, info]) => {
-        const tr = document.createElement("tr");
+  const tr = document.createElement("tr");
 
-        // Camera ID
-        const tdId = document.createElement("td");
-        tdId.textContent = camId;
+  // Camera ID
+  const tdId = document.createElement("td");
+  tdId.textContent = camId;
 
-        // Name / location
-        const tdName = document.createElement("td");
-        tdName.textContent = info.name || "";
+  // Name / location
+  const tdName = document.createElement("td");
+  tdName.textContent = info.name || "";
 
         // Done checkbox
         const tdDone = document.createElement("td");
@@ -1314,100 +1313,221 @@
           if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
           projNow.cameras[camId].name = info.name;
           projNow.cameras[camId].done = chk.checked;
-          // note stays untouched here
           scheduleSave();
           renderCameraPanel();
         });
         tdDone.appendChild(chk);
 
-        // Image(s) + Add Image button
-        const tdImg = document.createElement("td");
+  // Image(s) + Add Image button
+  const tdImg = document.createElement("td");
 
-        const addBtn = document.createElement("button");
-        addBtn.textContent = "Add Image";
-        addBtn.addEventListener("click", () => {
-          if (!state.currentProjectKey) {
-            alert("Set a project first.");
-            return;
+  const addBtn = document.createElement("button");
+  addBtn.textContent = "Add Image";
+  addBtn.addEventListener("click", () => {
+    if (!state.currentProjectKey) {
+      alert("Set a project first.");
+      return;
+    }
+    pendingUploadTarget = { kind: "camera", key: camId };
+    imageUploadInputEl.value = "";
+    imageUploadInputEl.click();
+  });
+  tdImg.appendChild(addBtn);
+
+  // Normalize images to array (backward compatible)
+  const images = Array.isArray(info.images)
+    ? info.images
+    : info.imageUrl
+      ? [{
+        url: info.imageUrl,
+        path: info.imagePath || null,
+        note: info.imageNote || ""
+      }]
+      : [];
+
+  if (images.length) {
+    const strip = document.createElement("div");
+    strip.className = "thumb-strip";
+
+    images.forEach((img, index) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "thumb-wrapper";
+
+      const thumb = document.createElement("img");
+      thumb.className = "thumb-img";
+      thumb.src = img.url;
+      thumb.alt = `Camera ${camId} image ${index + 1}`;
+      thumb.title = "Click to open full image";
+      thumb.addEventListener("click", () => {
+        window.open(img.url, "_blank");
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "thumb-delete";
+      delBtn.textContent = "×";
+      delBtn.title = "Delete this image";
+      delBtn.addEventListener("click", async () => {
+        if (!editingUnlocked) {
+          alert("Enable admin editing to delete images.");
+          return;
+        }
+        if (!confirm("Delete this image for this camera?")) return;
+
+        const projNow = getCurrentProjectObj();
+        if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
+        const target = projNow.cameras[camId];
+
+        if (!Array.isArray(target.images)) {
+          target.images = [];
+          if (target.imageUrl) {
+            target.images.push({
+              url: target.imageUrl,
+              path: target.imagePath || null,
+              note: target.imageNote || ""
+            });
           }
-          pendingUploadTarget = { kind: "camera", key: camId };
-          imageUploadInputEl.value = "";
-          imageUploadInputEl.click();
-        });
-        tdImg.appendChild(addBtn);
+        }
 
-        // Normalize images to array (backward compatible)
-        const images = Array.isArray(info.images)
-          ? info.images
-          : info.imageUrl
-            ? [{
-              url: info.imageUrl,
-              path: info.imagePath || null,
-              note: info.imageNote || ""
-            }]
-            : [];
+        const [removed] = target.images.splice(index, 1);
 
-        if (images.length) {
-          const strip = document.createElement("div");
-          strip.className = "thumb-strip";
+        // Clear legacy single-image fields
+        target.imageUrl = null;
+        target.imagePath = null;
+        target.imageNote = null;
 
-          images.forEach((img, index) => {
-            const wrapper = document.createElement("div");
-            wrapper.className = "thumb-wrapper";
+        scheduleSave();
+        renderCameraPanel();
 
-            const thumb = document.createElement("img");
-            thumb.className = "thumb-img";
-            thumb.src = img.url;
-            thumb.alt = `Camera ${camId} image ${index + 1}`;
-            thumb.title = "Click to open full image";
-            thumb.addEventListener("click", () => {
-              window.open(img.url, "_blank");
+        if (removed && removed.path) {
+          try {
+            await deleteObject(storageRef(storage, removed.path));
+          } catch (e) {
+            console.warn("Storage delete failed (maybe already removed):", e);
+          }
+        }
+      });
+
+      const note = document.createElement("textarea");
+      note.className = "thumb-note";
+      note.rows = 2;
+      note.placeholder = "Notes for this image…";
+      note.value = img.note || "";
+      note.readOnly = !editingUnlocked;
+      note.addEventListener("input", () => {
+        if (!editingUnlocked) return;
+
+        const projNow = getCurrentProjectObj();
+        if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
+        const target = projNow.cameras[camId];
+
+        if (!Array.isArray(target.images)) {
+          target.images = [];
+          if (target.imageUrl) {
+            target.images.push({
+              url: target.imageUrl,
+              path: target.imagePath || null,
+              note: target.imageNote || ""
             });
+          }
+        }
 
-            const delBtn = document.createElement("button");
-            delBtn.className = "thumb-delete";
-            delBtn.textContent = "×";
-            delBtn.title = "Delete this image";
-            delBtn.addEventListener("click", async () => {
-              if (!editingUnlocked) {
-                alert("Enable admin editing to delete images.");
-                return;
-              }
-              if (!confirm("Delete this image for this camera?")) return;
+        if (!target.images[index]) {
+          target.images[index] = {
+            url: img.url,
+            path: img.path || null,
+            note: ""
+          };
+        }
 
-              const projNow = getCurrentProjectObj();
-              if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
-              const target = projNow.cameras[camId];
+        target.images[index].note = note.value;
+        scheduleSave();
+      });
 
-              if (!Array.isArray(target.images)) {
-                target.images = [];
-                if (target.imageUrl) {
-                  target.images.push({
-                    url: target.imageUrl,
-                    path: target.imagePath || null,
-                    note: target.imageNote || ""
-                  });
-                }
-              }
+      wrapper.appendChild(thumb);
+      wrapper.appendChild(delBtn);
+      wrapper.appendChild(note);
+      strip.appendChild(wrapper);
+    });
 
-              const [removed] = target.images.splice(index, 1);
+    tdImg.appendChild(strip);
+  }
 
-              // Clear legacy single-image fields
-              target.imageUrl = null;
-              target.imagePath = null;
-              target.imageNote = null;
+  // NEW: Camera-level notes cell
+  const tdNote = document.createElement("td");
+  const cameraNoteArea = document.createElement("textarea");
+  cameraNoteArea.className = "camera-note";
+  cameraNoteArea.placeholder = "Camera-level notes…";
+  cameraNoteArea.value = info.note || "";
+  cameraNoteArea.addEventListener("input", () => {
+    const projNow = getCurrentProjectObj();
+    if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
+    // keep other props, just update note
+    projNow.cameras[camId].name = info.name;
+    projNow.cameras[camId].done = !!info.done;
+    projNow.cameras[camId].note = cameraNoteArea.value;
+    scheduleSave();
+  });
+  tdNote.appendChild(cameraNoteArea);
 
-              scheduleSave();
-              renderCameraPanel();
+  // Actions column – delete camera record
+  const tdActions = document.createElement("td");
+  const deleteCamBtn = document.createElement("button");
+  deleteCamBtn.textContent = "Delete";
+  deleteCamBtn.title = "Delete this camera and all its images";
 
-              if (removed && removed.path) {
-                try {
-                  await deleteObject(storageRef(storage, removed.path));
-                } catch (e) {
-                  console.warn("Storage delete failed (maybe already removed):", e);
-                }
-              }
-            });
+  deleteCamBtn.addEventListener("click", async () => {
+    if (!editingUnlocked) {
+      alert("Enable admin editing to delete cameras.");
+      return;
+    }
+
+    if (!confirm(`Delete camera ${camId} and all associated images?`)) return;
+
+    const projNow = getCurrentProjectObj();
+    if (!projNow || !projNow.cameras || !projNow.cameras[camId]) {
+      return;
+    }
+
+    const entry = projNow.cameras[camId];
+
+    // Collect all storage paths (array + legacy single image)
+    const pathsToDelete = [];
+    if (Array.isArray(entry.images)) {
+      entry.images.forEach(img => {
+        if (img && img.path) pathsToDelete.push(img.path);
+      });
+    }
+    if (entry.imagePath) {
+      pathsToDelete.push(entry.imagePath);
+    }
+
+    // Remove camera from DB state (including its camera-level note)
+    delete projNow.cameras[camId];
+    scheduleSave();
+    renderCameraPanel();
+
+    // Fire-and-forget delete in Storage
+    for (const p of pathsToDelete) {
+      try {
+        await deleteObject(storageRef(storage, p));
+      } catch (e) {
+        console.warn("Failed to delete camera image from storage:", p, e);
+      }
+    }
+  });
+
+  tdActions.appendChild(deleteCamBtn);
+
+  // Append all tds in order
+  tr.appendChild(tdId);
+  tr.appendChild(tdName);
+  tr.appendChild(tdDone);
+  tr.appendChild(tdImg);
+  tr.appendChild(tdNote);    // NEW
+  tr.appendChild(tdActions);
+
+  cameraTableBodyEl.appendChild(tr);
+});
 
             const note = document.createElement("textarea");
             note.className = "thumb-note";
