@@ -438,6 +438,18 @@
       overflow: auto;
       height: 60px;
     }
+
+    .camera-note {
+      width: 160px;
+      max-width: 200px;
+      font-size: 12px;
+      padding: 2px 3px;
+      border-radius: 4px;
+      border: 1px solid #2a323d;
+      background: #050814;
+      color: var(--text);
+      resize: vertical;
+    }
   </style>
 </head>
 
@@ -461,7 +473,6 @@
     <div class="current-project-tag">
       Data owner path: <code id="currentBasePathLabel">public</code>
     </div>
-
   </header>
 
   <div class="app-shell">
@@ -485,10 +496,10 @@
         <div class="project-links-card">
           <div class="project-links-header">Project links</div>
 
-          <!-- This UL is always visible (for everyone) -->
+          <!-- Always visible -->
           <ul id="projectLinksList" class="project-links-list"></ul>
 
-          <!-- This form should ONLY show in admin mode -->
+          <!-- Only visible in admin mode -->
           <form id="projectLinksForm" class="project-links-form hidden">
             <input type="text" id="projectLinkTitle" placeholder="Title" class="project-link-input">
             <input type="url" id="projectLinkUrl" placeholder="URL (https://...)" class="project-link-input">
@@ -574,13 +585,12 @@
           </thead>
           <tbody></tbody>
         </table>
-
       </div>
 
       <!-- Cameras panel -->
       <div id="cameraPanel" class="detail-panel hidden">
         <div style="font-size:13px;margin-bottom:6px;color:#9aa3b5;">
-          Track each camera: ID, name/location, completion, and photos with notes.
+          Track each camera: ID, name/location, completion, photos, and camera-level notes.
         </div>
 
         <form id="cameraForm" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
@@ -604,7 +614,6 @@
           </thead>
           <tbody></tbody>
         </table>
-
       </div>
 
       <!-- hidden file input for both alarm + camera uploads -->
@@ -623,6 +632,7 @@
       set,
       update,
       get,
+      onValue,
       storageRef,
       uploadBytes,
       getDownloadURL,
@@ -633,7 +643,7 @@
     let DATABASE_BASE_PATH = 'public';
     const LAST_PROJECT_STORAGE_KEY = "walmartProjectTracker:lastProject";
 
-    // NEW: localStorage key for section order
+    // localStorage key for section order
     const SECTION_ORDER_STORAGE_KEY = "walmartProjectTracker:sectionOrder";
 
     function getProjectBasePath() {
@@ -645,7 +655,7 @@
 
     async function loadSections() {
       try {
-        const res = await fetch('./assets/js/sections-walmart.json'); // adjust path if needed
+        const res = await fetch('./assets/js/sections-walmart.json');
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
@@ -681,8 +691,11 @@
       projects: {} // { [projectKey]: { name, tasks, notes, alarmPoints, cameras, links } }
     };
 
-    // NEW: section order (list of section IDs)
+    // Section order (list of section IDs)
     let sectionOrder = loadSectionOrderFromLocalStorage();
+
+    // Realtime listener unsubscribe reference
+    let currentProjectUnsubscribe = null;
 
     // DOM refs
     const sectionListEl = document.getElementById("sectionList");
@@ -722,6 +735,7 @@
     const projectLinksForm = document.getElementById("projectLinksForm");
     const linkTitleInput = document.getElementById("projectLinkTitle");
     const linkUrlInput = document.getElementById("projectLinkUrl");
+
     // Allow pressing Enter to trigger "Set"
     projectNameInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
@@ -746,17 +760,14 @@
         .replace(/\s+/g, "_");
     }
 
-    // Safe task key for Firebase (handles "1.05" etc.)
     function makeTaskKey(sectionId, taskId) {
       return `${sectionId}:${String(taskId)}`.replace(/[.#$/\[\]]/g, "_");
     }
 
-    // helper to get a section by its id
     function getSectionById(id) {
       return SECTIONS.find(s => s.id === id) || null;
     }
 
-    // load section order from localStorage
     function loadSectionOrderFromLocalStorage() {
       try {
         const raw = localStorage.getItem(SECTION_ORDER_STORAGE_KEY);
@@ -766,9 +777,7 @@
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) return defaultOrder;
 
-        // Only keep IDs that still exist
         const valid = parsed.filter(id => getSectionById(id));
-        // Add any new sections that weren't in stored order
         const missing = SECTIONS.map(s => s.id).filter(id => !valid.includes(id));
         return [...valid, ...missing];
       } catch (e) {
@@ -777,7 +786,6 @@
       }
     }
 
-    // save section order to localStorage
     function saveSectionOrderToLocalStorage() {
       try {
         localStorage.setItem(SECTION_ORDER_STORAGE_KEY, JSON.stringify(sectionOrder));
@@ -942,14 +950,12 @@
         pill.appendChild(labelSpan);
         pill.appendChild(rightSpan);
 
-        // Click to select section
         pill.addEventListener("click", () => {
           activeSectionId = sec.id;
           renderSidebar();
           renderSection(sec.id);
         });
 
-        // Drag & drop events
         pill.addEventListener("dragstart", (e) => {
           draggedSectionId = sec.id;
           e.dataTransfer.effectAllowed = "move";
@@ -1093,7 +1099,6 @@
 
         const tdImg = document.createElement("td");
 
-        // Add Image button (always available)
         const addBtn = document.createElement("button");
         addBtn.textContent = "Add Image";
         addBtn.addEventListener("click", () => {
@@ -1107,7 +1112,6 @@
         });
         tdImg.appendChild(addBtn);
 
-        // Normalize images to array (legacy support)
         const images = Array.isArray(info.images)
           ? info.images
           : info.imageUrl
@@ -1163,7 +1167,6 @@
 
               const [removed] = target.images.splice(index, 1);
 
-              // Clear legacy single-image fields
               target.imageUrl = null;
               target.imagePath = null;
               target.imageNote = null;
@@ -1225,7 +1228,6 @@
           tdImg.appendChild(strip);
         }
 
-        // Actions cell (Delete point)
         const tdActions = document.createElement("td");
         const deletePointBtn = document.createElement("button");
         deletePointBtn.textContent = "Delete";
@@ -1246,7 +1248,6 @@
 
           const entry = projNow.alarmPoints[pointNum];
 
-          // Collect all storage paths (array + legacy single image)
           const pathsToDelete = [];
           if (Array.isArray(entry.images)) {
             entry.images.forEach(img => {
@@ -1257,12 +1258,10 @@
             pathsToDelete.push(entry.imagePath);
           }
 
-          // Remove from database state
           delete projNow.alarmPoints[pointNum];
           scheduleSave();
           renderAlarmPanel();
 
-          // Try to delete from Storage (non-blocking for UI)
           for (const p of pathsToDelete) {
             try {
               await deleteObject(storageRef(storage, p));
@@ -1296,15 +1295,12 @@
       entries.forEach(([camId, info]) => {
         const tr = document.createElement("tr");
 
-        // Camera ID
         const tdId = document.createElement("td");
         tdId.textContent = camId;
 
-        // Name / location
         const tdName = document.createElement("td");
         tdName.textContent = info.name || "";
 
-        // Done checkbox
         const tdDone = document.createElement("td");
         const chk = document.createElement("input");
         chk.type = "checkbox";
@@ -1314,13 +1310,12 @@
           if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
           projNow.cameras[camId].name = info.name;
           projNow.cameras[camId].done = chk.checked;
-          // note stays untouched here
+          projNow.cameras[camId].note = info.note || "";
           scheduleSave();
           renderCameraPanel();
         });
         tdDone.appendChild(chk);
 
-        // Image(s) + Add Image button
         const tdImg = document.createElement("td");
 
         const addBtn = document.createElement("button");
@@ -1336,7 +1331,6 @@
         });
         tdImg.appendChild(addBtn);
 
-        // Normalize images to array (backward compatible)
         const images = Array.isArray(info.images)
           ? info.images
           : info.imageUrl
@@ -1392,7 +1386,6 @@
 
               const [removed] = target.images.splice(index, 1);
 
-              // Clear legacy single-image fields
               target.imageUrl = null;
               target.imagePath = null;
               target.imageNote = null;
@@ -1454,7 +1447,7 @@
           tdImg.appendChild(strip);
         }
 
-        // NEW: Camera-level notes cell
+        // Camera-level notes cell
         const tdNote = document.createElement("td");
         const cameraNoteArea = document.createElement("textarea");
         cameraNoteArea.className = "camera-note";
@@ -1463,7 +1456,6 @@
         cameraNoteArea.addEventListener("input", () => {
           const projNow = getCurrentProjectObj();
           if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
-          // keep other props, just update note
           projNow.cameras[camId].name = info.name;
           projNow.cameras[camId].done = !!info.done;
           projNow.cameras[camId].note = cameraNoteArea.value;
@@ -1471,7 +1463,6 @@
         });
         tdNote.appendChild(cameraNoteArea);
 
-        // Actions column – delete camera record
         const tdActions = document.createElement("td");
         const deleteCamBtn = document.createElement("button");
         deleteCamBtn.textContent = "Delete";
@@ -1492,7 +1483,6 @@
 
           const entry = projNow.cameras[camId];
 
-          // Collect all storage paths (array + legacy single image)
           const pathsToDelete = [];
           if (Array.isArray(entry.images)) {
             entry.images.forEach(img => {
@@ -1503,12 +1493,10 @@
             pathsToDelete.push(entry.imagePath);
           }
 
-          // Remove camera from DB state (including its camera-level note)
           delete projNow.cameras[camId];
           scheduleSave();
           renderCameraPanel();
 
-          // Fire-and-forget delete in Storage
           for (const p of pathsToDelete) {
             try {
               await deleteObject(storageRef(storage, p));
@@ -1520,19 +1508,18 @@
 
         tdActions.appendChild(deleteCamBtn);
 
-        // Append all tds in order
         tr.appendChild(tdId);
         tr.appendChild(tdName);
         tr.appendChild(tdDone);
         tr.appendChild(tdImg);
-        tr.appendChild(tdNote);    // NEW
+        tr.appendChild(tdNote);
         tr.appendChild(tdActions);
 
         cameraTableBodyEl.appendChild(tr);
       });
     }
 
-    // Render project links
+    // Project links
     function renderProjectLinks() {
       projectLinksList.innerHTML = "";
       const proj = getCurrentProjectObj();
@@ -1561,7 +1548,7 @@
         return 0;
       });
 
-      sortedLinks.forEach((link, indexInSorted) => {
+      sortedLinks.forEach(link => {
         const li = document.createElement("li");
         li.style.display = "flex";
         li.style.alignItems = "center";
@@ -1596,7 +1583,6 @@
             const projNow = getCurrentProjectObj();
             if (!projNow) return;
 
-            // Remove from the ORIGINAL array, not the sorted copy
             const originalIndex = (projNow.links || []).findIndex(
               l => l.title === link.title && l.url === link.url
             );
@@ -1617,7 +1603,44 @@
       });
     }
 
-    // localStorage helpers for last project
+    // Realtime project listener
+    function attachProjectListener(projectKey) {
+      if (currentProjectUnsubscribe) {
+        currentProjectUnsubscribe();
+        currentProjectUnsubscribe = null;
+      }
+
+      if (!projectKey) return;
+
+      const projectRef = ref(database, `${getProjectBasePath()}/${projectKey}`);
+
+      currentProjectUnsubscribe = onValue(projectRef, (snap) => {
+        if (!snap.exists()) return;
+
+        const data = snap.val();
+
+        state.projects[projectKey] = {
+          name: data.name || state.currentProjectName || "",
+          tasks: data.tasks || {},
+          notes: data.notes || {},
+          alarmPoints: data.alarmPoints || {},
+          cameras: data.cameras || {},
+          links: data.links || []
+        };
+
+        if (state.currentProjectKey === projectKey) {
+          renderSidebar();
+          renderSection(activeSectionId);
+          renderAlarmPanel();
+          renderCameraPanel();
+          renderProjectLinks();
+        }
+      }, (error) => {
+        console.error("Realtime listener error for project:", projectKey, error);
+      });
+    }
+
+    // Last project helpers
     function saveLastProjectToLocalStorage() {
       if (!state.currentProjectKey || !state.currentProjectName) return;
       const payload = {
@@ -1658,6 +1681,9 @@
 
       try {
         await loadProjectFromFirebase(parsed.key, parsed.name);
+
+        attachProjectListener(parsed.key); // realtime
+
         renderSidebar();
         if (!activeSectionId && sectionOrder.length) {
           activeSectionId = sectionOrder[0];
@@ -1671,7 +1697,7 @@
       }
     }
 
-    // Image resize helper (HEIC-aware-ish, always JPG)
+    // Image resize helper
     function resizeImageToJpeg(file, maxWidth = 2048, quality = 0.9) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -1727,7 +1753,6 @@
       });
     }
 
-    // Discover all "owner" roots that contain walmartProjectTracker data
     async function fetchAvailableBasePaths() {
       try {
         const rootRef = ref(database);
@@ -1744,7 +1769,6 @@
           }
         });
 
-        // Sort just to keep the prompt readable
         paths.sort();
         return paths;
       } catch (err) {
@@ -1753,25 +1777,26 @@
       }
     }
 
-    // Switch DATABASE_BASE_PATH and reload project data for that owner
     async function switchDatabaseBasePath(newBase) {
       if (!newBase) return;
 
       DATABASE_BASE_PATH = newBase;
       console.log("[admin] switched DATABASE_BASE_PATH to", DATABASE_BASE_PATH);
 
-      // Reset in-memory cache so we don't mix owners
       state.projects = {};
 
-      // Try to reload current project (if any) from the new base path
       if (state.currentProjectKey && state.currentProjectName) {
         try {
           await loadProjectFromFirebase(state.currentProjectKey, state.currentProjectName);
+          attachProjectListener(state.currentProjectKey);
         } catch (err) {
           console.error("Error loading project for new base path:", err);
         }
       } else {
         await restoreLastProjectForCurrentBasePath();
+        if (state.currentProjectKey) {
+          attachProjectListener(state.currentProjectKey);
+        }
       }
 
       renderSidebar();
@@ -1781,7 +1806,7 @@
       renderProjectLinks();
     }
 
-    // Tab switching
+    // Tabs
     detailTabButtons.forEach(btn => {
       btn.addEventListener("click", () => {
         detailTabButtons.forEach(b => b.classList.remove("active"));
@@ -1807,6 +1832,9 @@
 
       try {
         await loadProjectFromFirebase(key, name);
+
+        attachProjectListener(key); // realtime
+
       } catch (err) {
         console.error("Error loading project from Firebase", err);
         alert("Could not load project from Firebase. Check console/logs.");
@@ -1887,6 +1915,7 @@
       if (!proj.cameras[id]) proj.cameras[id] = {};
       proj.cameras[id].name = name;
       proj.cameras[id].done = proj.cameras[id].done || false;
+      proj.cameras[id].note = proj.cameras[id].note || "";
       scheduleSave();
       cameraIdEl.value = "";
       cameraNameEl.value = "";
@@ -1931,15 +1960,12 @@
         if (pwd === "telaidadmin") {
           editingUnlocked = true;
 
-          // Show the project links input section in admin mode
           if (projectLinksForm) {
             projectLinksForm.classList.remove("hidden");
           }
 
-          // Fetch available base paths dynamically from Firebase
           let options = await fetchAvailableBasePaths();
 
-          // Fallback if none found (e.g. no data yet or permissions limited)
           if (!options || !options.length) {
             options = [DATABASE_BASE_PATH, "public", "share"];
           }
@@ -1970,7 +1996,6 @@
           editingUnlocked = false;
           enableImageEditCheckbox.checked = false;
 
-          // Hide the form again on wrong password
           if (projectLinksForm) {
             projectLinksForm.classList.add("hidden");
           }
@@ -1978,10 +2003,8 @@
           alert("Incorrect password. Image note editing remains locked.");
         }
       } else {
-        // Turn admin mode off – just lock editing; path stays as-is until auth listener runs
         editingUnlocked = false;
 
-        // Hide the project links input section when admin is off
         if (projectLinksForm) {
           projectLinksForm.classList.add("hidden");
         }
@@ -1992,7 +2015,7 @@
       }
     });
 
-    // Upload alarm/camera image, with resize + JPG conversion and note support
+    // Upload alarm/camera image
     imageUploadInputEl.addEventListener("change", async () => {
       const file = imageUploadInputEl.files[0];
       if (!file || !pendingUploadTarget || !state.currentProjectKey) return;
@@ -2006,7 +2029,6 @@
 
         const resizedBlob = await resizeImageToJpeg(file, 2048, 0.9);
 
-        // Figure out how many images this device already has
         const proj = getCurrentProjectObj();
         let target;
 
@@ -2018,7 +2040,6 @@
           target = proj.cameras[key];
         }
 
-        // Normalize legacy single-image fields into an array for counting
         let existingCount = 0;
         if (Array.isArray(target.images)) {
           existingCount = target.images.length;
@@ -2027,10 +2048,6 @@
         }
 
         const originalBase = file.name.replace(/\.[^/.]+$/, "");
-
-        // First image → `POINT1_original.jpg`
-        // Second → `POINT1_original_2.jpg`
-        // Third → `POINT1_original_3.jpg`, etc.
         const indexSuffix = existingCount > 0 ? `_${existingCount + 1}` : "";
         const fileName = `${key}_${originalBase}${indexSuffix}.jpg`;
 
@@ -2110,7 +2127,6 @@
     });
 
     onAuthStateChanged(auth, async (user) => {
-      // Only auto-switch base path when NOT in admin override mode
       if (!editingUnlocked) {
         DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
       }
@@ -2120,6 +2136,9 @@
       if (state.currentProjectKey && state.currentProjectName) {
         try {
           await loadProjectFromFirebase(state.currentProjectKey, state.currentProjectName);
+
+          attachProjectListener(state.currentProjectKey); // realtime on auth change
+
           renderSidebar();
           renderSection(activeSectionId);
           renderAlarmPanel();
@@ -2130,13 +2149,15 @@
         }
       } else {
         await restoreLastProjectForCurrentBasePath();
+        if (state.currentProjectKey) {
+          attachProjectListener(state.currentProjectKey);
+        }
       }
     });
 
     console.log("[auth] DATABASE_BASE_PATH:", DATABASE_BASE_PATH);
 
     loadSections();
-
   </script>
 </body>
 
