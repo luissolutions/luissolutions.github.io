@@ -122,6 +122,7 @@
 
     .camera-note {
       height: 50px;
+      min-width: 100px;
     }
 
     .project-row button,
@@ -421,7 +422,6 @@
       display: flex;
       overflow: auto;
     }
-
   </style>
 </head>
 
@@ -569,18 +569,29 @@
           </div>
 
           <form id="cameraForm" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
-            <input type="text" id="cameraId" placeholder="Camera ID (CAM-01, REG-05, etc.)"
+            <input type="text" id="cameraId" placeholder="Camera ID (Cable # / CAM-01, etc.)"
               style="flex:0 0 150px;padding:4px 6px;">
             <input type="text" id="cameraName" placeholder="Camera name / location"
               style="flex:1 1 180px;padding:4px 6px;">
             <button type="submit">Add / Update</button>
           </form>
 
+          <!-- NEW: column visibility toggles -->
+          <div class="camera-column-toggles">
+            <span>Show fields:</span>
+            <label><input type="checkbox" id="toggleCameraIp"> IP</label>
+            <label><input type="checkbox" id="toggleCameraMac"> MAC</label>
+            <label><input type="checkbox" id="toggleCameraSwitch"> Switch / Port</label>
+          </div>
+
           <table class="detail-table" id="cameraTable">
             <thead>
               <tr>
                 <th>Camera ID</th>
                 <th>Name</th>
+                <th class="col-camera-ip">IP</th>
+                <th class="col-camera-mac">MAC</th>
+                <th class="col-camera-switch">Switch / Port</th>
                 <th>Done</th>
                 <th>Image(s)</th>
                 <th>Notes</th>
@@ -590,18 +601,25 @@
             <tbody></tbody>
           </table>
 
-          <!-- Export button -->
-          <button type="button" id="exportCameraCsvBtn" style="margin-bottom:8px;">
-            Export Camera Table (Cable Sheet CSV)
-          </button>
-
+          <div style="display:flex;gap:8px;margin:8px 0;">
+            <button type="button" id="importCameraCsvBtn">
+              Import Camera List (Cable Sheet CSV)
+            </button>
+            <button type="button" id="exportCameraCsvBtn">
+              Export Camera Table (Cable Sheet CSV)
+            </button>
+          </div>
         </div>
 
         <!-- hidden file input for both alarm + camera uploads -->
         <input type="file" id="imageUploadInput" accept="image/*" class="hidden">
-      </main>
+
+        <!-- NEW: hidden file input for camera CSV import -->
+        <input type="file" id="cameraCsvInput" accept=".csv" class="hidden">
+
     </div>
   </main>
+
   <script type="module">
     // -------- Firebase imports --------
     import {
@@ -633,26 +651,47 @@
     // -------- Scope-driven sections --------
     let SECTIONS = [];
 
-    async function loadSections() {
+    async function loadSections(isLoggedIn) {
       try {
-        const res = await fetch('./assets/js/sections-walmart.json'); // adjust path if needed
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
+        // Base sections – always loaded
+        const urls = [
+          './assets/js/sections-walmart.json'
+        ];
+
+        // Extra sections – only for logged-in users
+        if (isLoggedIn) {
+          urls.push('./assets/js/sections-walmart-private.json');
         }
-        SECTIONS = await res.json();
+
+        // Fetch all JSONs in parallel
+        const responses = await Promise.all(urls.map(u => fetch(u)));
+
+        for (const res of responses) {
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status} for ${res.url}`);
+          }
+        }
+
+        const jsonArrays = await Promise.all(responses.map(r => r.json()));
+
+        // Merge all arrays into one big SECTIONS array
+        SECTIONS = jsonArrays.flat();
 
         // Rebuild sectionOrder from SECTIONS (keeping any stored order if possible)
         sectionOrder = loadSectionOrderFromLocalStorage();
 
-        // Set default active section if not already set
-        if (!activeSectionId) {
+        // Set default active section if not already set or invalid
+        if (!activeSectionId || !getSectionById(activeSectionId)) {
           if (sectionOrder.length) {
             activeSectionId = sectionOrder[0];
           } else if (SECTIONS.length) {
             activeSectionId = SECTIONS[0].id;
+          } else {
+            activeSectionId = null;
           }
         }
 
+        // Now redraw UI
         renderSidebar();
         renderSection(activeSectionId);
         renderAlarmPanel();
@@ -660,7 +699,7 @@
         renderProjectLinks();
       } catch (err) {
         console.error('Failed to load sections JSON:', err);
-        alert('Could not load sections configuration. Check the JSON path / syntax.');
+        alert('Could not load sections configuration. Check the JSON paths / syntax.');
       }
     }
 
@@ -713,7 +752,17 @@
     const linkTitleInput = document.getElementById("projectLinkTitle");
     const linkUrlInput = document.getElementById("projectLinkUrl");
     const exportCameraCsvBtn = document.getElementById("exportCameraCsvBtn");
+    const importCameraCsvBtn = document.getElementById("importCameraCsvBtn");
+    const cameraCsvInputEl = document.getElementById("cameraCsvInput");
+    const toggleCameraIpEl = document.getElementById("toggleCameraIp");
+    const toggleCameraMacEl = document.getElementById("toggleCameraMac");
+    const toggleCameraSwitchEl = document.getElementById("toggleCameraSwitch");
 
+    const CAMERA_COL_VIS_KEY = "walmartProjectTracker:cameraColumns";
+
+    let cameraColumnVisibility = loadCameraColumnVisibility();
+
+    initCameraColumnToggles();
 
     // Allow pressing Enter to trigger "Set"
     projectNameInput.addEventListener("keydown", (e) => {
@@ -749,7 +798,6 @@
       return SECTIONS.find(s => s.id === id) || null;
     }
 
-    // load section order from localStorage
     function loadSectionOrderFromLocalStorage() {
       try {
         const raw = localStorage.getItem(SECTION_ORDER_STORAGE_KEY);
@@ -770,6 +818,7 @@
       }
     }
 
+
     // save section order to localStorage
     function saveSectionOrderToLocalStorage() {
       try {
@@ -777,6 +826,70 @@
       } catch (e) {
         console.warn("Could not save section order to localStorage:", e);
       }
+    }
+
+    function loadCameraColumnVisibility() {
+      try {
+        const raw = localStorage.getItem(CAMERA_COL_VIS_KEY);
+        if (!raw) {
+          // defaults: show IP, hide MAC + Switch/Port
+          return { ip: true, mac: false, sw: false };
+        }
+        const parsed = JSON.parse(raw);
+        return {
+          ip: !!parsed.ip,
+          mac: !!parsed.mac,
+          sw: !!parsed.sw
+        };
+      } catch (e) {
+        console.warn("Could not load camera column visibility:", e);
+        return { ip: true, mac: false, sw: false };
+      }
+    }
+
+    function saveCameraColumnVisibility() {
+      try {
+        localStorage.setItem(CAMERA_COL_VIS_KEY, JSON.stringify(cameraColumnVisibility));
+      } catch (e) {
+        console.warn("Could not save camera column visibility:", e);
+      }
+    }
+
+    function applyCameraColumnVisibility() {
+      const vis = cameraColumnVisibility;
+
+      const setDisplay = (selector, show) => {
+        document.querySelectorAll(selector).forEach(el => {
+          el.style.display = show ? "" : "none";
+        });
+      };
+
+      setDisplay(".col-camera-ip", !!vis.ip);
+      setDisplay(".col-camera-mac", !!vis.mac);
+      setDisplay(".col-camera-switch", !!vis.sw);
+    }
+
+    function initCameraColumnToggles() {
+      if (!toggleCameraIpEl || !toggleCameraMacEl || !toggleCameraSwitchEl) return;
+
+      // initialize checkboxes from state
+      toggleCameraIpEl.checked = !!cameraColumnVisibility.ip;
+      toggleCameraMacEl.checked = !!cameraColumnVisibility.mac;
+      toggleCameraSwitchEl.checked = !!cameraColumnVisibility.sw;
+
+      const updateFromCheckboxes = () => {
+        cameraColumnVisibility = {
+          ip: !!toggleCameraIpEl.checked,
+          mac: !!toggleCameraMacEl.checked,
+          sw: !!toggleCameraSwitchEl.checked
+        };
+        saveCameraColumnVisibility();
+        applyCameraColumnVisibility();
+      };
+
+      toggleCameraIpEl.addEventListener("change", updateFromCheckboxes);
+      toggleCameraMacEl.addEventListener("change", updateFromCheckboxes);
+      toggleCameraSwitchEl.addEventListener("change", updateFromCheckboxes);
     }
 
     function getCurrentProjectObj() {
@@ -803,6 +916,38 @@
 
     if (exportCameraCsvBtn) {
       exportCameraCsvBtn.addEventListener("click", exportCameraCableSheet);
+    }
+
+    if (importCameraCsvBtn && cameraCsvInputEl) {
+      importCameraCsvBtn.addEventListener("click", () => {
+        if (!state.currentProjectKey) {
+          alert("Set a project first before importing cameras.");
+          return;
+        }
+        cameraCsvInputEl.value = "";
+        cameraCsvInputEl.click();
+      });
+
+      cameraCsvInputEl.addEventListener("change", () => {
+        const file = cameraCsvInputEl.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            importCamerasFromCsv(reader.result);
+          } catch (err) {
+            console.error("Camera CSV import failed:", err);
+            alert("Could not import camera list. Check console for details.");
+          } finally {
+            cameraCsvInputEl.value = "";
+          }
+        };
+        reader.onerror = () => {
+          alert("Failed to read CSV file.");
+        };
+        reader.readAsText(file);
+      });
     }
 
     function exportCameraCableSheet() {
@@ -850,7 +995,10 @@
 
         // Flatten multi-line notes to a single line for CSV
         const flatNote = (info.note || "").replace(/\r?\n|\r/g, " | ");
-        row[22] = flatNote;
+
+        // Use the LAST header column as the Notes column
+        const notesColIndex = header.length - 1;
+        row[notesColIndex] = flatNote;
 
         rows.push(row);
       });
@@ -884,6 +1032,97 @@
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+    }
+
+    function importCamerasFromCsv(csvText) {
+      const proj = getCurrentProjectObj();
+      if (!proj) {
+        alert("Set a project first.");
+        return;
+      }
+
+      const lines = csvText.split(/\r?\n/).filter(l => l.trim() !== "");
+      if (!lines.length) {
+        alert("CSV appears to be empty.");
+        return;
+      }
+
+      // Find the header row that starts the cable assignment table
+      // (the row where first cell is 'Cable #')
+      let startIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const firstCell = (lines[i].split(",")[0] || "").trim().toLowerCase();
+        if (firstCell === "cable #" || firstCell === "cable#") {
+          startIdx = i + 1; // data starts on the next line
+          break;
+        }
+      }
+
+      if (startIdx === -1) {
+        alert("Could not find 'Cable #' header in CSV.");
+        return;
+      }
+
+      let importedCount = 0;
+      let updatedCount = 0;
+
+      for (let i = startIdx; i < lines.length; i++) {
+        const raw = lines[i].trim();
+        if (!raw) continue;
+
+        const cells = raw.split(","); // NOTE: assumes no commas inside fields
+
+        const cableId = (cells[0] || "").trim();
+        const locationName = (cells[1] || "").trim();
+
+        // If the first cell stops being a number, we've probably reached the end of the table
+        if (!cableId || !/^\d+$/.test(cableId)) {
+          break;
+        }
+
+        const ip = (cells[2] || "").trim();
+        const subnet = (cells[3] || "").trim();
+        const mac = (cells[4] || "").trim();
+        const switchName = (cells[5] || "").trim();
+        const switchPort = (cells[6] || "").trim();
+        const cameraModel = (cells[7] || "").trim();
+        const displayName = (cells[8] || "").trim();
+        const recordingProfile = (cells[9] || "").trim();
+        const cameraGroup = (cells[10] || "").trim();
+
+        const existing = proj.cameras[cableId] || {};
+        const alreadyExists = !!proj.cameras[cableId];
+
+        // Merge: keep existing done/images/note, overlay new cable sheet fields
+        proj.cameras[cableId] = {
+          ...existing,
+          name: locationName || existing.name || "",
+          ip: ip || existing.ip || "",
+          subnet: subnet || existing.subnet || "",
+          mac: mac || existing.mac || "",
+          switchName: switchName || existing.switchName || "",
+          switchPort: switchPort || existing.switchPort || "",
+          model: cameraModel || existing.model || "",
+          displayName: displayName || existing.displayName || "",
+          recordingProfile: recordingProfile || existing.recordingProfile || "",
+          group: cameraGroup || existing.group || ""
+        };
+
+        if (alreadyExists) {
+          updatedCount++;
+        } else {
+          importedCount++;
+        }
+      }
+
+      scheduleSave();
+      renderCameraPanel();
+
+      alert(
+        `Camera CSV import finished.\n` +
+        `New cameras: ${importedCount}\n` +
+        `Updated cameras: ${updatedCount}`
+      );
     }
 
     async function loadProjectFromFirebase(projectKey, displayName) {
@@ -1382,6 +1621,32 @@
         const tdName = document.createElement("td");
         tdName.textContent = info.name || "";
 
+        // NEW: IP column
+        const tdIp = document.createElement("td");
+        tdIp.className = "col-camera-ip";
+        tdIp.textContent = info.ip || "";
+
+        // NEW: MAC column
+        const tdMac = document.createElement("td");
+        tdMac.className = "col-camera-mac";
+        tdMac.textContent = info.mac || "";
+
+        // NEW: Switch / Port column
+        const tdSwitch = document.createElement("td");
+        tdSwitch.className = "col-camera-switch";
+        const switchName = info.switchName || "";
+        const switchPort = info.switchPort || "";
+        // Render nicely: "SW01 #24" or just "SW01" / "#24"
+        let switchText = "";
+        if (switchName && switchPort) {
+          switchText = `${switchName} #${switchPort}`;
+        } else if (switchName) {
+          switchText = switchName;
+        } else if (switchPort) {
+          switchText = `#${switchPort}`;
+        }
+        tdSwitch.textContent = switchText;
+
         // Done checkbox
         const tdDone = document.createElement("td");
         const chk = document.createElement("input");
@@ -1392,7 +1657,6 @@
           if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
           projNow.cameras[camId].name = info.name;
           projNow.cameras[camId].done = chk.checked;
-          // note stays untouched here
           scheduleSave();
           renderCameraPanel();
         });
@@ -1598,9 +1862,12 @@
 
         tdActions.appendChild(deleteCamBtn);
 
-        // Append all tds in order
+        // Append all tds in order (must match <thead>)
         tr.appendChild(tdId);
         tr.appendChild(tdName);
+        tr.appendChild(tdIp);
+        tr.appendChild(tdMac);
+        tr.appendChild(tdSwitch);
         tr.appendChild(tdDone);
         tr.appendChild(tdImg);
         tr.appendChild(tdNote);    // camera-level note
@@ -1608,7 +1875,11 @@
 
         cameraTableBodyEl.appendChild(tr);
       });
+
+      // Apply current column visibility AFTER building the table
+      applyCameraColumnVisibility();
     }
+
 
     // Render project links
     function renderProjectLinks() {
@@ -2195,20 +2466,21 @@
 
       console.log("[auth] DATABASE_BASE_PATH:", DATABASE_BASE_PATH);
 
+      // Reload project data for this base path
       if (state.currentProjectKey && state.currentProjectName) {
         try {
           await loadProjectFromFirebase(state.currentProjectKey, state.currentProjectName);
-          renderSidebar();
-          renderSection(activeSectionId);
-          renderAlarmPanel();
-          renderCameraPanel();
-          renderProjectLinks();
         } catch (err) {
           console.error("Error reloading project after auth change:", err);
         }
       } else {
         await restoreLastProjectForCurrentBasePath();
       }
+
+      // Now load correct section set:
+      // - if user is null → only public JSON
+      // - if user exists → public + private JSON
+      await loadSections(!!user);
     });
 
     console.log("[auth] DATABASE_BASE_PATH:", DATABASE_BASE_PATH);
