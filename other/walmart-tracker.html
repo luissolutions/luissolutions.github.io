@@ -403,6 +403,76 @@
     #alarmTable tbody tr:hover {
       background-color: rgba(47, 129, 247, 0.15);
     }
+
+    .camera-switch-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .camera-switch-input,
+    .camera-port-input,
+    .camera-ip-input,
+    .camera-mac-input {
+      width: 100%;
+      padding: 2px 3px;
+      border-radius: 4px;
+      border: 1px solid var(--border-subtle);
+      background: #050814;
+      color: var(--text);
+      font-size: 11px;
+    }
+
+    .project-links-card {
+      margin-top: 10px;
+      padding-top: 6px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .project-links-header {
+      font-size: 0.9rem;
+      margin-bottom: 4px;
+      color: var(--text-muted);
+    }
+
+    .project-links-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 0 0 6px 0;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+
+    .project-link-input {
+      width: 100%;
+      padding: 3px 6px;
+      border-radius: 8px;
+      border: 1px solid var(--border-subtle);
+      background: #050814;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .project-link-add-btn {
+      width: 100%;
+    }
+
+    .camera-column-toggles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .camera-column-toggles label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
   </style>
 </head>
 
@@ -629,9 +699,10 @@
         <!-- hidden file input for both alarm + camera uploads -->
         <input type="file" id="imageUploadInput" accept="image/*" class="hidden">
 
-        <!-- NEW: hidden file input for camera CSV import -->
+        <!-- hidden file input for camera CSV import -->
         <input type="file" id="cameraCsvInput" accept=".csv" class="hidden">
 
+      </main>
     </div>
   </main>
 
@@ -656,7 +727,7 @@
     let DATABASE_BASE_PATH = 'public';
     const LAST_PROJECT_STORAGE_KEY = "walmartProjectTracker:lastProject";
 
-    // NEW: localStorage key for section order
+    // localStorage key for section order
     const SECTION_ORDER_STORAGE_KEY = "walmartProjectTracker:sectionOrder";
 
     function getProjectBasePath() {
@@ -707,12 +778,7 @@
         }
 
         // Now redraw UI
-        renderSidebar();
-        renderSection(activeSectionId);
-        renderAlarmPanel();
-        renderCameraPanel();
-        renderSpeakersPanel();
-        renderProjectLinks();
+        rerenderAll();
       } catch (err) {
         console.error('Failed to load sections JSON:', err);
         alert('Could not load sections configuration. Check the JSON paths / syntax.');
@@ -723,10 +789,10 @@
     let state = {
       currentProjectName: "",
       currentProjectKey: "",
-      projects: {} // { [projectKey]: { name, tasks, notes, alarmPoints, cameras, links } }
+      projects: {} // { [projectKey]: { name, tasks, notes, alarmPoints, cameras, speakers, links } }
     };
 
-    // NEW: section order (list of section IDs)
+    // section order (list of section IDs)
     let sectionOrder = loadSectionOrderFromLocalStorage();
 
     // DOM refs
@@ -763,7 +829,6 @@
     const speakerNumberEl = document.getElementById("speakerNumber");
     const speakerNameEl = document.getElementById("speakerName");
 
-
     const setProjectBtn = document.getElementById("setProjectBtn");
     const clearProjectBtn = document.getElementById("clearProjectBtn");
     const projectNameInput = document.getElementById("projectNameInput");
@@ -783,16 +848,6 @@
     const CAMERA_COL_VIS_KEY = "walmartProjectTracker:cameraColumns";
 
     let cameraColumnVisibility = loadCameraColumnVisibility();
-
-    initCameraColumnToggles();
-
-    // Allow pressing Enter to trigger "Set"
-    projectNameInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        setProjectBtn.click();
-      }
-    });
 
     const enableImageEditCheckbox = document.getElementById("enableImageEditCheckbox");
 
@@ -820,6 +875,8 @@
       return SECTIONS.find(s => s.id === id) || null;
     }
 
+    // ------ Generic helpers / UI helpers ------
+
     function loadSectionOrderFromLocalStorage() {
       try {
         const raw = localStorage.getItem(SECTION_ORDER_STORAGE_KEY);
@@ -840,8 +897,6 @@
       }
     }
 
-
-    // save section order to localStorage
     function saveSectionOrderToLocalStorage() {
       try {
         localStorage.setItem(SECTION_ORDER_STORAGE_KEY, JSON.stringify(sectionOrder));
@@ -850,11 +905,37 @@
       }
     }
 
+    function ensureActiveSection() {
+      if (!activeSectionId || !getSectionById(activeSectionId)) {
+        if (sectionOrder.length) {
+          activeSectionId = sectionOrder[0];
+        } else if (SECTIONS.length) {
+          activeSectionId = SECTIONS[0].id;
+        } else {
+          activeSectionId = null;
+        }
+      }
+    }
+
+    function rerenderAll() {
+      renderSidebar();
+      renderSection(activeSectionId);
+      renderAlarmPanel();
+      renderCameraPanel();
+      renderSpeakersPanel();
+      renderProjectLinks();
+    }
+
+    function rerenderForCurrentProject() {
+      ensureActiveSection();
+      rerenderAll();
+    }
+
     function loadCameraColumnVisibility() {
       try {
         const raw = localStorage.getItem(CAMERA_COL_VIS_KEY);
         if (!raw) {
-          // defaults: show IP, hide MAC + Switch/Port
+          // defaults: hide all optional cols unless turned on
           return { ip: false, mac: false, sw: false };
         }
         const parsed = JSON.parse(raw);
@@ -912,6 +993,41 @@
       toggleCameraIpEl.addEventListener("change", updateFromCheckboxes);
       toggleCameraMacEl.addEventListener("change", updateFromCheckboxes);
       toggleCameraSwitchEl.addEventListener("change", updateFromCheckboxes);
+    }
+
+    // Normalize legacy single-image fields into an array for any alarm/camera entry
+    function normalizeImagesArray(target) {
+      if (!target) return [];
+      if (Array.isArray(target.images)) return target.images;
+
+      const images = [];
+      if (target.imageUrl) {
+        images.push({
+          url: target.imageUrl,
+          path: target.imagePath || null,
+          note: target.imageNote || ""
+        });
+      }
+      target.images = images;
+      target.imageUrl = null;
+      target.imagePath = null;
+      target.imageNote = null;
+      return images;
+    }
+
+    // Collect all storage paths to be deleted for a given alarm/camera entry
+    function collectImagePaths(entry) {
+      const paths = [];
+      if (!entry) return paths;
+      if (Array.isArray(entry.images)) {
+        entry.images.forEach(img => {
+          if (img && img.path) paths.push(img.path);
+        });
+      }
+      if (entry.imagePath) {
+        paths.push(entry.imagePath);
+      }
+      return paths;
     }
 
     function getCurrentProjectObj() {
@@ -1015,7 +1131,6 @@
         // Map your fields
         row[0] = camId || "";              // Cable #
         row[1] = info.name || "";          // Location Name
-        // row[2]..row[21] remain "" (blank for now)
 
         // Flatten multi-line notes to a single line for CSV
         const flatNote = (info.note || "").replace(/\r?\n|\r/g, " | ");
@@ -1451,16 +1566,7 @@
         });
         tdImg.appendChild(addBtn);
 
-        // Normalize images to array (legacy support)
-        const images = Array.isArray(info.images)
-          ? info.images
-          : info.imageUrl
-            ? [{
-              url: info.imageUrl,
-              path: info.imagePath || null,
-              note: info.imageNote || ""
-            }]
-            : [];
+        const images = normalizeImagesArray(info);
 
         if (images.length) {
           const strip = document.createElement("div");
@@ -1494,23 +1600,9 @@
               if (!projNow.alarmPoints[pointNum]) projNow.alarmPoints[pointNum] = {};
               const target = projNow.alarmPoints[pointNum];
 
-              if (!Array.isArray(target.images)) {
-                target.images = [];
-                if (target.imageUrl) {
-                  target.images.push({
-                    url: target.imageUrl,
-                    path: target.imagePath || null,
-                    note: target.imageNote || ""
-                  });
-                }
-              }
+              normalizeImagesArray(target);
 
               const [removed] = target.images.splice(index, 1);
-
-              // Clear legacy single-image fields
-              target.imageUrl = null;
-              target.imagePath = null;
-              target.imageNote = null;
 
               scheduleSave();
               renderAlarmPanel();
@@ -1537,26 +1629,17 @@
               if (!projNow.alarmPoints[pointNum]) projNow.alarmPoints[pointNum] = {};
               const target = projNow.alarmPoints[pointNum];
 
-              if (!Array.isArray(target.images)) {
-                target.images = [];
-                if (target.imageUrl) {
-                  target.images.push({
-                    url: target.imageUrl,
-                    path: target.imagePath || null,
-                    note: target.imageNote || ""
-                  });
-                }
-              }
+              const imagesArr = normalizeImagesArray(target);
 
-              if (!target.images[index]) {
-                target.images[index] = {
+              if (!imagesArr[index]) {
+                imagesArr[index] = {
                   url: img.url,
                   path: img.path || null,
                   note: ""
                 };
               }
 
-              target.images[index].note = note.value;
+              imagesArr[index].note = note.value;
               scheduleSave();
             });
 
@@ -1606,16 +1689,7 @@
 
           const entry = projNow.alarmPoints[pointNum];
 
-          // Collect all storage paths (array + legacy single image)
-          const pathsToDelete = [];
-          if (Array.isArray(entry.images)) {
-            entry.images.forEach(img => {
-              if (img && img.path) pathsToDelete.push(img.path);
-            });
-          }
-          if (entry.imagePath) {
-            pathsToDelete.push(entry.imagePath);
-          }
+          const pathsToDelete = collectImagePaths(entry);
 
           // Remove from database state
           delete projNow.alarmPoints[pointNum];
@@ -1727,7 +1801,7 @@
         const tdName = document.createElement("td");
         tdName.textContent = info.name || "";
 
-        // NEW: IP column (editable)
+        // IP column (editable)
         const tdIp = document.createElement("td");
         tdIp.classList.add("col-camera-ip");
         const ipInput = document.createElement("input");
@@ -1743,7 +1817,7 @@
         });
         tdIp.appendChild(ipInput);
 
-        // NEW: MAC column (editable)
+        // MAC column (editable)
         const tdMac = document.createElement("td");
         tdMac.classList.add("col-camera-mac");
         const macInput = document.createElement("input");
@@ -1759,7 +1833,7 @@
         });
         tdMac.appendChild(macInput);
 
-        // NEW: Switch / Port column (editable)
+        // Switch / Port column (editable)
         const tdSwitch = document.createElement("td");
         tdSwitch.classList.add("col-camera-switch", "camera-switch-cell");
 
@@ -1823,16 +1897,7 @@
         });
         tdImg.appendChild(addBtn);
 
-        // Normalize images to array (backward compatible)
-        const images = Array.isArray(info.images)
-          ? info.images
-          : info.imageUrl
-            ? [{
-              url: info.imageUrl,
-              path: info.imagePath || null,
-              note: info.imageNote || ""
-            }]
-            : [];
+        const images = normalizeImagesArray(info);
 
         if (images.length) {
           const strip = document.createElement("div");
@@ -1866,23 +1931,9 @@
               if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
               const target = projNow.cameras[camId];
 
-              if (!Array.isArray(target.images)) {
-                target.images = [];
-                if (target.imageUrl) {
-                  target.images.push({
-                    url: target.imageUrl,
-                    path: target.imagePath || null,
-                    note: target.imageNote || ""
-                  });
-                }
-              }
+              const imagesArr = normalizeImagesArray(target);
 
-              const [removed] = target.images.splice(index, 1);
-
-              // Clear legacy single-image fields
-              target.imageUrl = null;
-              target.imagePath = null;
-              target.imageNote = null;
+              const [removed] = imagesArr.splice(index, 1);
 
               scheduleSave();
               renderCameraPanel();
@@ -1909,26 +1960,17 @@
               if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
               const target = projNow.cameras[camId];
 
-              if (!Array.isArray(target.images)) {
-                target.images = [];
-                if (target.imageUrl) {
-                  target.images.push({
-                    url: target.imageUrl,
-                    path: target.imagePath || null,
-                    note: target.imageNote || ""
-                  });
-                }
-              }
+              const imagesArr = normalizeImagesArray(target);
 
-              if (!target.images[index]) {
-                target.images[index] = {
+              if (!imagesArr[index]) {
+                imagesArr[index] = {
                   url: img.url,
                   path: img.path || null,
                   note: ""
                 };
               }
 
-              target.images[index].note = note.value;
+              imagesArr[index].note = note.value;
               scheduleSave();
             });
 
@@ -1941,7 +1983,7 @@
           tdImg.appendChild(strip);
         }
 
-        // NEW: Camera-level notes cell
+        // Camera-level notes cell
         const tdNote = document.createElement("td");
         const cameraNoteArea = document.createElement("textarea");
         cameraNoteArea.className = "camera-note";
@@ -1950,7 +1992,6 @@
         cameraNoteArea.addEventListener("blur", () => {
           const projNow = getCurrentProjectObj();
           if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
-          // keep other props, just update note
           projNow.cameras[camId].name = info.name;
           projNow.cameras[camId].done = !!info.done;
           projNow.cameras[camId].note = cameraNoteArea.value;
@@ -1979,16 +2020,7 @@
 
           const entry = projNow.cameras[camId];
 
-          // Collect all storage paths (array + legacy single image)
-          const pathsToDelete = [];
-          if (Array.isArray(entry.images)) {
-            entry.images.forEach(img => {
-              if (img && img.path) pathsToDelete.push(img.path);
-            });
-          }
-          if (entry.imagePath) {
-            pathsToDelete.push(entry.imagePath);
-          }
+          const pathsToDelete = collectImagePaths(entry);
 
           // Remove camera from DB state (including its camera-level note)
           delete projNow.cameras[camId];
@@ -2015,7 +2047,7 @@
         tr.appendChild(tdSwitch);
         tr.appendChild(tdDone);
         tr.appendChild(tdImg);
-        tr.appendChild(tdNote);    // camera-level note
+        tr.appendChild(tdNote);
         tr.appendChild(tdActions);
 
         cameraTableBodyEl.appendChild(tr);
@@ -2089,7 +2121,6 @@
             const projNow = getCurrentProjectObj();
             if (!projNow) return;
 
-            // Remove from the ORIGINAL array, not the sorted copy
             const originalIndex = (projNow.links || []).findIndex(
               l => l.title === link.title && l.url === link.url
             );
@@ -2151,15 +2182,7 @@
 
       try {
         await loadProjectFromFirebase(parsed.key, parsed.name);
-        renderSidebar();
-        if (!activeSectionId && sectionOrder.length) {
-          activeSectionId = sectionOrder[0];
-        }
-        renderSection(activeSectionId);
-        renderAlarmPanel();
-        renderCameraPanel();
-        renderSpeakersPanel();
-        renderProjectLinks();
+        rerenderForCurrentProject();
       } catch (err) {
         console.error("Error restoring last project from Firebase:", err);
       }
@@ -2268,11 +2291,7 @@
         await restoreLastProjectForCurrentBasePath();
       }
 
-      renderSidebar();
-      renderSection(activeSectionId);
-      renderAlarmPanel();
-      renderCameraPanel();
-      renderProjectLinks();
+      rerenderForCurrentProject();
     }
 
     function updateCameraStats() {
@@ -2309,6 +2328,16 @@
       }
     }
 
+    // ----- Event bindings -----
+
+    // Allow pressing Enter to trigger "Set"
+    projectNameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        setProjectBtn.click();
+      }
+    });
+
     detailTabButtons.forEach(btn => {
       btn.addEventListener("click", () => {
         detailTabButtons.forEach(b => b.classList.remove("active"));
@@ -2322,7 +2351,6 @@
         if (panel === "speakers") speakersPanelEl.classList.remove("hidden");
       });
     });
-
 
     // Set project
     setProjectBtn.addEventListener("click", async () => {
@@ -2345,15 +2373,7 @@
 
       saveLastProjectToLocalStorage();
 
-      renderSidebar();
-      if (!activeSectionId && sectionOrder.length) {
-        activeSectionId = sectionOrder[0];
-      }
-      renderSection(activeSectionId);
-      renderAlarmPanel();
-      renderCameraPanel();
-      renderSpeakersPanel();
-      renderProjectLinks();
+      rerenderForCurrentProject();
     });
 
     // Clear checklist (keep notes + images)
@@ -2366,8 +2386,7 @@
       const proj = getCurrentProjectObj();
       proj.tasks = {};
       scheduleSave();
-      renderSidebar();
-      renderSection(activeSectionId);
+      rerenderForCurrentProject();
     });
 
     // Section notes – save on blur (click-out)
@@ -2579,19 +2598,12 @@
           target = proj.cameras[key];
         }
 
-        // Normalize legacy single-image fields into an array for counting
         let existingCount = 0;
-        if (Array.isArray(target.images)) {
-          existingCount = target.images.length;
-        } else if (target.imageUrl) {
-          existingCount = 1;
-        }
+        const existingImages = normalizeImagesArray(target);
+        existingCount = existingImages.length;
 
         const originalBase = file.name.replace(/\.[^/.]+$/, "");
 
-        // First image → `POINT1_original.jpg`
-        // Second → `POINT1_original_2.jpg`
-        // Third → `POINT1_original_3.jpg`, etc.
         const indexSuffix = existingCount > 0 ? `_${existingCount + 1}` : "";
         const fileName = `${key}_${originalBase}${indexSuffix}.jpg`;
 
@@ -2613,44 +2625,18 @@
 
         if (kind === "alarm") {
           if (!proj.alarmPoints[key]) proj.alarmPoints[key] = {};
-          const target = proj.alarmPoints[key];
+          const targetAlarm = proj.alarmPoints[key];
 
-          if (!Array.isArray(target.images)) {
-            target.images = [];
-            if (target.imageUrl) {
-              target.images.push({
-                url: target.imageUrl,
-                path: target.imagePath || null,
-                note: target.imageNote || ""
-              });
-            }
-          }
-          target.images.push({ url, path, note: "" });
-
-          target.imageUrl = null;
-          target.imagePath = null;
-          target.imageNote = null;
+          const imagesArr = normalizeImagesArray(targetAlarm);
+          imagesArr.push({ url, path, note: "" });
 
           renderAlarmPanel();
         } else if (kind === "camera") {
           if (!proj.cameras[key]) proj.cameras[key] = {};
-          const target = proj.cameras[key];
+          const targetCam = proj.cameras[key];
 
-          if (!Array.isArray(target.images)) {
-            target.images = [];
-            if (target.imageUrl) {
-              target.images.push({
-                url: target.imageUrl,
-                path: target.imagePath || null,
-                note: target.imageNote || ""
-              });
-            }
-          }
-          target.images.push({ url, path, note: "" });
-
-          target.imageUrl = null;
-          target.imagePath = null;
-          target.imageNote = null;
+          const imagesArr = normalizeImagesArray(targetCam);
+          imagesArr.push({ url, path, note: "" });
 
           renderCameraPanel();
         }
@@ -2670,6 +2656,10 @@
       }
     });
 
+    // ----- Init camera column toggles -----
+    initCameraColumnToggles();
+
+    // ----- Auth / init -----
     onAuthStateChanged(auth, async (user) => {
       // Only auto-switch base path when NOT in admin override mode
       if (!editingUnlocked) {
@@ -2690,14 +2680,10 @@
       }
 
       // Now load correct section set:
-      // - if user is null → only public JSON
-      // - if user exists → public + private JSON
       await loadSections(!!user);
     });
 
     console.log("[auth] DATABASE_BASE_PATH:", DATABASE_BASE_PATH);
-
-    loadSections();
   </script>
 </body>
 
