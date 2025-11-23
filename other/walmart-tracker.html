@@ -394,11 +394,13 @@
       justify-content: space-around;
     }
 
-    #cameraTable tbody tr:nth-child(odd), #alarmTable tbody tr:nth-child(odd) {
+    #cameraTable tbody tr:nth-child(odd),
+    #alarmTable tbody tr:nth-child(odd) {
       background-color: rgba(255, 255, 255, 0.02);
     }
 
-    #cameraTable tbody tr:hover, #alarmTable tbody tr:hover {
+    #cameraTable tbody tr:hover,
+    #alarmTable tbody tr:hover {
       background-color: rgba(47, 129, 247, 0.15);
     }
   </style>
@@ -511,6 +513,7 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
           <button type="button" class="detail-tab" data-panel="alarm">Alarm Points</button>
           <button type="button" class="detail-tab" data-panel="cameras">Cameras</button>
+          <button type="button" class="detail-tab" data-panel="speakers">Speakers</button>
         </div>
 
         <div>
@@ -539,6 +542,7 @@
                 <th>Name</th>
                 <th>Done</th>
                 <th>Image(s)</th>
+                <th>Notes</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -593,6 +597,33 @@
               Export Camera Table (Cable Sheet CSV)
             </button>
           </div>
+        </div>
+
+        <!-- Speakers panel -->
+        <div id="speakersPanel" class="detail-panel hidden">
+          <div>
+            Track speakers: number, name/location, and notes.
+          </div>
+
+          <form id="speakerForm" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+            <input type="number" id="speakerNumber" placeholder="Speaker #" min="0"
+              style="flex:0 0 90px;padding:4px 6px;">
+            <input type="text" id="speakerName" placeholder="Speaker name / location"
+              style="flex:1 1 180px;padding:4px 6px;">
+            <button type="submit">Add / Update</button>
+          </form>
+
+          <table class="detail-table" id="speakerTable">
+            <thead>
+              <tr>
+                <th>Speaker #</th>
+                <th>Name</th>
+                <th>Notes</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
 
         <!-- hidden file input for both alarm + camera uploads -->
@@ -680,6 +711,7 @@
         renderSection(activeSectionId);
         renderAlarmPanel();
         renderCameraPanel();
+        renderSpeakersPanel();
         renderProjectLinks();
       } catch (err) {
         console.error('Failed to load sections JSON:', err);
@@ -725,6 +757,12 @@
     const cameraNameEl = document.getElementById("cameraName");
     const imageUploadInputEl = document.getElementById("imageUploadInput");
     const detailTabButtons = document.querySelectorAll(".detail-tab");
+    const speakersPanelEl = document.getElementById("speakersPanel");
+    const speakerTableBodyEl = document.querySelector("#speakerTable tbody");
+    const speakerFormEl = document.getElementById("speakerForm");
+    const speakerNumberEl = document.getElementById("speakerNumber");
+    const speakerNameEl = document.getElementById("speakerName");
+
 
     const setProjectBtn = document.getElementById("setProjectBtn");
     const clearProjectBtn = document.getElementById("clearProjectBtn");
@@ -885,6 +923,7 @@
           notes: {},
           alarmPoints: {},
           cameras: {},
+          speakers: {},
           links: []
         };
       } else {
@@ -893,6 +932,7 @@
         proj.notes = proj.notes || {};
         proj.alarmPoints = proj.alarmPoints || {};
         proj.cameras = proj.cameras || {};
+        proj.speakers = proj.speakers || {};
         proj.links = proj.links || [];
       }
       return state.projects[state.currentProjectKey];
@@ -1120,6 +1160,7 @@
           notes: data.notes || {},
           alarmPoints: data.alarmPoints || {},
           cameras: data.cameras || {},
+          speakers: data.speakers || {},
           links: data.links || []
         };
       } else {
@@ -1129,6 +1170,7 @@
           notes: {},
           alarmPoints: {},
           cameras: {},
+          speakers: {},
           links: []
         };
         await set(projectRef, newData);
@@ -1147,6 +1189,7 @@
         notes: proj.notes || {},
         alarmPoints: proj.alarmPoints || {},
         cameras: proj.cameras || {},
+        speakers: proj.speakers || {},
         links: proj.links || []
       });
     }
@@ -1526,6 +1569,22 @@
           tdImg.appendChild(strip);
         }
 
+        // Notes cell for the alarm point
+        const tdNote = document.createElement("td");
+        const alarmNoteArea = document.createElement("textarea");
+        alarmNoteArea.className = "camera-note"; // reuse styling
+        alarmNoteArea.placeholder = "Alarm point notes…";
+        alarmNoteArea.value = info.note || "";
+        alarmNoteArea.addEventListener("blur", () => {
+          const projNow = getCurrentProjectObj();
+          if (!projNow.alarmPoints[pointNum]) projNow.alarmPoints[pointNum] = {};
+          projNow.alarmPoints[pointNum].name = info.name;
+          projNow.alarmPoints[pointNum].done = !!info.done;
+          projNow.alarmPoints[pointNum].note = alarmNoteArea.value;
+          scheduleSave();
+        });
+        tdNote.appendChild(alarmNoteArea);
+
         // Actions cell (Delete point)
         const tdActions = document.createElement("td");
         const deletePointBtn = document.createElement("button");
@@ -1579,9 +1638,72 @@
         tr.appendChild(tdName);
         tr.appendChild(tdDone);
         tr.appendChild(tdImg);
+        tr.appendChild(tdNote);
         tr.appendChild(tdActions);
 
         alarmTableBodyEl.appendChild(tr);
+      });
+    }
+
+    function renderSpeakersPanel() {
+      const proj = getCurrentProjectObj();
+      speakerTableBodyEl.innerHTML = "";
+      if (!proj) return;
+
+      const entries = Object.entries(proj.speakers || {}).sort(
+        ([a], [b]) => Number(a) - Number(b)
+      );
+
+      entries.forEach(([num, info]) => {
+        const tr = document.createElement("tr");
+
+        const tdNum = document.createElement("td");
+        tdNum.textContent = num;
+
+        const tdName = document.createElement("td");
+        tdName.textContent = info.name || "";
+
+        const tdNote = document.createElement("td");
+        const noteArea = document.createElement("textarea");
+        noteArea.className = "camera-note"; // reuse styling
+        noteArea.placeholder = "Speaker notes…";
+        noteArea.value = info.note || "";
+        noteArea.addEventListener("blur", () => {
+          const projNow = getCurrentProjectObj();
+          if (!projNow.speakers[num]) projNow.speakers[num] = {};
+          projNow.speakers[num].name = info.name;
+          projNow.speakers[num].note = noteArea.value;
+          scheduleSave();
+        });
+        tdNote.appendChild(noteArea);
+
+        const tdActions = document.createElement("td");
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "Delete";
+        delBtn.title = "Delete this speaker";
+
+        delBtn.addEventListener("click", () => {
+          if (!editingUnlocked) {
+            alert("Enable admin editing to delete speakers.");
+            return;
+          }
+          if (!confirm(`Delete speaker ${num}?`)) return;
+
+          const projNow = getCurrentProjectObj();
+          if (!projNow || !projNow.speakers) return;
+          delete projNow.speakers[num];
+          scheduleSave();
+          renderSpeakersPanel();
+        });
+
+        tdActions.appendChild(delBtn);
+
+        tr.appendChild(tdNum);
+        tr.appendChild(tdName);
+        tr.appendChild(tdNote);
+        tr.appendChild(tdActions);
+
+        speakerTableBodyEl.appendChild(tr);
       });
     }
 
@@ -2036,6 +2158,7 @@
         renderSection(activeSectionId);
         renderAlarmPanel();
         renderCameraPanel();
+        renderSpeakersPanel();
         renderProjectLinks();
       } catch (err) {
         console.error("Error restoring last project from Firebase:", err);
@@ -2186,7 +2309,6 @@
       }
     }
 
-    // Tab switching
     detailTabButtons.forEach(btn => {
       btn.addEventListener("click", () => {
         detailTabButtons.forEach(b => b.classList.remove("active"));
@@ -2194,10 +2316,13 @@
         const panel = btn.dataset.panel;
         alarmPanelEl.classList.add("hidden");
         cameraPanelEl.classList.add("hidden");
+        speakersPanelEl.classList.add("hidden");
         if (panel === "alarm") alarmPanelEl.classList.remove("hidden");
         if (panel === "cameras") cameraPanelEl.classList.remove("hidden");
+        if (panel === "speakers") speakersPanelEl.classList.remove("hidden");
       });
     });
+
 
     // Set project
     setProjectBtn.addEventListener("click", async () => {
@@ -2227,6 +2352,7 @@
       renderSection(activeSectionId);
       renderAlarmPanel();
       renderCameraPanel();
+      renderSpeakersPanel();
       renderProjectLinks();
     });
 
@@ -2296,6 +2422,34 @@
       cameraIdEl.value = "";
       cameraNameEl.value = "";
       renderCameraPanel();
+    });
+
+    // Speaker form
+    speakerFormEl.addEventListener("submit", e => {
+      e.preventDefault();
+      const proj = getCurrentProjectObj();
+      if (!proj) {
+        alert("Set a project first.");
+        return;
+      }
+
+      const num = speakerNumberEl.value.trim();
+      const name = speakerNameEl.value.trim();
+
+      if (!num || !name) {
+        alert("Speaker # and name are required.");
+        return;
+      }
+
+      if (!proj.speakers[num]) proj.speakers[num] = {};
+      proj.speakers[num].name = name;
+      proj.speakers[num].note = proj.speakers[num].note || "";
+
+      scheduleSave();
+
+      speakerNumberEl.value = "";
+      speakerNameEl.value = "";
+      renderSpeakersPanel();
     });
 
     // Project links form – add link (admin only)
@@ -2370,6 +2524,7 @@
 
           renderAlarmPanel();
           renderCameraPanel();
+          renderSpeakersPanel();
           renderProjectLinks();
         } else {
           editingUnlocked = false;
@@ -2393,6 +2548,7 @@
 
         renderAlarmPanel();
         renderCameraPanel();
+        renderSpeakersPanel();
         renderProjectLinks();
       }
     });
