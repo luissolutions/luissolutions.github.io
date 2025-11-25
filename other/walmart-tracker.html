@@ -237,12 +237,14 @@
               <tr>
                 <th>Speaker #</th>
                 <th>Name</th>
+                <th>Image(s)</th> <!-- NEW -->
                 <th>Notes</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
+
         </div>
 
         <!-- hidden file input for both alarm + camera + task uploads -->
@@ -1401,12 +1403,121 @@
       entries.forEach(([num, info]) => {
         const tr = document.createElement("tr");
 
+        // Speaker #
         const tdNum = document.createElement("td");
         tdNum.textContent = num;
 
+        // Name
         const tdName = document.createElement("td");
         tdName.textContent = info.name || "";
 
+        // Image(s) column
+        const tdImg = document.createElement("td");
+
+        // Add Image button (always available)
+        const addBtn = document.createElement("button");
+        addBtn.textContent = "Add Image";
+        addBtn.addEventListener("click", () => {
+          if (!state.currentProjectKey) {
+            alert("Set a project first.");
+            return;
+          }
+          pendingUploadTarget = { kind: "speaker", key: num };
+          imageUploadInputEl.value = "";
+          imageUploadInputEl.click();
+        });
+        tdImg.appendChild(addBtn);
+
+        // Existing images (use same normalize helper)
+        const images = normalizeImagesArray(info);
+
+        if (images.length) {
+          const strip = document.createElement("div");
+          strip.className = "thumb-strip";
+
+          images.forEach((img, index) => {
+            const wrapper = document.createElement("div");
+            wrapper.className = "thumb-wrapper";
+
+            const thumb = document.createElement("img");
+            thumb.className = "thumb-img";
+            thumb.src = img.url;
+            thumb.alt = `Speaker ${num} image ${index + 1}`;
+            thumb.title = "Click to open full image";
+            thumb.addEventListener("click", () => {
+              window.open(img.url, "_blank");
+            });
+
+            const delBtn = document.createElement("button");
+            delBtn.className = "thumb-delete";
+            delBtn.textContent = "×";
+            delBtn.title = "Delete this image";
+            delBtn.addEventListener("click", async () => {
+              if (!editingUnlocked) {
+                alert("Enable admin editing to delete images.");
+                return;
+              }
+              if (!confirm("Delete this image for this speaker?")) return;
+
+              const projNow = getCurrentProjectObj();
+              if (!projNow.speakers[num]) projNow.speakers[num] = {};
+              const target = projNow.speakers[num];
+
+              const imagesArr = normalizeImagesArray(target);
+              const [removed] = imagesArr.splice(index, 1);
+
+              scheduleSave();
+              renderSpeakersPanel();
+
+              if (removed && removed.path) {
+                try {
+                  await deleteObject(storageRef(storage, removed.path));
+                } catch (e) {
+                  console.warn(
+                    "Storage delete failed (maybe already removed):",
+                    e
+                  );
+                }
+              }
+            });
+
+            const note = document.createElement("textarea");
+            note.className = "thumb-note";
+            note.rows = 2;
+            note.placeholder = "Notes for this image…";
+            note.value = img.note || "";
+            note.readOnly = !editingUnlocked;
+            note.addEventListener("blur", () => {
+              if (!editingUnlocked) return;
+
+              const projNow = getCurrentProjectObj();
+              if (!projNow.speakers[num]) projNow.speakers[num] = {};
+              const target = projNow.speakers[num];
+
+              const imagesArr = normalizeImagesArray(target);
+
+              if (!imagesArr[index]) {
+                imagesArr[index] = {
+                  url: img.url,
+                  path: img.path || null,
+                  note: ""
+                };
+              }
+
+              imagesArr[index].note = note.value;
+              scheduleSave();
+            });
+
+            wrapper.appendChild(thumb);
+            wrapper.appendChild(delBtn);
+            wrapper.appendChild(note);
+            strip.appendChild(wrapper);
+          });
+
+          tdImg.appendChild(strip);
+        }
+
+        // Notes cell
         const tdNote = document.createElement("td");
         const noteArea = document.createElement("textarea");
         noteArea.className = "camera-note"; // reuse styling
@@ -1421,29 +1532,48 @@
         });
         tdNote.appendChild(noteArea);
 
+        // Actions (Delete speaker + all its images)
         const tdActions = document.createElement("td");
         const delBtn = document.createElement("button");
         delBtn.textContent = "Delete";
         delBtn.title = "Delete this speaker";
 
-        delBtn.addEventListener("click", () => {
+        delBtn.addEventListener("click", async () => {
           if (!editingUnlocked) {
             alert("Enable admin editing to delete speakers.");
             return;
           }
-          if (!confirm(`Delete speaker ${num}?`)) return;
+          if (!confirm(`Delete speaker ${num} and all associated images?`)) return;
 
           const projNow = getCurrentProjectObj();
-          if (!projNow || !projNow.speakers) return;
+          if (!projNow || !projNow.speakers || !projNow.speakers[num]) return;
+
+          const entry = projNow.speakers[num];
+
+          // collect all storage paths (same helper you use elsewhere)
+          const pathsToDelete = collectImagePaths(entry);
+
+          // delete from DB state
           delete projNow.speakers[num];
           scheduleSave();
           renderSpeakersPanel();
+
+          // delete from Storage (best-effort)
+          for (const p of pathsToDelete) {
+            try {
+              await deleteObject(storageRef(storage, p));
+            } catch (e) {
+              console.warn("Failed to delete speaker image from storage:", p, e);
+            }
+          }
         });
 
         tdActions.appendChild(delBtn);
 
+        // Append in the same order as the header
         tr.appendChild(tdNum);
         tr.appendChild(tdName);
+        tr.appendChild(tdImg);
         tr.appendChild(tdNote);
         tr.appendChild(tdActions);
 
@@ -2292,6 +2422,9 @@
             };
           }
           target = proj.tasks[key];
+        } else if (kind === "speaker") {
+          if (!proj.speakers[key]) proj.speakers[key] = {};
+          target = proj.speakers[key];
         } else {
           alert("Unknown upload target type.");
           return;
@@ -2330,6 +2463,8 @@
           renderCameraPanel();
         } else if (kind === "task") {
           renderSection(activeSectionId);
+        } else if (kind === "speaker") {
+          renderSpeakersPanel();
         }
 
         scheduleSave();
