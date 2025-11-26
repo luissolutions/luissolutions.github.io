@@ -268,6 +268,8 @@
       set,
       update,
       get,
+      onValue,
+      off,
       storageRef,
       uploadBytes,
       getDownloadURL,
@@ -333,6 +335,10 @@
       currentProjectKey: "",
       projects: {} // { [projectKey]: { name, tasks, notes, alarmPoints, cameras, speakers, links } }
     };
+
+    // live Firebase listener for current project
+    let projectListenerRef = null;
+    let projectListenerCallback = null;
 
     // section order (list of section IDs)
     let sectionOrder = [];
@@ -414,6 +420,20 @@
         .toLowerCase()
         .replace(/[.#$/\[\]]/g, "_")
         .replace(/\s+/g, "_");
+    }
+
+    // Normalize project object from Firebase
+    function normalizeProjectFromData(data, displayName) {
+      data = data || {};
+      return {
+        name: data.name || displayName || "",
+        tasks: data.tasks || {},
+        notes: data.notes || {},
+        alarmPoints: data.alarmPoints || {},
+        cameras: data.cameras || {},
+        speakers: data.speakers || {},
+        links: Array.isArray(data.links) ? data.links : []
+      };
     }
 
     // Safe task key for Firebase (handles "1.05" etc.)
@@ -800,19 +820,10 @@
     // ---- Firebase load/save ----
     async function loadProjectFromFirebase(projectKey, displayName) {
       const projectRef = ref(database, `${getProjectBasePath()}/${projectKey}`);
+
+      // Initial load / ensure existence
       const snap = await get(projectRef);
-      if (snap.exists()) {
-        const data = snap.val();
-        state.projects[projectKey] = {
-          name: data.name || displayName,
-          tasks: data.tasks || {},
-          notes: data.notes || {},
-          alarmPoints: data.alarmPoints || {},
-          cameras: data.cameras || {},
-          speakers: data.speakers || {},
-          links: data.links || []
-        };
-      } else {
+      if (!snap.exists()) {
         const newData = {
           name: displayName,
           tasks: {},
@@ -824,7 +835,32 @@
         };
         await set(projectRef, newData);
         state.projects[projectKey] = newData;
+      } else {
+        state.projects[projectKey] = normalizeProjectFromData(snap.val(), displayName);
       }
+
+      // Tear down previous listener (if any)
+      if (projectListenerRef && projectListenerCallback) {
+        try {
+          off(projectListenerRef, "value", projectListenerCallback);
+        } catch (e) {
+          console.warn("Error removing previous project listener:", e);
+        }
+      }
+
+      // Set up live listener for this project
+      projectListenerRef = projectRef;
+      projectListenerCallback = (snapshot) => {
+        if (!snapshot.exists()) return;
+        const data = snapshot.val();
+        state.projects[projectKey] = normalizeProjectFromData(data, displayName);
+
+        if (state.currentProjectKey === projectKey) {
+          rerenderForCurrentProject();
+        }
+      };
+
+      onValue(projectRef, projectListenerCallback);
     }
 
     async function saveProjectToFirebase() {
