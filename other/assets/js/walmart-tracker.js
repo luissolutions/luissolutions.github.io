@@ -14,7 +14,7 @@ import {
   uploadBytes,
   getDownloadURL,
   deleteObject
-} from '../../../assets/js/firebase-init.js';
+} from "../../../assets/js/firebase-init.js";
 
 // -------- Constants / keys --------
 const ADMIN_PASSWORD = "telaidadmin";
@@ -23,21 +23,65 @@ const SECTION_ORDER_STORAGE_KEY = "walmartProjectTracker:sectionOrder";
 const CAMERA_COL_VIS_KEY = "walmartProjectTracker:cameraColumns";
 
 // ---- Search state ----
-let cameraSearchQuery = "";
+let globalSearchQuery = "";
 
+// Cameras search engine
 const cameraSearchEngine = (window.SearchEngine
   ? window.SearchEngine.create({
     fields: {
-      id: { type: "string", resolver: r => r.id },
-      name: { type: "string", resolver: r => r.name },
-      ip: { type: "string", resolver: r => r.ip },
-      mac: { type: "string", resolver: r => r.mac },
-      note: { type: "string", resolver: r => r.note },
-      switch: { type: "string", resolver: r => r.switchName },
-      port: { type: "string", resolver: r => r.switchPort },
-      done: { type: "string", resolver: r => (r.done ? "done" : "notdone") }
+      id: { type: "string", resolver: (r) => r.id },
+      name: { type: "string", resolver: (r) => r.name },
+      ip: { type: "string", resolver: (r) => r.ip },
+      mac: { type: "string", resolver: (r) => r.mac },
+      note: { type: "string", resolver: (r) => r.note },
+      switch: { type: "string", resolver: (r) => r.switchName },
+      port: { type: "string", resolver: (r) => r.switchPort },
+      done: {
+        type: "string",
+        resolver: (r) => (r.done ? "done" : "notdone")
+      }
     },
     defaultFields: ["id", "name", "ip", "mac", "note", "switch", "port"],
+    caseSensitive: false
+  })
+  : {
+    filter(records) {
+      return records || [];
+    }
+  }
+);
+
+// Alarm points search engine
+const alarmSearchEngine = (window.SearchEngine
+  ? window.SearchEngine.create({
+    fields: {
+      id: { type: "string", resolver: (r) => r.id },
+      name: { type: "string", resolver: (r) => r.name },
+      note: { type: "string", resolver: (r) => r.note },
+      done: {
+        type: "string",
+        resolver: (r) => (r.done ? "done" : "notdone")
+      }
+    },
+    defaultFields: ["id", "name", "note"],
+    caseSensitive: false
+  })
+  : {
+    filter(records) {
+      return records || [];
+    }
+  }
+);
+
+// Speakers search engine
+const speakerSearchEngine = (window.SearchEngine
+  ? window.SearchEngine.create({
+    fields: {
+      id: { type: "string", resolver: (r) => r.id },
+      name: { type: "string", resolver: (r) => r.name },
+      note: { type: "string", resolver: (r) => r.note }
+    },
+    defaultFields: ["id", "name", "note"],
     caseSensitive: false
   })
   : {
@@ -64,7 +108,7 @@ async function loadSections(isLoggedIn) {
       urls.push("./assets/js/sections-walmart-private.json");
     }
 
-    const responses = await Promise.all(urls.map(u => fetch(u)));
+    const responses = await Promise.all(urls.map((u) => fetch(u)));
 
     for (const res of responses) {
       if (!res.ok) {
@@ -72,7 +116,7 @@ async function loadSections(isLoggedIn) {
       }
     }
 
-    const jsonArrays = await Promise.all(responses.map(r => r.json()));
+    const jsonArrays = await Promise.all(responses.map((r) => r.json()));
     SECTIONS = jsonArrays.flat();
 
     sectionOrder = loadSectionOrderFromLocalStorage();
@@ -90,7 +134,9 @@ async function loadSections(isLoggedIn) {
     rerenderAll();
   } catch (err) {
     console.error("Failed to load sections JSON:", err);
-    alert("Could not load sections configuration. Check the JSON paths / syntax.");
+    alert(
+      "Could not load sections configuration. Check the JSON paths / syntax."
+    );
   }
 }
 
@@ -113,12 +159,16 @@ const sectionListEl = document.getElementById("sectionList");
 const overallPercentEl = document.getElementById("overallPercent");
 const overallBarEl = document.getElementById("overallBar");
 const currentProjectLabelEl = document.getElementById("currentProjectLabel");
-const currentBasePathLabelEl = document.getElementById("currentBasePathLabel");
+const currentBasePathLabelEl = document.getElementById(
+  "currentBasePathLabel"
+);
 const sectionTitleEl = document.getElementById("sectionTitle");
 const sectionMetaEl = document.getElementById("sectionMeta");
 const sectionCountLabelEl = document.getElementById("sectionCountLabel");
 const sectionBarEl = document.getElementById("sectionBar");
-const sectionProgressWrapperEl = document.getElementById("sectionProgressWrapper");
+const sectionProgressWrapperEl = document.getElementById(
+  "sectionProgressWrapper"
+);
 const taskListEl = document.getElementById("taskList");
 const notesBlockEl = document.getElementById("notesBlock");
 const sectionNotesEl = document.getElementById("sectionNotes");
@@ -132,7 +182,7 @@ const alarmTableBodyEl = document.querySelector("#alarmTable tbody");
 const cameraTableBodyEl = document.querySelector("#cameraTable tbody");
 const speakerTableBodyEl = document.querySelector("#speakerTable tbody");
 
-// 🔎 camera search input
+// 🔎 camera search input (now global search)
 const cameraSearchInputEl = document.getElementById("cameraSearchInput");
 
 const alarmFormEl = document.getElementById("alarmForm");
@@ -177,7 +227,6 @@ let hideDoneAlarms = false;
 let activeSectionId = null;
 let saveTimeout = null;
 let pendingUploadTarget = null; // { kind: 'alarm' | 'camera' | 'task' | 'speaker', key: string }
-let editingUnlocked = false;
 let draggedSectionId = null;
 
 // -------- Helpers --------
@@ -209,24 +258,26 @@ function makeTaskKey(sectionId, taskId) {
 }
 
 function getSectionById(id) {
-  return SECTIONS.find(s => s.id === id) || null;
+  return SECTIONS.find((s) => s.id === id) || null;
 }
 
 function loadSectionOrderFromLocalStorage() {
   try {
     const raw = localStorage.getItem(SECTION_ORDER_STORAGE_KEY);
-    const defaultOrder = SECTIONS.map(s => s.id);
+    const defaultOrder = SECTIONS.map((s) => s.id);
     if (!raw) return defaultOrder;
 
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return defaultOrder;
 
-    const valid = parsed.filter(id => getSectionById(id));
-    const missing = SECTIONS.map(s => s.id).filter(id => !valid.includes(id));
+    const valid = parsed.filter((id) => getSectionById(id));
+    const missing = SECTIONS.map((s) => s.id).filter(
+      (id) => !valid.includes(id)
+    );
     return [...valid, ...missing];
   } catch (e) {
     console.warn("Could not load section order from localStorage:", e);
-    return SECTIONS.map(s => s.id);
+    return SECTIONS.map((s) => s.id);
   }
 }
 
@@ -284,7 +335,10 @@ function loadCameraColumnVisibility() {
 
 function saveCameraColumnVisibility() {
   try {
-    localStorage.setItem(CAMERA_COL_VIS_KEY, JSON.stringify(cameraColumnVisibility));
+    localStorage.setItem(
+      CAMERA_COL_VIS_KEY,
+      JSON.stringify(cameraColumnVisibility)
+    );
   } catch (e) {
     console.warn("Could not save camera column visibility:", e);
   }
@@ -294,7 +348,7 @@ function applyCameraColumnVisibility() {
   const vis = cameraColumnVisibility;
 
   const setDisplay = (selector, show) => {
-    document.querySelectorAll(selector).forEach(el => {
+    document.querySelectorAll(selector).forEach((el) => {
       el.style.display = show ? "" : "none";
     });
   };
@@ -326,7 +380,7 @@ function initCameraColumnToggles() {
   toggleCameraSwitchEl.addEventListener("change", updateFromCheckboxes);
 }
 
-// Normalize legacy single-image fields into an array for any alarm/camera/task/speaker entry
+// Normalize legacy single-image fields into an array
 function normalizeImagesArray(target) {
   if (!target) return [];
   if (Array.isArray(target.images)) return target.images;
@@ -350,7 +404,7 @@ function collectImagePaths(entry) {
   const paths = [];
   if (!entry) return paths;
   if (Array.isArray(entry.images)) {
-    entry.images.forEach(img => {
+    entry.images.forEach((img) => {
       if (img && img.path) paths.push(img.path);
     });
   }
@@ -477,7 +531,7 @@ function exportCameraCableSheet() {
 
   const lines = [];
   lines.push(header.map(esc).join(","));
-  rows.forEach(r => lines.push(r.map(esc).join(",")));
+  rows.forEach((r) => lines.push(r.map(esc).join(",")));
 
   const csvContent = lines.join("\r\n");
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -485,9 +539,8 @@ function exportCameraCableSheet() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
 
-  const baseName =
-    (state.currentProjectName || state.currentProjectKey || "project")
-      .replace(/[^a-z0-9_\-]+/gi, "_");
+  const baseName = (state.currentProjectName || state.currentProjectKey || "project")
+    .replace(/[^a-z0-9_\-]+/gi, "_");
 
   a.href = url;
   a.download = `${baseName}_Camera_Cable_Assignment.csv`;
@@ -504,7 +557,7 @@ function importCamerasFromCsv(csvText) {
     return;
   }
 
-  const lines = csvText.split(/\r?\n/).filter(l => l.trim() !== "");
+  const lines = csvText.split(/\r?\n/).filter((l) => l.trim() !== "");
   if (!lines.length) {
     alert("CSV appears to be empty.");
     return;
@@ -512,7 +565,9 @@ function importCamerasFromCsv(csvText) {
 
   let startIdx = -1;
   for (let i = 0; i < lines.length; i++) {
-    const firstCell = (lines[i].split(",")[0] || "").trim().toLowerCase();
+    const firstCell = (lines[i].split(",")[0] || "")
+      .trim()
+      .toLowerCase();
     if (firstCell === "cable #" || firstCell === "cable#") {
       startIdx = i + 1;
       break;
@@ -603,7 +658,10 @@ async function loadProjectFromFirebase(projectKey, displayName) {
     await set(projectRef, newData);
     state.projects[projectKey] = newData;
   } else {
-    state.projects[projectKey] = normalizeProjectFromData(snap.val(), displayName);
+    state.projects[projectKey] = normalizeProjectFromData(
+      snap.val(),
+      displayName
+    );
   }
 
   // Tear down previous listener (if any)
@@ -634,7 +692,10 @@ async function saveProjectToFirebase() {
   if (!state.currentProjectKey) return;
   const proj = getCurrentProjectObj();
   if (!proj) return;
-  const projectRef = ref(database, `${getProjectBasePath()}/${state.currentProjectKey}`);
+  const projectRef = ref(
+    database,
+    `${getProjectBasePath()}/${state.currentProjectKey}`
+  );
   await update(projectRef, {
     name: state.currentProjectName,
     tasks: proj.tasks || {},
@@ -661,8 +722,8 @@ function computeOverallProgress() {
   if (!proj) return { done: 0, total: 0, percent: 0 };
   let total = 0;
   let done = 0;
-  SECTIONS.forEach(sec => {
-    sec.tasks.forEach(t => {
+  SECTIONS.forEach((sec) => {
+    sec.tasks.forEach((t) => {
       total++;
       const key = makeTaskKey(sec.id, t.id);
       const entry = proj.tasks[key];
@@ -684,7 +745,7 @@ function computeSectionProgress(sectionId) {
   if (!section) return { done: 0, total: 0, percent: 0 };
 
   const total = section.tasks.length;
-  const done = section.tasks.filter(t => {
+  const done = section.tasks.filter((t) => {
     const key = makeTaskKey(section.id, t.id);
     const entry = proj.tasks[key];
     const isDone = !!(entry && (typeof entry === "object" ? entry.done : entry));
@@ -704,23 +765,26 @@ function renderSidebar() {
   const overall = computeOverallProgress();
   overallPercentEl.textContent = overall.percent + "%";
   overallBarEl.style.width = overall.percent + "%";
-  currentProjectLabelEl.textContent = state.currentProjectName || "(none)";
+  currentProjectLabelEl.textContent =
+    state.currentProjectName || "(none)";
   if (currentBasePathLabelEl) {
     currentBasePathLabelEl.textContent = DATABASE_BASE_PATH;
   }
 
   if (!activeSectionId || !getSectionById(activeSectionId)) {
-    activeSectionId = sectionOrder[0] || (SECTIONS[0] && SECTIONS[0].id);
+    activeSectionId =
+      sectionOrder[0] || (SECTIONS[0] && SECTIONS[0].id);
   }
 
-  sectionOrder.forEach(secId => {
+  sectionOrder.forEach((secId) => {
     const sec = getSectionById(secId);
     if (!sec) return;
 
     const secProgress = computeSectionProgress(sec.id);
     const pill = document.createElement("button");
     pill.type = "button";
-    pill.className = "section-pill" + (sec.id === activeSectionId ? " active" : "");
+    pill.className =
+      "section-pill" + (sec.id === activeSectionId ? " active" : "");
     pill.dataset.sectionId = sec.id;
     pill.draggable = true;
 
@@ -732,10 +796,17 @@ function renderSidebar() {
     rightSpan.className = "pill-progress";
 
     const dot = document.createElement("span");
-    dot.className = "pill-dot" + (secProgress.done === secProgress.total && secProgress.total > 0 ? " done" : "");
+    dot.className =
+      "pill-dot" +
+      (secProgress.done === secProgress.total &&
+        secProgress.total > 0
+        ? " done"
+        : "");
 
     const count = document.createElement("span");
-    count.textContent = secProgress.total ? `${secProgress.done}/${secProgress.total}` : "-";
+    count.textContent = secProgress.total
+      ? `${secProgress.done}/${secProgress.total}`
+      : "-";
 
     rightSpan.appendChild(dot);
     rightSpan.appendChild(count);
@@ -803,11 +874,13 @@ function renderSection(sectionId) {
   taskListEl.innerHTML = "";
   const project = getCurrentProjectObj();
 
-  section.tasks.forEach(task => {
+  section.tasks.forEach((task) => {
     const li = document.createElement("li");
     const key = makeTaskKey(section.id, task.id);
     const taskState = project && project.tasks[key];
-    const done = !!(taskState && (typeof taskState === "object" ? taskState.done : taskState));
+    const done = !!(
+      taskState && (typeof taskState === "object" ? taskState.done : taskState)
+    );
 
     li.className = "task-item" + (done ? " done" : "");
 
@@ -818,14 +891,18 @@ function renderSection(sectionId) {
 
     checkbox.addEventListener("change", () => {
       if (!state.currentProjectKey) {
-        alert("Set a project name first so checks can be saved to Firebase.");
+        alert(
+          "Set a project name first so checks can be saved to Firebase."
+        );
         checkbox.checked = false;
         return;
       }
       const proj = getCurrentProjectObj();
 
       const existing = proj.tasks[key];
-      const currentDone = !!(existing && (typeof existing === "object" ? existing.done : existing));
+      const currentDone = !!(
+        existing && (typeof existing === "object" ? existing.done : existing)
+      );
       const newDone = checkbox.checked;
 
       if (!existing || typeof existing !== "object") {
@@ -897,14 +974,17 @@ function renderSection(sectionId) {
           delBtn.textContent = "×";
           delBtn.title = "Delete this image";
           delBtn.addEventListener("click", async () => {
-            if (!editingUnlocked) {
-              alert("Login to enable deleting images.");
+            if (
+              !confirm("Delete this image for this task?")
+            )
               return;
-            }
-            if (!confirm("Delete this image for this task?")) return;
 
             const projNow = getCurrentProjectObj();
-            if (!projNow.tasks[key] || typeof projNow.tasks[key] !== "object") return;
+            if (
+              !projNow.tasks[key] ||
+              typeof projNow.tasks[key] !== "object"
+            )
+              return;
 
             const target = projNow.tasks[key];
             const imagesArrNow = normalizeImagesArray(target);
@@ -917,7 +997,10 @@ function renderSection(sectionId) {
               try {
                 await deleteObject(storageRef(storage, removed.path));
               } catch (e) {
-                console.warn("Storage delete failed (maybe already removed):", e);
+                console.warn(
+                  "Storage delete failed (maybe already removed):",
+                  e
+                );
               }
             }
           });
@@ -927,11 +1010,13 @@ function renderSection(sectionId) {
           note.rows = 2;
           note.placeholder = "Notes for this image…";
           note.value = img.note || "";
-          note.readOnly = !editingUnlocked;
           note.addEventListener("blur", () => {
-            if (!editingUnlocked) return;
             const projNow = getCurrentProjectObj();
-            if (!projNow.tasks[key] || typeof projNow.tasks[key] !== "object") return;
+            if (
+              !projNow.tasks[key] ||
+              typeof projNow.tasks[key] !== "object"
+            )
+              return;
             const target = projNow.tasks[key];
             const imagesArrNow = normalizeImagesArray(target);
             if (!imagesArrNow[index]) {
@@ -962,7 +1047,7 @@ function renderSection(sectionId) {
   const proj = getCurrentProjectObj();
   notesBlockEl.style.display = proj ? "block" : "none";
   sectionScopeCodeEl.textContent = section.scopeRef;
-  sectionNotesEl.value = proj ? (proj.notes[section.id] || "") : "";
+  sectionNotesEl.value = proj ? proj.notes[section.id] || "" : "";
 }
 
 // ---- Alarm / camera / speaker panels ----
@@ -971,15 +1056,33 @@ function renderAlarmPanel() {
   alarmTableBodyEl.innerHTML = "";
   if (!proj) return;
 
-  let entries = Object.entries(proj.alarmPoints || {}).sort(
-    ([a], [b]) => Number(a) - Number(b)
+  // Build records for search
+  let records = Object.entries(proj.alarmPoints || {}).map(
+    ([pointNum, info]) => ({
+      id: pointNum,
+      name: info.name || "",
+      note: info.note || "",
+      done: !!info.done,
+      _raw: info
+    })
   );
 
-  if (hideDoneAlarms) {
-    entries = entries.filter(([, info]) => !info.done);
+  // Apply search filter
+  if (globalSearchQuery && globalSearchQuery.trim()) {
+    records = alarmSearchEngine.filter(records, globalSearchQuery);
   }
 
-  entries.forEach(([pointNum, info]) => {
+  // Apply hide-done filter
+  if (hideDoneAlarms) {
+    records = records.filter((r) => !r.done);
+  }
+
+  // Sort numerically
+  records.sort((a, b) => Number(a.id) - Number(b.id));
+
+  records.forEach((rec) => {
+    const pointNum = rec.id;
+    const info = rec._raw;
     const tr = document.createElement("tr");
 
     const tdNum = document.createElement("td");
@@ -994,7 +1097,8 @@ function renderAlarmPanel() {
     chk.checked = !!info.done;
     chk.addEventListener("change", () => {
       const projNow = getCurrentProjectObj();
-      if (!projNow.alarmPoints[pointNum]) projNow.alarmPoints[pointNum] = {};
+      if (!projNow.alarmPoints[pointNum])
+        projNow.alarmPoints[pointNum] = {};
       projNow.alarmPoints[pointNum].name = info.name;
       projNow.alarmPoints[pointNum].done = chk.checked;
       scheduleSave();
@@ -1038,16 +1142,17 @@ function renderAlarmPanel() {
         const delBtn = document.createElement("button");
         delBtn.className = "thumb-delete";
         delBtn.textContent = "×";
-        delBtn.title = "Delete this image";
+        delBtn.title =
+          "Delete this image";
         delBtn.addEventListener("click", async () => {
-          if (!editingUnlocked) {
-            alert("Login to enable deleting images.");
+          if (
+            !confirm("Delete this image for this alarm point?")
+          )
             return;
-          }
-          if (!confirm("Delete this image for this alarm point?")) return;
 
           const projNow = getCurrentProjectObj();
-          if (!projNow.alarmPoints[pointNum]) projNow.alarmPoints[pointNum] = {};
+          if (!projNow.alarmPoints[pointNum])
+            projNow.alarmPoints[pointNum] = {};
           const target = projNow.alarmPoints[pointNum];
 
           normalizeImagesArray(target);
@@ -1061,7 +1166,10 @@ function renderAlarmPanel() {
             try {
               await deleteObject(storageRef(storage, removed.path));
             } catch (e) {
-              console.warn("Storage delete failed (maybe already removed):", e);
+              console.warn(
+                "Storage delete failed (maybe already removed):",
+                e
+              );
             }
           }
         });
@@ -1071,12 +1179,10 @@ function renderAlarmPanel() {
         note.rows = 2;
         note.placeholder = "Notes for this image…";
         note.value = img.note || "";
-        note.readOnly = !editingUnlocked;
         note.addEventListener("blur", () => {
-          if (!editingUnlocked) return;
-
           const projNow = getCurrentProjectObj();
-          if (!projNow.alarmPoints[pointNum]) projNow.alarmPoints[pointNum] = {};
+          if (!projNow.alarmPoints[pointNum])
+            projNow.alarmPoints[pointNum] = {};
           const target = projNow.alarmPoints[pointNum];
 
           const imagesArr = normalizeImagesArray(target);
@@ -1109,7 +1215,8 @@ function renderAlarmPanel() {
     alarmNoteArea.value = info.note || "";
     alarmNoteArea.addEventListener("blur", () => {
       const projNow = getCurrentProjectObj();
-      if (!projNow.alarmPoints[pointNum]) projNow.alarmPoints[pointNum] = {};
+      if (!projNow.alarmPoints[pointNum])
+        projNow.alarmPoints[pointNum] = {};
       projNow.alarmPoints[pointNum].name = info.name;
       projNow.alarmPoints[pointNum].done = !!info.done;
       projNow.alarmPoints[pointNum].note = alarmNoteArea.value;
@@ -1120,18 +1227,23 @@ function renderAlarmPanel() {
     const tdActions = document.createElement("td");
     const deletePointBtn = document.createElement("button");
     deletePointBtn.textContent = "Delete";
-    deletePointBtn.title = "Delete this alarm point and all its images";
+    deletePointBtn.title =
+      "Delete this alarm point and all its images";
 
     deletePointBtn.addEventListener("click", async () => {
-      if (!editingUnlocked) {
-        alert("Login to enable deleting alarm points.");
+      if (
+        !confirm(
+          `Delete alarm point ${pointNum} and all associated images?`
+        )
+      )
         return;
-      }
-
-      if (!confirm(`Delete alarm point ${pointNum} and all associated images?`)) return;
 
       const projNow = getCurrentProjectObj();
-      if (!projNow || !projNow.alarmPoints || !projNow.alarmPoints[pointNum]) {
+      if (
+        !projNow ||
+        !projNow.alarmPoints ||
+        !projNow.alarmPoints[pointNum]
+      ) {
         return;
       }
 
@@ -1169,11 +1281,28 @@ function renderSpeakersPanel() {
   speakerTableBodyEl.innerHTML = "";
   if (!proj) return;
 
-  const entries = Object.entries(proj.speakers || {}).sort(
-    ([a], [b]) => Number(a) - Number(b)
+  // Build records for search
+  let records = Object.entries(proj.speakers || {}).map(
+    ([num, info]) => ({
+      id: num,
+      name: info.name || "",
+      note: info.note || "",
+      _raw: info
+    })
   );
 
-  entries.forEach(([num, info]) => {
+  // Apply search filter
+  if (globalSearchQuery && globalSearchQuery.trim()) {
+    records = speakerSearchEngine.filter(records, globalSearchQuery);
+  }
+
+  // Sort numerically
+  records.sort((a, b) => Number(a.id) - Number(b.id));
+
+  records.forEach((rec) => {
+    const num = rec.id;
+    const info = rec._raw;
+
     const tr = document.createElement("tr");
 
     const tdNum = document.createElement("td");
@@ -1219,16 +1348,17 @@ function renderSpeakersPanel() {
         const delBtn = document.createElement("button");
         delBtn.className = "thumb-delete";
         delBtn.textContent = "×";
-        delBtn.title = "Delete this image";
+        delBtn.title =
+          "Delete this image";
         delBtn.addEventListener("click", async () => {
-          if (!editingUnlocked) {
-            alert("Login to enable deleting images.");
+          if (
+            !confirm("Delete this image for this speaker?")
+          )
             return;
-          }
-          if (!confirm("Delete this image for this speaker?")) return;
 
           const projNow = getCurrentProjectObj();
-          if (!projNow.speakers[num]) projNow.speakers[num] = {};
+          if (!projNow.speakers[num])
+            projNow.speakers[num] = {};
           const target = projNow.speakers[num];
 
           const imagesArr = normalizeImagesArray(target);
@@ -1254,12 +1384,10 @@ function renderSpeakersPanel() {
         note.rows = 2;
         note.placeholder = "Notes for this image…";
         note.value = img.note || "";
-        note.readOnly = !editingUnlocked;
         note.addEventListener("blur", () => {
-          if (!editingUnlocked) return;
-
           const projNow = getCurrentProjectObj();
-          if (!projNow.speakers[num]) projNow.speakers[num] = {};
+          if (!projNow.speakers[num])
+            projNow.speakers[num] = {};
           const target = projNow.speakers[num];
 
           const imagesArr = normalizeImagesArray(target);
@@ -1292,7 +1420,8 @@ function renderSpeakersPanel() {
     noteArea.value = info.note || "";
     noteArea.addEventListener("blur", () => {
       const projNow = getCurrentProjectObj();
-      if (!projNow.speakers[num]) projNow.speakers[num] = {};
+      if (!projNow.speakers[num])
+        projNow.speakers[num] = {};
       projNow.speakers[num].name = info.name;
       projNow.speakers[num].note = noteArea.value;
       scheduleSave();
@@ -1305,14 +1434,16 @@ function renderSpeakersPanel() {
     delBtn.title = "Delete this speaker";
 
     delBtn.addEventListener("click", async () => {
-      if (!editingUnlocked) {
-        alert("Login to enable deleting speakers.");
+      if (
+        !confirm(
+          `Delete speaker ${num} and all associated images?`
+        )
+      )
         return;
-      }
-      if (!confirm(`Delete speaker ${num} and all associated images?`)) return;
 
       const projNow = getCurrentProjectObj();
-      if (!projNow || !projNow.speakers || !projNow.speakers[num]) return;
+      if (!projNow || !projNow.speakers || !projNow.speakers[num])
+        return;
 
       const entry = projNow.speakers[num];
 
@@ -1326,7 +1457,11 @@ function renderSpeakersPanel() {
         try {
           await deleteObject(storageRef(storage, p));
         } catch (e) {
-          console.warn("Failed to delete speaker image from storage:", p, e);
+          console.warn(
+            "Failed to delete speaker image from storage:",
+            p,
+            e
+          );
         }
       }
     });
@@ -1353,26 +1488,28 @@ function renderCameraPanel() {
   }
 
   // Build records for search engine
-  let records = Object.entries(proj.cameras || {}).map(([camId, info]) => ({
-    id: camId,
-    name: info.name || "",
-    ip: info.ip || "",
-    mac: info.mac || "",
-    note: info.note || "",
-    switchName: info.switchName || "",
-    switchPort: info.switchPort || "",
-    done: !!info.done,
-    _raw: info
-  }));
+  let records = Object.entries(proj.cameras || {}).map(
+    ([camId, info]) => ({
+      id: camId,
+      name: info.name || "",
+      ip: info.ip || "",
+      mac: info.mac || "",
+      note: info.note || "",
+      switchName: info.switchName || "",
+      switchPort: info.switchPort || "",
+      done: !!info.done,
+      _raw: info
+    })
+  );
 
   // Apply search filter
-  if (cameraSearchQuery && cameraSearchQuery.trim()) {
-    records = cameraSearchEngine.filter(records, cameraSearchQuery);
+  if (globalSearchQuery && globalSearchQuery.trim()) {
+    records = cameraSearchEngine.filter(records, globalSearchQuery);
   }
 
   // Apply hide-done filter
   if (hideDoneCameras) {
-    records = records.filter(r => !r.done);
+    records = records.filter((r) => !r.done);
   }
 
   // Sort by ID
@@ -1380,7 +1517,7 @@ function renderCameraPanel() {
     a.id.localeCompare(b.id, undefined, { numeric: true })
   );
 
-  records.forEach(rec => {
+  records.forEach((rec) => {
     const camId = rec.id;
     const info = rec._raw;
 
@@ -1502,13 +1639,13 @@ function renderCameraPanel() {
         const delBtn = document.createElement("button");
         delBtn.className = "thumb-delete";
         delBtn.textContent = "×";
-        delBtn.title = "Delete this image";
+        delBtn.title =
+          "Delete this image";
         delBtn.addEventListener("click", async () => {
-          if (!editingUnlocked) {
-            alert("Login to enable deleting images.");
+          if (
+            !confirm("Delete this image for this camera?")
+          )
             return;
-          }
-          if (!confirm("Delete this image for this camera?")) return;
 
           const projNow = getCurrentProjectObj();
           if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
@@ -1525,7 +1662,10 @@ function renderCameraPanel() {
             try {
               await deleteObject(storageRef(storage, removed.path));
             } catch (e) {
-              console.warn("Storage delete failed (maybe already removed):", e);
+              console.warn(
+                "Storage delete failed (maybe already removed):",
+                e
+              );
             }
           }
         });
@@ -1535,10 +1675,7 @@ function renderCameraPanel() {
         note.rows = 2;
         note.placeholder = "Notes for this image…";
         note.value = img.note || "";
-        note.readOnly = !editingUnlocked;
         note.addEventListener("blur", () => {
-          if (!editingUnlocked) return;
-
           const projNow = getCurrentProjectObj();
           if (!projNow.cameras[camId]) projNow.cameras[camId] = {};
           const target = projNow.cameras[camId];
@@ -1584,15 +1721,16 @@ function renderCameraPanel() {
     const tdActions = document.createElement("td");
     const deleteCamBtn = document.createElement("button");
     deleteCamBtn.textContent = "Delete";
-    deleteCamBtn.title = "Delete this camera and all its images";
+    deleteCamBtn.title =
+      "Delete this camera and all its images";
 
     deleteCamBtn.addEventListener("click", async () => {
-      if (!editingUnlocked) {
-        alert("Login to enable deleting cameras.");
+      if (
+        !confirm(
+          `Delete camera ${camId} and all associated images?`
+        )
+      )
         return;
-      }
-
-      if (!confirm(`Delete camera ${camId} and all associated images?`)) return;
 
       const projNow = getCurrentProjectObj();
       if (!projNow || !projNow.cameras || !projNow.cameras[camId]) {
@@ -1611,7 +1749,11 @@ function renderCameraPanel() {
         try {
           await deleteObject(storageRef(storage, p));
         } catch (e) {
-          console.warn("Failed to delete camera image from storage:", p, e);
+          console.warn(
+            "Failed to delete camera image from storage:",
+            p,
+            e
+          );
         }
       }
     });
@@ -1682,35 +1824,33 @@ function renderProjectLinks() {
 
     const btnWrap = document.createElement("span");
 
-    if (editingUnlocked) {
-      const delBtn = document.createElement("button");
-      delBtn.textContent = "×";
-      delBtn.title = "Remove this link";
-      delBtn.style.borderRadius = "999px";
-      delBtn.style.border = "1px solid var(--border-subtle)";
-      delBtn.style.background = "#050814";
-      delBtn.style.color = "var(--text)";
-      delBtn.style.cursor = "pointer";
-      delBtn.style.padding = "0 6px";
-      delBtn.style.lineHeight = "16px";
+    const delBtn = document.createElement("button");
+    delBtn.textContent = "×";
+    delBtn.title = "Remove this link";
+    delBtn.style.borderRadius = "999px";
+    delBtn.style.border = "1px solid var(--border-subtle)";
+    delBtn.style.background = "#050814";
+    delBtn.style.color = "var(--text)";
+    delBtn.style.cursor = "pointer";
+    delBtn.style.padding = "0 6px";
+    delBtn.style.lineHeight = "16px";
 
-      delBtn.addEventListener("click", () => {
-        const projNow = getCurrentProjectObj();
-        if (!projNow) return;
+    delBtn.addEventListener("click", () => {
+      const projNow = getCurrentProjectObj();
+      if (!projNow) return;
 
-        const originalIndex = (projNow.links || []).findIndex(
-          l => l.title === link.title && l.url === link.url
-        );
-        if (originalIndex >= 0) {
-          projNow.links = projNow.links.slice();
-          projNow.links.splice(originalIndex, 1);
-          scheduleSave();
-          renderProjectLinks();
-        }
-      });
+      const originalIndex = (projNow.links || []).findIndex(
+        (l) => l.title === link.title && l.url === link.url
+      );
+      if (originalIndex >= 0) {
+        projNow.links = projNow.links.slice();
+        projNow.links.splice(originalIndex, 1);
+        scheduleSave();
+        renderProjectLinks();
+      }
+    });
 
-      btnWrap.appendChild(delBtn);
-    }
+    btnWrap.appendChild(delBtn);
 
     li.appendChild(a);
     li.appendChild(btnWrap);
@@ -1727,7 +1867,10 @@ function saveLastProjectToLocalStorage() {
     basePath: DATABASE_BASE_PATH
   };
   try {
-    localStorage.setItem(LAST_PROJECT_STORAGE_KEY, JSON.stringify(payload));
+    localStorage.setItem(
+      LAST_PROJECT_STORAGE_KEY,
+      JSON.stringify(payload)
+    );
   } catch (e) {
     console.warn("Could not save last project to localStorage:", e);
   }
@@ -1761,7 +1904,10 @@ async function restoreLastProjectForCurrentBasePath() {
     await loadProjectFromFirebase(parsed.key, parsed.name);
     rerenderForCurrentProject();
   } catch (err) {
-    console.error("Error restoring last project from Firebase:", err);
+    console.error(
+      "Error restoring last project from Firebase:",
+      err
+    );
   }
 }
 
@@ -1814,7 +1960,10 @@ function resizeImageToJpeg(file, maxWidth = 2048, quality = 0.9) {
     };
 
     reader.onerror = () => {
-      reject(reader.error || new Error("FileReader failed while reading image."));
+      reject(
+        reader.error ||
+        new Error("FileReader failed while reading image.")
+      );
     };
 
     reader.readAsDataURL(file);
@@ -1822,7 +1971,6 @@ function resizeImageToJpeg(file, maxWidth = 2048, quality = 0.9) {
 }
 
 // ---- Base path discovery / switching ----
-// (Still here if you want to re-use it later for admin path selection)
 async function fetchAvailableBasePaths() {
   try {
     const rootRef = ref(database);
@@ -1857,7 +2005,10 @@ async function switchDatabaseBasePath(newBase) {
 
   if (state.currentProjectKey && state.currentProjectName) {
     try {
-      await loadProjectFromFirebase(state.currentProjectKey, state.currentProjectName);
+      await loadProjectFromFirebase(
+        state.currentProjectKey,
+        state.currentProjectName
+      );
     } catch (err) {
       console.error("Error loading project for new base path:", err);
     }
@@ -1873,12 +2024,15 @@ function updateCameraStats() {
 
   const camDoneSpan = document.getElementById("camDoneCount");
   const camNotDoneSpan = document.getElementById("camNotDoneCount");
-  const sidebarSummarySpan = document.getElementById("sidebarCameraSummary");
+  const sidebarSummarySpan = document.getElementById(
+    "sidebarCameraSummary"
+  );
 
   if (!proj) {
     if (camDoneSpan) camDoneSpan.textContent = "0";
     if (camNotDoneSpan) camNotDoneSpan.textContent = "0";
-    if (sidebarSummarySpan) sidebarSummarySpan.textContent = "0 done / 0 total";
+    if (sidebarSummarySpan)
+      sidebarSummarySpan.textContent = "0 done / 0 total";
     return;
   }
 
@@ -1886,7 +2040,7 @@ function updateCameraStats() {
   let done = 0;
   let notDone = 0;
 
-  Object.values(cameras).forEach(cam => {
+  Object.values(cameras).forEach((cam) => {
     if (cam && cam.done) done++;
     else notDone++;
   });
@@ -1901,20 +2055,6 @@ function updateCameraStats() {
   }
 }
 
-// ---- Admin mode helper ----
-function setEditingUnlocked(value) {
-  editingUnlocked = value;
-
-  if (projectLinksForm) {
-    projectLinksForm.classList.toggle("hidden", !value);
-  }
-
-  renderAlarmPanel();
-  renderCameraPanel();
-  renderSpeakersPanel();
-  renderProjectLinks();
-}
-
 // ----- Event bindings -----
 
 // Allow pressing Enter to trigger "Set"
@@ -1925,17 +2065,19 @@ projectNameInput.addEventListener("keydown", (e) => {
   }
 });
 
-// 🔎 camera search listener
+// 🔎 global search listener (cameras + alarms + speakers)
 if (cameraSearchInputEl) {
   cameraSearchInputEl.addEventListener("input", () => {
-    cameraSearchQuery = cameraSearchInputEl.value || "";
+    globalSearchQuery = cameraSearchInputEl.value || "";
     renderCameraPanel();
+    renderAlarmPanel();
+    renderSpeakersPanel();
   });
 }
 
-detailTabButtons.forEach(btn => {
+detailTabButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
-    detailTabButtons.forEach(b => b.classList.remove("active"));
+    detailTabButtons.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     const panel = btn.dataset.panel;
     alarmPanelEl.classList.add("hidden");
@@ -1991,7 +2133,12 @@ clearProjectBtn.addEventListener("click", () => {
     alert("No project selected.");
     return;
   }
-  if (!confirm("Clear all scope checklist checkmarks for the current project? Notes, alarm points, and cameras will be kept.")) return;
+  if (
+    !confirm(
+      "Clear all scope checklist checkmarks for the current project? Notes, alarm points, and cameras will be kept."
+    )
+  )
+    return;
   const proj = getCurrentProjectObj();
   proj.tasks = {};
   scheduleSave();
@@ -2007,7 +2154,7 @@ sectionNotesEl.addEventListener("blur", () => {
 });
 
 // Alarm form
-alarmFormEl.addEventListener("submit", e => {
+alarmFormEl.addEventListener("submit", (e) => {
   e.preventDefault();
   const proj = getCurrentProjectObj();
   if (!proj) {
@@ -2030,7 +2177,7 @@ alarmFormEl.addEventListener("submit", e => {
 });
 
 // Camera form
-cameraFormEl.addEventListener("submit", e => {
+cameraFormEl.addEventListener("submit", (e) => {
   e.preventDefault();
   const proj = getCurrentProjectObj();
   if (!proj) {
@@ -2053,7 +2200,7 @@ cameraFormEl.addEventListener("submit", e => {
 });
 
 // Speaker form
-speakerFormEl.addEventListener("submit", e => {
+speakerFormEl.addEventListener("submit", (e) => {
   e.preventDefault();
   const proj = getCurrentProjectObj();
   if (!proj) {
@@ -2080,7 +2227,7 @@ speakerFormEl.addEventListener("submit", e => {
   renderSpeakersPanel();
 });
 
-// Project links form – add link (admin only)
+// Project links form – add link
 if (projectLinksForm) {
   projectLinksForm.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -2122,7 +2269,13 @@ imageUploadInputEl.addEventListener("change", async () => {
   pendingUploadTarget = null;
 
   try {
-    console.log("[upload] start", { projKey, kind, key, fileName: file.name, basePath: DATABASE_BASE_PATH });
+    console.log("[upload] start", {
+      projKey,
+      kind,
+      key,
+      fileName: file.name,
+      basePath: DATABASE_BASE_PATH
+    });
 
     const resizedBlob = await resizeImageToJpeg(file, 2048, 0.9);
 
@@ -2140,7 +2293,12 @@ imageUploadInputEl.addEventListener("change", async () => {
       if (!proj.tasks[key] || typeof proj.tasks[key] !== "object") {
         const existingVal = proj.tasks[key];
         proj.tasks[key] = {
-          done: !!(existingVal && (typeof existingVal === "object" ? existingVal.done : existingVal))
+          done: !!(
+            existingVal &&
+            (typeof existingVal === "object"
+              ? existingVal.done
+              : existingVal)
+          )
         };
       }
       target = proj.tasks[key];
@@ -2157,7 +2315,8 @@ imageUploadInputEl.addEventListener("change", async () => {
 
     const originalBase = file.name.replace(/\.[^/.]+$/, "");
 
-    const indexSuffix = existingCount > 0 ? `_${existingCount + 1}` : "";
+    const indexSuffix =
+      existingCount > 0 ? `_${existingCount + 1}` : "";
     const fileName = `${key}_${originalBase}${indexSuffix}.jpg`;
 
     const path = `${DATABASE_BASE_PATH}/images/walmartProjectTracker/${projKey}/${kind}/${fileName}`;
@@ -2165,8 +2324,13 @@ imageUploadInputEl.addEventListener("change", async () => {
     console.log("[upload] storage path:", path);
 
     if (!storage || !storageRef) {
-      console.error("[upload] storage or storageRef missing", { storage, storageRef });
-      alert("Storage is not initialized correctly. Check firebase-init.js exports.");
+      console.error("[upload] storage or storageRef missing", {
+        storage,
+        storageRef
+      });
+      alert(
+        "Storage is not initialized correctly. Check firebase-init.js exports."
+      );
       return;
     }
 
@@ -2195,9 +2359,11 @@ imageUploadInputEl.addEventListener("change", async () => {
 
     let msg = "Image upload failed.";
     if (err.code === "storage/unauthorized") {
-      msg += " Your Firebase Storage rules may not allow writing to this path.";
+      msg +=
+        " Your Firebase Storage rules may not allow writing to this path.";
     } else if (err.message && err.message.includes("HEIC")) {
-      msg += " If this was a HEIC file, your browser might not support decoding that format.";
+      msg +=
+        " If this was a HEIC file, your browser might not support decoding that format.";
     }
 
     alert(msg);
@@ -2213,12 +2379,14 @@ onAuthStateChanged(auth, async (user) => {
   DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
   console.log("[auth] DATABASE_BASE_PATH:", DATABASE_BASE_PATH);
 
-  // Editing unlocked only when logged in
-  setEditingUnlocked(!!user);
+  // Editing is always allowed now (no lock)
 
   if (state.currentProjectKey && state.currentProjectName) {
     try {
-      await loadProjectFromFirebase(state.currentProjectKey, state.currentProjectName);
+      await loadProjectFromFirebase(
+        state.currentProjectKey,
+        state.currentProjectName
+      );
     } catch (err) {
       console.error("Error reloading project after auth change:", err);
     }
