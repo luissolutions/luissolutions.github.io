@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Job Information Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Auth / login UI -->
+  <script type="module" src="../apps/assets/js/login.js" defer></script>
+
+  <!-- Your existing CSS (walmart-tracker look) -->
+  <link rel="stylesheet" href="./assets/css/tracker.css" />
+
+  <style>
+    /* Minimal additions for thumbs + links if your tracker.css doesn't have these */
+    .thumb-strip {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .thumb-wrapper {
+      position: relative;
+      width: 120px;
+    }
+
+    .thumb-img {
+      width: 120px;
+      height: 90px;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 1px solid var(--border-subtle, #202637);
+      cursor: pointer;
+    }
+
+    .thumb-delete {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle, #202637);
+      background: #050814;
+      color: var(--text, #e4e8f0);
+      cursor: pointer;
+      padding: 0 8px;
+    }
+
+    .thumb-note {
+      width: 120px;
+      margin-top: 6px;
+      border-radius: 10px;
+      padding: 6px;
+      border: 1px solid var(--border-subtle, #202637);
+      background: var(--bg-elevated, #0d111c);
+      color: var(--text, #e4e8f0);
+    }
+
+    .project-links-card {
+      margin-top: 10px;
+      border: 1px solid var(--border-subtle, #202637);
+      border-radius: 14px;
+      padding: 10px;
+      background: var(--bg-elevated, #0d111c);
+    }
+
+    .project-links-header {
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .project-links-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 0 0 10px 0;
+    }
+
+    .project-links-form {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .project-link-input {
+      width: 100%;
+    }
+
+    .project-link-add-btn {
+      align-self: flex-end;
+    }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <div class="header-login">
+      <div id="login-section">
+        <form id="login-form" class="login-form">
+          <input type="email" id="username" placeholder="Email" required>
+          <input type="password" id="password" placeholder="Password" required>
+          <button type="submit" class="login-btn">Login</button>
+        </form>
+        <button id="logout" class="logout-btn" style="display:none;">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="app-shell">
+
+      <!-- SIDEBAR -->
+      <aside class="sidebar card">
+        <div class="sidebar-header">
+          <h1>Job Information Manager</h1>
+          <div class="subtitle">Site info • Tasks • Dynamic Lists (add/remove per site)</div>
+
+          <div class="field">
+            <label for="projectDropdown">Select existing project</label>
+            <select id="projectDropdown" class="project-link-input">
+              <option value="">(loading...)</option>
+            </select>
+          </div>
+
+          <div class="project-row">
+            <input id="projectNameInput" placeholder="Project name (e.g. BJs 761)" />
+            <button id="setProjectBtn" type="button">Set</button>
+          </div>
+
+          <div class="row">
+            <button id="clearProjectBtn" type="button" class="danger-btn">Clear Project</button>
+          </div>
+
+          <div class="current-project-tag">
+            Current project: <code id="currentProjectLabel">(none)</code>
+          </div>
+
+          <div class="pill-sub">
+            Site: <code id="siteNamePreview">(not set)</code>
+          </div>
+
+          <div class="pill-sub">
+            Data path: <code id="dataPathLabel">public</code>
+          </div>
+
+          <!-- Project links -->
+          <div class="project-links-card">
+            <div class="project-links-header">Project links</div>
+            <ul id="projectLinksList" class="project-links-list"></ul>
+
+            <form id="projectLinksForm" class="project-links-form">
+              <input type="text" id="projectLinkTitle" placeholder="Title" class="project-link-input">
+              <input type="url" id="projectLinkUrl" placeholder="URL (https://...)" class="project-link-input">
+              <button type="submit" class="project-link-add-btn">Add</button>
+            </form>
+          </div>
+
+          <div class="progress-row">
+            <span>Items summary</span>
+            <span id="sidebarSummary">0 tasks • 0 lists • 0 items</span>
+          </div>
+        </div>
+
+        <!-- Pills -->
+        <div class="pill-list" id="sectionList"></div>
+      </aside>
+
+      <!-- MAIN CONTENT -->
+      <main class="main card">
+        <div class="main-header">
+          <div id="sectionTitle">Select a project</div>
+          <div id="sectionMeta"></div>
+        </div>
+
+        <!-- Global search -->
+        <div class="camera-search-row">
+          <input type="text" id="globalSearchInput"
+            placeholder="Search tasks + list items (id, model, type, location, status, IP, MAC, notes)…">
+        </div>
+
+        <!-- SITE INFO PANEL -->
+        <div id="sitePanel" class="detail-panel hidden">
+          <div class="card">
+            <div class="panel-toolbar">
+              <div><strong>Site Info</strong></div>
+              <div class="small-muted">Saved on blur</div>
+            </div>
+
+            <div class="row">
+              <div class="field" style="flex:1;">
+                <label for="siteNameInput">Site Name</label>
+                <input type="text" id="siteNameInput" placeholder="Enter site name..." />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TASKS PANEL -->
+        <div id="tasksPanel" class="detail-panel hidden">
+          <div class="card">
+            <div class="panel-toolbar">
+              <div><strong>Tasks</strong> <span class="small-muted" id="tasksCountLabel"></span></div>
+              <div class="small-muted">Edits save on blur • Delete asks for confirmation</div>
+            </div>
+
+            <div style="overflow:auto;">
+              <table class="detail-table" id="tasksTable">
+                <thead>
+                  <tr>
+                    <th style="width:180px;">Date/Time</th>
+                    <th>Notes</th>
+                    <th style="width:240px;">Images</th>
+                    <th style="width:160px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+            <hr />
+
+            <div class="panel-toolbar">
+              <div><strong>Add new task</strong></div>
+            </div>
+
+            <div class="row">
+              <input type="datetime-local" id="newTaskDate" />
+              <input type="text" id="newTaskNotes" placeholder="Notes..." />
+              <button id="addTaskBtn" type="button">Add</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- LISTS PANEL (dynamic) -->
+        <div id="listsPanel" class="detail-panel hidden">
+          <div class="card">
+
+            <div class="panel-toolbar">
+              <div>
+                <strong id="activeListTitle">List</strong>
+                <span class="small-muted" id="activeListCountLabel"></span>
+              </div>
+
+              <div class="inline-btns">
+                <button id="deleteListBtn" type="button" class="danger-btn">Delete List</button>
+              </div>
+            </div>
+
+            <div class="row" style="align-items:flex-end;">
+              <div class="field" style="flex:1;">
+                <label for="newListName">Create new list</label>
+                <input id="newListName" placeholder="e.g. Cameras, Maglocks, Parts, Sensors..." />
+              </div>
+              <button id="createListBtn" type="button">Create</button>
+            </div>
+
+            <hr />
+
+            <div class="panel-toolbar">
+              <div><strong>Add item to this list</strong></div>
+              <div class="small-muted">ID is the key • edits save on blur</div>
+            </div>
+
+            <div class="row" style="flex-wrap:wrap;">
+              <input id="item_id" placeholder="ID (key)" style="width:140px;" />
+              <input id="item_model" placeholder="Model" />
+              <input id="item_type" placeholder="Type" />
+              <input id="item_location" placeholder="Location" />
+              <input id="item_status" placeholder="Status" />
+              <input id="item_ip" placeholder="IP" style="width:160px;" />
+              <input id="item_mac" placeholder="MAC" style="width:190px;" />
+              <button id="addItemBtn" type="button">Add Item</button>
+            </div>
+
+            <div style="overflow:auto; margin-top:8px;">
+              <table class="detail-table" id="activeListTable">
+                <thead>
+                  <tr>
+                    <th style="width:120px;">ID</th>
+                    <th>Model</th>
+                    <th>Type</th>
+                    <th>Location</th>
+                    <th>Status</th>
+                    <th style="width:150px;">IP</th>
+                    <th style="width:170px;">MAC</th>
+                    <th style="width:240px;">Images</th>
+                    <th style="width:210px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Shared hidden file input -->
+        <input type="file" id="imageUploadInput" accept="image/*" class="hidden" />
+      </main>
+
+    </div>
+  </main>
+
+  <script type="module">
+    import {
+      auth,
+      onAuthStateChanged,
+      database,
+      storage,
+      ref,
+      set,
+      update,
+      remove,
+      get,
+      onValue,
+      off,
+      storageRef,
+      uploadBytes,
+      getDownloadURL,
+      deleteObject
+    } from "../apps/assets/js/firebase-init.js";
+
+    // ----------------------------
+    // Base path (your preferred pattern)
+    // ----------------------------
+    let DATABASE_BASE_PATH = "public";
+    onAuthStateChanged(auth, (user) => {
+      DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
+      dataPathLabel.textContent = DATABASE_BASE_PATH;
+
+      // restart index listener under the correct base path
+      startProjectIndexListener();
+
+      // if project already selected, reload it under new base
+      if (state.projectKey) loadProject(state.projectKey, state.projectName);
+    });
+
+    // Namespace under base path
+    const APP_ROOT = () => `${DATABASE_BASE_PATH}/jobInfoManager`;
+    const PROJECTS_ROOT = () => `${APP_ROOT()}/projects`;
+    const PROJECT_INDEX = () => `${APP_ROOT()}/projectIndex`;
+
+    // ----------------------------
+    // State
+    // ----------------------------
+    const state = {
+      projectKey: "",
+      projectName: "",
+      activePanel: "site",     // site | tasks | lists
+      activeListId: "",        // current list id
+      globalQuery: "",
+      projectListenerRef: null,
+      projectListenerCb: null,
+      indexListenerRef: null,
+
+      meta: { siteName: "" },
+      tasks: {},               // { [taskKey]: { date, notes, images: [] } }
+      lists: {},               // { [listId]: { meta:{name}, items:{...} } }
+      links: []                // [ { title, url } ]
+    };
+
+    // ----------------------------
+    // DOM
+    // ----------------------------
+    const sectionListEl = document.getElementById("sectionList");
+    const sectionTitleEl = document.getElementById("sectionTitle");
+    const sectionMetaEl = document.getElementById("sectionMeta");
+
+    const projectDropdown = document.getElementById("projectDropdown");
+    const projectNameInput = document.getElementById("projectNameInput");
+    const setProjectBtn = document.getElementById("setProjectBtn");
+    const clearProjectBtn = document.getElementById("clearProjectBtn");
+
+    const currentProjectLabel = document.getElementById("currentProjectLabel");
+    const siteNamePreview = document.getElementById("siteNamePreview");
+    const sidebarSummary = document.getElementById("sidebarSummary");
+    const dataPathLabel = document.getElementById("dataPathLabel");
+
+    const globalSearchInput = document.getElementById("globalSearchInput");
+
+    const sitePanel = document.getElementById("sitePanel");
+    const tasksPanel = document.getElementById("tasksPanel");
+    const listsPanel = document.getElementById("listsPanel");
+
+    const siteNameInput = document.getElementById("siteNameInput");
+
+    const tasksTableBody = document.querySelector("#tasksTable tbody");
+    const tasksCountLabel = document.getElementById("tasksCountLabel");
+    const newTaskDate = document.getElementById("newTaskDate");
+    const newTaskNotes = document.getElementById("newTaskNotes");
+    const addTaskBtn = document.getElementById("addTaskBtn");
+
+    const projectLinksList = document.getElementById("projectLinksList");
+    const projectLinksForm = document.getElementById("projectLinksForm");
+    const projectLinkTitle = document.getElementById("projectLinkTitle");
+    const projectLinkUrl = document.getElementById("projectLinkUrl");
+
+    const activeListTitle = document.getElementById("activeListTitle");
+    const activeListCountLabel = document.getElementById("activeListCountLabel");
+    const newListName = document.getElementById("newListName");
+    const createListBtn = document.getElementById("createListBtn");
+    const deleteListBtn = document.getElementById("deleteListBtn");
+
+    const itemInputs = {
+      id: document.getElementById("item_id"),
+      model: document.getElementById("item_model"),
+      type: document.getElementById("item_type"),
+      location: document.getElementById("item_location"),
+      status: document.getElementById("item_status"),
+      ipAddress: document.getElementById("item_ip"),
+      macAddress: document.getElementById("item_mac"),
+    };
+    const addItemBtn = document.getElementById("addItemBtn");
+    const activeListTableBody = document.querySelector("#activeListTable tbody");
+
+    const imageUploadInput = document.getElementById("imageUploadInput");
+    let pendingUploadTarget = null; // { kind:'task'|'listItem', taskId?, listId?, itemId? }
+
+    // ----------------------------
+    // Helpers
+    // ----------------------------
+    function sanitizeKey(name) {
+      return String(name || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[.#$/\[\]]/g, "_")
+        .replace(/\s+/g, "_");
+    }
+
+    function matchesAny(...vals) {
+      const q = (state.globalQuery || "").trim().toLowerCase();
+      if (!q) return true;
+      return vals.some(v => String(v || "").toLowerCase().includes(q));
+    }
+
+    function projectPath(projectKey = state.projectKey) {
+      return `${PROJECTS_ROOT()}/${projectKey}`;
+    }
+
+    function ensureImagesArray(obj) {
+      if (!obj) return [];
+      if (!Array.isArray(obj.images)) obj.images = [];
+      return obj.images;
+    }
+
+    function collectImagePaths(obj) {
+      const out = [];
+      if (!obj) return out;
+      if (Array.isArray(obj.images)) {
+        obj.images.forEach(img => { if (img?.path) out.push(img.path); });
+      }
+      return out;
+    }
+
+    function resizeImageToJpeg(file, maxWidth = 2048, quality = 0.9) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            let w = img.width;
+            let h = img.height;
+            if (w > maxWidth) {
+              const s = maxWidth / w;
+              w = maxWidth;
+              h = Math.round(h * s);
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, w, h);
+            canvas.toBlob((blob) => {
+              if (!blob) return reject(new Error("toBlob() null"));
+              resolve(blob);
+            }, "image/jpeg", quality);
+          };
+          img.onerror = () => reject(new Error("Image decode failed"));
+          img.src = reader.result;
+        };
+        reader.onerror = () => reject(reader.error || new Error("FileReader failed"));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function dbRef(path) {
+      return ref(database, path);
+    }
+
+    // storage paths
+    function storageImagePath({ projectKey, kind, taskId, listId, itemId }) {
+      const ts = Date.now();
+      if (kind === "task") {
+        return `images/${DATABASE_BASE_PATH}/jobInfoManager/projects/${projectKey}/tasks/${taskId}/${ts}.jpg`;
+      }
+      return `images/${DATABASE_BASE_PATH}/jobInfoManager/projects/${projectKey}/lists/${listId}/${itemId}/${ts}.jpg`;
+    }
+
+    // ----------------------------
+    // Panels
+    // ----------------------------
+    function setActivePanel(panel) {
+      state.activePanel = panel;
+
+      sitePanel.classList.toggle("hidden", panel !== "site");
+      tasksPanel.classList.toggle("hidden", panel !== "tasks");
+      listsPanel.classList.toggle("hidden", panel !== "lists");
+
+      renderHeader();
+      renderSidebarPills();
+      renderAll();
+    }
+
+    function renderHeader() {
+      if (!state.projectKey) {
+        sectionTitleEl.textContent = "Select a project";
+        sectionMetaEl.textContent = "";
+        return;
+      }
+
+      const site = state.meta.siteName || "(not set)";
+      const taskCount = Object.keys(state.tasks || {}).length;
+      const listCount = Object.keys(state.lists || {}).length;
+
+      if (state.activePanel === "site") {
+        sectionTitleEl.textContent = "Site Info";
+        sectionMetaEl.textContent = `Project: ${state.projectName} • Site: ${site}`;
+      } else if (state.activePanel === "tasks") {
+        sectionTitleEl.textContent = "Tasks";
+        sectionMetaEl.textContent = `Project: ${state.projectName} • ${taskCount} task(s)`;
+      } else {
+        const list = state.lists[state.activeListId];
+        const name = list?.meta?.name || "List";
+        const itemCount = Object.keys(list?.items || {}).length;
+        sectionTitleEl.textContent = name;
+        sectionMetaEl.textContent = `Project: ${state.projectName} • ${itemCount} item(s) • Total lists: ${listCount}`;
+      }
+    }
+
+    function renderSidebarSummary() {
+      const taskCount = Object.keys(state.tasks || {}).length;
+      const listIds = Object.keys(state.lists || {});
+      const listCount = listIds.length;
+      const itemCount = listIds.reduce((acc, id) => acc + Object.keys(state.lists[id]?.items || {}).length, 0);
+      sidebarSummary.textContent = `${taskCount} tasks • ${listCount} lists • ${itemCount} items`;
+    }
+
+    function renderSidebarPills() {
+      sectionListEl.innerHTML = "";
+      renderSidebarSummary();
+
+      const makePill = ({ title, right, isActive, onClick }) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "section-pill" + (isActive ? " active" : "");
+        btn.innerHTML = `
+          <span class="label">${title}</span>
+          <span class="pill-progress">
+            <span class="pill-dot ${right === "✓" ? "done" : ""}"></span>
+            <span>${right}</span>
+          </span>
+        `;
+        btn.addEventListener("click", onClick);
+        sectionListEl.appendChild(btn);
+      };
+
+      makePill({
+        title: "Site Info",
+        right: state.meta.siteName ? "✓" : "—",
+        isActive: state.activePanel === "site",
+        onClick: () => setActivePanel("site")
+      });
+
+      makePill({
+        title: "Tasks",
+        right: String(Object.keys(state.tasks || {}).length),
+        isActive: state.activePanel === "tasks",
+        onClick: () => setActivePanel("tasks")
+      });
+
+      // Dynamic lists
+      const listIds = Object.keys(state.lists || {}).sort((a, b) => {
+        const an = (state.lists[a]?.meta?.name || a).toLowerCase();
+        const bn = (state.lists[b]?.meta?.name || b).toLowerCase();
+        return an.localeCompare(bn);
+      });
+
+      listIds.forEach(listId => {
+        const list = state.lists[listId];
+        const title = list?.meta?.name || listId;
+        const count = Object.keys(list?.items || {}).length;
+        makePill({
+          title,
+          right: String(count),
+          isActive: state.activePanel === "lists" && state.activeListId === listId,
+          onClick: () => {
+            state.activeListId = listId;
+            setActivePanel("lists");
+          }
+        });
+      });
+
+      // If no lists exist yet, add a helpful pill to jump to lists panel
+      if (!listIds.length) {
+        makePill({
+          title: "Lists",
+          right: "0",
+          isActive: state.activePanel === "lists",
+          onClick: () => setActivePanel("lists")
+        });
+      }
+    }
+
+    // ----------------------------
+    // Project links
+    // ----------------------------
+    function renderProjectLinks() {
+      projectLinksList.innerHTML = "";
+
+      if (!state.projectKey) {
+        const li = document.createElement("li");
+        li.style.color = "var(--text-muted,#8d96a8)";
+        li.textContent = "(No project selected)";
+        projectLinksList.appendChild(li);
+        return;
+      }
+
+      const links = Array.isArray(state.links) ? state.links : [];
+      if (!links.length) {
+        const li = document.createElement("li");
+        li.style.color = "var(--text-muted,#8d96a8)";
+        li.textContent = "(No links yet)";
+        projectLinksList.appendChild(li);
+        return;
+      }
+
+      const sorted = links.slice().sort((a, b) => (a.title || "").localeCompare((b.title || ""), undefined, { sensitivity: "base" }));
+
+      sorted.forEach((link) => {
+        const li = document.createElement("li");
+        li.style.display = "flex";
+        li.style.alignItems = "center";
+        li.style.justifyContent = "space-between";
+        li.style.gap = "6px";
+
+        const a = document.createElement("a");
+        a.href = link.url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.textContent = link.title || link.url;
+        a.style.color = "var(--accent,#2f81f7)";
+        a.style.textDecoration = "none";
+
+        const del = document.createElement("button");
+        del.textContent = "×";
+        del.title = "Remove link";
+        del.style.borderRadius = "999px";
+        del.style.border = "1px solid var(--border-subtle,#202637)";
+        del.style.background = "#050814";
+        del.style.color = "var(--text,#e4e8f0)";
+        del.style.cursor = "pointer";
+        del.style.padding = "0 8px";
+
+        del.addEventListener("click", async () => {
+          const idx = (state.links || []).findIndex(l => l.title === link.title && l.url === link.url);
+          if (idx < 0) return;
+          const next = state.links.slice();
+          next.splice(idx, 1);
+          await update(dbRef(`${projectPath()}`), { links: next });
+        });
+
+        li.appendChild(a);
+        li.appendChild(del);
+        projectLinksList.appendChild(li);
+      });
+    }
+
+    // ----------------------------
+    // Render: Site
+    // ----------------------------
+    function renderSite() {
+      siteNamePreview.textContent = state.meta.siteName || "(not set)";
+      if (siteNameInput.value !== (state.meta.siteName || "")) {
+        siteNameInput.value = state.meta.siteName || "";
+      }
+    }
+
+    // ----------------------------
+    // Thumbs strip (shared)
+    // ----------------------------
+    function renderThumbStrip({ images, onOpen, onDelete, onNoteBlur }) {
+      const wrap = document.createElement("div");
+      wrap.className = "thumb-strip";
+      (Array.isArray(images) ? images : []).forEach((img, idx) => {
+        const w = document.createElement("div");
+        w.className = "thumb-wrapper";
+
+        const thumb = document.createElement("img");
+        thumb.className = "thumb-img";
+        thumb.src = img.url;
+        thumb.addEventListener("click", () => onOpen(img.url));
+
+        const del = document.createElement("button");
+        del.className = "thumb-delete";
+        del.textContent = "×";
+        del.addEventListener("click", () => onDelete(idx));
+
+        const note = document.createElement("textarea");
+        note.className = "thumb-note";
+        note.rows = 2;
+        note.placeholder = "Notes…";
+        note.value = img.note || "";
+        note.addEventListener("blur", () => onNoteBlur(idx, note.value));
+
+        w.appendChild(thumb);
+        w.appendChild(del);
+        w.appendChild(note);
+
+        wrap.appendChild(w);
+      });
+      return wrap;
+    }
+
+    // ----------------------------
+    // Tasks (with images)
+    // ----------------------------
+    function renderTasks() {
+      tasksTableBody.innerHTML = "";
+      if (!state.projectKey) return;
+
+      const entries = Object.entries(state.tasks || {})
+        .map(([k, v]) => ({
+          key: k,
+          date: v?.date || "",
+          notes: v?.notes || "",
+          images: Array.isArray(v?.images) ? v.images : []
+        }))
+        .filter(t => matchesAny(t.key, t.date, t.notes))
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+      tasksCountLabel.textContent = `(${entries.length})`;
+
+      entries.forEach((t) => {
+        const tr = document.createElement("tr");
+
+        // date
+        const tdDate = document.createElement("td");
+        const dateInput = document.createElement("input");
+        dateInput.type = "datetime-local";
+        dateInput.value = t.date || "";
+        dateInput.addEventListener("blur", async () => {
+          await update(dbRef(`${projectPath()}/tasks/${t.key}`), { date: dateInput.value || "" });
+        });
+        tdDate.appendChild(dateInput);
+
+        // notes
+        const tdNotes = document.createElement("td");
+        const notesArea = document.createElement("textarea");
+        notesArea.value = t.notes || "";
+        notesArea.placeholder = "Notes...";
+        notesArea.addEventListener("blur", async () => {
+          await update(dbRef(`${projectPath()}/tasks/${t.key}`), { notes: notesArea.value || "" });
+        });
+        tdNotes.appendChild(notesArea);
+
+        // images
+        const tdImg = document.createElement("td");
+        const addImgBtn = document.createElement("button");
+        addImgBtn.textContent = "Add Image";
+        addImgBtn.addEventListener("click", () => {
+          pendingUploadTarget = { kind: "task", taskId: t.key };
+          imageUploadInput.value = "";
+          imageUploadInput.click();
+        });
+        tdImg.appendChild(addImgBtn);
+
+        tdImg.appendChild(renderThumbStrip({
+          images: t.images,
+          onOpen: (url) => window.open(url, "_blank"),
+          onDelete: async (index) => {
+            if (!confirm("Delete this task image?")) return;
+
+            const taskObj = state.tasks[t.key] || {};
+            const imgs = ensureImagesArray(taskObj).slice();
+            const [removed] = imgs.splice(index, 1);
+            await update(dbRef(`${projectPath()}/tasks/${t.key}`), { images: imgs });
+
+            if (removed?.path) {
+              try { await deleteObject(storageRef(storage, removed.path)); } catch (e) { console.warn(e); }
+            }
+          },
+          onNoteBlur: async (index, noteVal) => {
+            const taskObj = state.tasks[t.key] || {};
+            const imgs = ensureImagesArray(taskObj).slice();
+            if (!imgs[index]) return;
+            imgs[index].note = noteVal || "";
+            await update(dbRef(`${projectPath()}/tasks/${t.key}`), { images: imgs });
+          }
+        }));
+
+        // actions
+        const tdActions = document.createElement("td");
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "Delete";
+        delBtn.className = "danger-btn";
+        delBtn.addEventListener("click", async () => {
+          if (!confirm("Delete this task (and its images)?")) return;
+
+          const taskObj = state.tasks[t.key] || {};
+          const paths = collectImagePaths(taskObj);
+
+          await remove(dbRef(`${projectPath()}/tasks/${t.key}`));
+          for (const p of paths) {
+            try { await deleteObject(storageRef(storage, p)); } catch (e) { console.warn(e); }
+          }
+        });
+        tdActions.appendChild(delBtn);
+
+        tr.appendChild(tdDate);
+        tr.appendChild(tdNotes);
+        tr.appendChild(tdImg);
+        tr.appendChild(tdActions);
+        tasksTableBody.appendChild(tr);
+      });
+    }
+
+    async function addTask() {
+      if (!state.projectKey) return alert("Set a project first.");
+
+      const dt = (newTaskDate.value || "").trim();
+      const notes = (newTaskNotes.value || "").trim();
+      if (!dt || !notes) return alert("Enter a date/time and notes.");
+
+      const taskKey = dt; // keep your “datetime as key” behavior
+      await set(dbRef(`${projectPath()}/tasks/${taskKey}`), {
+        date: dt,
+        notes,
+        images: []
+      });
+
+      newTaskDate.value = "";
+      newTaskNotes.value = "";
+    }
+
+    // ----------------------------
+    // Lists (dynamic) + items + images
+    // ----------------------------
+    function renderActiveList() {
+      activeListTableBody.innerHTML = "";
+
+      if (!state.projectKey) {
+        activeListTitle.textContent = "List";
+        activeListCountLabel.textContent = "";
+        return;
+      }
+
+      const listId = state.activeListId;
+      const list = state.lists[listId];
+
+      if (!list) {
+        activeListTitle.textContent = "Lists";
+        activeListCountLabel.textContent = " (create a list to begin)";
+        return;
+      }
+
+      const listName = list.meta?.name || listId;
+      activeListTitle.textContent = listName;
+
+      const rows = Object.entries(list.items || {})
+        .map(([k, v]) => ({
+          key: k,
+          id: v?.id ?? k,
+          model: v?.model || "",
+          type: v?.type || "",
+          location: v?.location || "",
+          status: v?.status || "",
+          ipAddress: v?.ipAddress || "",
+          macAddress: v?.macAddress || "",
+          images: Array.isArray(v?.images) ? v.images : []
+        }))
+        .filter(r => matchesAny(
+          r.key, r.id, r.model, r.type, r.location, r.status, r.ipAddress, r.macAddress
+        ))
+        .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+
+      activeListCountLabel.textContent = `(${rows.length})`;
+
+      rows.forEach((r) => {
+        const tr = document.createElement("tr");
+
+        const mkTdInput = (val, onBlur) => {
+          const td = document.createElement("td");
+          const input = document.createElement("input");
+          input.type = "text";
+          input.value = val || "";
+          input.addEventListener("blur", onBlur);
+          td.appendChild(input);
+          return { td, input };
+        };
+
+        const { td: tdId, input: idInput } = mkTdInput(r.id, async () => {
+          await update(dbRef(`${projectPath()}/lists/${listId}/items/${r.key}`), { id: idInput.value.trim() });
+        });
+
+        const { td: tdModel, input: modelInput } = mkTdInput(r.model, async () => {
+          await update(dbRef(`${projectPath()}/lists/${listId}/items/${r.key}`), { model: modelInput.value });
+        });
+
+        const { td: tdType, input: typeInput } = mkTdInput(r.type, async () => {
+          await update(dbRef(`${projectPath()}/lists/${listId}/items/${r.key}`), { type: typeInput.value });
+        });
+
+        const { td: tdLoc, input: locInput } = mkTdInput(r.location, async () => {
+          await update(dbRef(`${projectPath()}/lists/${listId}/items/${r.key}`), { location: locInput.value });
+        });
+
+        const { td: tdStatus, input: statusInput } = mkTdInput(r.status, async () => {
+          await update(dbRef(`${projectPath()}/lists/${listId}/items/${r.key}`), { status: statusInput.value });
+        });
+
+        const { td: tdIp, input: ipInput } = mkTdInput(r.ipAddress, async () => {
+          await update(dbRef(`${projectPath()}/lists/${listId}/items/${r.key}`), { ipAddress: ipInput.value });
+        });
+
+        const { td: tdMac, input: macInput } = mkTdInput(r.macAddress, async () => {
+          await update(dbRef(`${projectPath()}/lists/${listId}/items/${r.key}`), { macAddress: macInput.value });
+        });
+
+        // images
+        const tdImg = document.createElement("td");
+        const addImgBtn = document.createElement("button");
+        addImgBtn.textContent = "Add Image";
+        addImgBtn.addEventListener("click", () => {
+          pendingUploadTarget = { kind: "listItem", listId, itemId: r.key };
+          imageUploadInput.value = "";
+          imageUploadInput.click();
+        });
+        tdImg.appendChild(addImgBtn);
+
+        tdImg.appendChild(renderThumbStrip({
+          images: r.images,
+          onOpen: (url) => window.open(url, "_blank"),
+          onDelete: async (index) => {
+            if (!confirm("Delete this item image?")) return;
+
+            const itemObj = state.lists[listId]?.items?.[r.key] || {};
+            const imgs = ensureImagesArray(itemObj).slice();
+            const [removed] = imgs.splice(index, 1);
+
+            await update(dbRef(`${projectPath()}/lists/${listId}/items/${r.key}`), { images: imgs });
+
+            if (removed?.path) {
+              try { await deleteObject(storageRef(storage, removed.path)); } catch (e) { console.warn(e); }
+            }
+          },
+          onNoteBlur: async (index, noteVal) => {
+            const itemObj = state.lists[listId]?.items?.[r.key] || {};
+            const imgs = ensureImagesArray(itemObj).slice();
+            if (!imgs[index]) return;
+            imgs[index].note = noteVal || "";
+            await update(dbRef(`${projectPath()}/lists/${listId}/items/${r.key}`), { images: imgs });
+          }
+        }));
+
+        // actions
+        const tdActions = document.createElement("td");
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "Delete";
+        delBtn.className = "danger-btn";
+        delBtn.addEventListener("click", async () => {
+          if (!confirm(`Delete item "${r.key}" (and images)?`)) return;
+
+          const itemObj = state.lists[listId]?.items?.[r.key] || {};
+          const paths = collectImagePaths(itemObj);
+
+          await remove(dbRef(`${projectPath()}/lists/${listId}/items/${r.key}`));
+
+          for (const p of paths) {
+            try { await deleteObject(storageRef(storage, p)); } catch (e) { console.warn(e); }
+          }
+        });
+        tdActions.appendChild(delBtn);
+
+        tr.appendChild(tdId);
+        tr.appendChild(tdModel);
+        tr.appendChild(tdType);
+        tr.appendChild(tdLoc);
+        tr.appendChild(tdStatus);
+        tr.appendChild(tdIp);
+        tr.appendChild(tdMac);
+        tr.appendChild(tdImg);
+        tr.appendChild(tdActions);
+
+        activeListTableBody.appendChild(tr);
+      });
+    }
+
+    async function createList() {
+      if (!state.projectKey) return alert("Set a project first.");
+      const name = (newListName.value || "").trim();
+      if (!name) return alert("Enter a list name.");
+
+      const listId = sanitizeKey(name);
+
+      await set(dbRef(`${projectPath()}/lists/${listId}`), {
+        meta: { name, createdAt: Date.now() },
+        items: {}
+      });
+
+      state.activeListId = listId;
+      newListName.value = "";
+      setActivePanel("lists");
+    }
+
+    async function deleteActiveList() {
+      if (!state.projectKey) return alert("Set a project first.");
+      if (!state.activeListId) return alert("No list selected.");
+
+      const list = state.lists[state.activeListId];
+      const name = list?.meta?.name || state.activeListId;
+
+      if (!confirm(`Delete list "${name}" and all items/images?`)) return;
+
+      const items = list?.items || {};
+      const paths = [];
+      Object.values(items).forEach(item => paths.push(...collectImagePaths(item)));
+
+      await remove(dbRef(`${projectPath()}/lists/${state.activeListId}`));
+
+      for (const p of paths) {
+        try { await deleteObject(storageRef(storage, p)); } catch (e) { console.warn(e); }
+      }
+
+      state.activeListId = "";
+      setActivePanel("site");
+    }
+
+    async function addItemToActiveList() {
+      if (!state.projectKey) return alert("Set a project first.");
+      if (!state.activeListId) return alert("Select or create a list first.");
+
+      const listId = state.activeListId;
+      const id = (itemInputs.id.value || "").trim();
+      if (!id) return alert("ID is required.");
+
+      const item = {
+        id,
+        model: itemInputs.model.value || "",
+        type: itemInputs.type.value || "",
+        location: itemInputs.location.value || "",
+        status: itemInputs.status.value || "",
+        ipAddress: itemInputs.ipAddress.value || "",
+        macAddress: itemInputs.macAddress.value || "",
+        images: []
+      };
+
+      await set(dbRef(`${projectPath()}/lists/${listId}/items/${id}`), item);
+
+      Object.values(itemInputs).forEach(el => el.value = "");
+    }
+
+    // ----------------------------
+    // Upload handler (task + list item)
+    // ----------------------------
+    imageUploadInput.addEventListener("change", async () => {
+      const file = imageUploadInput.files[0];
+      if (!file || !pendingUploadTarget || !state.projectKey) return;
+
+      const target = pendingUploadTarget;
+      pendingUploadTarget = null;
+
+      try {
+        const resizedBlob = await resizeImageToJpeg(file, 2048, 0.9);
+
+        let storagePath;
+        let dbNodePath;
+
+        if (target.kind === "task") {
+          storagePath = storageImagePath({ projectKey: state.projectKey, kind: "task", taskId: target.taskId });
+          dbNodePath = `${projectPath()}/tasks/${target.taskId}`;
+        } else {
+          storagePath = storageImagePath({
+            projectKey: state.projectKey,
+            kind: "listItem",
+            listId: target.listId,
+            itemId: target.itemId
+          });
+          dbNodePath = `${projectPath()}/lists/${target.listId}/items/${target.itemId}`;
+        }
+
+        const sRef = storageRef(storage, storagePath);
+        await uploadBytes(sRef, resizedBlob, { contentType: "image/jpeg" });
+        const url = await getDownloadURL(sRef);
+
+        const snap = await get(dbRef(dbNodePath));
+        const current = snap.val() || {};
+        const images = Array.isArray(current.images) ? current.images.slice() : [];
+        images.push({ url, path: storagePath, note: "" });
+
+        await update(dbRef(dbNodePath), { images });
+      } catch (err) {
+        console.error(err);
+        alert("Image upload failed (check console).");
+      } finally {
+        imageUploadInput.value = "";
+      }
+    });
+
+    // ----------------------------
+    // Project create/load + listeners
+    // ----------------------------
+    async function ensureProjectExists(projectKey, projectName) {
+      const snap = await get(dbRef(`${PROJECTS_ROOT()}/${projectKey}`));
+      if (snap.exists()) return;
+
+      await set(dbRef(`${PROJECTS_ROOT()}/${projectKey}`), {
+        meta: { projectName, siteName: "", createdAt: Date.now() },
+        tasks: {},
+        lists: {},
+        links: []
+      });
+    }
+
+    async function loadProject(projectKey, projectName) {
+      if (!projectKey) return;
+
+      // detach old project listener
+      if (state.projectListenerRef && state.projectListenerCb) {
+        try { off(state.projectListenerRef, "value", state.projectListenerCb); } catch { }
+      }
+
+      state.projectKey = projectKey;
+      state.projectName = projectName;
+      currentProjectLabel.textContent = projectName;
+
+      await ensureProjectExists(projectKey, projectName);
+
+      // keep index updated
+      await update(dbRef(`${PROJECT_INDEX()}/${projectKey}`), { name: projectName, updatedAt: Date.now() });
+
+      state.projectListenerRef = dbRef(`${PROJECTS_ROOT()}/${projectKey}`);
+      state.projectListenerCb = (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.val() || {};
+
+        state.meta = data.meta || { siteName: "" };
+        state.tasks = data.tasks || {};
+        state.lists = data.lists || {};
+        state.links = Array.isArray(data.links) ? data.links : [];
+
+        // pick a list if none selected
+        const listIds = Object.keys(state.lists || {});
+        if (state.activeListId && !state.lists[state.activeListId]) state.activeListId = "";
+        if (!state.activeListId && listIds.length) state.activeListId = listIds[0];
+
+        renderHeader();
+        renderSidebarPills();
+        renderAll();
+      };
+
+      onValue(state.projectListenerRef, state.projectListenerCb);
+      setActivePanel("site");
+    }
+
+    function startProjectIndexListener() {
+      if (state.indexListenerRef) {
+        try { off(state.indexListenerRef); } catch { }
+      }
+
+      state.indexListenerRef = dbRef(PROJECT_INDEX());
+      onValue(state.indexListenerRef, (snap) => {
+        projectDropdown.innerHTML = `<option value="">Select project</option>`;
+        if (!snap.exists()) return;
+
+        const rows = [];
+        snap.forEach(child => {
+          const k = child.key;
+          const v = child.val() || {};
+          rows.push({ key: k, name: v.name || k, updatedAt: v.updatedAt || 0 });
+        });
+
+        rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+        rows.forEach(r => {
+          const opt = document.createElement("option");
+          opt.value = r.key;
+          opt.textContent = r.name;
+          projectDropdown.appendChild(opt);
+        });
+
+        if (state.projectKey) projectDropdown.value = state.projectKey;
+      });
+    }
+
+    // ----------------------------
+    // Render all
+    // ----------------------------
+    function renderAll() {
+      renderProjectLinks();
+
+      if (!state.projectKey) return;
+
+      renderSite();
+
+      if (state.activePanel === "tasks") renderTasks();
+      if (state.activePanel === "lists") renderActiveList();
+    }
+
+    // ----------------------------
+    // Events
+    // ----------------------------
+    setProjectBtn.addEventListener("click", async () => {
+      const name = (projectNameInput.value || "").trim();
+      if (!name) return alert("Enter a project name.");
+      const key = sanitizeKey(name);
+      await loadProject(key, name);
+      projectDropdown.value = key;
+    });
+
+    projectNameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        setProjectBtn.click();
+      }
+    });
+
+    projectDropdown.addEventListener("change", async () => {
+      const key = projectDropdown.value;
+      if (!key) return;
+      const snap = await get(dbRef(`${PROJECT_INDEX()}/${key}`));
+      const name = snap.exists() ? (snap.val().name || key) : key;
+      projectNameInput.value = name;
+      await loadProject(key, name);
+    });
+
+    clearProjectBtn.addEventListener("click", async () => {
+      if (!state.projectKey) return alert("No project selected.");
+      if (!confirm("Clear ALL data for this project (meta, tasks, lists, links)?")) return;
+
+      await set(dbRef(`${PROJECTS_ROOT()}/${state.projectKey}`), {
+        meta: { projectName: state.projectName, siteName: "", createdAt: Date.now() },
+        tasks: {},
+        lists: {},
+        links: []
+      });
+
+      state.activeListId = "";
+      setActivePanel("site");
+    });
+
+    siteNameInput.addEventListener("blur", async () => {
+      if (!state.projectKey) return;
+      const val = (siteNameInput.value || "").trim();
+      await update(dbRef(`${projectPath()}/meta`), { siteName: val });
+    });
+
+    addTaskBtn.addEventListener("click", addTask);
+
+    createListBtn.addEventListener("click", createList);
+    deleteListBtn.addEventListener("click", deleteActiveList);
+    addItemBtn.addEventListener("click", addItemToActiveList);
+
+    globalSearchInput.addEventListener("input", () => {
+      state.globalQuery = globalSearchInput.value || "";
+      renderAll();
+    });
+
+    // project links add
+    projectLinksForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!state.projectKey) return alert("Set a project first.");
+
+      const title = (projectLinkTitle.value || "").trim();
+      const url = (projectLinkUrl.value || "").trim();
+      if (!title || !url) return alert("Title and URL are required.");
+      try { new URL(url); } catch { return alert("Invalid URL (include https://)"); }
+
+      const next = Array.isArray(state.links) ? state.links.slice() : [];
+      next.push({ title, url });
+
+      projectLinkTitle.value = "";
+      projectLinkUrl.value = "";
+
+      await update(dbRef(`${projectPath()}`), { links: next });
+    });
+
+    // ----------------------------
+    // Init
+    // ----------------------------
+    dataPathLabel.textContent = DATABASE_BASE_PATH;
+    startProjectIndexListener();
+    renderSidebarPills();
+    setActivePanel("site");
+  </script>
+
+</body>
+
+</html>
