@@ -11,86 +11,6 @@
 
   <!-- Your existing CSS (walmart-tracker look) -->
   <link rel="stylesheet" href="./assets/css/tracker.css" />
-
-  <style>
-    .hidden {
-      display: none !important;
-    }
-
-    .thumb-strip {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
-
-    .thumb-wrapper {
-      border: 1px solid var(--border-subtle, #202637);
-      border-radius: 12px;
-      padding: 8px;
-      width: 180px;
-    }
-
-    .thumb-img {
-      width: 100%;
-      height: 110px;
-      object-fit: cover;
-      border-radius: 10px;
-      cursor: pointer;
-    }
-
-    .thumb-delete {
-      float: right;
-      margin-top: 6px;
-      border-radius: 999px;
-      width: 28px;
-      height: 28px;
-      cursor: pointer;
-    }
-
-    .thumb-note {
-      width: 100%;
-      margin-top: 6px;
-      resize: vertical;
-    }
-
-    .project-links-card {
-      margin-top: 12px;
-      border: 1px solid var(--border-subtle, #202637);
-      border-radius: 14px;
-      padding: 10px;
-    }
-
-    .project-links-header {
-      font-weight: 700;
-      margin-bottom: 8px;
-    }
-
-    .project-links-list {
-      list-style: none;
-      padding: 0;
-      margin: 0 0 10px 0;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .project-links-form {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-
-    .project-link-input {
-      flex: 1;
-      min-width: 180px;
-    }
-
-    .project-link-add-btn {
-      white-space: nowrap;
-    }
-  </style>
-
 </head>
 
 <body>
@@ -145,9 +65,19 @@
 
           <br>
 
+          <!-- ✅ Export / Import -->
+          <div class="row" style="gap:8px; flex-wrap:wrap;">
+            <button id="exportCsvBtn" type="button">Export CSV</button>
+            <button id="importCsvBtn" type="button">Import CSV</button>
+          </div>
+          <input type="file" id="csvImportInput" accept=".csv,text/csv" class="hidden" />
+
+          <br>
+
           <div class="row">
             <button id="clearAppDataBtn" type="button" class="danger-btn">Clear App Data</button>
           </div>
+
           <br>
 
           <div class="pill-sub">
@@ -283,7 +213,7 @@
           </div>
         </div>
 
-        <!-- Shared hidden file input -->
+        <!-- Shared hidden file input (images) -->
         <input type="file" id="imageUploadInput" accept="image/*" class="hidden" />
       </main>
 
@@ -353,6 +283,10 @@
     const projectNameInput = $("projectNameInput");
     const setProjectBtn = $("setProjectBtn");
     const clearAppDataBtn = $("clearAppDataBtn");
+
+    const exportCsvBtn = $("exportCsvBtn");
+    const importCsvBtn = $("importCsvBtn");
+    const csvImportInput = $("csvImportInput");
 
     const sidebarSummary = $("sidebarSummary");
     const dataPathLabel = $("dataPathLabel");
@@ -436,7 +370,6 @@
     // ============================
     // Utils
     // ============================
-    // IMPORTANT: include createdAt so it never shows as an "item"
     const RESERVED_LIST_KEYS = new Set(["_name", "createdAt", "meta", "items"]);
 
     function dbRef(path) { return ref(database, path); }
@@ -541,6 +474,245 @@
     async function dbRemove(path, touch = true) {
       await remove(dbRef(path));
       if (touch) await touchRecord();
+    }
+
+    // ============================
+    // CSV helpers + Export / Import
+    // ============================
+    function csvEscape(val) {
+      const s = String(val ?? "");
+      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    }
+
+    function toCsv(rows, header) {
+      const lines = [];
+      lines.push(header.map(csvEscape).join(","));
+      for (const r of rows) {
+        lines.push(header.map(h => csvEscape(r[h])).join(","));
+      }
+      return lines.join("\n");
+    }
+
+    // Minimal CSV parser that handles quotes/commas/newlines
+    function parseCsv(text) {
+      const rows = [];
+      let row = [];
+      let cur = "";
+      let i = 0;
+      let inQuotes = false;
+
+      while (i < text.length) {
+        const ch = text[i];
+
+        if (inQuotes) {
+          if (ch === '"') {
+            if (text[i + 1] === '"') { cur += '"'; i += 2; continue; }
+            inQuotes = false; i++; continue;
+          }
+          cur += ch; i++; continue;
+        }
+
+        if (ch === '"') { inQuotes = true; i++; continue; }
+        if (ch === ",") { row.push(cur); cur = ""; i++; continue; }
+        if (ch === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; i++; continue; }
+        if (ch === "\r") { i++; continue; }
+
+        cur += ch; i++;
+      }
+
+      row.push(cur);
+      rows.push(row);
+      return rows;
+    }
+
+    function downloadTextFile(filename, text) {
+      const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function buildExportRows() {
+      const rows = [];
+
+      // DAILY TASKS
+      for (const [key, v] of Object.entries(state.daily || {})) {
+        const images = Array.isArray(v?.images) ? v.images : [];
+        rows.push({
+          kind: "daily",
+          projectId: state.recordId,
+          project: state.projectFieldName || "",
+          customerName: state.customerName || "",
+          listId: "",
+          itemKey: key,
+          id: "",
+          date: v?.date || key || "",
+          notes: v?.notes || "",
+          model: "",
+          type: "",
+          location: "",
+          status: "",
+          ip: "",
+          mac: "",
+          itemNotes: "",
+          imageUrls: images.map(x => x?.url || "").filter(Boolean).join("|"),
+          imageNotes: images.map(x => x?.note || "").join("|")
+        });
+      }
+
+      // LIST ITEMS (all lists)
+      for (const [listId, listObj] of Object.entries(state.lists || {})) {
+        const items = getListItems(listObj);
+        for (const [itemKey, v] of Object.entries(items)) {
+          const images = Array.isArray(v?.images) ? v.images : [];
+          rows.push({
+            kind: "listItem",
+            projectId: state.recordId,
+            project: state.projectFieldName || "",
+            customerName: state.customerName || "",
+            listId,
+            itemKey,
+            id: v?.id ?? itemKey,
+            date: "",
+            notes: "",
+            model: v?.model || "",
+            type: v?.type || "",
+            location: v?.location || "",
+            status: v?.status || "",
+            ip: v?.ip || "",
+            mac: v?.mac || "",
+            itemNotes: v?.notes || "",
+            imageUrls: images.map(x => x?.url || "").filter(Boolean).join("|"),
+            imageNotes: images.map(x => x?.note || "").join("|")
+          });
+        }
+      }
+
+      return rows;
+    }
+
+    async function exportCsv() {
+      if (!state.recordId) return alert("Select a project first.");
+
+      const header = [
+        "kind",
+        "projectId",
+        "project",
+        "customerName",
+        "listId",
+        "itemKey",
+        "id",
+        "date",
+        "notes",
+        "model",
+        "type",
+        "location",
+        "status",
+        "ip",
+        "mac",
+        "itemNotes",
+        "imageUrls",
+        "imageNotes"
+      ];
+
+      const rows = buildExportRows();
+      const csv = toCsv(rows, header);
+
+      const safeName = (state.projectFieldName || state.recordId || "project")
+        .replace(/[^\w\-]+/g, "_")
+        .slice(0, 60);
+
+      downloadTextFile(`job_tracker_${safeName}.csv`, csv);
+    }
+
+    async function importCsvText(csvText) {
+      if (!state.recordId) return alert("Select a project first.");
+
+      const parsed = parseCsv(csvText.trim());
+      if (!parsed.length) return alert("CSV looks empty.");
+
+      const header = parsed[0].map(h => String(h || "").trim());
+      const idx = (name) => header.indexOf(name);
+
+      if (idx("kind") < 0) return alert('CSV missing required column: "kind".');
+
+      const basePath = RECORD_PATH(state.recordId);
+      let importedDaily = 0;
+      let importedItems = 0;
+
+      const patch = {};
+
+      // Optional: let the CSV set customerName/project if provided (non-blank)
+      const firstDataRow = parsed[1] || [];
+      const csvProject = firstDataRow[idx("project")] || "";
+      const csvCustomer = firstDataRow[idx("customerName")] || "";
+      if (csvProject && !state.projectFieldName) patch["project"] = csvProject;
+      if (csvCustomer) patch["customerName"] = csvCustomer;
+
+      for (let r = 1; r < parsed.length; r++) {
+        const row = parsed[r];
+        if (!row || (row.length === 1 && !row[0])) continue;
+
+        const kind = row[idx("kind")] || "";
+
+        if (kind === "daily") {
+          const itemKey = row[idx("itemKey")] || row[idx("date")] || "";
+          if (!itemKey) continue;
+
+          const date = row[idx("date")] || itemKey;
+          const notes = row[idx("notes")] || "";
+
+          const urls = (row[idx("imageUrls")] || "").split("|").filter(Boolean);
+          const notesArr = (row[idx("imageNotes")] || "").split("|");
+          const images = urls.map((u, i) => ({ url: u, path: "", note: notesArr[i] || "" }));
+
+          patch[`tasks/${itemKey}`] = { date, notes, images };
+          importedDaily++;
+        }
+
+        if (kind === "listItem") {
+          const listId = row[idx("listId")] || "";
+          const itemKey = row[idx("itemKey")] || row[idx("id")] || "";
+          if (!listId || !itemKey) continue;
+
+          const idVal = row[idx("id")] || itemKey;
+
+          const urls = (row[idx("imageUrls")] || "").split("|").filter(Boolean);
+          const notesArr = (row[idx("imageNotes")] || "").split("|");
+          const images = urls.map((u, i) => ({ url: u, path: "", note: notesArr[i] || "" }));
+
+          patch[`lists/${listId}/${itemKey}`] = {
+            id: idVal,
+            model: row[idx("model")] || "",
+            type: row[idx("type")] || "",
+            location: row[idx("location")] || "",
+            status: row[idx("status")] || "",
+            ip: row[idx("ip")] || "",
+            mac: row[idx("mac")] || "",
+            notes: row[idx("itemNotes")] || "",
+            images
+          };
+
+          // ensure list meta exists if it doesn't (won't overwrite existing)
+          if (!state.lists?.[listId]) {
+            patch[`lists/${listId}/_name`] = listId;
+            patch[`lists/${listId}/createdAt`] = Date.now();
+          }
+
+          importedItems++;
+        }
+      }
+
+      await update(dbRef(basePath), patch);
+      await touchRecord();
+
+      alert(`Imported: ${importedDaily} daily task(s), ${importedItems} list item(s).`);
     }
 
     // ============================
@@ -1402,6 +1574,30 @@
       projectLinkUrl.value = "";
 
       await dbUpdate(RECORD_PATH(state.recordId), { links: next });
+    });
+
+    // ✅ Export / Import events
+    exportCsvBtn.addEventListener("click", exportCsv);
+
+    importCsvBtn.addEventListener("click", () => {
+      if (!state.recordId) return alert("Select a project first.");
+      csvImportInput.value = "";
+      csvImportInput.click();
+    });
+
+    csvImportInput.addEventListener("change", async () => {
+      const file = csvImportInput.files?.[0];
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        await importCsvText(text);
+      } catch (e) {
+        console.error(e);
+        alert("CSV import failed (check console).");
+      } finally {
+        csvImportInput.value = "";
+      }
     });
 
     // ============================
