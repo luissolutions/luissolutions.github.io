@@ -308,94 +308,95 @@
       deleteObject
     } from "../apps/assets/js/firebase-init.js";
 
-    // ----------------------------
-    // Base path
-    // ----------------------------
+    // ============================
+    // Config / Paths
+    // ============================
     let DATABASE_BASE_PATH = "public";
-
-    // {base}/tasks/{recordId}/...
     const TASKS_ROOT = () => `${DATABASE_BASE_PATH}/tasks`;
-    const RECORD_PATH = (id = state.recordId) => `${TASKS_ROOT()}/${id}`;
+    const RECORD_PATH = (id) => `${TASKS_ROOT()}/${id}`;
 
-    // ----------------------------
+    // ============================
     // State
-    // ----------------------------
+    // ============================
     const state = {
       recordId: "",
-      recordName: "",
-      activePanel: "daily",   // daily | lists
+      activePanel: "daily", // daily | lists
       activeListId: "",
       globalQuery: "",
 
-      recordListenerRef: null,
-      recordListenerCb: null,
-      dropdownListenerRef: null,
-
-      projectFieldName: "", // record.project
-      customerName: "",     // record.customerName (used as "Site Name")
-      meta: { updatedAt: 0 }, // ONLY what we need
-
+      projectFieldName: "",
+      customerName: "",
+      meta: { updatedAt: 0 },
       links: [],
       lists: {},
-      daily: {}
+      daily: {},
+
+      listeners: {
+        recordRef: null,
+        recordCb: null,
+        dropdownRef: null,
+        dropdownCb: null
+      }
     };
 
-    // ----------------------------
+    // ============================
     // DOM
-    // ----------------------------
-    const sectionListEl = document.getElementById("sectionList");
-    const sectionTitleEl = document.getElementById("sectionTitle");
-    const sectionMetaEl = document.getElementById("sectionMeta");
+    // ============================
+    const $ = (id) => document.getElementById(id);
 
-    const projectDropdown = document.getElementById("projectDropdown");
-    const projectNameInput = document.getElementById("projectNameInput");
-    const setProjectBtn = document.getElementById("setProjectBtn");
-    const clearAppDataBtn = document.getElementById("clearAppDataBtn");
+    const sectionListEl = $("sectionList");
+    const sectionTitleEl = $("sectionTitle");
+    const sectionMetaEl = $("sectionMeta");
 
-    const sidebarSummary = document.getElementById("sidebarSummary");
-    const dataPathLabel = document.getElementById("dataPathLabel");
-    const globalSearchInput = document.getElementById("globalSearchInput");
+    const projectDropdown = $("projectDropdown");
+    const projectNameInput = $("projectNameInput");
+    const setProjectBtn = $("setProjectBtn");
+    const clearAppDataBtn = $("clearAppDataBtn");
 
-    const siteNameInput = document.getElementById("siteNameInput");
+    const sidebarSummary = $("sidebarSummary");
+    const dataPathLabel = $("dataPathLabel");
+    const globalSearchInput = $("globalSearchInput");
 
-    const dailyTasksPanel = document.getElementById("dailyTasksPanel");
-    const listsPanel = document.getElementById("listsPanel");
+    const siteNameInput = $("siteNameInput");
+
+    const dailyTasksPanel = $("dailyTasksPanel");
+    const listsPanel = $("listsPanel");
 
     const dailyTasksTableBody = document.querySelector("#dailyTasksTable tbody");
-    const dailyTasksCountLabel = document.getElementById("dailyTasksCountLabel");
-    const newDailyTaskDate = document.getElementById("newDailyTaskDate");
-    const newDailyTaskNotes = document.getElementById("newDailyTaskNotes");
-    const addDailyTaskBtn = document.getElementById("addDailyTaskBtn");
+    const dailyTasksCountLabel = $("dailyTasksCountLabel");
+    const newDailyTaskDate = $("newDailyTaskDate");
+    const newDailyTaskNotes = $("newDailyTaskNotes");
+    const addDailyTaskBtn = $("addDailyTaskBtn");
 
-    const projectLinksList = document.getElementById("projectLinksList");
-    const projectLinksForm = document.getElementById("projectLinksForm");
-    const projectLinkTitle = document.getElementById("projectLinkTitle");
-    const projectLinkUrl = document.getElementById("projectLinkUrl");
+    const projectLinksList = $("projectLinksList");
+    const projectLinksForm = $("projectLinksForm");
+    const projectLinkTitle = $("projectLinkTitle");
+    const projectLinkUrl = $("projectLinkUrl");
 
-    const activeListTitle = document.getElementById("activeListTitle");
-    const activeListCountLabel = document.getElementById("activeListCountLabel");
-    const newListName = document.getElementById("newListName");
-    const createListBtn = document.getElementById("createListBtn");
-    const deleteListBtn = document.getElementById("deleteListBtn");
+    const activeListTitle = $("activeListTitle");
+    const activeListCountLabel = $("activeListCountLabel");
+    const newListName = $("newListName");
+    const createListBtn = $("createListBtn");
+    const deleteListBtn = $("deleteListBtn");
 
     const itemInputs = {
-      id: document.getElementById("item_id"),
-      model: document.getElementById("item_model"),
-      type: document.getElementById("item_type"),
-      location: document.getElementById("item_location"),
-      status: document.getElementById("item_status"),
-      ip: document.getElementById("item_ip"),
-      mac: document.getElementById("item_mac"),
+      id: $("item_id"),
+      model: $("item_model"),
+      type: $("item_type"),
+      location: $("item_location"),
+      status: $("item_status"),
+      ip: $("item_ip"),
+      mac: $("item_mac"),
     };
-    const addItemBtn = document.getElementById("addItemBtn");
+    const addItemBtn = $("addItemBtn");
     const activeListTableBody = document.querySelector("#activeListTable tbody");
 
-    const imageUploadInput = document.getElementById("imageUploadInput");
+    const imageUploadInput = $("imageUploadInput");
     let pendingUploadTarget = null; // { kind:'daily'|'listItem', dailyKey?, listId?, itemId? }
 
-    // ----------------------------
-    // LocalStorage: persist last opened UI state
-    // ----------------------------
+    // ============================
+    // LocalStorage (per base path)
+    // ============================
     const LS_KEY = () => `jobInfoManager:lastOpen:${DATABASE_BASE_PATH}`;
 
     function loadLastOpenState() {
@@ -431,40 +432,12 @@
       try { localStorage.removeItem(LS_KEY()); } catch { }
     }
 
-    async function restoreLastOpenState() {
-      const saved = loadLastOpenState();
-      if (!saved) return;
+    // ============================
+    // Utils
+    // ============================
+    // IMPORTANT: include createdAt so it never shows as an "item"
+    const RESERVED_LIST_KEYS = new Set(["_name", "createdAt", "meta", "items"]);
 
-      // Restore search first
-      if (typeof saved.globalQuery === "string") {
-        state.globalQuery = saved.globalQuery;
-        if (globalSearchInput) globalSearchInput.value = saved.globalQuery;
-      }
-
-      // Restore project
-      if (saved.recordId) {
-        await loadRecordById(saved.recordId);
-      }
-
-      // Restore panel + list
-      if (saved.activePanel === "lists") {
-        if (saved.activeListId && state.lists?.[saved.activeListId]) {
-          state.activeListId = saved.activeListId;
-        } else {
-          const first = Object.keys(state.lists || {})[0] || "";
-          state.activeListId = first;
-        }
-        setActivePanel("lists");
-      } else {
-        setActivePanel("daily");
-      }
-
-      renderAll();
-    }
-
-    // ----------------------------
-    // Helpers
-    // ----------------------------
     function dbRef(path) { return ref(database, path); }
 
     function sanitizeKey(name) {
@@ -475,10 +448,14 @@
         .replace(/\s+/g, "_");
     }
 
-    function matchesAny(...vals) {
-      const q = (state.globalQuery || "").trim().toLowerCase();
-      if (!q) return true;
-      return vals.some(v => String(v || "").toLowerCase().includes(q));
+    function getListItems(listObj) {
+      if (!listObj || typeof listObj !== "object") return {};
+      const out = {};
+      for (const [k, v] of Object.entries(listObj)) {
+        if (RESERVED_LIST_KEYS.has(k)) continue;
+        out[k] = v;
+      }
+      return out;
     }
 
     function ensureImagesArray(obj) {
@@ -494,6 +471,28 @@
       return out;
     }
 
+    function matchesAny(...vals) {
+      const q = (state.globalQuery || "").trim().toLowerCase();
+      if (!q) return true;
+      return vals.some(v => String(v || "").toLowerCase().includes(q));
+    }
+
+    function debounce(fn, wait = 120) {
+      let t = null;
+      return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), wait);
+      };
+    }
+
+    function storageImagePath({ kind, dailyKey, listId, itemId }) {
+      const ts = Date.now();
+      if (kind === "daily") {
+        return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/daily/${encodeURIComponent(dailyKey)}/${ts}.jpg`;
+      }
+      return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/lists/${listId}/${itemId}/${ts}.jpg`;
+    }
+
     function resizeImageToJpeg(file, maxWidth = 2048, quality = 0.9) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -501,11 +500,19 @@
           const img = new Image();
           img.onload = () => {
             let w = img.width, h = img.height;
-            if (w > maxWidth) { const s = maxWidth / w; w = maxWidth; h = Math.round(h * s); }
+            if (w > maxWidth) {
+              const s = maxWidth / w;
+              w = maxWidth;
+              h = Math.round(h * s);
+            }
             const canvas = document.createElement("canvas");
             canvas.width = w; canvas.height = h;
             canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-            canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("toBlob returned null")), "image/jpeg", quality);
+            canvas.toBlob(
+              (blob) => blob ? resolve(blob) : reject(new Error("toBlob returned null")),
+              "image/jpeg",
+              quality
+            );
           };
           img.onerror = () => reject(new Error("Image decode failed"));
           img.src = reader.result;
@@ -517,56 +524,48 @@
 
     async function touchRecord() {
       if (!state.recordId) return;
-      await update(dbRef(`${RECORD_PATH()}/meta`), { updatedAt: Date.now() });
+      await update(dbRef(`${RECORD_PATH(state.recordId)}/meta`), { updatedAt: Date.now() });
     }
 
     async function dbUpdate(path, patch, touch = true) {
       await update(dbRef(path), patch);
       if (touch) await touchRecord();
     }
+
     async function dbSet(path, value, touch = true) {
       await set(dbRef(path), value);
       if (touch) await touchRecord();
     }
+
     async function dbRemove(path, touch = true) {
       await remove(dbRef(path));
       if (touch) await touchRecord();
     }
 
-    function storageImagePath({ kind, dailyKey, listId, itemId }) {
-      const ts = Date.now();
-      if (kind === "daily") {
-        return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/daily/${encodeURIComponent(dailyKey)}/${ts}.jpg`;
+    // ============================
+    // Listener management
+    // ============================
+    function detachRecordListener() {
+      const { recordRef, recordCb } = state.listeners;
+      if (recordRef && recordCb) {
+        try { off(recordRef, "value", recordCb); } catch { }
       }
-      return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/lists/${listId}/${itemId}/${ts}.jpg`;
+      state.listeners.recordRef = null;
+      state.listeners.recordCb = null;
     }
 
-    async function createNewProjectWithName(name) {
-      const now = Date.now();
-      const newId = String(now);
-
-      // Create a fresh record at {base}/tasks/{timestamp}
-      await set(dbRef(RECORD_PATH(newId)), {
-        project: name,
-        customerName: "",
-        meta: { updatedAt: now },
-        tasks: {},
-        lists: {},
-        links: []
-      });
-
-      await loadRecordById(newId);
-
-      // Sync UI
-      projectDropdown.value = newId;
-      if (projectNameInput) projectNameInput.value = "";
-
-      return newId;
+    function detachDropdownListener() {
+      const { dropdownRef, dropdownCb } = state.listeners;
+      if (dropdownRef && dropdownCb) {
+        try { off(dropdownRef, "value", dropdownCb); } catch { }
+      }
+      state.listeners.dropdownRef = null;
+      state.listeners.dropdownCb = null;
     }
 
-    // ----------------------------
-    // Panels
-    // ----------------------------
+    // ============================
+    // Panels / Header
+    // ============================
     function setActivePanel(panel) {
       state.activePanel = panel;
 
@@ -587,7 +586,7 @@
         return;
       }
 
-      const displayName = state.projectFieldName || state.recordName || state.recordId;
+      const displayName = state.projectFieldName || state.recordId;
       const dailyCount = Object.keys(state.daily || {}).length;
       const listCount = Object.keys(state.lists || {}).length;
 
@@ -595,10 +594,10 @@
         sectionTitleEl.textContent = "Daily Tasks / Notes";
         sectionMetaEl.textContent = `Project: ${displayName} • ${dailyCount} daily task(s)`;
       } else {
-        const list = state.lists[state.activeListId];
-        const name = list?.meta?.name || "List";
-        const itemCount = Object.keys(list?.items || {}).length;
-        sectionTitleEl.textContent = name;
+        const listId = state.activeListId;
+        const list = state.lists[listId] || {};
+        const itemCount = Object.keys(getListItems(list)).length;
+        sectionTitleEl.textContent = list?._name || listId || "List";
         sectionMetaEl.textContent = `Project: ${displayName} • ${itemCount} item(s) • ${listCount} list(s)`;
       }
     }
@@ -607,7 +606,7 @@
       const dailyCount = Object.keys(state.daily || {}).length;
       const listIds = Object.keys(state.lists || {});
       const listCount = listIds.length;
-      const itemCount = listIds.reduce((acc, id) => acc + Object.keys(state.lists[id]?.items || {}).length, 0);
+      const itemCount = listIds.reduce((acc, id) => acc + Object.keys(getListItems(state.lists[id])).length, 0);
       sidebarSummary.textContent = `${dailyCount} daily tasks • ${listCount} lists • ${itemCount} items`;
     }
 
@@ -620,12 +619,12 @@
         btn.type = "button";
         btn.className = "section-pill" + (isActive ? " active" : "");
         btn.innerHTML = `
-        <span class="label">${title}</span>
-        <span class="pill-progress">
-          <span class="pill-dot ${right === "✓" ? "done" : ""}"></span>
-          <span>${right}</span>
-        </span>
-      `;
+          <span class="label">${title}</span>
+          <span class="pill-progress">
+            <span class="pill-dot ${right === "✓" ? "done" : ""}"></span>
+            <span>${right}</span>
+          </span>
+        `;
         btn.addEventListener("click", onClick);
         sectionListEl.appendChild(btn);
       };
@@ -637,18 +636,18 @@
         onClick: () => setActivePanel("daily")
       });
 
-      const listIds = Object.keys(state.lists || {}).sort((a, b) => {
-        const an = (state.lists[a]?.meta?.name || a).toLowerCase();
-        const bn = (state.lists[b]?.meta?.name || b).toLowerCase();
-        return an.localeCompare(bn);
-      });
+      const listIds = Object.keys(state.lists || {})
+        .sort((a, b) => {
+          const A = state.lists[a]?._name || a;
+          const B = state.lists[b]?._name || b;
+          return String(A).localeCompare(String(B), undefined, { sensitivity: "base" });
+        });
 
       listIds.forEach(listId => {
-        const list = state.lists[listId];
-        const title = list?.meta?.name || listId;
-        const count = Object.keys(list?.items || {}).length;
+        const listObj = state.lists[listId] || {};
+        const count = Object.keys(getListItems(listObj)).length;
         makePill({
-          title,
+          title: listObj._name || listId,
           right: String(count),
           isActive: state.activePanel === "lists" && state.activeListId === listId,
           onClick: () => {
@@ -669,9 +668,9 @@
       }
     }
 
-    // ----------------------------
+    // ============================
     // Project links
-    // ----------------------------
+    // ============================
     function renderProjectLinks() {
       projectLinksList.innerHTML = "";
 
@@ -726,7 +725,7 @@
           if (idx < 0) return;
           const next = state.links.slice();
           next.splice(idx, 1);
-          await dbUpdate(RECORD_PATH(), { links: next });
+          await dbUpdate(RECORD_PATH(state.recordId), { links: next });
         });
 
         li.appendChild(a);
@@ -735,9 +734,9 @@
       });
     }
 
-    // ----------------------------
-    // Thumb strip (shared)
-    // ----------------------------
+    // ============================
+    // Thumb strip
+    // ============================
     function renderThumbStrip({ images, onOpen, onDelete, onNoteBlur }) {
       const wrap = document.createElement("div");
       wrap.className = "thumb-strip";
@@ -772,9 +771,9 @@
       return wrap;
     }
 
-    // ----------------------------
-    // Daily tasks (record.tasks) + images
-    // ----------------------------
+    // ============================
+    // Daily tasks
+    // ============================
     function renderDailyTasks() {
       dailyTasksTableBody.innerHTML = "";
       if (!state.recordId) return;
@@ -791,6 +790,8 @@
 
       dailyTasksCountLabel.textContent = `(${entries.length})`;
 
+      const basePath = RECORD_PATH(state.recordId);
+
       entries.forEach((t) => {
         const tr = document.createElement("tr");
 
@@ -799,7 +800,7 @@
         dateInput.type = "datetime-local";
         dateInput.value = t.date || "";
         dateInput.addEventListener("blur", async () => {
-          await dbUpdate(`${RECORD_PATH()}/tasks/${t.key}`, { date: dateInput.value || "" });
+          await dbUpdate(`${basePath}/tasks/${t.key}`, { date: dateInput.value || "" });
         });
         tdDate.appendChild(dateInput);
 
@@ -808,7 +809,7 @@
         notesArea.value = t.notes || "";
         notesArea.placeholder = "Notes...";
         notesArea.addEventListener("blur", async () => {
-          await dbUpdate(`${RECORD_PATH()}/tasks/${t.key}`, { notes: notesArea.value || "" });
+          await dbUpdate(`${basePath}/tasks/${t.key}`, { notes: notesArea.value || "" });
         });
         tdNotes.appendChild(notesArea);
 
@@ -832,7 +833,7 @@
             const imgs = ensureImagesArray(currentObj).slice();
             const [removed] = imgs.splice(index, 1);
 
-            await dbUpdate(`${RECORD_PATH()}/tasks/${t.key}`, { images: imgs });
+            await dbUpdate(`${basePath}/tasks/${t.key}`, { images: imgs });
 
             if (removed?.path) {
               try { await deleteObject(storageRef(storage, removed.path)); } catch (e) { console.warn(e); }
@@ -843,7 +844,7 @@
             const imgs = ensureImagesArray(currentObj).slice();
             if (!imgs[index]) return;
             imgs[index].note = noteVal || "";
-            await dbUpdate(`${RECORD_PATH()}/tasks/${t.key}`, { images: imgs });
+            await dbUpdate(`${basePath}/tasks/${t.key}`, { images: imgs });
           }
         }));
 
@@ -857,7 +858,7 @@
           const currentObj = state.daily[t.key] || {};
           const paths = collectImagePaths(currentObj);
 
-          await dbRemove(`${RECORD_PATH()}/tasks/${t.key}`);
+          await dbRemove(`${basePath}/tasks/${t.key}`);
 
           for (const p of paths) {
             try { await deleteObject(storageRef(storage, p)); } catch (e) { console.warn(e); }
@@ -880,16 +881,18 @@
       const notes = (newDailyTaskNotes.value || "").trim();
       if (!dt || !notes) return alert("Enter a date/time and notes.");
 
+      // If you ever want safer keys, swap to: const key = String(Date.now());
       const key = dt;
-      await dbSet(`${RECORD_PATH()}/tasks/${key}`, { date: dt, notes, images: [] });
+
+      await dbSet(`${RECORD_PATH(state.recordId)}/tasks/${key}`, { date: dt, notes, images: [] });
 
       newDailyTaskDate.value = "";
       newDailyTaskNotes.value = "";
     }
 
-    // ----------------------------
-    // Lists (record.lists) + items + images
-    // ----------------------------
+    // ============================
+    // Lists
+    // ============================
     function renderActiveList() {
       activeListTableBody.innerHTML = "";
 
@@ -900,18 +903,18 @@
       }
 
       const listId = state.activeListId;
-      const list = state.lists[listId];
+      const listObj = state.lists[listId];
 
-      if (!list) {
+      if (!listId || !listObj) {
         activeListTitle.textContent = "Lists";
         activeListCountLabel.textContent = " (create a list to begin)";
         return;
       }
 
-      const listName = list.meta?.name || listId;
-      activeListTitle.textContent = listName;
+      activeListTitle.textContent = listObj._name || listId;
 
-      const rows = Object.entries(list.items || {})
+      const itemsNode = getListItems(listObj);
+      const rows = Object.entries(itemsNode)
         .map(([k, v]) => ({
           key: k,
           id: v?.id ?? k,
@@ -929,46 +932,41 @@
 
       activeListCountLabel.textContent = `(${rows.length})`;
 
+      const basePath = RECORD_PATH(state.recordId);
+
       rows.forEach((r) => {
         const tr = document.createElement("tr");
 
-        const mkTdInput = (val, onBlur, width = "") => {
+        const mkTdInput = (val, onBlur) => {
           const td = document.createElement("td");
           const input = document.createElement("input");
           input.type = "text";
           input.value = val || "";
-          if (width) input.style.width = width;
           input.addEventListener("blur", onBlur);
           td.appendChild(input);
           return { td, input };
         };
 
-        const baseItemPath = `${RECORD_PATH()}/lists/${listId}/items/${r.key}`;
+        const baseItemPath = `${basePath}/lists/${listId}/${r.key}`;
 
         const { td: tdId, input: idInput } = mkTdInput(r.id, async () => {
           await dbUpdate(baseItemPath, { id: idInput.value.trim() });
         });
-
         const { td: tdModel, input: modelInput } = mkTdInput(r.model, async () => {
           await dbUpdate(baseItemPath, { model: modelInput.value });
         });
-
         const { td: tdType, input: typeInput } = mkTdInput(r.type, async () => {
           await dbUpdate(baseItemPath, { type: typeInput.value });
         });
-
         const { td: tdLoc, input: locInput } = mkTdInput(r.location, async () => {
           await dbUpdate(baseItemPath, { location: locInput.value });
         });
-
         const { td: tdStatus, input: statusInput } = mkTdInput(r.status, async () => {
           await dbUpdate(baseItemPath, { status: statusInput.value });
         });
-
         const { td: tdIp, input: ipInput } = mkTdInput(r.ip, async () => {
           await dbUpdate(baseItemPath, { ip: ipInput.value });
         });
-
         const { td: tdMac, input: macInput } = mkTdInput(r.mac, async () => {
           await dbUpdate(baseItemPath, { mac: macInput.value });
         });
@@ -989,7 +987,7 @@
           onDelete: async (index) => {
             if (!confirm("Delete this item image?")) return;
 
-            const itemObj = state.lists[listId]?.items?.[r.key] || {};
+            const itemObj = getListItems(state.lists[listId] || {})[r.key] || {};
             const imgs = ensureImagesArray(itemObj).slice();
             const [removed] = imgs.splice(index, 1);
 
@@ -1000,7 +998,7 @@
             }
           },
           onNoteBlur: async (index, noteVal) => {
-            const itemObj = state.lists[listId]?.items?.[r.key] || {};
+            const itemObj = getListItems(state.lists[listId] || {})[r.key] || {};
             const imgs = ensureImagesArray(itemObj).slice();
             if (!imgs[index]) return;
             imgs[index].note = noteVal || "";
@@ -1015,7 +1013,7 @@
         delBtn.addEventListener("click", async () => {
           if (!confirm(`Delete item "${r.key}" (and images)?`)) return;
 
-          const itemObj = state.lists[listId]?.items?.[r.key] || {};
+          const itemObj = getListItems(state.lists[listId] || {})[r.key] || {};
           const paths = collectImagePaths(itemObj);
 
           await dbRemove(baseItemPath);
@@ -1040,16 +1038,28 @@
       });
     }
 
+    // ✅ FIXED: do NOT set {} (empty). RTDB may treat it as "no node".
     async function createList() {
       if (!state.recordId) return alert("Select a project first.");
       const name = (newListName.value || "").trim();
       if (!name) return alert("Enter a list name.");
 
       const listId = sanitizeKey(name);
+      if (!listId) return alert("That list name becomes an invalid key. Try letters/numbers.");
 
-      await dbSet(`${RECORD_PATH()}/lists/${listId}`, {
-        meta: { name, createdAt: Date.now() },
-        items: {}
+      // If list exists, just switch to it (no overwrite)
+      if (state.lists && Object.prototype.hasOwnProperty.call(state.lists, listId)) {
+        state.activeListId = listId;
+        saveLastOpenState({ activePanel: "lists", activeListId: listId });
+        newListName.value = "";
+        return setActivePanel("lists");
+      }
+
+      const now = Date.now();
+
+      await dbSet(`${RECORD_PATH(state.recordId)}/lists/${listId}`, {
+        _name: name,
+        createdAt: now
       });
 
       state.activeListId = listId;
@@ -1062,16 +1072,17 @@
       if (!state.recordId) return alert("Select a project first.");
       if (!state.activeListId) return alert("No list selected.");
 
-      const list = state.lists[state.activeListId];
-      const name = list?.meta?.name || state.activeListId;
+      const listId = state.activeListId;
+      const listObj = state.lists[listId] || {};
+      const display = listObj._name || listId;
 
-      if (!confirm(`Delete list "${name}" and all items/images?`)) return;
+      if (!confirm(`Delete list "${display}" and all items/images?`)) return;
 
-      const items = list?.items || {};
+      const items = getListItems(listObj);
       const paths = [];
       Object.values(items).forEach(item => paths.push(...collectImagePaths(item)));
 
-      await dbRemove(`${RECORD_PATH()}/lists/${state.activeListId}`);
+      await dbRemove(`${RECORD_PATH(state.recordId)}/lists/${listId}`);
 
       for (const p of paths) {
         try { await deleteObject(storageRef(storage, p)); } catch (e) { console.warn(e); }
@@ -1102,16 +1113,16 @@
         images: []
       };
 
-      await dbSet(`${RECORD_PATH()}/lists/${listId}/items/${id}`, item);
+      await dbSet(`${RECORD_PATH(state.recordId)}/lists/${listId}/${id}`, item);
 
       Object.values(itemInputs).forEach(el => el.value = "");
     }
 
-    // ----------------------------
-    // Upload handler
-    // ----------------------------
+    // ============================
+    // Uploads
+    // ============================
     imageUploadInput.addEventListener("change", async () => {
-      const file = imageUploadInput.files[0];
+      const file = imageUploadInput.files?.[0];
       if (!file || !pendingUploadTarget || !state.recordId) return;
 
       const target = pendingUploadTarget;
@@ -1125,10 +1136,10 @@
 
         if (target.kind === "daily") {
           storagePath = storageImagePath({ kind: "daily", dailyKey: target.dailyKey });
-          dbNodePath = `${RECORD_PATH()}/tasks/${target.dailyKey}`;
+          dbNodePath = `${RECORD_PATH(state.recordId)}/tasks/${target.dailyKey}`;
         } else {
           storagePath = storageImagePath({ kind: "listItem", listId: target.listId, itemId: target.itemId });
-          dbNodePath = `${RECORD_PATH()}/lists/${target.listId}/items/${target.itemId}`;
+          dbNodePath = `${RECORD_PATH(state.recordId)}/lists/${target.listId}/${target.itemId}`;
         }
 
         const sRef = storageRef(storage, storagePath);
@@ -1149,44 +1160,32 @@
       }
     });
 
-    // ----------------------------
-    // Ensure meta exists (NO createdAt, NO projectName)
-    // ----------------------------
-    async function ensureMetaExists() {
-      if (!state.recordId) return;
-      const metaRef = dbRef(`${RECORD_PATH()}/meta`);
+    // ============================
+    // Record loading
+    // ============================
+    async function ensureMetaExists(recordId) {
+      const metaRef = dbRef(`${RECORD_PATH(recordId)}/meta`);
       const snap = await get(metaRef);
-
       if (!snap.exists()) {
-        await update(dbRef(RECORD_PATH()), {
-          meta: { updatedAt: Date.now() }
-        });
+        await update(dbRef(RECORD_PATH(recordId)), { meta: { updatedAt: Date.now() } });
       }
     }
 
-    // ----------------------------
-    // Load a record by ID
-    // ----------------------------
     async function loadRecordById(id) {
       if (!id) return;
 
-      if (state.recordListenerRef && state.recordListenerCb) {
-        try { off(state.recordListenerRef, "value", state.recordListenerCb); } catch { }
-      }
+      detachRecordListener();
 
       state.recordId = id;
       saveLastOpenState({ recordId: id });
 
-      state.recordListenerRef = dbRef(RECORD_PATH(id));
-      state.recordListenerCb = async (snap) => {
+      const rRef = dbRef(RECORD_PATH(id));
+      const rCb = (snap) => {
         if (!snap.exists()) return;
 
         const data = snap.val() || {};
-
         state.customerName = data.customerName || "";
         state.projectFieldName = data.project || "";
-        state.recordName = state.projectFieldName || id;
-
         state.meta = data.meta || { updatedAt: 0 };
         state.links = Array.isArray(data.links) ? data.links : [];
         state.lists = data.lists || {};
@@ -1201,23 +1200,21 @@
         renderAll();
       };
 
-      onValue(state.recordListenerRef, state.recordListenerCb);
+      state.listeners.recordRef = rRef;
+      state.listeners.recordCb = rCb;
+      onValue(rRef, rCb);
 
-      await ensureMetaExists();
-      setActivePanel("daily");
+      await ensureMetaExists(id);
     }
 
-    // ----------------------------
-    // Dropdown listener: list all {base}/tasks/*
-    // ----------------------------
+    // ============================
+    // Dropdown listener
+    // ============================
     function startTasksDropdownListener() {
-      if (state.dropdownListenerRef) {
-        try { off(state.dropdownListenerRef); } catch { }
-      }
+      detachDropdownListener();
 
-      state.dropdownListenerRef = dbRef(TASKS_ROOT());
-
-      onValue(state.dropdownListenerRef, (snap) => {
+      const dRef = dbRef(TASKS_ROOT());
+      const dCb = (snap) => {
         projectDropdown.innerHTML = `<option value="">Select project</option>`;
         if (!snap.exists()) return;
 
@@ -1228,7 +1225,6 @@
           const projectName = (v.project || "").trim();
           const customerName = (v.customerName || "").trim();
           const updatedAt = v.meta?.updatedAt || v.updatedAt || 0;
-
           rows.push({
             id,
             projectName: projectName || id,
@@ -1239,20 +1235,47 @@
 
         rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-        rows.forEach(r => {
+        for (const r of rows) {
           const opt = document.createElement("option");
           opt.value = r.id;
           opt.textContent = `${r.projectName} (${r.customerName})`;
           projectDropdown.appendChild(opt);
-        });
+        }
 
         if (state.recordId) projectDropdown.value = state.recordId;
-      });
+      };
+
+      state.listeners.dropdownRef = dRef;
+      state.listeners.dropdownCb = dCb;
+      onValue(dRef, dCb);
     }
 
-    // ----------------------------
+    // ============================
+    // Project creation
+    // ============================
+    async function createNewProjectWithName(name) {
+      const now = Date.now();
+      const newId = String(now);
+
+      await set(dbRef(RECORD_PATH(newId)), {
+        project: name,
+        customerName: "",
+        meta: { updatedAt: now },
+        tasks: {},
+        lists: {},
+        links: []
+      });
+
+      await loadRecordById(newId);
+
+      projectDropdown.value = newId;
+      projectNameInput.value = "";
+      return newId;
+    }
+
+    // ============================
     // Render all
-    // ----------------------------
+    // ============================
     function renderAll() {
       renderProjectLinks();
 
@@ -1264,6 +1287,7 @@
         return;
       }
 
+      // Don’t clobber while typing
       const siteVal = state.customerName || "";
       if (document.activeElement !== siteNameInput && siteNameInput.value !== siteVal) {
         siteNameInput.value = siteVal;
@@ -1273,9 +1297,35 @@
       if (state.activePanel === "lists") renderActiveList();
     }
 
-    // ----------------------------
+    // ============================
+    // Restore last-open state
+    // ============================
+    async function restoreLastOpenState() {
+      const saved = loadLastOpenState();
+
+      if (typeof saved.globalQuery === "string") {
+        state.globalQuery = saved.globalQuery;
+        globalSearchInput.value = saved.globalQuery;
+      }
+
+      if (saved.recordId) {
+        await loadRecordById(saved.recordId);
+      }
+
+      if (saved.activePanel === "lists") {
+        const listIds = Object.keys(state.lists || {});
+        state.activeListId = (saved.activeListId && state.lists?.[saved.activeListId])
+          ? saved.activeListId
+          : (listIds[0] || "");
+        setActivePanel("lists");
+      } else {
+        setActivePanel("daily");
+      }
+    }
+
+    // ============================
     // Events
-    // ----------------------------
+    // ============================
     setProjectBtn.addEventListener("click", async () => {
       const name = (projectNameInput.value || "").trim();
       if (!name) return alert("Enter a project name to create.");
@@ -1299,7 +1349,7 @@
       if (!state.recordId) return alert("No project selected.");
       if (!confirm("Clear app data for this record? (customerName, daily tasks, lists, links)")) return;
 
-      await dbUpdate(RECORD_PATH(), {
+      await dbUpdate(RECORD_PATH(state.recordId), {
         customerName: "",
         meta: { ...state.meta, updatedAt: Date.now() },
         tasks: {},
@@ -1317,19 +1367,22 @@
     siteNameInput.addEventListener("blur", async () => {
       if (!state.recordId) return;
       const val = (siteNameInput.value || "").trim();
-      await dbUpdate(RECORD_PATH(), { customerName: val });
+      await dbUpdate(RECORD_PATH(state.recordId), { customerName: val });
     });
 
     addDailyTaskBtn.addEventListener("click", addDailyTask);
-
     createListBtn.addEventListener("click", createList);
     deleteListBtn.addEventListener("click", deleteActiveList);
     addItemBtn.addEventListener("click", addItemToActiveList);
 
-    globalSearchInput.addEventListener("input", () => {
-      state.globalQuery = globalSearchInput.value || "";
+    const debouncedSearchRender = debounce(() => {
       saveLastOpenState({ globalQuery: state.globalQuery });
       renderAll();
+    }, 120);
+
+    globalSearchInput.addEventListener("input", () => {
+      state.globalQuery = globalSearchInput.value || "";
+      debouncedSearchRender();
     });
 
     projectLinksForm.addEventListener("submit", async (e) => {
@@ -1347,33 +1400,40 @@
       projectLinkTitle.value = "";
       projectLinkUrl.value = "";
 
-      await dbUpdate(RECORD_PATH(), { links: next });
+      await dbUpdate(RECORD_PATH(state.recordId), { links: next });
     });
 
-    // ----------------------------
-    // Init
-    // ----------------------------
-    dataPathLabel.textContent = DATABASE_BASE_PATH;
-    startTasksDropdownListener();
-    renderSidebarPills();
-    setActivePanel("daily");
+    // ============================
+    // Init + Auth
+    // ============================
+    function initUIForBasePath() {
+      dataPathLabel.textContent = DATABASE_BASE_PATH;
+      startTasksDropdownListener();
+      renderSidebarPills();
+      setActivePanel("daily");
+    }
 
-    // ----------------------------
-    // Auth: set base path + restore last-open
-    // ----------------------------
+    initUIForBasePath();
+
     onAuthStateChanged(auth, async (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
-      dataPathLabel.textContent = DATABASE_BASE_PATH;
 
-      startTasksDropdownListener();
+      // base path changed: detach listeners and reset record state
+      detachRecordListener();
+      detachDropdownListener();
 
-      // Restore last opened project/panel/list/search for THIS base path
+      state.recordId = "";
+      state.projectFieldName = "";
+      state.customerName = "";
+      state.links = [];
+      state.lists = {};
+      state.daily = {};
+      state.activeListId = "";
+      state.globalQuery = "";
+      if (globalSearchInput) globalSearchInput.value = "";
+
+      initUIForBasePath();
       await restoreLastOpenState();
-
-      // If something already set recordId externally, honor it
-      if (state.recordId) {
-        await loadRecordById(state.recordId);
-      }
     });
   </script>
 
