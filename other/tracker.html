@@ -142,9 +142,6 @@
             <button id="setProjectBtn" type="button">Create</button>
           </div>
 
-          <div class="small-muted" style="margin-top:6px;">
-            Tip: Pick an existing project from the dropdown to load it. Use Set to create a new one.
-          </div>
           <br>
 
           <div class="row">
@@ -193,7 +190,6 @@
             <div class="panel-toolbar">
               <div><strong>Daily Tasks / Notes</strong> <span class="small-muted" id="dailyTasksCountLabel"></span>
               </div>
-              <div class="small-muted">Edits save on blur • Images optional</div>
             </div>
 
             <div style="overflow:auto;">
@@ -251,7 +247,6 @@
 
             <div class="panel-toolbar">
               <div><strong>Add item to this list</strong></div>
-              <div class="small-muted">ID is the key • edits save on blur</div>
             </div>
 
             <div class="row" style="flex-wrap:wrap;">
@@ -317,14 +312,6 @@
     // Base path
     // ----------------------------
     let DATABASE_BASE_PATH = "public";
-    onAuthStateChanged(auth, (user) => {
-      DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
-      dataPathLabel.textContent = DATABASE_BASE_PATH;
-
-      startTasksDropdownListener();
-
-      if (state.recordId) loadRecordById(state.recordId);
-    });
 
     // {base}/tasks/{recordId}/...
     const TASKS_ROOT = () => `${DATABASE_BASE_PATH}/tasks`;
@@ -397,14 +384,83 @@
       type: document.getElementById("item_type"),
       location: document.getElementById("item_location"),
       status: document.getElementById("item_status"),
-      ipAddress: document.getElementById("item_ip"),
-      macAddress: document.getElementById("item_mac"),
+      ip: document.getElementById("item_ip"),
+      mac: document.getElementById("item_mac"),
     };
     const addItemBtn = document.getElementById("addItemBtn");
     const activeListTableBody = document.querySelector("#activeListTable tbody");
 
     const imageUploadInput = document.getElementById("imageUploadInput");
     let pendingUploadTarget = null; // { kind:'daily'|'listItem', dailyKey?, listId?, itemId? }
+
+    // ----------------------------
+    // LocalStorage: persist last opened UI state
+    // ----------------------------
+    const LS_KEY = () => `jobInfoManager:lastOpen:${DATABASE_BASE_PATH}`;
+
+    function loadLastOpenState() {
+      try {
+        const raw = localStorage.getItem(LS_KEY());
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function saveLastOpenState(patch = {}) {
+      try {
+        const current = loadLastOpenState();
+        const next = {
+          recordId: state.recordId || "",
+          activePanel: state.activePanel || "daily",
+          activeListId: state.activeListId || "",
+          globalQuery: state.globalQuery || "",
+          ...current,
+          ...patch,
+          savedAt: Date.now()
+        };
+        localStorage.setItem(LS_KEY(), JSON.stringify(next));
+      } catch (e) {
+        console.warn("localStorage save failed:", e);
+      }
+    }
+
+    function clearLastOpenState() {
+      try { localStorage.removeItem(LS_KEY()); } catch { }
+    }
+
+    async function restoreLastOpenState() {
+      const saved = loadLastOpenState();
+      if (!saved) return;
+
+      // Restore search first
+      if (typeof saved.globalQuery === "string") {
+        state.globalQuery = saved.globalQuery;
+        if (globalSearchInput) globalSearchInput.value = saved.globalQuery;
+      }
+
+      // Restore project
+      if (saved.recordId) {
+        await loadRecordById(saved.recordId);
+      }
+
+      // Restore panel + list
+      if (saved.activePanel === "lists") {
+        if (saved.activeListId && state.lists?.[saved.activeListId]) {
+          state.activeListId = saved.activeListId;
+        } else {
+          const first = Object.keys(state.lists || {})[0] || "";
+          state.activeListId = first;
+        }
+        setActivePanel("lists");
+      } else {
+        setActivePanel("daily");
+      }
+
+      renderAll();
+    }
 
     // ----------------------------
     // Helpers
@@ -480,9 +536,9 @@
     function storageImagePath({ kind, dailyKey, listId, itemId }) {
       const ts = Date.now();
       if (kind === "daily") {
-        return `images/${DATABASE_BASE_PATH}/tasks/${state.recordId}/daily/${encodeURIComponent(dailyKey)}/${ts}.jpg`;
+        return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/daily/${encodeURIComponent(dailyKey)}/${ts}.jpg`;
       }
-      return `images/${DATABASE_BASE_PATH}/tasks/${state.recordId}/lists/${listId}/${itemId}/${ts}.jpg`;
+      return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/lists/${listId}/${itemId}/${ts}.jpg`;
     }
 
     async function createNewProjectWithName(name) {
@@ -516,6 +572,8 @@
 
       dailyTasksPanel.classList.toggle("hidden", panel !== "daily");
       listsPanel.classList.toggle("hidden", panel !== "lists");
+
+      saveLastOpenState({ activePanel: panel, activeListId: state.activeListId || "" });
 
       renderHeader();
       renderSidebarPills();
@@ -562,12 +620,12 @@
         btn.type = "button";
         btn.className = "section-pill" + (isActive ? " active" : "");
         btn.innerHTML = `
-          <span class="label">${title}</span>
-          <span class="pill-progress">
-            <span class="pill-dot ${right === "✓" ? "done" : ""}"></span>
-            <span>${right}</span>
-          </span>
-        `;
+        <span class="label">${title}</span>
+        <span class="pill-progress">
+          <span class="pill-dot ${right === "✓" ? "done" : ""}"></span>
+          <span>${right}</span>
+        </span>
+      `;
         btn.addEventListener("click", onClick);
         sectionListEl.appendChild(btn);
       };
@@ -595,6 +653,7 @@
           isActive: state.activePanel === "lists" && state.activeListId === listId,
           onClick: () => {
             state.activeListId = listId;
+            saveLastOpenState({ activePanel: "lists", activeListId: listId });
             setActivePanel("lists");
           }
         });
@@ -860,12 +919,12 @@
           type: v?.type || "",
           location: v?.location || "",
           status: v?.status || "",
-          ipAddress: v?.ipAddress || "",
-          macAddress: v?.macAddress || "",
+          ip: v?.ip || "",
+          mac: v?.mac || "",
           notes: v?.notes || "",
           images: Array.isArray(v?.images) ? v.images : []
         }))
-        .filter(r => matchesAny(r.key, r.id, r.model, r.type, r.location, r.status, r.ipAddress, r.macAddress, r.notes))
+        .filter(r => matchesAny(r.key, r.id, r.model, r.type, r.location, r.status, r.ip, r.mac, r.notes))
         .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
 
       activeListCountLabel.textContent = `(${rows.length})`;
@@ -906,12 +965,12 @@
           await dbUpdate(baseItemPath, { status: statusInput.value });
         });
 
-        const { td: tdIp, input: ipInput } = mkTdInput(r.ipAddress, async () => {
-          await dbUpdate(baseItemPath, { ipAddress: ipInput.value });
+        const { td: tdIp, input: ipInput } = mkTdInput(r.ip, async () => {
+          await dbUpdate(baseItemPath, { ip: ipInput.value });
         });
 
-        const { td: tdMac, input: macInput } = mkTdInput(r.macAddress, async () => {
-          await dbUpdate(baseItemPath, { macAddress: macInput.value });
+        const { td: tdMac, input: macInput } = mkTdInput(r.mac, async () => {
+          await dbUpdate(baseItemPath, { mac: macInput.value });
         });
 
         const tdImg = document.createElement("td");
@@ -989,11 +1048,12 @@
       const listId = sanitizeKey(name);
 
       await dbSet(`${RECORD_PATH()}/lists/${listId}`, {
-        meta: { name, createdAt: Date.now() }, // list-level createdAt is fine; optional
+        meta: { name, createdAt: Date.now() },
         items: {}
       });
 
       state.activeListId = listId;
+      saveLastOpenState({ activePanel: "lists", activeListId: listId });
       newListName.value = "";
       setActivePanel("lists");
     }
@@ -1018,6 +1078,7 @@
       }
 
       state.activeListId = "";
+      saveLastOpenState({ activeListId: "", activePanel: "daily" });
       setActivePanel("daily");
     }
 
@@ -1035,8 +1096,8 @@
         type: itemInputs.type.value || "",
         location: itemInputs.location.value || "",
         status: itemInputs.status.value || "",
-        ipAddress: itemInputs.ipAddress.value || "",
-        macAddress: itemInputs.macAddress.value || "",
+        ip: itemInputs.ip.value || "",
+        mac: itemInputs.mac.value || "",
         notes: "",
         images: []
       };
@@ -1114,6 +1175,7 @@
       }
 
       state.recordId = id;
+      saveLastOpenState({ recordId: id });
 
       state.recordListenerRef = dbRef(RECORD_PATH(id));
       state.recordListenerCb = async (snap) => {
@@ -1169,8 +1231,8 @@
 
           rows.push({
             id,
-            projectName: projectName || id,        // fallback if project is blank
-            customerName: customerName || "—",     // fallback if site name blank
+            projectName: projectName || id,
+            customerName: customerName || "—",
             updatedAt
           });
         });
@@ -1217,7 +1279,6 @@
     setProjectBtn.addEventListener("click", async () => {
       const name = (projectNameInput.value || "").trim();
       if (!name) return alert("Enter a project name to create.");
-
       await createNewProjectWithName(name);
     });
 
@@ -1234,7 +1295,6 @@
       await loadRecordById(id);
     });
 
-    // Clear only THIS APP's sections, not the main record fields (like project, startTime, etc.)
     clearAppDataBtn.addEventListener("click", async () => {
       if (!state.recordId) return alert("No project selected.");
       if (!confirm("Clear app data for this record? (customerName, daily tasks, lists, links)")) return;
@@ -1250,10 +1310,10 @@
       await touchRecord();
 
       state.activeListId = "";
+      clearLastOpenState();
       setActivePanel("daily");
     });
 
-    // Save "Site Name" into customerName at the record root
     siteNameInput.addEventListener("blur", async () => {
       if (!state.recordId) return;
       const val = (siteNameInput.value || "").trim();
@@ -1268,10 +1328,10 @@
 
     globalSearchInput.addEventListener("input", () => {
       state.globalQuery = globalSearchInput.value || "";
+      saveLastOpenState({ globalQuery: state.globalQuery });
       renderAll();
     });
 
-    // Links
     projectLinksForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (!state.recordId) return alert("Select a project first.");
@@ -1297,6 +1357,24 @@
     startTasksDropdownListener();
     renderSidebarPills();
     setActivePanel("daily");
+
+    // ----------------------------
+    // Auth: set base path + restore last-open
+    // ----------------------------
+    onAuthStateChanged(auth, async (user) => {
+      DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
+      dataPathLabel.textContent = DATABASE_BASE_PATH;
+
+      startTasksDropdownListener();
+
+      // Restore last opened project/panel/list/search for THIS base path
+      await restoreLastOpenState();
+
+      // If something already set recordId externally, honor it
+      if (state.recordId) {
+        await loadRecordById(state.recordId);
+      }
+    });
   </script>
 
 </body>
