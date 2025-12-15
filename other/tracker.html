@@ -631,7 +631,141 @@
       downloadTextFile(`job_tracker_${safeName}.csv`, csv);
     }
 
-    async function importCsvText(csvText) {
+    function normalizeHeader(h) {
+      return String(h || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .replace(/[^\w #\-]/g, ""); // keep things like "cable #"
+    }
+
+    function pickListForCableImport() {
+      // Prefer currently selected list, otherwise default to "cameras"
+      if (state.activeListId && state.lists?.[state.activeListId]) return state.activeListId;
+      return "cameras";
+    }
+
+    async function ensureListExists(listId, displayName) {
+      if (!state.recordId) return;
+      if (state.lists?.[listId]) return;
+
+      await dbSet(`${RECORD_PATH(state.recordId)}/lists/${listId}`, {
+        _name: displayName || listId,
+        createdAt: Date.now()
+      });
+    }
+
+    /**
+     * Import Walmart/Genetec “Cable Assignment Sheet” style CSV:
+     * Columns like: Cable #, Location Name, IP Address, MAC address, Switch, Switch Port, Camera Model...
+     */
+    async function importCableAssignmentSheet(csvText) {
+      if (!state.recordId) return alert("Select a project first.");
+
+      const parsed = parseCsv(csvText.trim());
+      if (!parsed.length) return alert("CSV looks empty.");
+
+      // Find the header row that contains "Cable #" and "Location Name"
+      let headerRowIndex = -1;
+      for (let i = 0; i < Math.min(parsed.length, 25); i++) {
+        const norm = parsed[i].map(normalizeHeader);
+        if (norm.includes("cable #") && norm.includes("location name")) {
+          headerRowIndex = i;
+          break;
+        }
+      }
+      if (headerRowIndex < 0) {
+        return alert("Could not find Cable Assignment Sheet headers (Cable # / Location Name).");
+      }
+
+      const header = parsed[headerRowIndex].map(normalizeHeader);
+      const idx = (name) => header.indexOf(normalizeHeader(name));
+
+      const iCable = idx("cable #");
+      const iLoc = idx("location name");
+      const iIP = idx("ip address");   // primary
+      const iMAC = idx("mac address");
+      const iSw = idx("switch");
+      const iSwP = idx("switch port");
+      const iModel = idx("camera model");
+      const iDisp = idx("camera to be displayed"); // optional
+      const iProf = idx("camera recording profile"); // optional
+      const iGroup = idx("camera group"); // optional
+
+      if (iCable < 0 || iLoc < 0) {
+        return alert("CSV is missing required columns: Cable # and Location Name.");
+      }
+
+      const listId = pickListForCableImport();
+      await ensureListExists(listId, listId === "cameras" ? "Cameras" : (state.lists?.[listId]?._name || listId));
+
+      const basePath = RECORD_PATH(state.recordId);
+      const patch = {};
+
+      let imported = 0;
+
+      for (let r = headerRowIndex + 1; r < parsed.length; r++) {
+        const row = parsed[r];
+        if (!row || row.every(c => !String(c || "").trim())) continue;
+
+        const cableRaw = String(row[iCable] ?? "").trim();
+        const locRaw = String(row[iLoc] ?? "").trim();
+
+        // Stop if we hit a blank line / footer area
+        if (!cableRaw && !locRaw) continue;
+
+        // Cable # becomes the item key / id
+        const itemKey = cableRaw;
+        if (!itemKey) continue;
+
+        const ip = iIP >= 0 ? String(row[iIP] ?? "").trim() : "";
+        const mac = iMAC >= 0 ? String(row[iMAC] ?? "").trim() : "";
+        const sw = iSw >= 0 ? String(row[iSw] ?? "").trim() : "";
+        const swp = iSwP >= 0 ? String(row[iSwP] ?? "").trim() : "";
+        const model = iModel >= 0 ? String(row[iModel] ?? "").trim() : "";
+        const disp = iDisp >= 0 ? String(row[iDisp] ?? "").trim() : "";
+        const prof = iProf >= 0 ? String(row[iProf] ?? "").trim() : "";
+        const group = iGroup >= 0 ? String(row[iGroup] ?? "").trim() : "";
+
+        // Put extra useful stuff into notes (so nothing is lost)
+        const notesParts = [];
+        if (disp) notesParts.push(`Display: ${disp}`);
+        if (prof) notesParts.push(`Profile: ${prof}`);
+        if (group) notesParts.push(`Group: ${group}`);
+        if (sw || swp) notesParts.push(`Switch: ${sw}${swp ? ` Port ${swp}` : ""}`);
+        const notes = notesParts.join(" • ");
+
+        patch[`lists/${listId}/${itemKey}`] = {
+          id: itemKey,                 // camera id = cable #
+          model: model || "",          // camera model code
+          type: group || "Camera",     // keep group if present
+          location: locRaw || "",      // location name
+          status: "",
+          ip: ip || "",
+          mac: mac || "",
+          notes: notes || "",
+          images: []                   // sheet doesn’t include images
+        };
+
+        imported++;
+      }
+
+      await update(dbRef(basePath), patch);
+      await touchRecord();
+
+      // Switch UI to the list we imported into
+      state.activeListId = listId;
+      saveLastOpenState({ activePanel: "lists", activeListId: listId });
+      setActivePanel("lists");
+
+      alert(`Imported ${imported} camera row(s) into list "${listId}".`);
+    }
+
+    /**
+     * Your existing app CSV import (kind= daily/listItem).
+     * (This is your same logic, just renamed.)
+     */
+    async function importAppCsvText(csvText) {
       if (!state.recordId) return alert("Select a project first.");
 
       const parsed = parseCsv(csvText.trim());
@@ -648,10 +782,10 @@
 
       const patch = {};
 
-      // Optional: let the CSV set customerName/project if provided (non-blank)
       const firstDataRow = parsed[1] || [];
       const csvProject = firstDataRow[idx("project")] || "";
       const csvCustomer = firstDataRow[idx("customerName")] || "";
+
       if (csvProject && !state.projectFieldName) patch["project"] = csvProject;
       if (csvCustomer) patch["customerName"] = csvCustomer;
 
@@ -699,7 +833,6 @@
             images
           };
 
-          // ensure list meta exists if it doesn't (won't overwrite existing)
           if (!state.lists?.[listId]) {
             patch[`lists/${listId}/_name`] = listId;
             patch[`lists/${listId}/createdAt`] = Date.now();
@@ -713,6 +846,30 @@
       await touchRecord();
 
       alert(`Imported: ${importedDaily} daily task(s), ${importedItems} list item(s).`);
+    }
+
+    /**
+     * Smart router: decides which importer to use.
+     */
+    async function importAnyCsvText(csvText) {
+      const parsed = parseCsv(csvText.trim());
+      if (!parsed.length) return alert("CSV looks empty.");
+
+      // Try to detect your app export by "kind" in header row
+      const firstRow = parsed[0].map(normalizeHeader);
+      if (firstRow.includes("kind")) {
+        return importAppCsvText(csvText);
+      }
+
+      // Detect Cable Assignment Sheet by finding a header row with Cable # + Location Name
+      for (let i = 0; i < Math.min(parsed.length, 25); i++) {
+        const norm = parsed[i].map(normalizeHeader);
+        if (norm.includes("cable #") && norm.includes("location name")) {
+          return importCableAssignmentSheet(csvText);
+        }
+      }
+
+      alert("Unrecognized CSV format. (Not app export, and not Cable Assignment Sheet.)");
     }
 
     // ============================
@@ -1591,7 +1748,7 @@
 
       try {
         const text = await file.text();
-        await importCsvText(text);
+        await importAnyCsvText(text);
       } catch (e) {
         console.error(e);
         alert("CSV import failed (check console).");
