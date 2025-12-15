@@ -109,8 +109,7 @@
 
         <!-- Global search -->
         <div class="camera-search-row">
-          <input type="text" id="globalSearchInput"
-            placeholder="Search Filter">
+          <input type="text" id="globalSearchInput" placeholder="Search Filter">
         </div>
 
         <!-- Project Notes (static, no pill) -->
@@ -241,7 +240,7 @@
       uploadBytes,
       getDownloadURL,
       deleteObject
-    } from "./assets/js/firebase-init.js";
+    } from "../apps/assets/js/firebase-init.js";
 
     // ============================
     // Config / Paths
@@ -249,7 +248,6 @@
     let DATABASE_BASE_PATH = "public";
     const TASKS_ROOT = () => `${DATABASE_BASE_PATH}/tasks`;
     const RECORD_PATH = (id) => `${TASKS_ROOT()}/${id}`;
-    let dropdownProjectsCache = [];
 
     // ============================
     // State
@@ -276,6 +274,9 @@
       }
     };
 
+    // Dropdown cache (deduped/oldest-per-project)
+    let dropdownProjectsCache = [];
+
     // ============================
     // DOM
     // ============================
@@ -299,7 +300,7 @@
     const globalSearchInput = $("globalSearchInput");
 
     const siteNameInput = $("siteNameInput");
-    const projectNotesInput = $("projectNotesInput");
+    const projectNotesInput = $("projectNotesInput"); // ✅ static notes box
 
     const dailyTasksPanel = $("dailyTasksPanel");
     const listsPanel = $("listsPanel");
@@ -484,36 +485,30 @@
     }
 
     // ============================
-    // CSV helpers + Export / Import
+    // ✅ Dirty-on-blur helpers (NO DB write unless value changed)
     // ============================
-
-    function renderProjectDropdown() {
-      const q = (state.globalQuery || "").toLowerCase().trim();
-
-      projectDropdown.innerHTML = `<option value="">Select project</option>`;
-
-      const filtered = dropdownProjectsCache.filter(p => {
-        if (!q) return true;
-        return (
-          p.projectName.toLowerCase().includes(q) ||
-          p.customerName.toLowerCase().includes(q) ||
-          p.id.includes(q)
-        );
-      });
-
-      // Keep your preferred sort (newest updated first)
-      filtered
-        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-        .forEach(p => {
-          const opt = document.createElement("option");
-          opt.value = p.id;
-          opt.textContent = `${p.projectName} (${p.customerName})`;
-          projectDropdown.appendChild(opt);
-        });
-
-      if (state.recordId) projectDropdown.value = state.recordId;
+    function normStr(v) {
+      return String(v ?? "").trim();
     }
 
+    function attachDirtyBlur(el, getSavedValueFn, saveFn) {
+      el.addEventListener("focus", () => {
+        el.dataset._saved = normStr(getSavedValueFn());
+      });
+
+      el.addEventListener("blur", async () => {
+        const before = normStr(el.dataset._saved ?? getSavedValueFn());
+        const now = normStr(el.value);
+        if (before === now) return; // ✅ no change → no update
+
+        el.dataset._saved = now;
+        await saveFn(now);
+      });
+    }
+
+    // ============================
+    // CSV helpers + Export / Import
+    // ============================
     function csvEscape(val) {
       const s = String(val ?? "");
       if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -529,7 +524,6 @@
       return lines.join("\n");
     }
 
-    // Minimal CSV parser that handles quotes/commas/newlines
     function parseCsv(text) {
       const rows = [];
       let row = [];
@@ -601,7 +595,7 @@
         });
       }
 
-      // LIST ITEMS (all lists)
+      // LIST ITEMS
       for (const [listId, listObj] of Object.entries(state.lists || {})) {
         const items = getListItems(listObj);
         for (const [itemKey, v] of Object.entries(items)) {
@@ -671,11 +665,10 @@
         .trim()
         .toLowerCase()
         .replace(/\s+/g, " ")
-        .replace(/[^\w #\-]/g, ""); // keep things like "cable #"
+        .replace(/[^\w #\-]/g, "");
     }
 
     function pickListForCableImport() {
-      // Prefer currently selected list, otherwise default to "cameras"
       if (state.activeListId && state.lists?.[state.activeListId]) return state.activeListId;
       return "cameras";
     }
@@ -690,17 +683,12 @@
       });
     }
 
-    /**
-     * Import Walmart/Genetec “Cable Assignment Sheet” style CSV:
-     * Columns like: Cable #, Location Name, IP Address, MAC address, Switch, Switch Port, Camera Model...
-     */
     async function importCableAssignmentSheet(csvText) {
       if (!state.recordId) return alert("Select a project first.");
 
       const parsed = parseCsv(csvText.trim());
       if (!parsed.length) return alert("CSV looks empty.");
 
-      // Find the header row that contains "Cable #" and "Location Name"
       let headerRowIndex = -1;
       for (let i = 0; i < Math.min(parsed.length, 25); i++) {
         const norm = parsed[i].map(normalizeHeader);
@@ -718,14 +706,14 @@
 
       const iCable = idx("cable #");
       const iLoc = idx("location name");
-      const iIP = idx("ip address");   // primary
+      const iIP = idx("ip address");
       const iMAC = idx("mac address");
       const iSw = idx("switch");
       const iSwP = idx("switch port");
       const iModel = idx("camera model");
-      const iDisp = idx("camera to be displayed"); // optional
-      const iProf = idx("camera recording profile"); // optional
-      const iGroup = idx("camera group"); // optional
+      const iDisp = idx("camera to be displayed");
+      const iProf = idx("camera recording profile");
+      const iGroup = idx("camera group");
 
       if (iCable < 0 || iLoc < 0) {
         return alert("CSV is missing required columns: Cable # and Location Name.");
@@ -736,7 +724,6 @@
 
       const basePath = RECORD_PATH(state.recordId);
       const patch = {};
-
       let imported = 0;
 
       for (let r = headerRowIndex + 1; r < parsed.length; r++) {
@@ -745,11 +732,8 @@
 
         const cableRaw = String(row[iCable] ?? "").trim();
         const locRaw = String(row[iLoc] ?? "").trim();
-
-        // Stop if we hit a blank line / footer area
         if (!cableRaw && !locRaw) continue;
 
-        // Cable # becomes the item key / id
         const itemKey = cableRaw;
         if (!itemKey) continue;
 
@@ -762,7 +746,6 @@
         const prof = iProf >= 0 ? String(row[iProf] ?? "").trim() : "";
         const group = iGroup >= 0 ? String(row[iGroup] ?? "").trim() : "";
 
-        // Put extra useful stuff into notes (so nothing is lost)
         const notesParts = [];
         if (disp) notesParts.push(`Display: ${disp}`);
         if (prof) notesParts.push(`Profile: ${prof}`);
@@ -771,15 +754,15 @@
         const notes = notesParts.join(" • ");
 
         patch[`lists/${listId}/${itemKey}`] = {
-          id: itemKey,                 // camera id = cable #
-          model: model || "",          // camera model code
-          type: group || "Camera",     // keep group if present
-          location: locRaw || "",      // location name
+          id: itemKey,
+          model: model || "",
+          type: group || "Camera",
+          location: locRaw || "",
           status: "",
           ip: ip || "",
           mac: mac || "",
           notes: notes || "",
-          images: []                   // sheet doesn’t include images
+          images: []
         };
 
         imported++;
@@ -788,7 +771,6 @@
       await update(dbRef(basePath), patch);
       await touchRecord();
 
-      // Switch UI to the list we imported into
       state.activeListId = listId;
       saveLastOpenState({ activePanel: "lists", activeListId: listId });
       setActivePanel("lists");
@@ -796,10 +778,6 @@
       alert(`Imported ${imported} camera row(s) into list "${listId}".`);
     }
 
-    /**
-     * Your existing app CSV import (kind= daily/listItem).
-     * (This is your same logic, just renamed.)
-     */
     async function importAppCsvText(csvText) {
       if (!state.recordId) return alert("Select a project first.");
 
@@ -883,20 +861,15 @@
       alert(`Imported: ${importedDaily} daily task(s), ${importedItems} list item(s).`);
     }
 
-    /**
-     * Smart router: decides which importer to use.
-     */
     async function importAnyCsvText(csvText) {
       const parsed = parseCsv(csvText.trim());
       if (!parsed.length) return alert("CSV looks empty.");
 
-      // Try to detect your app export by "kind" in header row
       const firstRow = parsed[0].map(normalizeHeader);
       if (firstRow.includes("kind")) {
         return importAppCsvText(csvText);
       }
 
-      // Detect Cable Assignment Sheet by finding a header row with Cable # + Location Name
       for (let i = 0; i < Math.min(parsed.length, 25); i++) {
         const norm = parsed[i].map(normalizeHeader);
         if (norm.includes("cable #") && norm.includes("location name")) {
@@ -984,12 +957,12 @@
         btn.type = "button";
         btn.className = "section-pill" + (isActive ? " active" : "");
         btn.innerHTML = `
-          <span class="label">${title}</span>
-          <span class="pill-progress">
-            <span class="pill-dot ${right === "✓" ? "done" : ""}"></span>
-            <span>${right}</span>
-          </span>
-        `;
+        <span class="label">${title}</span>
+        <span class="pill-progress">
+          <span class="pill-dot ${right === "✓" ? "done" : ""}"></span>
+          <span>${right}</span>
+        </span>
+      `;
         btn.addEventListener("click", onClick);
         sectionListEl.appendChild(btn);
       };
@@ -1031,6 +1004,35 @@
           onClick: () => setActivePanel("lists")
         });
       }
+    }
+
+    // ============================
+    // Project dropdown (dedupe + filter by global search)
+    // ============================
+    function renderProjectDropdown() {
+      const q = (state.globalQuery || "").toLowerCase().trim();
+
+      projectDropdown.innerHTML = `<option value="">Select project</option>`;
+
+      const filtered = dropdownProjectsCache.filter(p => {
+        if (!q) return true;
+        return (
+          (p.projectName || "").toLowerCase().includes(q) ||
+          (p.customerName || "").toLowerCase().includes(q) ||
+          String(p.id || "").includes(q)
+        );
+      });
+
+      filtered
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+        .forEach(p => {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = `${p.projectName} (${p.customerName})`;
+          projectDropdown.appendChild(opt);
+        });
+
+      if (state.recordId) projectDropdown.value = state.recordId;
     }
 
     // ============================
@@ -1100,9 +1102,9 @@
     }
 
     // ============================
-    // Thumb strip
+    // Thumb strip (✅ image note blur is dirty-checked)
     // ============================
-    function renderThumbStrip({ images, onOpen, onDelete, onNoteBlur }) {
+    function renderThumbStrip({ images, onOpen, onDelete, onNoteSave }) {
       const wrap = document.createElement("div");
       wrap.className = "thumb-strip";
 
@@ -1125,7 +1127,13 @@
         note.rows = 2;
         note.placeholder = "Notes…";
         note.value = img.note || "";
-        note.addEventListener("blur", () => onNoteBlur(idx, note.value));
+
+        // ✅ Only save if changed
+        attachDirtyBlur(
+          note,
+          () => img.note || "",
+          async (val) => onNoteSave(idx, val)
+        );
 
         w.appendChild(thumb);
         w.appendChild(del);
@@ -1137,7 +1145,7 @@
     }
 
     // ============================
-    // Daily tasks
+    // Daily tasks (✅ dirty-checked blur)
     // ============================
     function renderDailyTasks() {
       dailyTasksTableBody.innerHTML = "";
@@ -1164,18 +1172,26 @@
         const dateInput = document.createElement("input");
         dateInput.type = "datetime-local";
         dateInput.value = t.date || "";
-        dateInput.addEventListener("blur", async () => {
-          await dbUpdate(`${basePath}/tasks/${t.key}`, { date: dateInput.value || "" });
-        });
+
+        attachDirtyBlur(
+          dateInput,
+          () => t.date || "",
+          (val) => dbUpdate(`${basePath}/tasks/${t.key}`, { date: val })
+        );
+
         tdDate.appendChild(dateInput);
 
         const tdNotes = document.createElement("td");
         const notesArea = document.createElement("textarea");
         notesArea.value = t.notes || "";
         notesArea.placeholder = "Notes...";
-        notesArea.addEventListener("blur", async () => {
-          await dbUpdate(`${basePath}/tasks/${t.key}`, { notes: notesArea.value || "" });
-        });
+
+        attachDirtyBlur(
+          notesArea,
+          () => t.notes || "",
+          (val) => dbUpdate(`${basePath}/tasks/${t.key}`, { notes: val })
+        );
+
         tdNotes.appendChild(notesArea);
 
         const tdImg = document.createElement("td");
@@ -1204,7 +1220,7 @@
               try { await deleteObject(storageRef(storage, removed.path)); } catch (e) { console.warn(e); }
             }
           },
-          onNoteBlur: async (index, noteVal) => {
+          onNoteSave: async (index, noteVal) => {
             const currentObj = state.daily[t.key] || {};
             const imgs = ensureImagesArray(currentObj).slice();
             if (!imgs[index]) return;
@@ -1246,7 +1262,6 @@
       const notes = (newDailyTaskNotes.value || "").trim();
       if (!dt || !notes) return alert("Enter a date/time and notes.");
 
-      // If you ever want safer keys, swap to: const key = String(Date.now());
       const key = dt;
 
       await dbSet(`${RECORD_PATH(state.recordId)}/tasks/${key}`, { date: dt, notes, images: [] });
@@ -1256,7 +1271,7 @@
     }
 
     // ============================
-    // Lists
+    // Lists (✅ dirty-checked blur)
     // ============================
     function renderActiveList() {
       activeListTableBody.innerHTML = "";
@@ -1302,39 +1317,27 @@
       rows.forEach((r) => {
         const tr = document.createElement("tr");
 
-        const mkTdInput = (val, onBlur) => {
+        const mkTdInput = (initialVal, getSavedValueFn, saveFn) => {
           const td = document.createElement("td");
           const input = document.createElement("input");
           input.type = "text";
-          input.value = val || "";
-          input.addEventListener("blur", onBlur);
+          input.value = initialVal || "";
+
+          attachDirtyBlur(input, getSavedValueFn, saveFn);
+
           td.appendChild(input);
           return { td, input };
         };
 
         const baseItemPath = `${basePath}/lists/${listId}/${r.key}`;
 
-        const { td: tdId, input: idInput } = mkTdInput(r.id, async () => {
-          await dbUpdate(baseItemPath, { id: idInput.value.trim() });
-        });
-        const { td: tdModel, input: modelInput } = mkTdInput(r.model, async () => {
-          await dbUpdate(baseItemPath, { model: modelInput.value });
-        });
-        const { td: tdType, input: typeInput } = mkTdInput(r.type, async () => {
-          await dbUpdate(baseItemPath, { type: typeInput.value });
-        });
-        const { td: tdLoc, input: locInput } = mkTdInput(r.location, async () => {
-          await dbUpdate(baseItemPath, { location: locInput.value });
-        });
-        const { td: tdStatus, input: statusInput } = mkTdInput(r.status, async () => {
-          await dbUpdate(baseItemPath, { status: statusInput.value });
-        });
-        const { td: tdIp, input: ipInput } = mkTdInput(r.ip, async () => {
-          await dbUpdate(baseItemPath, { ip: ipInput.value });
-        });
-        const { td: tdMac, input: macInput } = mkTdInput(r.mac, async () => {
-          await dbUpdate(baseItemPath, { mac: macInput.value });
-        });
+        const tdIdObj = mkTdInput(r.id, () => r.id, (val) => dbUpdate(baseItemPath, { id: val }));
+        const tdModelObj = mkTdInput(r.model, () => r.model, (val) => dbUpdate(baseItemPath, { model: val }));
+        const tdTypeObj = mkTdInput(r.type, () => r.type, (val) => dbUpdate(baseItemPath, { type: val }));
+        const tdLocObj = mkTdInput(r.location, () => r.location, (val) => dbUpdate(baseItemPath, { location: val }));
+        const tdStatusObj = mkTdInput(r.status, () => r.status, (val) => dbUpdate(baseItemPath, { status: val }));
+        const tdIpObj = mkTdInput(r.ip, () => r.ip, (val) => dbUpdate(baseItemPath, { ip: val }));
+        const tdMacObj = mkTdInput(r.mac, () => r.mac, (val) => dbUpdate(baseItemPath, { mac: val }));
 
         const tdImg = document.createElement("td");
         const addImgBtn = document.createElement("button");
@@ -1362,7 +1365,7 @@
               try { await deleteObject(storageRef(storage, removed.path)); } catch (e) { console.warn(e); }
             }
           },
-          onNoteBlur: async (index, noteVal) => {
+          onNoteSave: async (index, noteVal) => {
             const itemObj = getListItems(state.lists[listId] || {})[r.key] || {};
             const imgs = ensureImagesArray(itemObj).slice();
             if (!imgs[index]) return;
@@ -1389,13 +1392,13 @@
         });
         tdActions.appendChild(delBtn);
 
-        tr.appendChild(tdId);
-        tr.appendChild(tdModel);
-        tr.appendChild(tdType);
-        tr.appendChild(tdLoc);
-        tr.appendChild(tdStatus);
-        tr.appendChild(tdIp);
-        tr.appendChild(tdMac);
+        tr.appendChild(tdIdObj.td);
+        tr.appendChild(tdModelObj.td);
+        tr.appendChild(tdTypeObj.td);
+        tr.appendChild(tdLocObj.td);
+        tr.appendChild(tdStatusObj.td);
+        tr.appendChild(tdIpObj.td);
+        tr.appendChild(tdMacObj.td);
         tr.appendChild(tdImg);
         tr.appendChild(tdActions);
 
@@ -1403,7 +1406,6 @@
       });
     }
 
-    // ✅ FIXED: do NOT set {} (empty). RTDB may treat it as "no node".
     async function createList() {
       if (!state.recordId) return alert("Select a project first.");
       const name = (newListName.value || "").trim();
@@ -1412,7 +1414,6 @@
       const listId = sanitizeKey(name);
       if (!listId) return alert("That list name becomes an invalid key. Try letters/numbers.");
 
-      // If list exists, just switch to it (no overwrite)
       if (state.lists && Object.prototype.hasOwnProperty.call(state.lists, listId)) {
         state.activeListId = listId;
         saveLastOpenState({ activePanel: "lists", activeListId: listId });
@@ -1550,8 +1551,8 @@
 
         const data = snap.val() || {};
         state.customerName = data.customerName || "";
-        state.projectFieldName = data.project || "";
         state.notes = data.notes || "";
+        state.projectFieldName = data.project || "";
         state.meta = data.meta || { updatedAt: 0 };
         state.links = Array.isArray(data.links) ? data.links : [];
         state.lists = data.lists || {};
@@ -1574,7 +1575,7 @@
     }
 
     // ============================
-    // Dropdown listener
+    // Dropdown listener (dedupe oldest)
     // ============================
     function startTasksDropdownListener() {
       detachDropdownListener();
@@ -1582,8 +1583,8 @@
       const dRef = dbRef(TASKS_ROOT());
       const dCb = (snap) => {
         if (!snap.exists()) {
-          projectDropdown.innerHTML = `<option value="">Select project</option>`;
           dropdownProjectsCache = [];
+          renderProjectDropdown();
           return;
         }
 
@@ -1598,13 +1599,11 @@
           const updatedAt = v.meta?.updatedAt || v.updatedAt || 0;
 
           const createdAt = Number(id);
-          const createdAtSafe = Number.isFinite(createdAt)
-            ? createdAt
-            : Number.MAX_SAFE_INTEGER;
+          const createdAtSafe = Number.isFinite(createdAt) ? createdAt : Number.MAX_SAFE_INTEGER;
 
           const existing = byProjectName.get(projectName);
 
-          // Keep OLDEST record per project
+          // keep OLDEST record per project name
           if (!existing || createdAtSafe < existing.createdAt) {
             byProjectName.set(projectName, {
               id,
@@ -1617,7 +1616,6 @@
         });
 
         dropdownProjectsCache = Array.from(byProjectName.values());
-
         renderProjectDropdown();
       };
 
@@ -1627,7 +1625,7 @@
     }
 
     // ============================
-    // Project creation
+    // Project creation (✅ includes id field)
     // ============================
     async function createNewProjectWithName(name) {
       const now = Date.now();
@@ -1665,9 +1663,14 @@
         return;
       }
 
-      // Don’t clobber while typing
+      // Don’t clobber while typing (static fields)
+      const siteVal = state.customerName || "";
+      if (document.activeElement !== siteNameInput && siteNameInput.value !== siteVal) {
+        siteNameInput.value = siteVal;
+      }
+
       const notesVal = state.notes || "";
-      if (document.activeElement !== projectNotesInput && projectNotesInput.value !== notesVal) {
+      if (projectNotesInput && document.activeElement !== projectNotesInput && projectNotesInput.value !== notesVal) {
         projectNotesInput.value = notesVal;
       }
 
@@ -1725,7 +1728,7 @@
 
     clearAppDataBtn.addEventListener("click", async () => {
       if (!state.recordId) return alert("No project selected.");
-      if (!confirm("Clear app data for this record? (customerName, daily tasks, lists, links)")) return;
+      if (!confirm("Clear app data for this record? (customerName, notes, daily tasks, lists, links)")) return;
 
       await dbUpdate(RECORD_PATH(state.recordId), {
         customerName: "",
@@ -1743,18 +1746,6 @@
       setActivePanel("daily");
     });
 
-    siteNameInput.addEventListener("blur", async () => {
-      if (!state.recordId) return;
-      const val = (siteNameInput.value || "").trim();
-      await dbUpdate(RECORD_PATH(state.recordId), { customerName: val });
-    });
-
-    projectNotesInput.addEventListener("blur", async () => {
-      if (!state.recordId) return;
-      const val = (projectNotesInput.value || "");
-      await dbUpdate(RECORD_PATH(state.recordId), { notes: val });
-    });
-
     addDailyTaskBtn.addEventListener("click", addDailyTask);
     createListBtn.addEventListener("click", createList);
     deleteListBtn.addEventListener("click", deleteActiveList);
@@ -1763,7 +1754,7 @@
     const debouncedSearchRender = debounce(() => {
       saveLastOpenState({ globalQuery: state.globalQuery });
       renderAll();
-      renderProjectDropdown();
+      renderProjectDropdown(); // ✅ filter dropdown too
     }, 120);
 
     globalSearchInput.addEventListener("input", () => {
@@ -1814,6 +1805,29 @@
     });
 
     // ============================
+    // ✅ Attach dirty blur to STATIC fields once
+    // ============================
+    attachDirtyBlur(
+      siteNameInput,
+      () => state.customerName || "",
+      async (val) => {
+        if (!state.recordId) return;
+        await dbUpdate(RECORD_PATH(state.recordId), { customerName: val });
+      }
+    );
+
+    if (projectNotesInput) {
+      attachDirtyBlur(
+        projectNotesInput,
+        () => state.notes || "",
+        async (val) => {
+          if (!state.recordId) return;
+          await dbUpdate(RECORD_PATH(state.recordId), { notes: val });
+        }
+      );
+    }
+
+    // ============================
     // Init + Auth
     // ============================
     function initUIForBasePath() {
@@ -1828,19 +1842,21 @@
     onAuthStateChanged(auth, async (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
 
-      // base path changed: detach listeners and reset record state
       detachRecordListener();
       detachDropdownListener();
 
       state.recordId = "";
       state.projectFieldName = "";
       state.customerName = "";
+      state.notes = "";
       state.links = [];
       state.lists = {};
       state.daily = {};
       state.activeListId = "";
       state.globalQuery = "";
       if (globalSearchInput) globalSearchInput.value = "";
+
+      dropdownProjectsCache = [];
 
       initUIForBasePath();
       await restoreLastOpenState();
