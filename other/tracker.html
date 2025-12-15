@@ -72,9 +72,7 @@
           </div>
           <input type="file" id="csvImportInput" accept=".csv,text/csv" class="hidden" />
 
-          <br>
-
-          <div class="row">
+          <div class="row" style="display: none;">
             <button id="clearAppDataBtn" type="button" class="danger-btn">Clear App Data</button>
           </div>
 
@@ -108,6 +106,13 @@
 
       <!-- MAIN CONTENT -->
       <main class="main card">
+
+        <!-- Project Notes (static, no pill) -->
+        <div class="panel-toolbar">
+          <div><strong>Project Notes</strong></div>
+        </div>
+        <textarea style="width: 100%;" id="projectNotesInput" rows="6" placeholder="Project notes..."></textarea>
+
 
         <!-- Global search -->
         <div class="camera-search-row">
@@ -257,6 +262,7 @@
 
       projectFieldName: "",
       customerName: "",
+      notes: "",
       meta: { updatedAt: 0 },
       links: [],
       lists: {},
@@ -293,6 +299,7 @@
     const globalSearchInput = $("globalSearchInput");
 
     const siteNameInput = $("siteNameInput");
+    const projectNotesInput = $("projectNotesInput");
 
     const dailyTasksPanel = $("dailyTasksPanel");
     const listsPanel = $("listsPanel");
@@ -1516,6 +1523,7 @@
         const data = snap.val() || {};
         state.customerName = data.customerName || "";
         state.projectFieldName = data.project || "";
+        state.notes = data.notes || "";
         state.meta = data.meta || { updatedAt: 0 };
         state.links = Array.isArray(data.links) ? data.links : [];
         state.lists = data.lists || {};
@@ -1548,23 +1556,43 @@
         projectDropdown.innerHTML = `<option value="">Select project</option>`;
         if (!snap.exists()) return;
 
-        const rows = [];
+        // Keep only the OLDEST record per project name
+        // (oldest = smallest numeric timestamp id)
+        const byProjectName = new Map();
+
         snap.forEach(child => {
-          const id = child.key;
+          const id = child.key;                 // timestamp key like "1761725196610"
           const v = child.val() || {};
-          const projectName = (v.project || "").trim();
+
+          const projectName = (v.project || "").trim() || id;     // group key
           const customerName = (v.customerName || "").trim();
           const updatedAt = v.meta?.updatedAt || v.updatedAt || 0;
-          rows.push({
-            id,
-            projectName: projectName || id,
-            customerName: customerName || "—",
-            updatedAt
-          });
+
+          // Oldest: use numeric id if possible
+          const createdAt = Number(id);
+          const createdAtSafe = Number.isFinite(createdAt) ? createdAt : Number.MAX_SAFE_INTEGER;
+
+          const existing = byProjectName.get(projectName);
+
+          // If we don't have one yet, or this one is older, keep it
+          if (!existing || createdAtSafe < existing.createdAt) {
+            byProjectName.set(projectName, {
+              id,
+              projectName,
+              customerName: customerName || "—",
+              updatedAt,
+              createdAt: createdAtSafe
+            });
+          }
         });
 
+        const rows = Array.from(byProjectName.values());
+
+        // Sort however you prefer:
+        // 1) newest updated first (current behavior-ish)
         rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
+        // Build dropdown
         for (const r of rows) {
           const opt = document.createElement("option");
           opt.value = r.id;
@@ -1572,6 +1600,7 @@
           projectDropdown.appendChild(opt);
         }
 
+        // Keep selection if already loaded
         if (state.recordId) projectDropdown.value = state.recordId;
       };
 
@@ -1588,8 +1617,10 @@
       const newId = String(now);
 
       await set(dbRef(RECORD_PATH(newId)), {
+        id: newId,
         project: name,
         customerName: "",
+        notes: "",
         meta: { updatedAt: now },
         tasks: {},
         lists: {},
@@ -1618,9 +1649,9 @@
       }
 
       // Don’t clobber while typing
-      const siteVal = state.customerName || "";
-      if (document.activeElement !== siteNameInput && siteNameInput.value !== siteVal) {
-        siteNameInput.value = siteVal;
+      const notesVal = state.notes || "";
+      if (document.activeElement !== projectNotesInput && projectNotesInput.value !== notesVal) {
+        projectNotesInput.value = notesVal;
       }
 
       if (state.activePanel === "daily") renderDailyTasks();
@@ -1681,6 +1712,7 @@
 
       await dbUpdate(RECORD_PATH(state.recordId), {
         customerName: "",
+        notes: "",
         meta: { ...state.meta, updatedAt: Date.now() },
         tasks: {},
         lists: {},
@@ -1698,6 +1730,12 @@
       if (!state.recordId) return;
       const val = (siteNameInput.value || "").trim();
       await dbUpdate(RECORD_PATH(state.recordId), { customerName: val });
+    });
+
+    projectNotesInput.addEventListener("blur", async () => {
+      if (!state.recordId) return;
+      const val = (projectNotesInput.value || "");
+      await dbUpdate(RECORD_PATH(state.recordId), { notes: val });
     });
 
     addDailyTaskBtn.addEventListener("click", addDailyTask);
