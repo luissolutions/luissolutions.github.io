@@ -7,16 +7,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- Auth / login UI -->
-  <script type="module" src="../apps/assets/js/login.js" defer></script>
+  <script type="module" src="./assets/js/login.js" defer></script>
 
   <!-- Your existing CSS (walmart-tracker look) -->
-  <link rel="stylesheet" href="./assets/css/tracker.css" />
+  <link rel="stylesheet" href="../other/assets/css/tracker.css" />
 </head>
 
 <body>
 
   <header>
-    <h1>Job Tracker</h1>
+    <h1>Project Tracker</h1>
 
     <div class="header-login">
       <div id="login-section">
@@ -107,18 +107,17 @@
       <!-- MAIN CONTENT -->
       <main class="main card">
 
+        <!-- Global search -->
+        <div class="camera-search-row">
+          <input type="text" id="globalSearchInput"
+            placeholder="Search Filter">
+        </div>
+
         <!-- Project Notes (static, no pill) -->
         <div class="panel-toolbar">
           <div><strong>Project Notes</strong></div>
         </div>
         <textarea style="width: 100%;" id="projectNotesInput" rows="6" placeholder="Project notes..."></textarea>
-
-
-        <!-- Global search -->
-        <div class="camera-search-row">
-          <input type="text" id="globalSearchInput"
-            placeholder="Search daily tasks + list items (id, model, type, location, status, IP, MAC, notes)…">
-        </div>
 
         <!-- DAILY TASKS PANEL -->
         <div id="dailyTasksPanel" class="detail-panel hidden">
@@ -242,7 +241,7 @@
       uploadBytes,
       getDownloadURL,
       deleteObject
-    } from "../apps/assets/js/firebase-init.js";
+    } from "./assets/js/firebase-init.js";
 
     // ============================
     // Config / Paths
@@ -250,6 +249,7 @@
     let DATABASE_BASE_PATH = "public";
     const TASKS_ROOT = () => `${DATABASE_BASE_PATH}/tasks`;
     const RECORD_PATH = (id) => `${TASKS_ROOT()}/${id}`;
+    let dropdownProjectsCache = [];
 
     // ============================
     // State
@@ -486,6 +486,34 @@
     // ============================
     // CSV helpers + Export / Import
     // ============================
+
+    function renderProjectDropdown() {
+      const q = (state.globalQuery || "").toLowerCase().trim();
+
+      projectDropdown.innerHTML = `<option value="">Select project</option>`;
+
+      const filtered = dropdownProjectsCache.filter(p => {
+        if (!q) return true;
+        return (
+          p.projectName.toLowerCase().includes(q) ||
+          p.customerName.toLowerCase().includes(q) ||
+          p.id.includes(q)
+        );
+      });
+
+      // Keep your preferred sort (newest updated first)
+      filtered
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+        .forEach(p => {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = `${p.projectName} (${p.customerName})`;
+          projectDropdown.appendChild(opt);
+        });
+
+      if (state.recordId) projectDropdown.value = state.recordId;
+    }
+
     function csvEscape(val) {
       const s = String(val ?? "");
       if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -1553,28 +1581,30 @@
 
       const dRef = dbRef(TASKS_ROOT());
       const dCb = (snap) => {
-        projectDropdown.innerHTML = `<option value="">Select project</option>`;
-        if (!snap.exists()) return;
+        if (!snap.exists()) {
+          projectDropdown.innerHTML = `<option value="">Select project</option>`;
+          dropdownProjectsCache = [];
+          return;
+        }
 
-        // Keep only the OLDEST record per project name
-        // (oldest = smallest numeric timestamp id)
         const byProjectName = new Map();
 
         snap.forEach(child => {
-          const id = child.key;                 // timestamp key like "1761725196610"
+          const id = child.key;
           const v = child.val() || {};
 
-          const projectName = (v.project || "").trim() || id;     // group key
+          const projectName = (v.project || "").trim() || id;
           const customerName = (v.customerName || "").trim();
           const updatedAt = v.meta?.updatedAt || v.updatedAt || 0;
 
-          // Oldest: use numeric id if possible
           const createdAt = Number(id);
-          const createdAtSafe = Number.isFinite(createdAt) ? createdAt : Number.MAX_SAFE_INTEGER;
+          const createdAtSafe = Number.isFinite(createdAt)
+            ? createdAt
+            : Number.MAX_SAFE_INTEGER;
 
           const existing = byProjectName.get(projectName);
 
-          // If we don't have one yet, or this one is older, keep it
+          // Keep OLDEST record per project
           if (!existing || createdAtSafe < existing.createdAt) {
             byProjectName.set(projectName, {
               id,
@@ -1586,22 +1616,9 @@
           }
         });
 
-        const rows = Array.from(byProjectName.values());
+        dropdownProjectsCache = Array.from(byProjectName.values());
 
-        // Sort however you prefer:
-        // 1) newest updated first (current behavior-ish)
-        rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-
-        // Build dropdown
-        for (const r of rows) {
-          const opt = document.createElement("option");
-          opt.value = r.id;
-          opt.textContent = `${r.projectName} (${r.customerName})`;
-          projectDropdown.appendChild(opt);
-        }
-
-        // Keep selection if already loaded
-        if (state.recordId) projectDropdown.value = state.recordId;
+        renderProjectDropdown();
       };
 
       state.listeners.dropdownRef = dRef;
@@ -1746,6 +1763,7 @@
     const debouncedSearchRender = debounce(() => {
       saveLastOpenState({ globalQuery: state.globalQuery });
       renderAll();
+      renderProjectDropdown();
     }, 120);
 
     globalSearchInput.addEventListener("input", () => {

@@ -70,6 +70,7 @@ const appNamesMap = {
   "Financial Budgeting": { filename: "livebudget", tags: ["budget", "money", "expenses", "finance"] },
   "Contacts": { filename: "livecontacts", tags: ["contacts", "phone", "address", "people"] },
   "Job Details": { filename: "livedetails", tags: ["details", "jobnotes", "job"] },
+  "Project Tracker": { filename: "liveproject", tags: ["details", "jobnotes", "Projects"] },
   "Password Generator": { filename: "password", tags: ["password", "security", "generator"] },
   "Conversion Calculator": { filename: "conversion", tags: ["conversion", "convert", "math"] },
   "Calculator": { filename: "calc", tags: ["calculator", "math", "numbers"] },
