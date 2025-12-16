@@ -11,6 +11,7 @@
 
   <!-- Your existing CSS (walmart-tracker look) -->
   <link rel="stylesheet" href="../other/assets/css/tracker.css" />
+  <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
 </head>
 
 <body>
@@ -427,40 +428,86 @@
       };
     }
 
-    function storageImagePath({ kind, dailyKey, listId, itemId }) {
-      const ts = Date.now();
-      if (kind === "daily") {
-        return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/daily/${encodeURIComponent(dailyKey)}/${ts}.jpg`;
-      }
-      return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/lists/${listId}/${itemId}/${ts}.jpg`;
+    function safeFilePart(v) {
+      return String(v || "")
+        .trim()
+        .replace(/[^\w\-]+/g, "_")
+        .slice(0, 50);
     }
 
-    function resizeImageToJpeg(file, maxWidth = 2048, quality = 0.9) {
+    function storageImagePath({ kind, dailyKey, listId, itemId }) {
+      const ts = Date.now();
+
+      if (kind === "daily") {
+        const idPart = safeFilePart(dailyKey);
+        return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/daily/${encodeURIComponent(dailyKey)}/${idPart}_${ts}.jpg`;
+      }
+
+      const idPart = safeFilePart(itemId);
+      return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/lists/${listId}/${itemId}/${idPart}_${ts}.jpg`;
+    }
+
+    function isHeic(file) {
+      const name = (file?.name || "").toLowerCase();
+      const type = (file?.type || "").toLowerCase();
+      return type.includes("heic") || type.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif");
+    }
+
+    async function fileToJpegBlobIfNeeded(file) {
+      if (!isHeic(file)) return file; // not HEIC → keep as-is
+
+      if (!window.heic2any) {
+        throw new Error("HEIC converter not loaded (heic2any missing).");
+      }
+
+      // Convert to JPEG blob
+      const jpegBlob = await heic2any({
+        blob: file,
+        toType: "image/jpeg",
+        quality: 0.95
+      });
+
+      // heic2any sometimes returns Blob or Blob[]
+      return Array.isArray(jpegBlob) ? jpegBlob[0] : jpegBlob;
+    }
+
+    async function resizeImageToJpeg(file, maxWidth = 2048, quality = 0.9) {
+      const inputBlob = await fileToJpegBlobIfNeeded(file);
+
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
+
         reader.onload = () => {
           const img = new Image();
           img.onload = () => {
             let w = img.width, h = img.height;
+
             if (w > maxWidth) {
               const s = maxWidth / w;
               w = maxWidth;
               h = Math.round(h * s);
             }
+
             const canvas = document.createElement("canvas");
-            canvas.width = w; canvas.height = h;
-            canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+            canvas.width = w;
+            canvas.height = h;
+
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, w, h);
+
             canvas.toBlob(
               (blob) => blob ? resolve(blob) : reject(new Error("toBlob returned null")),
               "image/jpeg",
               quality
             );
           };
+
           img.onerror = () => reject(new Error("Image decode failed"));
           img.src = reader.result;
         };
+
         reader.onerror = () => reject(reader.error || new Error("FileReader failed"));
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(inputBlob);
       });
     }
 
@@ -1317,11 +1364,12 @@
       rows.forEach((r) => {
         const tr = document.createElement("tr");
 
-        const mkTdInput = (initialVal, getSavedValueFn, saveFn) => {
+        const mkTdInput = (initialVal, placeholder, getSavedValueFn, saveFn) => {
           const td = document.createElement("td");
           const input = document.createElement("input");
           input.type = "text";
           input.value = initialVal || "";
+          input.placeholder = placeholder || "";
 
           attachDirtyBlur(input, getSavedValueFn, saveFn);
 
@@ -1331,13 +1379,54 @@
 
         const baseItemPath = `${basePath}/lists/${listId}/${r.key}`;
 
-        const tdIdObj = mkTdInput(r.id, () => r.id, (val) => dbUpdate(baseItemPath, { id: val }));
-        const tdModelObj = mkTdInput(r.model, () => r.model, (val) => dbUpdate(baseItemPath, { model: val }));
-        const tdTypeObj = mkTdInput(r.type, () => r.type, (val) => dbUpdate(baseItemPath, { type: val }));
-        const tdLocObj = mkTdInput(r.location, () => r.location, (val) => dbUpdate(baseItemPath, { location: val }));
-        const tdStatusObj = mkTdInput(r.status, () => r.status, (val) => dbUpdate(baseItemPath, { status: val }));
-        const tdIpObj = mkTdInput(r.ip, () => r.ip, (val) => dbUpdate(baseItemPath, { ip: val }));
-        const tdMacObj = mkTdInput(r.mac, () => r.mac, (val) => dbUpdate(baseItemPath, { mac: val }));
+        const tdIdObj = mkTdInput(
+          r.id,
+          "Camera ID / Cable #",
+          () => r.id,
+          (val) => dbUpdate(baseItemPath, { id: val })
+        );
+
+        const tdModelObj = mkTdInput(
+          r.model,
+          "Model",
+          () => r.model,
+          (val) => dbUpdate(baseItemPath, { model: val })
+        );
+
+        const tdTypeObj = mkTdInput(
+          r.type,
+          "Type (Camera, Controller, etc)",
+          () => r.type,
+          (val) => dbUpdate(baseItemPath, { type: val })
+        );
+
+        const tdLocObj = mkTdInput(
+          r.location,
+          "Location",
+          () => r.location,
+          (val) => dbUpdate(baseItemPath, { location: val })
+        );
+
+        const tdStatusObj = mkTdInput(
+          r.status,
+          "Status",
+          () => r.status,
+          (val) => dbUpdate(baseItemPath, { status: val })
+        );
+
+        const tdIpObj = mkTdInput(
+          r.ip,
+          "IP Address",
+          () => r.ip,
+          (val) => dbUpdate(baseItemPath, { ip: val })
+        );
+
+        const tdMacObj = mkTdInput(
+          r.mac,
+          "MAC Address",
+          () => r.mac,
+          (val) => dbUpdate(baseItemPath, { mac: val })
+        );
 
         const tdImg = document.createElement("td");
         const addImgBtn = document.createElement("button");
