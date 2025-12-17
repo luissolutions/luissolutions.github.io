@@ -96,7 +96,7 @@
           </div>
 
           <div class="progress-row">
-            <span>Items summary</span>
+            <span>Items summary:</span>
             <span id="sidebarSummary">0 daily task(s) • 0 list(s) • 0 item(s)</span>
           </div>
         </div>
@@ -244,11 +244,21 @@
     } from "./assets/js/firebase-init.js";
 
     // ============================
-    // Config / Paths
+    // Base Path + PATH helpers
     // ============================
     let DATABASE_BASE_PATH = "public";
-    const TASKS_ROOT = () => `${DATABASE_BASE_PATH}/tasks`;
-    const RECORD_PATH = (id) => `${TASKS_ROOT()}/${id}`;
+
+    const PATH = {
+      root: () => DATABASE_BASE_PATH,
+      tasksRoot: () => `${DATABASE_BASE_PATH}/tasks`,
+      record: (id) => `${DATABASE_BASE_PATH}/tasks/${id}`,
+      recordMeta: (id) => `${DATABASE_BASE_PATH}/tasks/${id}/meta`,
+      dailyRoot: (id) => `${DATABASE_BASE_PATH}/tasks/${id}/tasks`,
+      dailyItem: (id, key) => `${DATABASE_BASE_PATH}/tasks/${id}/tasks/${encodeURIComponent(key)}`,
+      listsRoot: (id) => `${DATABASE_BASE_PATH}/tasks/${id}/lists`,
+      list: (id, listId) => `${DATABASE_BASE_PATH}/tasks/${id}/lists/${listId}`,
+      item: (id, listId, itemKey) => `${DATABASE_BASE_PATH}/tasks/${id}/lists/${listId}/${itemKey}`,
+    };
 
     // ============================
     // State
@@ -283,59 +293,62 @@
     // ============================
     const $ = (id) => document.getElementById(id);
 
-    const sectionListEl = $("sectionList");
-    const sectionTitleEl = $("sectionTitle");
-    const sectionMetaEl = $("sectionMeta");
+    const ui = {
+      sectionListEl: $("sectionList"),
+      sectionTitleEl: $("sectionTitle"),
+      sectionMetaEl: $("sectionMeta"),
 
-    const projectDropdown = $("projectDropdown");
-    const projectNameInput = $("projectNameInput");
-    const setProjectBtn = $("setProjectBtn");
-    const clearAppDataBtn = $("clearAppDataBtn");
+      projectDropdown: $("projectDropdown"),
+      projectNameInput: $("projectNameInput"),
+      setProjectBtn: $("setProjectBtn"),
+      clearAppDataBtn: $("clearAppDataBtn"),
 
-    const exportCsvBtn = $("exportCsvBtn");
-    const importCsvBtn = $("importCsvBtn");
-    const csvImportInput = $("csvImportInput");
+      exportCsvBtn: $("exportCsvBtn"),
+      importCsvBtn: $("importCsvBtn"),
+      csvImportInput: $("csvImportInput"),
 
-    const sidebarSummary = $("sidebarSummary");
-    const dataPathLabel = $("dataPathLabel");
-    const globalSearchInput = $("globalSearchInput");
+      sidebarSummary: $("sidebarSummary"),
+      dataPathLabel: $("dataPathLabel"),
+      globalSearchInput: $("globalSearchInput"),
 
-    const siteNameInput = $("siteNameInput");
-    const projectNotesInput = $("projectNotesInput"); // ✅ static notes box
+      siteNameInput: $("siteNameInput"),
+      projectNotesInput: $("projectNotesInput"),
 
-    const dailyTasksPanel = $("dailyTasksPanel");
-    const listsPanel = $("listsPanel");
+      dailyTasksPanel: $("dailyTasksPanel"),
+      listsPanel: $("listsPanel"),
 
-    const dailyTasksTableBody = document.querySelector("#dailyTasksTable tbody");
-    const dailyTasksCountLabel = $("dailyTasksCountLabel");
-    const newDailyTaskDate = $("newDailyTaskDate");
-    const newDailyTaskNotes = $("newDailyTaskNotes");
-    const addDailyTaskBtn = $("addDailyTaskBtn");
+      dailyTasksTableBody: document.querySelector("#dailyTasksTable tbody"),
+      dailyTasksCountLabel: $("dailyTasksCountLabel"),
+      newDailyTaskDate: $("newDailyTaskDate"),
+      newDailyTaskNotes: $("newDailyTaskNotes"),
+      addDailyTaskBtn: $("addDailyTaskBtn"),
 
-    const projectLinksList = $("projectLinksList");
-    const projectLinksForm = $("projectLinksForm");
-    const projectLinkTitle = $("projectLinkTitle");
-    const projectLinkUrl = $("projectLinkUrl");
+      projectLinksList: $("projectLinksList"),
+      projectLinksForm: $("projectLinksForm"),
+      projectLinkTitle: $("projectLinkTitle"),
+      projectLinkUrl: $("projectLinkUrl"),
 
-    const activeListTitle = $("activeListTitle");
-    const activeListCountLabel = $("activeListCountLabel");
-    const newListName = $("newListName");
-    const createListBtn = $("createListBtn");
-    const deleteListBtn = $("deleteListBtn");
+      activeListTitle: $("activeListTitle"),
+      activeListCountLabel: $("activeListCountLabel"),
+      newListName: $("newListName"),
+      createListBtn: $("createListBtn"),
+      deleteListBtn: $("deleteListBtn"),
 
-    const itemInputs = {
-      id: $("item_id"),
-      model: $("item_model"),
-      type: $("item_type"),
-      location: $("item_location"),
-      status: $("item_status"),
-      ip: $("item_ip"),
-      mac: $("item_mac"),
+      itemInputs: {
+        id: $("item_id"),
+        model: $("item_model"),
+        type: $("item_type"),
+        location: $("item_location"),
+        status: $("item_status"),
+        ip: $("item_ip"),
+        mac: $("item_mac"),
+      },
+      addItemBtn: $("addItemBtn"),
+      activeListTableBody: document.querySelector("#activeListTable tbody"),
+
+      imageUploadInput: $("imageUploadInput"),
     };
-    const addItemBtn = $("addItemBtn");
-    const activeListTableBody = document.querySelector("#activeListTable tbody");
 
-    const imageUploadInput = $("imageUploadInput");
     let pendingUploadTarget = null; // { kind:'daily'|'listItem', dailyKey?, listId?, itemId? }
 
     // ============================
@@ -391,6 +404,20 @@
         .replace(/\s+/g, "_");
     }
 
+    function debounce(fn, wait = 120) {
+      let t = null;
+      return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), wait);
+      };
+    }
+
+    function matchesAny(...vals) {
+      const q = (state.globalQuery || "").trim().toLowerCase();
+      if (!q) return true;
+      return vals.some(v => String(v || "").toLowerCase().includes(q));
+    }
+
     function getListItems(listObj) {
       if (!listObj || typeof listObj !== "object") return {};
       const out = {};
@@ -414,20 +441,6 @@
       return out;
     }
 
-    function matchesAny(...vals) {
-      const q = (state.globalQuery || "").trim().toLowerCase();
-      if (!q) return true;
-      return vals.some(v => String(v || "").toLowerCase().includes(q));
-    }
-
-    function debounce(fn, wait = 120) {
-      let t = null;
-      return (...args) => {
-        clearTimeout(t);
-        t = setTimeout(() => fn(...args), wait);
-      };
-    }
-
     function safeFilePart(v) {
       return String(v || "")
         .trim()
@@ -447,6 +460,26 @@
       return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/lists/${listId}/${itemId}/${idPart}_${ts}.jpg`;
     }
 
+    // ============================
+    // ✅ Dirty-on-blur (saves ONLY if changed)
+    // ============================
+    function attachDirtyBlur(el, saveFn) {
+      el.addEventListener("focus", () => {
+        el.dataset._saved = String(el.value ?? "").trim();
+      });
+
+      el.addEventListener("blur", async () => {
+        const before = String(el.dataset._saved ?? "").trim();
+        const now = String(el.value ?? "").trim();
+        if (before === now) return;
+        el.dataset._saved = now;
+        await saveFn(now);
+      });
+    }
+
+    // ============================
+    // HEIC + Resize
+    // ============================
     function isHeic(file) {
       const name = (file?.name || "").toLowerCase();
       const type = (file?.type || "").toLowerCase();
@@ -454,20 +487,18 @@
     }
 
     async function fileToJpegBlobIfNeeded(file) {
-      if (!isHeic(file)) return file; // not HEIC → keep as-is
+      if (!isHeic(file)) return file;
 
       if (!window.heic2any) {
         throw new Error("HEIC converter not loaded (heic2any missing).");
       }
 
-      // Convert to JPEG blob
       const jpegBlob = await heic2any({
         blob: file,
         toType: "image/jpeg",
         quality: 0.95
       });
 
-      // heic2any sometimes returns Blob or Blob[]
       return Array.isArray(jpegBlob) ? jpegBlob[0] : jpegBlob;
     }
 
@@ -479,6 +510,7 @@
 
         reader.onload = () => {
           const img = new Image();
+
           img.onload = () => {
             let w = img.width, h = img.height;
 
@@ -511,9 +543,12 @@
       });
     }
 
+    // ============================
+    // DB helpers
+    // ============================
     async function touchRecord() {
       if (!state.recordId) return;
-      await update(dbRef(`${RECORD_PATH(state.recordId)}/meta`), { updatedAt: Date.now() });
+      await update(dbRef(PATH.recordMeta(state.recordId)), { updatedAt: Date.now() });
     }
 
     async function dbUpdate(path, patch, touch = true) {
@@ -532,29 +567,7 @@
     }
 
     // ============================
-    // ✅ Dirty-on-blur helpers (NO DB write unless value changed)
-    // ============================
-    function normStr(v) {
-      return String(v ?? "").trim();
-    }
-
-    function attachDirtyBlur(el, getSavedValueFn, saveFn) {
-      el.addEventListener("focus", () => {
-        el.dataset._saved = normStr(getSavedValueFn());
-      });
-
-      el.addEventListener("blur", async () => {
-        const before = normStr(el.dataset._saved ?? getSavedValueFn());
-        const now = normStr(el.value);
-        if (before === now) return; // ✅ no change → no update
-
-        el.dataset._saved = now;
-        await saveFn(now);
-      });
-    }
-
-    // ============================
-    // CSV helpers + Export / Import
+    // CSV helpers + Export/Import
     // ============================
     function csvEscape(val) {
       const s = String(val ?? "");
@@ -724,7 +737,7 @@
       if (!state.recordId) return;
       if (state.lists?.[listId]) return;
 
-      await dbSet(`${RECORD_PATH(state.recordId)}/lists/${listId}`, {
+      await dbSet(PATH.list(state.recordId, listId), {
         _name: displayName || listId,
         createdAt: Date.now()
       });
@@ -769,7 +782,7 @@
       const listId = pickListForCableImport();
       await ensureListExists(listId, listId === "cameras" ? "Cameras" : (state.lists?.[listId]?._name || listId));
 
-      const basePath = RECORD_PATH(state.recordId);
+      const basePath = PATH.record(state.recordId);
       const patch = {};
       let imported = 0;
 
@@ -836,7 +849,7 @@
 
       if (idx("kind") < 0) return alert('CSV missing required column: "kind".');
 
-      const basePath = RECORD_PATH(state.recordId);
+      const basePath = PATH.record(state.recordId);
       let importedDaily = 0;
       let importedItems = 0;
 
@@ -949,41 +962,34 @@
     }
 
     // ============================
-    // Panels / Header
+    // UI helpers
     // ============================
-    function setActivePanel(panel) {
-      state.activePanel = panel;
-
-      dailyTasksPanel.classList.toggle("hidden", panel !== "daily");
-      listsPanel.classList.toggle("hidden", panel !== "lists");
-
-      saveLastOpenState({ activePanel: panel, activeListId: state.activeListId || "" });
-
-      renderHeader();
-      renderSidebarPills();
-      renderAll();
+    function renderDataPathLabel() {
+      if (!ui.dataPathLabel) return;
+      ui.dataPathLabel.textContent = state.recordId
+        ? `${DATABASE_BASE_PATH} / ${state.recordId}`
+        : `${DATABASE_BASE_PATH} / (no project)`;
     }
 
     function renderHeader() {
       if (!state.recordId) {
-        sectionTitleEl.textContent = "Select a project";
-        sectionMetaEl.textContent = "";
+        ui.sectionTitleEl.textContent = "Select a project";
+        ui.sectionMetaEl.textContent = "";
         return;
       }
 
       const displayName = state.projectFieldName || state.recordId;
       const dailyCount = Object.keys(state.daily || {}).length;
-      const listCount = Object.keys(state.lists || {}).length;
 
       if (state.activePanel === "daily") {
-        sectionTitleEl.textContent = "Daily Tasks / Notes";
-        sectionMetaEl.textContent = `Project: ${displayName} • ${dailyCount} daily task(s)`;
+        ui.sectionTitleEl.textContent = "Daily Tasks / Notes";
+        ui.sectionMetaEl.textContent = `Project: ${displayName} • ${dailyCount} daily task(s)`;
       } else {
         const listId = state.activeListId;
         const list = state.lists[listId] || {};
         const itemCount = Object.keys(getListItems(list)).length;
-        sectionTitleEl.textContent = list?._name || listId || "List";
-        sectionMetaEl.textContent = `Project: ${displayName} • ${itemCount} item(s)`;
+        ui.sectionTitleEl.textContent = list?._name || listId || "List";
+        ui.sectionMetaEl.textContent = `Project: ${displayName} • ${itemCount} item(s)`;
       }
     }
 
@@ -992,65 +998,20 @@
       const listIds = Object.keys(state.lists || {});
       const listCount = listIds.length;
       const itemCount = listIds.reduce((acc, id) => acc + Object.keys(getListItems(state.lists[id])).length, 0);
-      sidebarSummary.textContent = `${dailyCount} daily task(s) • ${listCount} list(s) • ${itemCount} item(s)`;
+      ui.sidebarSummary.textContent = `${dailyCount} daily task(s) • ${listCount} list(s) • ${itemCount} item(s)`;
     }
 
-    function renderSidebarPills() {
-      sectionListEl.innerHTML = "";
-      renderSidebarSummary();
+    function setActivePanel(panel) {
+      state.activePanel = panel;
 
-      const makePill = ({ title, right, isActive, onClick }) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "section-pill" + (isActive ? " active" : "");
-        btn.innerHTML = `
-        <span class="label">${title}</span>
-        <span class="pill-progress">
-          <span class="pill-dot ${right === "✓" ? "done" : ""}"></span>
-          <span>${right}</span>
-        </span>
-      `;
-        btn.addEventListener("click", onClick);
-        sectionListEl.appendChild(btn);
-      };
+      ui.dailyTasksPanel.classList.toggle("hidden", panel !== "daily");
+      ui.listsPanel.classList.toggle("hidden", panel !== "lists");
 
-      makePill({
-        title: "Daily Tasks",
-        right: String(Object.keys(state.daily || {}).length),
-        isActive: state.activePanel === "daily",
-        onClick: () => setActivePanel("daily")
-      });
+      saveLastOpenState({ activePanel: panel, activeListId: state.activeListId || "" });
 
-      const listIds = Object.keys(state.lists || {})
-        .sort((a, b) => {
-          const A = state.lists[a]?._name || a;
-          const B = state.lists[b]?._name || b;
-          return String(A).localeCompare(String(B), undefined, { sensitivity: "base" });
-        });
-
-      listIds.forEach(listId => {
-        const listObj = state.lists[listId] || {};
-        const count = Object.keys(getListItems(listObj)).length;
-        makePill({
-          title: listObj._name || listId,
-          right: String(count),
-          isActive: state.activePanel === "lists" && state.activeListId === listId,
-          onClick: () => {
-            state.activeListId = listId;
-            saveLastOpenState({ activePanel: "lists", activeListId: listId });
-            setActivePanel("lists");
-          }
-        });
-      });
-
-      if (!listIds.length) {
-        makePill({
-          title: "Lists",
-          right: "0",
-          isActive: state.activePanel === "lists",
-          onClick: () => setActivePanel("lists")
-        });
-      }
+      renderHeader();
+      renderSidebarPills();
+      renderAll();
     }
 
     // ============================
@@ -1059,7 +1020,7 @@
     function renderProjectDropdown() {
       const q = (state.globalQuery || "").toLowerCase().trim();
 
-      projectDropdown.innerHTML = `<option value="">Select project</option>`;
+      ui.projectDropdown.innerHTML = `<option value="">Select project</option>`;
 
       const filtered = dropdownProjectsCache.filter(p => {
         if (!q) return true;
@@ -1076,23 +1037,70 @@
           const opt = document.createElement("option");
           opt.value = p.id;
           opt.textContent = `${p.projectName} (${p.customerName})`;
-          projectDropdown.appendChild(opt);
+          ui.projectDropdown.appendChild(opt);
         });
 
-      if (state.recordId) projectDropdown.value = state.recordId;
+      if (state.recordId) ui.projectDropdown.value = state.recordId;
+    }
+
+    function startTasksDropdownListener() {
+      detachDropdownListener();
+
+      const dRef = dbRef(PATH.tasksRoot());
+      const dCb = (snap) => {
+        if (!snap.exists()) {
+          dropdownProjectsCache = [];
+          renderProjectDropdown();
+          return;
+        }
+
+        const byProjectName = new Map();
+
+        snap.forEach(child => {
+          const id = child.key;
+          const v = child.val() || {};
+
+          const projectName = (v.project || "").trim() || id;
+          const customerName = (v.customerName || "").trim();
+          const updatedAt = v.meta?.updatedAt || v.updatedAt || 0;
+
+          const createdAt = Number(id);
+          const createdAtSafe = Number.isFinite(createdAt) ? createdAt : Number.MAX_SAFE_INTEGER;
+
+          const existing = byProjectName.get(projectName);
+
+          // keep OLDEST record per project name
+          if (!existing || createdAtSafe < existing.createdAt) {
+            byProjectName.set(projectName, {
+              id,
+              projectName,
+              customerName: customerName || "—",
+              updatedAt,
+              createdAt: createdAtSafe
+            });
+          }
+        });
+
+        dropdownProjectsCache = Array.from(byProjectName.values());
+        renderProjectDropdown();
+      };
+
+      state.listeners.dropdownRef = dRef;
+      state.listeners.dropdownCb = dCb;
+      onValue(dRef, dCb);
     }
 
     // ============================
     // Project links
     // ============================
     function renderProjectLinks() {
-      projectLinksList.innerHTML = "";
+      ui.projectLinksList.innerHTML = "";
 
       if (!state.recordId) {
         const li = document.createElement("li");
         li.style.color = "var(--text-muted,#8d96a8)";
         li.textContent = "(No project selected)";
-        projectLinksList.appendChild(li);
+        ui.projectLinksList.appendChild(li);
         return;
       }
 
@@ -1101,7 +1109,7 @@
         const li = document.createElement("li");
         li.style.color = "var(--text-muted,#8d96a8)";
         li.textContent = "(No links yet)";
-        projectLinksList.appendChild(li);
+        ui.projectLinksList.appendChild(li);
         return;
       }
 
@@ -1139,17 +1147,17 @@
           if (idx < 0) return;
           const next = state.links.slice();
           next.splice(idx, 1);
-          await dbUpdate(RECORD_PATH(state.recordId), { links: next });
+          await dbUpdate(PATH.record(state.recordId), { links: next });
         });
 
         li.appendChild(a);
         li.appendChild(del);
-        projectLinksList.appendChild(li);
+        ui.projectLinksList.appendChild(li);
       });
     }
 
     // ============================
-    // Thumb strip (✅ image note blur is dirty-checked)
+    // Thumb strip
     // ============================
     function renderThumbStrip({ images, onOpen, onDelete, onNoteSave }) {
       const wrap = document.createElement("div");
@@ -1175,12 +1183,7 @@
         note.placeholder = "Notes…";
         note.value = img.note || "";
 
-        // ✅ Only save if changed
-        attachDirtyBlur(
-          note,
-          () => img.note || "",
-          async (val) => onNoteSave(idx, val)
-        );
+        attachDirtyBlur(note, async (val) => onNoteSave(idx, val));
 
         w.appendChild(thumb);
         w.appendChild(del);
@@ -1192,10 +1195,10 @@
     }
 
     // ============================
-    // Daily tasks (✅ dirty-checked blur)
+    // Daily tasks
     // ============================
     function renderDailyTasks() {
-      dailyTasksTableBody.innerHTML = "";
+      ui.dailyTasksTableBody.innerHTML = "";
       if (!state.recordId) return;
 
       const entries = Object.entries(state.daily || {})
@@ -1208,9 +1211,9 @@
         .filter(t => matchesAny(t.key, t.date, t.notes))
         .sort((a, b) => String(b.date).localeCompare(String(a.date)));
 
-      dailyTasksCountLabel.textContent = `(${entries.length})`;
+      ui.dailyTasksCountLabel.textContent = `(${entries.length})`;
 
-      const basePath = RECORD_PATH(state.recordId);
+      const baseDailyRoot = PATH.dailyRoot(state.recordId);
 
       entries.forEach((t) => {
         const tr = document.createElement("tr");
@@ -1219,26 +1222,14 @@
         const dateInput = document.createElement("input");
         dateInput.type = "datetime-local";
         dateInput.value = t.date || "";
-
-        attachDirtyBlur(
-          dateInput,
-          () => t.date || "",
-          (val) => dbUpdate(`${basePath}/tasks/${t.key}`, { date: val })
-        );
-
+        attachDirtyBlur(dateInput, (val) => dbUpdate(`${baseDailyRoot}/${encodeURIComponent(t.key)}`, { date: val }));
         tdDate.appendChild(dateInput);
 
         const tdNotes = document.createElement("td");
         const notesArea = document.createElement("textarea");
         notesArea.value = t.notes || "";
         notesArea.placeholder = "Notes...";
-
-        attachDirtyBlur(
-          notesArea,
-          () => t.notes || "",
-          (val) => dbUpdate(`${basePath}/tasks/${t.key}`, { notes: val })
-        );
-
+        attachDirtyBlur(notesArea, (val) => dbUpdate(`${baseDailyRoot}/${encodeURIComponent(t.key)}`, { notes: val }));
         tdNotes.appendChild(notesArea);
 
         const tdImg = document.createElement("td");
@@ -1246,8 +1237,8 @@
         addImgBtn.textContent = "Add Image";
         addImgBtn.addEventListener("click", () => {
           pendingUploadTarget = { kind: "daily", dailyKey: t.key };
-          imageUploadInput.value = "";
-          imageUploadInput.click();
+          ui.imageUploadInput.value = "";
+          ui.imageUploadInput.click();
         });
         tdImg.appendChild(addImgBtn);
 
@@ -1261,7 +1252,7 @@
             const imgs = ensureImagesArray(currentObj).slice();
             const [removed] = imgs.splice(index, 1);
 
-            await dbUpdate(`${basePath}/tasks/${t.key}`, { images: imgs });
+            await dbUpdate(`${baseDailyRoot}/${encodeURIComponent(t.key)}`, { images: imgs });
 
             if (removed?.path) {
               try { await deleteObject(storageRef(storage, removed.path)); } catch (e) { console.warn(e); }
@@ -1272,7 +1263,7 @@
             const imgs = ensureImagesArray(currentObj).slice();
             if (!imgs[index]) return;
             imgs[index].note = noteVal || "";
-            await dbUpdate(`${basePath}/tasks/${t.key}`, { images: imgs });
+            await dbUpdate(`${baseDailyRoot}/${encodeURIComponent(t.key)}`, { images: imgs });
           }
         }));
 
@@ -1286,7 +1277,7 @@
           const currentObj = state.daily[t.key] || {};
           const paths = collectImagePaths(currentObj);
 
-          await dbRemove(`${basePath}/tasks/${t.key}`);
+          await dbRemove(`${baseDailyRoot}/${encodeURIComponent(t.key)}`);
 
           for (const p of paths) {
             try { await deleteObject(storageRef(storage, p)); } catch (e) { console.warn(e); }
@@ -1298,34 +1289,35 @@
         tr.appendChild(tdNotes);
         tr.appendChild(tdImg);
         tr.appendChild(tdActions);
-        dailyTasksTableBody.appendChild(tr);
+        ui.dailyTasksTableBody.appendChild(tr);
       });
     }
 
     async function addDailyTask() {
       if (!state.recordId) return alert("Select a project first.");
 
-      const dt = (newDailyTaskDate.value || "").trim();
-      const notes = (newDailyTaskNotes.value || "").trim();
+      const dt = (ui.newDailyTaskDate.value || "").trim();
+      const notes = (ui.newDailyTaskNotes.value || "").trim();
       if (!dt || !notes) return alert("Enter a date/time and notes.");
 
+      // Keep your existing pattern: key = dt (compatible with current data)
       const key = dt;
 
-      await dbSet(`${RECORD_PATH(state.recordId)}/tasks/${key}`, { date: dt, notes, images: [] });
+      await dbSet(`${PATH.dailyRoot(state.recordId)}/${encodeURIComponent(key)}`, { date: dt, notes, images: [] });
 
-      newDailyTaskDate.value = "";
-      newDailyTaskNotes.value = "";
+      ui.newDailyTaskDate.value = "";
+      ui.newDailyTaskNotes.value = "";
     }
 
     // ============================
-    // Lists (✅ dirty-checked blur)
+    // Lists
     // ============================
     function renderActiveList() {
-      activeListTableBody.innerHTML = "";
+      ui.activeListTableBody.innerHTML = "";
 
       if (!state.recordId) {
-        activeListTitle.textContent = "List";
-        activeListCountLabel.textContent = "";
+        ui.activeListTitle.textContent = "List";
+        ui.activeListCountLabel.textContent = "";
         return;
       }
 
@@ -1333,12 +1325,12 @@
       const listObj = state.lists[listId];
 
       if (!listId || !listObj) {
-        activeListTitle.textContent = "Lists";
-        activeListCountLabel.textContent = " (create a list to begin)";
+        ui.activeListTitle.textContent = "Lists";
+        ui.activeListCountLabel.textContent = " (create a list to begin)";
         return;
       }
 
-      activeListTitle.textContent = listObj._name || listId;
+      ui.activeListTitle.textContent = listObj._name || listId;
 
       const itemsNode = getListItems(listObj);
       const rows = Object.entries(itemsNode)
@@ -1357,84 +1349,40 @@
         .filter(r => matchesAny(r.key, r.id, r.model, r.type, r.location, r.status, r.ip, r.mac, r.notes))
         .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
 
-      activeListCountLabel.textContent = `(${rows.length})`;
+      ui.activeListCountLabel.textContent = `(${rows.length})`;
 
-      const basePath = RECORD_PATH(state.recordId);
+      const basePath = PATH.record(state.recordId);
+
+      const mkTdInput = (initialVal, placeholder, saveFn) => {
+        const td = document.createElement("td");
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = initialVal || "";
+        input.placeholder = placeholder || "";
+        attachDirtyBlur(input, saveFn);
+        td.appendChild(input);
+        return td;
+      };
 
       rows.forEach((r) => {
         const tr = document.createElement("tr");
-
-        const mkTdInput = (initialVal, placeholder, getSavedValueFn, saveFn) => {
-          const td = document.createElement("td");
-          const input = document.createElement("input");
-          input.type = "text";
-          input.value = initialVal || "";
-          input.placeholder = placeholder || "";
-
-          attachDirtyBlur(input, getSavedValueFn, saveFn);
-
-          td.appendChild(input);
-          return { td, input };
-        };
-
         const baseItemPath = `${basePath}/lists/${listId}/${r.key}`;
 
-        const tdIdObj = mkTdInput(
-          r.id,
-          "Camera ID / Cable #",
-          () => r.id,
-          (val) => dbUpdate(baseItemPath, { id: val })
-        );
-
-        const tdModelObj = mkTdInput(
-          r.model,
-          "Model",
-          () => r.model,
-          (val) => dbUpdate(baseItemPath, { model: val })
-        );
-
-        const tdTypeObj = mkTdInput(
-          r.type,
-          "Type (Camera, Controller, etc)",
-          () => r.type,
-          (val) => dbUpdate(baseItemPath, { type: val })
-        );
-
-        const tdLocObj = mkTdInput(
-          r.location,
-          "Location",
-          () => r.location,
-          (val) => dbUpdate(baseItemPath, { location: val })
-        );
-
-        const tdStatusObj = mkTdInput(
-          r.status,
-          "Status",
-          () => r.status,
-          (val) => dbUpdate(baseItemPath, { status: val })
-        );
-
-        const tdIpObj = mkTdInput(
-          r.ip,
-          "IP Address",
-          () => r.ip,
-          (val) => dbUpdate(baseItemPath, { ip: val })
-        );
-
-        const tdMacObj = mkTdInput(
-          r.mac,
-          "MAC Address",
-          () => r.mac,
-          (val) => dbUpdate(baseItemPath, { mac: val })
-        );
+        tr.appendChild(mkTdInput(r.id, "Camera ID / Cable #", (val) => dbUpdate(baseItemPath, { id: val })));
+        tr.appendChild(mkTdInput(r.model, "Model", (val) => dbUpdate(baseItemPath, { model: val })));
+        tr.appendChild(mkTdInput(r.type, "Type (Camera, Controller, etc)", (val) => dbUpdate(baseItemPath, { type: val })));
+        tr.appendChild(mkTdInput(r.location, "Location", (val) => dbUpdate(baseItemPath, { location: val })));
+        tr.appendChild(mkTdInput(r.status, "Status", (val) => dbUpdate(baseItemPath, { status: val })));
+        tr.appendChild(mkTdInput(r.ip, "IP Address", (val) => dbUpdate(baseItemPath, { ip: val })));
+        tr.appendChild(mkTdInput(r.mac, "MAC Address", (val) => dbUpdate(baseItemPath, { mac: val })));
 
         const tdImg = document.createElement("td");
         const addImgBtn = document.createElement("button");
         addImgBtn.textContent = "Add Image";
         addImgBtn.addEventListener("click", () => {
           pendingUploadTarget = { kind: "listItem", listId, itemId: r.key };
-          imageUploadInput.value = "";
-          imageUploadInput.click();
+          ui.imageUploadInput.value = "";
+          ui.imageUploadInput.click();
         });
         tdImg.appendChild(addImgBtn);
 
@@ -1481,23 +1429,16 @@
         });
         tdActions.appendChild(delBtn);
 
-        tr.appendChild(tdIdObj.td);
-        tr.appendChild(tdModelObj.td);
-        tr.appendChild(tdTypeObj.td);
-        tr.appendChild(tdLocObj.td);
-        tr.appendChild(tdStatusObj.td);
-        tr.appendChild(tdIpObj.td);
-        tr.appendChild(tdMacObj.td);
         tr.appendChild(tdImg);
         tr.appendChild(tdActions);
 
-        activeListTableBody.appendChild(tr);
+        ui.activeListTableBody.appendChild(tr);
       });
     }
 
     async function createList() {
       if (!state.recordId) return alert("Select a project first.");
-      const name = (newListName.value || "").trim();
+      const name = (ui.newListName.value || "").trim();
       if (!name) return alert("Enter a list name.");
 
       const listId = sanitizeKey(name);
@@ -1506,20 +1447,18 @@
       if (state.lists && Object.prototype.hasOwnProperty.call(state.lists, listId)) {
         state.activeListId = listId;
         saveLastOpenState({ activePanel: "lists", activeListId: listId });
-        newListName.value = "";
+        ui.newListName.value = "";
         return setActivePanel("lists");
       }
 
-      const now = Date.now();
-
-      await dbSet(`${RECORD_PATH(state.recordId)}/lists/${listId}`, {
+      await dbSet(PATH.list(state.recordId, listId), {
         _name: name,
-        createdAt: now
+        createdAt: Date.now()
       });
 
       state.activeListId = listId;
       saveLastOpenState({ activePanel: "lists", activeListId: listId });
-      newListName.value = "";
+      ui.newListName.value = "";
       setActivePanel("lists");
     }
 
@@ -1537,7 +1476,7 @@
       const paths = [];
       Object.values(items).forEach(item => paths.push(...collectImagePaths(item)));
 
-      await dbRemove(`${RECORD_PATH(state.recordId)}/lists/${listId}`);
+      await dbRemove(PATH.list(state.recordId, listId));
 
       for (const p of paths) {
         try { await deleteObject(storageRef(storage, p)); } catch (e) { console.warn(e); }
@@ -1553,31 +1492,92 @@
       if (!state.activeListId) return alert("Select or create a list first.");
 
       const listId = state.activeListId;
-      const id = (itemInputs.id.value || "").trim();
+      const id = (ui.itemInputs.id.value || "").trim();
       if (!id) return alert("ID is required.");
 
       const item = {
         id,
-        model: itemInputs.model.value || "",
-        type: itemInputs.type.value || "",
-        location: itemInputs.location.value || "",
-        status: itemInputs.status.value || "",
-        ip: itemInputs.ip.value || "",
-        mac: itemInputs.mac.value || "",
+        model: ui.itemInputs.model.value || "",
+        type: ui.itemInputs.type.value || "",
+        location: ui.itemInputs.location.value || "",
+        status: ui.itemInputs.status.value || "",
+        ip: ui.itemInputs.ip.value || "",
+        mac: ui.itemInputs.mac.value || "",
         notes: "",
         images: []
       };
 
-      await dbSet(`${RECORD_PATH(state.recordId)}/lists/${listId}/${id}`, item);
+      await dbSet(PATH.item(state.recordId, listId, id), item);
 
-      Object.values(itemInputs).forEach(el => el.value = "");
+      Object.values(ui.itemInputs).forEach(el => el.value = "");
+    }
+
+    // ============================
+    // Sidebar pills
+    // ============================
+    function renderSidebarPills() {
+      ui.sectionListEl.innerHTML = "";
+      renderSidebarSummary();
+
+      const makePill = ({ title, right, isActive, onClick }) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "section-pill" + (isActive ? " active" : "");
+        btn.innerHTML = `
+        <span class="label">${title}</span>
+        <span class="pill-progress">
+          <span class="pill-dot ${right === "✓" ? "done" : ""}"></span>
+          <span>${right}</span>
+        </span>
+      `;
+        btn.addEventListener("click", onClick);
+        ui.sectionListEl.appendChild(btn);
+      };
+
+      makePill({
+        title: "Daily Tasks",
+        right: String(Object.keys(state.daily || {}).length),
+        isActive: state.activePanel === "daily",
+        onClick: () => setActivePanel("daily")
+      });
+
+      const listIds = Object.keys(state.lists || {})
+        .sort((a, b) => {
+          const A = state.lists[a]?._name || a;
+          const B = state.lists[b]?._name || b;
+          return String(A).localeCompare(String(B), undefined, { sensitivity: "base" });
+        });
+
+      listIds.forEach(listId => {
+        const listObj = state.lists[listId] || {};
+        const count = Object.keys(getListItems(listObj)).length;
+        makePill({
+          title: listObj._name || listId,
+          right: String(count),
+          isActive: state.activePanel === "lists" && state.activeListId === listId,
+          onClick: () => {
+            state.activeListId = listId;
+            saveLastOpenState({ activePanel: "lists", activeListId: listId });
+            setActivePanel("lists");
+          }
+        });
+      });
+
+      if (!listIds.length) {
+        makePill({
+          title: "Lists",
+          right: "0",
+          isActive: state.activePanel === "lists",
+          onClick: () => setActivePanel("lists")
+        });
+      }
     }
 
     // ============================
     // Uploads
     // ============================
-    imageUploadInput.addEventListener("change", async () => {
-      const file = imageUploadInput.files?.[0];
+    ui.imageUploadInput.addEventListener("change", async () => {
+      const file = ui.imageUploadInput.files?.[0];
       if (!file || !pendingUploadTarget || !state.recordId) return;
 
       const target = pendingUploadTarget;
@@ -1591,10 +1591,10 @@
 
         if (target.kind === "daily") {
           storagePath = storageImagePath({ kind: "daily", dailyKey: target.dailyKey });
-          dbNodePath = `${RECORD_PATH(state.recordId)}/tasks/${target.dailyKey}`;
+          dbNodePath = PATH.dailyItem(state.recordId, target.dailyKey);
         } else {
           storagePath = storageImagePath({ kind: "listItem", listId: target.listId, itemId: target.itemId });
-          dbNodePath = `${RECORD_PATH(state.recordId)}/lists/${target.listId}/${target.itemId}`;
+          dbNodePath = PATH.item(state.recordId, target.listId, target.itemId);
         }
 
         const sRef = storageRef(storage, storagePath);
@@ -1611,7 +1611,7 @@
         console.error(err);
         alert("Image upload failed (check console).");
       } finally {
-        imageUploadInput.value = "";
+        ui.imageUploadInput.value = "";
       }
     });
 
@@ -1619,10 +1619,10 @@
     // Record loading
     // ============================
     async function ensureMetaExists(recordId) {
-      const metaRef = dbRef(`${RECORD_PATH(recordId)}/meta`);
+      const metaRef = dbRef(PATH.recordMeta(recordId));
       const snap = await get(metaRef);
       if (!snap.exists()) {
-        await update(dbRef(RECORD_PATH(recordId)), { meta: { updatedAt: Date.now() } });
+        await update(dbRef(PATH.record(recordId)), { meta: { updatedAt: Date.now() } });
       }
     }
 
@@ -1635,7 +1635,7 @@
       saveLastOpenState({ recordId: id });
       renderDataPathLabel();
 
-      const rRef = dbRef(RECORD_PATH(id));
+      const rRef = dbRef(PATH.record(id));
       const rCb = (snap) => {
         if (!snap.exists()) return;
 
@@ -1665,63 +1665,13 @@
     }
 
     // ============================
-    // Dropdown listener (dedupe oldest)
-    // ============================
-    function startTasksDropdownListener() {
-      detachDropdownListener();
-
-      const dRef = dbRef(TASKS_ROOT());
-      const dCb = (snap) => {
-        if (!snap.exists()) {
-          dropdownProjectsCache = [];
-          renderProjectDropdown();
-          return;
-        }
-
-        const byProjectName = new Map();
-
-        snap.forEach(child => {
-          const id = child.key;
-          const v = child.val() || {};
-
-          const projectName = (v.project || "").trim() || id;
-          const customerName = (v.customerName || "").trim();
-          const updatedAt = v.meta?.updatedAt || v.updatedAt || 0;
-
-          const createdAt = Number(id);
-          const createdAtSafe = Number.isFinite(createdAt) ? createdAt : Number.MAX_SAFE_INTEGER;
-
-          const existing = byProjectName.get(projectName);
-
-          // keep OLDEST record per project name
-          if (!existing || createdAtSafe < existing.createdAt) {
-            byProjectName.set(projectName, {
-              id,
-              projectName,
-              customerName: customerName || "—",
-              updatedAt,
-              createdAt: createdAtSafe
-            });
-          }
-        });
-
-        dropdownProjectsCache = Array.from(byProjectName.values());
-        renderProjectDropdown();
-      };
-
-      state.listeners.dropdownRef = dRef;
-      state.listeners.dropdownCb = dCb;
-      onValue(dRef, dCb);
-    }
-
-    // ============================
-    // Project creation (✅ includes id field)
+    // Project creation
     // ============================
     async function createNewProjectWithName(name) {
       const now = Date.now();
       const newId = String(now);
 
-      await set(dbRef(RECORD_PATH(newId)), {
+      await set(dbRef(PATH.record(newId)), {
         id: newId,
         project: name,
         customerName: "",
@@ -1734,19 +1684,9 @@
 
       await loadRecordById(newId);
 
-      projectDropdown.value = newId;
-      projectNameInput.value = "";
+      ui.projectDropdown.value = newId;
+      ui.projectNameInput.value = "";
       return newId;
-    }
-
-    function renderDataPathLabel() {
-      if (!dataPathLabel) return;
-
-      if (state.recordId) {
-        dataPathLabel.textContent = `${DATABASE_BASE_PATH} / ${state.recordId}`;
-      } else {
-        dataPathLabel.textContent = `${DATABASE_BASE_PATH} / (no project)`;
-      }
     }
 
     // ============================
@@ -1756,22 +1696,22 @@
       renderProjectLinks();
 
       if (!state.recordId) {
-        dailyTasksTableBody.innerHTML = "";
-        activeListTableBody.innerHTML = "";
-        dailyTasksCountLabel.textContent = "";
-        activeListCountLabel.textContent = "";
+        ui.dailyTasksTableBody.innerHTML = "";
+        ui.activeListTableBody.innerHTML = "";
+        ui.dailyTasksCountLabel.textContent = "";
+        ui.activeListCountLabel.textContent = "";
         return;
       }
 
       // Don’t clobber while typing (static fields)
       const siteVal = state.customerName || "";
-      if (document.activeElement !== siteNameInput && siteNameInput.value !== siteVal) {
-        siteNameInput.value = siteVal;
+      if (document.activeElement !== ui.siteNameInput && ui.siteNameInput.value !== siteVal) {
+        ui.siteNameInput.value = siteVal;
       }
 
       const notesVal = state.notes || "";
-      if (projectNotesInput && document.activeElement !== projectNotesInput && projectNotesInput.value !== notesVal) {
-        projectNotesInput.value = notesVal;
+      if (ui.projectNotesInput && document.activeElement !== ui.projectNotesInput && ui.projectNotesInput.value !== notesVal) {
+        ui.projectNotesInput.value = notesVal;
       }
 
       if (state.activePanel === "daily") renderDailyTasks();
@@ -1786,7 +1726,7 @@
 
       if (typeof saved.globalQuery === "string") {
         state.globalQuery = saved.globalQuery;
-        globalSearchInput.value = saved.globalQuery;
+        ui.globalSearchInput.value = saved.globalQuery;
       }
 
       if (saved.recordId) {
@@ -1807,30 +1747,30 @@
     // ============================
     // Events
     // ============================
-    setProjectBtn.addEventListener("click", async () => {
-      const name = (projectNameInput.value || "").trim();
+    ui.setProjectBtn.addEventListener("click", async () => {
+      const name = (ui.projectNameInput.value || "").trim();
       if (!name) return alert("Enter a project name to create.");
       await createNewProjectWithName(name);
     });
 
-    projectNameInput.addEventListener("keydown", (e) => {
+    ui.projectNameInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        setProjectBtn.click();
+        ui.setProjectBtn.click();
       }
     });
 
-    projectDropdown.addEventListener("change", async () => {
-      const id = projectDropdown.value;
+    ui.projectDropdown.addEventListener("change", async () => {
+      const id = ui.projectDropdown.value;
       if (!id) return;
       await loadRecordById(id);
     });
 
-    clearAppDataBtn.addEventListener("click", async () => {
+    ui.clearAppDataBtn.addEventListener("click", async () => {
       if (!state.recordId) return alert("No project selected.");
       if (!confirm("Clear app data for this record? (customerName, notes, daily tasks, lists, links)")) return;
 
-      await dbUpdate(RECORD_PATH(state.recordId), {
+      await dbUpdate(PATH.record(state.recordId), {
         customerName: "",
         notes: "",
         meta: { ...state.meta, updatedAt: Date.now() },
@@ -1846,51 +1786,50 @@
       setActivePanel("daily");
     });
 
-    addDailyTaskBtn.addEventListener("click", addDailyTask);
-    createListBtn.addEventListener("click", createList);
-    deleteListBtn.addEventListener("click", deleteActiveList);
-    addItemBtn.addEventListener("click", addItemToActiveList);
+    ui.addDailyTaskBtn.addEventListener("click", addDailyTask);
+    ui.createListBtn.addEventListener("click", createList);
+    ui.deleteListBtn.addEventListener("click", deleteActiveList);
+    ui.addItemBtn.addEventListener("click", addItemToActiveList);
 
     const debouncedSearchRender = debounce(() => {
       saveLastOpenState({ globalQuery: state.globalQuery });
       renderAll();
-      renderProjectDropdown(); // ✅ filter dropdown too
+      renderProjectDropdown();
     }, 120);
 
-    globalSearchInput.addEventListener("input", () => {
-      state.globalQuery = globalSearchInput.value || "";
+    ui.globalSearchInput.addEventListener("input", () => {
+      state.globalQuery = ui.globalSearchInput.value || "";
       debouncedSearchRender();
     });
 
-    projectLinksForm.addEventListener("submit", async (e) => {
+    ui.projectLinksForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (!state.recordId) return alert("Select a project first.");
 
-      const title = (projectLinkTitle.value || "").trim();
-      const url = (projectLinkUrl.value || "").trim();
+      const title = (ui.projectLinkTitle.value || "").trim();
+      const url = (ui.projectLinkUrl.value || "").trim();
       if (!title || !url) return alert("Title and URL are required.");
       try { new URL(url); } catch { return alert("Invalid URL (include https://)"); }
 
       const next = Array.isArray(state.links) ? state.links.slice() : [];
       next.push({ title, url });
 
-      projectLinkTitle.value = "";
-      projectLinkUrl.value = "";
+      ui.projectLinkTitle.value = "";
+      ui.projectLinkUrl.value = "";
 
-      await dbUpdate(RECORD_PATH(state.recordId), { links: next });
+      await dbUpdate(PATH.record(state.recordId), { links: next });
     });
 
-    // ✅ Export / Import events
-    exportCsvBtn.addEventListener("click", exportCsv);
+    ui.exportCsvBtn.addEventListener("click", exportCsv);
 
-    importCsvBtn.addEventListener("click", () => {
+    ui.importCsvBtn.addEventListener("click", () => {
       if (!state.recordId) return alert("Select a project first.");
-      csvImportInput.value = "";
-      csvImportInput.click();
+      ui.csvImportInput.value = "";
+      ui.csvImportInput.click();
     });
 
-    csvImportInput.addEventListener("change", async () => {
-      const file = csvImportInput.files?.[0];
+    ui.csvImportInput.addEventListener("change", async () => {
+      const file = ui.csvImportInput.files?.[0];
       if (!file) return;
 
       try {
@@ -1900,31 +1839,21 @@
         console.error(e);
         alert("CSV import failed (check console).");
       } finally {
-        csvImportInput.value = "";
+        ui.csvImportInput.value = "";
       }
     });
 
-    // ============================
-    // ✅ Attach dirty blur to STATIC fields once
-    // ============================
-    attachDirtyBlur(
-      siteNameInput,
-      () => state.customerName || "",
-      async (val) => {
-        if (!state.recordId) return;
-        await dbUpdate(RECORD_PATH(state.recordId), { customerName: val });
-      }
-    );
+    // ✅ Dirty blur for STATIC fields (attached once)
+    attachDirtyBlur(ui.siteNameInput, async (val) => {
+      if (!state.recordId) return;
+      await dbUpdate(PATH.record(state.recordId), { customerName: val });
+    });
 
-    if (projectNotesInput) {
-      attachDirtyBlur(
-        projectNotesInput,
-        () => state.notes || "",
-        async (val) => {
-          if (!state.recordId) return;
-          await dbUpdate(RECORD_PATH(state.recordId), { notes: val });
-        }
-      );
+    if (ui.projectNotesInput) {
+      attachDirtyBlur(ui.projectNotesInput, async (val) => {
+        if (!state.recordId) return;
+        await dbUpdate(PATH.record(state.recordId), { notes: val });
+      });
     }
 
     // ============================
@@ -1945,8 +1874,8 @@
       detachRecordListener();
       detachDropdownListener();
 
+      // reset in-memory state
       state.recordId = "";
-      renderDataPathLabel();
       state.projectFieldName = "";
       state.customerName = "";
       state.notes = "";
@@ -1955,8 +1884,8 @@
       state.daily = {};
       state.activeListId = "";
       state.globalQuery = "";
-      if (globalSearchInput) globalSearchInput.value = "";
 
+      if (ui.globalSearchInput) ui.globalSearchInput.value = "";
       dropdownProjectsCache = [];
 
       initUIForBasePath();
