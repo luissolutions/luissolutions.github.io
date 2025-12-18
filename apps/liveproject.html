@@ -66,14 +66,14 @@
 
           <br>
 
-          <!-- ✅ Export / Import -->
+          <!-- Export / Import -->
           <div class="row">
             <button id="exportCsvBtn" type="button">Export CSV</button>
             <button id="importCsvBtn" type="button">Import CSV</button>
           </div>
           <input type="file" id="csvImportInput" accept=".csv,text/csv" class="hidden" />
 
-          <div class="row" style="display: none;">
+          <div class="row" style="display:none;">
             <button id="clearAppDataBtn" type="button" class="danger-btn">Clear App Data</button>
           </div>
 
@@ -113,7 +113,7 @@
           <input type="text" id="globalSearchInput" placeholder="Search Filter">
         </div>
 
-        <!-- Project Notes (static, no pill) -->
+        <!-- Project Notes -->
         <div class="panel-toolbar">
           <div><strong>Project Notes</strong></div>
         </div>
@@ -168,7 +168,6 @@
             </div>
 
             <div class="panel-toolbar">
-
               <div>
                 <strong id="activeListTitle">List</strong>
                 <span class="small-muted" id="activeListCountLabel"></span>
@@ -177,7 +176,6 @@
               <div class="inline-btns">
                 <button id="deleteListBtn" type="button" class="danger-btn">Delete List</button>
               </div>
-
             </div>
 
             <div class="panel-toolbar">
@@ -249,12 +247,12 @@
     let DATABASE_BASE_PATH = "public";
 
     const PATH = {
-      root: () => DATABASE_BASE_PATH,
       tasksRoot: () => `${DATABASE_BASE_PATH}/tasks`,
       record: (id) => `${DATABASE_BASE_PATH}/tasks/${id}`,
       recordMeta: (id) => `${DATABASE_BASE_PATH}/tasks/${id}/meta`,
       dailyRoot: (id) => `${DATABASE_BASE_PATH}/tasks/${id}/tasks`,
-      dailyItem: (id, key) => `${DATABASE_BASE_PATH}/tasks/${id}/tasks/${encodeURIComponent(key)}`,
+      // ✅ IMPORTANT: daily keys are already safe (datetime-local). Do NOT encode.
+      dailyItem: (id, key) => `${DATABASE_BASE_PATH}/tasks/${id}/tasks/${key}`,
       listsRoot: (id) => `${DATABASE_BASE_PATH}/tasks/${id}/lists`,
       list: (id, listId) => `${DATABASE_BASE_PATH}/tasks/${id}/lists/${listId}`,
       item: (id, listId, itemKey) => `${DATABASE_BASE_PATH}/tasks/${id}/lists/${listId}/${itemKey}`,
@@ -285,7 +283,6 @@
       }
     };
 
-    // Dropdown cache (deduped/oldest-per-project)
     let dropdownProjectsCache = [];
 
     // ============================
@@ -352,7 +349,7 @@
     let pendingUploadTarget = null; // { kind:'daily'|'listItem', dailyKey?, listId?, itemId? }
 
     // ============================
-    // LocalStorage (per base path)
+    // LocalStorage
     // ============================
     const LS_KEY = () => `jobInfoManager:lastOpen:${DATABASE_BASE_PATH}`;
 
@@ -442,10 +439,7 @@
     }
 
     function safeFilePart(v) {
-      return String(v || "")
-        .trim()
-        .replace(/[^\w\-]+/g, "_")
-        .slice(0, 50);
+      return String(v || "").trim().replace(/[^\w\-]+/g, "_").slice(0, 50);
     }
 
     function storageImagePath({ kind, dailyKey, listId, itemId }) {
@@ -453,7 +447,7 @@
 
       if (kind === "daily") {
         const idPart = safeFilePart(dailyKey);
-        return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/daily/${encodeURIComponent(dailyKey)}/${idPart}_${ts}.jpg`;
+        return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/daily/${dailyKey}/${idPart}_${ts}.jpg`;
       }
 
       const idPart = safeFilePart(itemId);
@@ -461,7 +455,7 @@
     }
 
     // ============================
-    // ✅ Dirty-on-blur (saves ONLY if changed)
+    // Dirty-on-blur (saves ONLY if changed)
     // ============================
     function attachDirtyBlur(el, saveFn) {
       el.addEventListener("focus", () => {
@@ -489,9 +483,7 @@
     async function fileToJpegBlobIfNeeded(file) {
       if (!isHeic(file)) return file;
 
-      if (!window.heic2any) {
-        throw new Error("HEIC converter not loaded (heic2any missing).");
-      }
+      if (!window.heic2any) throw new Error("HEIC converter not loaded (heic2any missing).");
 
       const jpegBlob = await heic2any({
         blob: file,
@@ -513,7 +505,6 @@
 
           img.onload = () => {
             let w = img.width, h = img.height;
-
             if (w > maxWidth) {
               const s = maxWidth / w;
               w = maxWidth;
@@ -578,9 +569,7 @@
     function toCsv(rows, header) {
       const lines = [];
       lines.push(header.map(csvEscape).join(","));
-      for (const r of rows) {
-        lines.push(header.map(h => csvEscape(r[h])).join(","));
-      }
+      for (const r of rows) lines.push(header.map(h => csvEscape(r[h])).join(","));
       return lines.join("\n");
     }
 
@@ -630,7 +619,6 @@
     function buildExportRows() {
       const rows = [];
 
-      // DAILY TASKS
       for (const [key, v] of Object.entries(state.daily || {})) {
         const images = Array.isArray(v?.images) ? v.images : [];
         rows.push({
@@ -655,7 +643,6 @@
         });
       }
 
-      // LIST ITEMS
       for (const [listId, listObj] of Object.entries(state.lists || {})) {
         const items = getListItems(listObj);
         for (const [itemKey, v] of Object.entries(items)) {
@@ -690,24 +677,9 @@
       if (!state.recordId) return alert("Select a project first.");
 
       const header = [
-        "kind",
-        "projectId",
-        "project",
-        "customerName",
-        "listId",
-        "itemKey",
-        "id",
-        "date",
-        "notes",
-        "model",
-        "type",
-        "location",
-        "status",
-        "ip",
-        "mac",
-        "itemNotes",
-        "imageUrls",
-        "imageNotes"
+        "kind", "projectId", "project", "customerName", "listId", "itemKey", "id",
+        "date", "notes", "model", "type", "location", "status", "ip", "mac",
+        "itemNotes", "imageUrls", "imageNotes"
       ];
 
       const rows = buildExportRows();
@@ -775,9 +747,7 @@
       const iProf = idx("camera recording profile");
       const iGroup = idx("camera group");
 
-      if (iCable < 0 || iLoc < 0) {
-        return alert("CSV is missing required columns: Cable # and Location Name.");
-      }
+      if (iCable < 0 || iLoc < 0) return alert("CSV is missing required columns: Cable # and Location Name.");
 
       const listId = pickListForCableImport();
       await ensureListExists(listId, listId === "cameras" ? "Cameras" : (state.lists?.[listId]?._name || listId));
@@ -926,9 +896,7 @@
       if (!parsed.length) return alert("CSV looks empty.");
 
       const firstRow = parsed[0].map(normalizeHeader);
-      if (firstRow.includes("kind")) {
-        return importAppCsvText(csvText);
-      }
+      if (firstRow.includes("kind")) return importAppCsvText(csvText);
 
       for (let i = 0; i < Math.min(parsed.length, 25); i++) {
         const norm = parsed[i].map(normalizeHeader);
@@ -1015,11 +983,10 @@
     }
 
     // ============================
-    // Project dropdown (dedupe + filter by global search)
+    // Project dropdown
     // ============================
     function renderProjectDropdown() {
       const q = (state.globalQuery || "").toLowerCase().trim();
-
       ui.projectDropdown.innerHTML = `<option value="">Select project</option>`;
 
       const filtered = dropdownProjectsCache.filter(p => {
@@ -1157,6 +1124,67 @@
     }
 
     // ============================
+    // Sidebar pills
+    // ============================
+    function renderSidebarPills() {
+      ui.sectionListEl.innerHTML = "";
+      renderSidebarSummary();
+
+      const makePill = ({ title, right, isActive, onClick }) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "section-pill" + (isActive ? " active" : "");
+        btn.innerHTML = `
+          <span class="label">${title}</span>
+          <span class="pill-progress">
+            <span class="pill-dot ${right === "✓" ? "done" : ""}"></span>
+            <span>${right}</span>
+          </span>
+        `;
+        btn.addEventListener("click", onClick);
+        ui.sectionListEl.appendChild(btn);
+      };
+
+      makePill({
+        title: "Daily Tasks",
+        right: String(Object.keys(state.daily || {}).length),
+        isActive: state.activePanel === "daily",
+        onClick: () => setActivePanel("daily")
+      });
+
+      const listIds = Object.keys(state.lists || {})
+        .sort((a, b) => {
+          const A = state.lists[a]?._name || a;
+          const B = state.lists[b]?._name || b;
+          return String(A).localeCompare(String(B), undefined, { sensitivity: "base" });
+        });
+
+      listIds.forEach(listId => {
+        const listObj = state.lists[listId] || {};
+        const count = Object.keys(getListItems(listObj)).length;
+        makePill({
+          title: listObj._name || listId,
+          right: String(count),
+          isActive: state.activePanel === "lists" && state.activeListId === listId,
+          onClick: () => {
+            state.activeListId = listId;
+            saveLastOpenState({ activePanel: "lists", activeListId: listId });
+            setActivePanel("lists");
+          }
+        });
+      });
+
+      if (!listIds.length) {
+        makePill({
+          title: "Lists",
+          right: "0",
+          isActive: state.activePanel === "lists",
+          onClick: () => setActivePanel("lists")
+        });
+      }
+    }
+
+    // ============================
     // Thumb strip
     // ============================
     function renderThumbStrip({ images, onOpen, onDelete, onNoteSave }) {
@@ -1222,14 +1250,14 @@
         const dateInput = document.createElement("input");
         dateInput.type = "datetime-local";
         dateInput.value = t.date || "";
-        attachDirtyBlur(dateInput, (val) => dbUpdate(`${baseDailyRoot}/${encodeURIComponent(t.key)}`, { date: val }));
+        attachDirtyBlur(dateInput, (val) => dbUpdate(`${baseDailyRoot}/${t.key}`, { date: val }));
         tdDate.appendChild(dateInput);
 
         const tdNotes = document.createElement("td");
         const notesArea = document.createElement("textarea");
         notesArea.value = t.notes || "";
         notesArea.placeholder = "Notes...";
-        attachDirtyBlur(notesArea, (val) => dbUpdate(`${baseDailyRoot}/${encodeURIComponent(t.key)}`, { notes: val }));
+        attachDirtyBlur(notesArea, (val) => dbUpdate(`${baseDailyRoot}/${t.key}`, { notes: val }));
         tdNotes.appendChild(notesArea);
 
         const tdImg = document.createElement("td");
@@ -1252,7 +1280,7 @@
             const imgs = ensureImagesArray(currentObj).slice();
             const [removed] = imgs.splice(index, 1);
 
-            await dbUpdate(`${baseDailyRoot}/${encodeURIComponent(t.key)}`, { images: imgs });
+            await dbUpdate(`${baseDailyRoot}/${t.key}`, { images: imgs });
 
             if (removed?.path) {
               try { await deleteObject(storageRef(storage, removed.path)); } catch (e) { console.warn(e); }
@@ -1263,7 +1291,7 @@
             const imgs = ensureImagesArray(currentObj).slice();
             if (!imgs[index]) return;
             imgs[index].note = noteVal || "";
-            await dbUpdate(`${baseDailyRoot}/${encodeURIComponent(t.key)}`, { images: imgs });
+            await dbUpdate(`${baseDailyRoot}/${t.key}`, { images: imgs });
           }
         }));
 
@@ -1277,7 +1305,8 @@
           const currentObj = state.daily[t.key] || {};
           const paths = collectImagePaths(currentObj);
 
-          await dbRemove(`${baseDailyRoot}/${encodeURIComponent(t.key)}`);
+          // ✅ FIXED: delete uses the real key (no encode)
+          await dbRemove(`${baseDailyRoot}/${t.key}`);
 
           for (const p of paths) {
             try { await deleteObject(storageRef(storage, p)); } catch (e) { console.warn(e); }
@@ -1300,10 +1329,10 @@
       const notes = (ui.newDailyTaskNotes.value || "").trim();
       if (!dt || !notes) return alert("Enter a date/time and notes.");
 
-      // Keep your existing pattern: key = dt (compatible with current data)
+      // key = dt (safe, consistent, no encoding)
       const key = dt;
 
-      await dbSet(`${PATH.dailyRoot(state.recordId)}/${encodeURIComponent(key)}`, { date: dt, notes, images: [] });
+      await dbSet(PATH.dailyItem(state.recordId, key), { date: dt, notes, images: [] });
 
       ui.newDailyTaskDate.value = "";
       ui.newDailyTaskNotes.value = "";
@@ -1351,8 +1380,6 @@
 
       ui.activeListCountLabel.textContent = `(${rows.length})`;
 
-      const basePath = PATH.record(state.recordId);
-
       const mkTdInput = (initialVal, placeholder, saveFn) => {
         const td = document.createElement("td");
         const input = document.createElement("input");
@@ -1366,7 +1393,7 @@
 
       rows.forEach((r) => {
         const tr = document.createElement("tr");
-        const baseItemPath = `${basePath}/lists/${listId}/${r.key}`;
+        const baseItemPath = PATH.item(state.recordId, listId, r.key);
 
         tr.appendChild(mkTdInput(r.id, "Camera ID / Cable #", (val) => dbUpdate(baseItemPath, { id: val })));
         tr.appendChild(mkTdInput(r.model, "Model", (val) => dbUpdate(baseItemPath, { model: val })));
@@ -1513,67 +1540,6 @@
     }
 
     // ============================
-    // Sidebar pills
-    // ============================
-    function renderSidebarPills() {
-      ui.sectionListEl.innerHTML = "";
-      renderSidebarSummary();
-
-      const makePill = ({ title, right, isActive, onClick }) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "section-pill" + (isActive ? " active" : "");
-        btn.innerHTML = `
-        <span class="label">${title}</span>
-        <span class="pill-progress">
-          <span class="pill-dot ${right === "✓" ? "done" : ""}"></span>
-          <span>${right}</span>
-        </span>
-      `;
-        btn.addEventListener("click", onClick);
-        ui.sectionListEl.appendChild(btn);
-      };
-
-      makePill({
-        title: "Daily Tasks",
-        right: String(Object.keys(state.daily || {}).length),
-        isActive: state.activePanel === "daily",
-        onClick: () => setActivePanel("daily")
-      });
-
-      const listIds = Object.keys(state.lists || {})
-        .sort((a, b) => {
-          const A = state.lists[a]?._name || a;
-          const B = state.lists[b]?._name || b;
-          return String(A).localeCompare(String(B), undefined, { sensitivity: "base" });
-        });
-
-      listIds.forEach(listId => {
-        const listObj = state.lists[listId] || {};
-        const count = Object.keys(getListItems(listObj)).length;
-        makePill({
-          title: listObj._name || listId,
-          right: String(count),
-          isActive: state.activePanel === "lists" && state.activeListId === listId,
-          onClick: () => {
-            state.activeListId = listId;
-            saveLastOpenState({ activePanel: "lists", activeListId: listId });
-            setActivePanel("lists");
-          }
-        });
-      });
-
-      if (!listIds.length) {
-        makePill({
-          title: "Lists",
-          right: "0",
-          isActive: state.activePanel === "lists",
-          onClick: () => setActivePanel("lists")
-        });
-      }
-    }
-
-    // ============================
     // Uploads
     // ============================
     ui.imageUploadInput.addEventListener("change", async () => {
@@ -1703,7 +1669,6 @@
         return;
       }
 
-      // Don’t clobber while typing (static fields)
       const siteVal = state.customerName || "";
       if (document.activeElement !== ui.siteNameInput && ui.siteNameInput.value !== siteVal) {
         ui.siteNameInput.value = siteVal;
@@ -1843,7 +1808,7 @@
       }
     });
 
-    // ✅ Dirty blur for STATIC fields (attached once)
+    // Dirty blur for static fields (attached once)
     attachDirtyBlur(ui.siteNameInput, async (val) => {
       if (!state.recordId) return;
       await dbUpdate(PATH.record(state.recordId), { customerName: val });
@@ -1874,7 +1839,6 @@
       detachRecordListener();
       detachDropdownListener();
 
-      // reset in-memory state
       state.recordId = "";
       state.projectFieldName = "";
       state.customerName = "";
