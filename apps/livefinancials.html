@@ -2298,29 +2298,51 @@
       tfoot.appendChild(trA);
       tfoot.appendChild(trV);
     }
+
     function BP_renderYearTotals() {
       const box = document.getElementById('bp-yearTotals'); if (!box) return;
+
       const { yearBudget, yearActual } = BP_totals();
-      const income = Math.max(0, BP_toMoney(BP_STATE.incomeYear));
-      const netVsBudget = income - yearBudget;
-      const netVsActual = income - yearActual;
+
+      const sync = BP_STATE.syncTotals || {};
+      const incomeGross = BP_toMoney(sync.incomeGross ?? BP_STATE.incomeYear ?? 0);
+      const expensesGross = BP_toMoney(sync.expensesGross ?? 0);
+      const incomeApplied = BP_toMoney(sync.incomeAppliedToCategories ?? 0);
+
+      // yearActual is NETTED category spend (can be negative)
+      const actualNetSpend = BP_toMoney(yearActual);
+
+      // To avoid double-counting category-applied income, adjust income for this net-spend model:
+      const incomeAdjustedForNetSpend = incomeGross - incomeApplied;
+
+      // This will match tracker balance: incomeGross - expensesGross
+      const netAccurate = incomeAdjustedForNetSpend - actualNetSpend;
+
+      const netVsBudget = incomeGross - yearBudget;
+
       box.innerHTML = `
-    <div>Expected Income: <strong>${BP_fmt.format(income)}</strong></div>
-    <hr>
-    <div>Budgeted Expenses: <strong>${BP_fmt.format(yearBudget)}</strong></div>
-    <div>Actual Expenses: <strong>${BP_fmt.format(yearActual)}</strong></div>
-    <div>Expense Variance (Actual − Budget):
-      <strong class="${(yearActual - yearBudget) <= 0 ? 'bp-ok' : 'bp-warn'}">${BP_fmt.format(yearActual - yearBudget)}</strong>
-    </div>
-    <hr>
-    <div>Net (Income − Budget):
-      <strong class="${netVsBudget >= 0 ? 'bp-ok' : 'bp-warn'}">${BP_fmt.format(netVsBudget)}</strong>
-    </div>
-    <div>Net (Income − Actual):
-      <strong class="${netVsActual >= 0 ? 'bp-ok' : 'bp-warn'}">${BP_fmt.format(netVsActual)}</strong>
-    </div>
-  `;
+        <div>Expected Income (Gross): <strong>${BP_fmt.format(incomeGross)}</strong></div>
+        <div class="small">Gross Expenses (from tracker): <strong>${BP_fmt.format(expensesGross)}</strong></div>
+        <div class="small">Income Applied to Categories: <strong>${BP_fmt.format(incomeApplied)}</strong></div>
+        <hr>
+
+        <div>Budgeted Expenses: <strong>${BP_fmt.format(yearBudget)}</strong></div>
+        <div>Actual Expenses (Netted Categories): <strong>${BP_fmt.format(actualNetSpend)}</strong></div>
+        <div>Expense Variance (Actual − Budget):
+          <strong class="${(actualNetSpend - yearBudget) <= 0 ? 'bp-ok' : 'bp-warn'}">${BP_fmt.format(actualNetSpend - yearBudget)}</strong>
+        </div>
+        <hr>
+
+        <div>Net (Income − Budget):
+          <strong class="${netVsBudget >= 0 ? 'bp-ok' : 'bp-warn'}">${BP_fmt.format(netVsBudget)}</strong>
+        </div>
+
+        <div>Net (Accurate, matches tracker balance):
+          <strong class="${netAccurate >= 0 ? 'bp-ok' : 'bp-warn'}">${BP_fmt.format(netAccurate)}</strong>
+        </div>
+      `;
     }
+
     function BP_renderAll() {
       const yEl = document.getElementById('bp-year');
       if (yEl) yEl.value = String(BP_STATE.year);
@@ -2373,61 +2395,113 @@
       }
     }
 
+    function BP_isRefundLike(d) {
+      const name = String(d?.name || '').toLowerCase();
+      // tweak these keywords to match your bank descriptions
+      return /(refund|reimburs|reimbursement|cash\s*back|cashback|rebate|return|credit|chargeback|venmo\s*cashout|zelle\s*refund)/i.test(name);
+    }
+
     // --- Sync from Financial Tracker (/budget) ---
     function BP_ymFromISO(iso) {
-      const d = new Date(iso); if (Number.isNaN(d.getTime())) return null;
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return null;
       return { y: d.getUTCFullYear(), m: d.getUTCMonth() };
     }
+
     async function BP_syncFromFinancial() {
       try {
         const path = `${DATABASE_BASE_PATH}/budget`;
         const snap = await get(ref(database, path));
         if (!snap.exists()) { alert('No financial data at /budget'); return; }
+
         const raw = snap.val();
         const wantYear = Number(BP_STATE.year);
 
-        let incomeYearSum = 0;
+        let incomeGross = 0;
+        let expensesGross = 0;
+
+        // This is the amount of income that we ALSO apply into categories as negative spend.
+        // We'll use it to adjust the top "Net" math so we don't double-count.
+        let incomeAppliedToCategories = 0;
+
+        // monthTagSums[m] = Map(tag -> net spend), where:
+        //   expenses add +
+        //   income subtracts -
         const monthTagSums = Array.from({ length: 12 }, () => new Map());
 
-        for (const bucket of Object.values(raw)) {
+        for (const bucket of Object.values(raw || {})) {
           const details = Array.isArray(bucket?.details) ? bucket.details : [];
+
           for (const d of details) {
             if (!d?.date) continue;
-            const ym = BP_ymFromISO(d.date);
-            if (!ym || ym.y !== wantYear) continue;
 
+            const dt = new Date(d.date);
+            if (Number.isNaN(dt.getTime())) continue;
+            if (dt.getUTCFullYear() !== wantYear) continue;
+
+            const mi = dt.getUTCMonth();
             const amount = BP_toMoney(d.amount);
             const type = String(d.type || '').toLowerCase();
-            const tags = Array.isArray(d.tags) ? d.tags.filter(t => String(t).trim()) : [];
+
+            const tagsRaw = Array.isArray(d.tags) ? d.tags : [];
+            const tagList = (tagsRaw.length ? tagsRaw : [BP_UNTITLED])
+              .map(t => String(t).trim())
+              .filter(Boolean);
+
+            // If split mode, each tag gets a share, but the sum of shares == amount.
+            const share = (BP_MULTITAG_MODE === 'split' && tagList.length > 0)
+              ? (amount / tagList.length)
+              : amount;
+
+            const mMap = monthTagSums[mi];
 
             if (type === 'income') {
-              incomeYearSum += amount;
-            } else if (type === 'expenses' || type === 'expense') {
-              const tagList = (tags.length ? tags : [BP_UNTITLED]).map(t => String(t).trim());
-              const share = (BP_MULTITAG_MODE === 'split' && tagList.length > 0) ? (amount / tagList.length) : amount;
-              const mMap = monthTagSums[ym.m];
+              incomeGross += amount;
+
+              // Because we are netting category totals, apply income as NEGATIVE spend per tag
+              // and track that we did so (for header math).
+              incomeAppliedToCategories += amount;
+
               for (const tag of tagList) {
                 const prev = mMap.get(tag) || 0;
-                mMap.set(tag, prev + (BP_MULTITAG_MODE === 'split' ? share : amount));
+                mMap.set(tag, prev - share);
+              }
+            }
+
+            else if (type === 'expenses' || type === 'expense') {
+              expensesGross += amount;
+
+              for (const tag of tagList) {
+                const prev = mMap.get(tag) || 0;
+                mMap.set(tag, prev + share);
               }
             }
           }
         }
 
+        // Ensure categories exist
         const seen = new Set();
         monthTagSums.forEach(mMap => mMap.forEach((_, tag) => seen.add(tag)));
         for (const t of seen) BP_ensureCategory(t);
 
+        // Write actuals (netted) into BP_STATE
         for (let mi = 0; mi < 12; mi++) {
           const mKey = BP_MONTHS[mi];
           BP_STATE.actuals[mKey] ||= {};
           const mMap = monthTagSums[mi];
           mMap.forEach((sum, tag) => {
-            BP_STATE.actuals[mKey][tag] = BP_toMoney(sum);
+            BP_STATE.actuals[mKey][tag] = BP_toMoney(sum); // allow negative ✅
           });
         }
 
-        BP_STATE.incomeYear = BP_toMoney(incomeYearSum);
+        // Store gross totals for the header math
+        BP_STATE.incomeYear = BP_toMoney(incomeGross);
+        BP_STATE.syncTotals = {
+          incomeGross: BP_toMoney(incomeGross),
+          expensesGross: BP_toMoney(expensesGross),
+          incomeAppliedToCategories: BP_toMoney(incomeAppliedToCategories)
+        };
+
         BP_renderAll();
         await BP_save();
         alert('Actuals & income synced from Financial Tracker (UTC).');
