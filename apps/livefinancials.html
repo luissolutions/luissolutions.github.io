@@ -341,7 +341,10 @@
         <div id="year-grid" class="year-grid"></div>
       </section>
 
-      <button id="export-tags-csv">Export CSV (Summary)</button>
+      <button id="export-tags-csv">Export CSV (Tags by Month)</button>
+
+      <button id="export-tx-csv">Export CSV (All Transactions)</button>
+      <button id="export-monthly-csv">Export CSV (Monthly Summary)</button>
       <button id="export-details">Export Data (Backup)</button>
       <button id="trigger-import">Import JSON (Overwrite)</button>
       <input type="file" id="load-data" accept=".json" style="display:none">
@@ -364,9 +367,10 @@
           Expected Yearly Income:
           <input id="bp-incomeYear" type="number" step="0.01" style="width:12ch;" />
         </label>
+      </div>
 
+      <div>
         <button id="bp-save">Save now</button>
-        <button id="bp-export-csv">Export CSV</button>
         <button id="bp-reset-defaults" class="clear-button">Reset to defaults</button>
         <button id="bp-sync-from-tracker" title="Pull actuals + income from /budget">Sync from Financial Data</button>
         <span class="small" id="bp-status" style="opacity:.8"></span>
@@ -452,7 +456,7 @@
         if (which === 'transactions') {
           renderCharts();
         } else if (which === 'budget') {
-          await BP_initOnce(); // lazy init planner
+          await BP_initOnce();
         }
       };
 
@@ -465,6 +469,7 @@
     /* =========================
        Constants & Helpers
     ========================== */
+    const MONTHS_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     function pad2(n) { return String(n).padStart(2, '0'); }
     function isoDateOnlyUTC(d) {
@@ -564,6 +569,9 @@
     ========================== */
     function setupEventListeners() {
       if (handlersBound) return; handlersBound = true;
+
+      document.getElementById('export-tx-csv')?.addEventListener('click', exportTransactionsCSV);
+      document.getElementById('export-monthly-csv')?.addEventListener('click', exportMonthlySummaryCSV);
 
       document.getElementById('export-details')?.addEventListener('click', exportDetailsToJSON);
       document.getElementById('export-tags-csv')?.addEventListener('click', exportTagsCSV);
@@ -703,8 +711,9 @@
         const mi = dt.getUTCMonth();
         const amt = Number(r.amount) || 0;
         const t = String(r.type || '').toLowerCase();
-        if (t === 'income') sums[mi].income += amt;
-        if (t === 'expenses' || t === 'expense') sums[mi].expenses += amt;
+
+        if (t === 'income') sums[mi].income += Math.abs(amt);
+        if (t === 'expenses' || t === 'expense') sums[mi].expenses += Math.abs(amt);
       }
 
       months.forEach((month, i) => {
@@ -1364,6 +1373,7 @@
       const safe = String(s).replace(/"/g, '\\"');
       return has ? `"${safe}"` : s;
     }
+
     function applyTagFilter(tag) {
       const input = document.getElementById('global-search');
       if (!input) return;
@@ -1378,76 +1388,241 @@
       return [];
     }
 
+    function csvEscape(v) {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }
+
     function exportTagsCSV() {
       const savedData = _lastSavedData || {};
-      const FILTER_YEAR = currentYear;
-      const map = new Map();
+      const Y = currentYear;
 
-      for (const bucket of Object.values(savedData)) {
-        const details = Array.isArray(bucket?.details) ? bucket.details : [];
-        for (const d of details) {
+      // How to handle multi-tag transactions:
+      // - "split" = divide amount evenly across tags (prevents double counting)
+      // - "full"  = count full amount under every tag (inflates totals when multi-tagged)
+      const MULTI_TAG_MODE = 'split';
+
+      const MONTH_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const MONTH_ABBR = months; // your existing ['Jan','Feb',...]
+      const EPS = 1e-9;
+
+      // tag -> { monthIndex -> netValue }
+      const tagMonth = new Map();
+      // monthIndex -> netValue (total monthly row)
+      const monthTotals = Array(12).fill(0);
+
+      function addTo(tag, mi, delta) {
+        if (!tagMonth.has(tag)) tagMonth.set(tag, Array(12).fill(0));
+        tagMonth.get(tag)[mi] += delta;
+        monthTotals[mi] += delta;
+      }
+
+      for (const bucket of Object.values(savedData || {})) {
+        const items = Array.isArray(bucket?.details) ? bucket.details : [];
+        for (const d of items) {
           if (!d?.date) continue;
           const dt = new Date(d.date);
           if (Number.isNaN(dt.getTime())) continue;
-          if (dt.getUTCFullYear() !== FILTER_YEAR) continue;
+          if (dt.getUTCFullYear() !== Y) continue;
 
-          let tags = normalizeTags(d.tags);
-          if (!tags.length) tags = ['(No tag)'];
+          const mi = dt.getUTCMonth();
+          const amt = Number(d.amount) || 0;
+          if (Math.abs(amt) < EPS) continue;
 
           const type = String(d.type || '').toLowerCase();
           const isInc = type === 'income';
           const isExp = (type === 'expenses' || type === 'expense');
-          const amt = Number(d.amount) || 0;
-          const monthAbbr = months[dt.getUTCMonth()];
 
-          for (const raw of tags) {
-            const t = String(raw || '').trim(); if (!t) continue;
-            const key = `${t.toLowerCase()}|${FILTER_YEAR}`;
-            let agg = map.get(key);
-            if (!agg) {
-              agg = { tagLabel: t, latestDate: null, latestName: '', monthsSet: new Set(), income: 0, expenses: 0, count: 0 };
-              map.set(key, agg);
-            }
-            if (isInc) agg.income += amt;
-            if (isExp) agg.expenses += amt;
-            agg.count += 1;
-            agg.monthsSet.add(monthAbbr);
-            if (!agg.latestDate || dt > agg.latestDate) { agg.latestDate = dt; agg.latestName = String(d.name ?? '').trim(); }
-          }
+          // Net rule (NEW):
+          //   Expense = +amt
+          //   Income  = -amt
+          const net = isExp ? amt : -amt;
+
+          let tags = Array.isArray(d.tags) ? d.tags : [];
+          tags = tags.map(t => String(t || '').trim()).filter(Boolean);
+          if (!tags.length) tags = ['(No tag)'];
+
+          const share = (MULTI_TAG_MODE === 'split' && tags.length > 0) ? (net / tags.length) : net;
+
+          for (const tag of tags) addTo(tag, mi, share);
         }
       }
 
-      if (map.size === 0) { alert(`No transactions found for ${FILTER_YEAR}.`); return; }
-
-      const rows = [];
-      rows.push(['Tag', 'Year', 'LatestDate', 'NameWithMonths', 'IncomeTotal', 'ExpensesTotal', 'NetTotal', 'Occurrences']);
-
-      const sorted = Array.from(map.values()).sort((a, b) => {
-        const at = a.latestDate ? a.latestDate.getTime() : 0;
-        const bt = b.latestDate ? b.latestDate.getTime() : 0;
-        if (bt !== at) return bt - at;
-        return a.tagLabel.localeCompare(b.tagLabel);
-      });
-
-      for (const agg of sorted) {
-        const monthsList = months.filter(m => agg.monthsSet.has(m));
-        const latestDateStr = agg.latestDate ? agg.latestDate.toISOString().slice(0, 10) : '';
-        const nameWithMonths = `${agg.latestName || ''} (${monthsList.join(', ')})`.trim();
-        const net = agg.income - agg.expenses;
-        rows.push([agg.tagLabel, String(FILTER_YEAR), latestDateStr, nameWithMonths,
-        agg.income.toFixed(2), agg.expenses.toFixed(2), net.toFixed(2), String(agg.count)]);
+      if (tagMonth.size === 0) {
+        alert(`No tagged transactions found for ${Y}.`);
+        return;
       }
 
+      // Build rows sorted by annual total (largest magnitude first), then name
+      const rows = [];
+      rows.push(['Tags', ...MONTH_FULL, 'Total Annually']);
+
+      const tagRows = Array.from(tagMonth.entries()).map(([tag, arr]) => {
+        const annual = arr.reduce((s, v) => s + v, 0);
+        return { tag, arr, annual };
+      }).sort((a, b) => {
+        const am = Math.abs(a.annual), bm = Math.abs(b.annual);
+        if (bm !== am) return bm - am;
+        return a.tag.localeCompare(b.tag);
+      });
+
+      for (const r of tagRows) {
+        rows.push([
+          r.tag,
+          ...r.arr.map(v => Number(v.toFixed(2))),
+          Number(r.annual.toFixed(2))
+        ]);
+      }
+
+      const annualTotal = monthTotals.reduce((s, v) => s + v, 0);
+      rows.push([
+        'Total Monthly',
+        ...monthTotals.map(v => Number(v.toFixed(2))),
+        Number(annualTotal.toFixed(2))
+      ]);
+
       const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
+
       try {
         const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `tags_summary_${FILTER_YEAR}.csv`;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `tags_by_month_${Y}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
-      } catch (e) { console.error('CSV export failed:', e); alert('CSV export failed.'); }
+      } catch (e) {
+        console.error('CSV export failed:', e);
+        alert('CSV export failed.');
+      }
     }
-    function csvEscape(v) { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+
+    function downloadCSV(filename, rows) {
+      const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
+      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function flattenTransactions(savedData, yearFilter = null) {
+      const out = [];
+      for (const [dateKey, bucket] of Object.entries(savedData || {})) {
+        const arr = Array.isArray(bucket?.details) ? bucket.details : [];
+        for (let i = 0; i < arr.length; i++) {
+          const d = arr[i];
+          if (!d?.date) continue;
+          const dt = new Date(d.date);
+          if (Number.isNaN(dt.getTime())) continue;
+
+          const y = dt.getUTCFullYear();
+          if (yearFilter != null && y !== Number(yearFilter)) continue;
+
+          const m = months[dt.getUTCMonth()];
+          const day = dt.getUTCDate();
+          const iso = dt.toISOString().slice(0, 10);
+
+          const type = String(d.type || '');
+          const amt = Number(d.amount) || 0;
+          const tagsArr = Array.isArray(d.tags) ? d.tags : (typeof d.tags === 'string' ? d.tags.split(',') : []);
+          const tags = tagsArr.map(t => String(t).trim()).filter(Boolean);
+
+          out.push({
+            year: y,
+            month: m,
+            day,
+            iso,
+            dateKey,
+            indexInBucket: i,
+            name: String(d.name ?? ''),
+            type,
+            amount: amt,
+            tags
+          });
+        }
+      }
+      return out;
+    }
+
+
+    function exportTransactionsCSV() {
+      const savedData = _lastSavedData || {};
+      const Y = currentYear;
+
+      const rows = [];
+      rows.push(['Date', 'Name', 'Type', 'Amount', 'Tags']);
+
+      for (const bucket of Object.values(savedData || {})) {
+        const items = Array.isArray(bucket?.details) ? bucket.details : [];
+        for (const d of items) {
+          if (!d?.date) continue;
+
+          const dt = new Date(d.date);
+          if (Number.isNaN(dt.getTime())) continue;
+          if (dt.getUTCFullYear() !== Y) continue;
+
+          const amount = Number(d.amount) || 0;
+          const tags = Array.isArray(d.tags)
+            ? d.tags.map(t => String(t).trim()).filter(Boolean)
+            : [];
+
+          rows.push([
+            dt.toISOString().slice(0, 10),
+            String(d.name ?? ''),
+            String(d.type ?? ''),
+            amount.toFixed(2),
+            tags.join('|')
+          ]);
+        }
+      }
+
+      if (rows.length === 1) {
+        alert(`No transactions found for ${Y}.`);
+        return;
+      }
+
+      const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
+      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `transactions_${Y}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function exportMonthlySummaryCSV() {
+      const savedData = _lastSavedData || {};
+      const tx = flattenTransactions(savedData, currentYear);
+
+      const sums = {};
+      months.forEach(m => sums[m] = { income: 0, expenses: 0 });
+
+      for (const t of tx) {
+        const type = String(t.type).toLowerCase();
+        if (type === 'income') sums[t.month].income += t.amount;
+        else if (type === 'expenses' || type === 'expense') sums[t.month].expenses += t.amount;
+      }
+
+      const rows = [['Month', 'Income', 'Expenses', 'Net']];
+      for (const m of months) {
+        const income = sums[m].income;
+        const expenses = sums[m].expenses;
+        rows.push([m, income.toFixed(2), expenses.toFixed(2), (income - expenses).toFixed(2)]);
+      }
+
+      downloadCSV(`monthly_summary_${currentYear}.csv`, rows);
+    }
 
     /* =========================
        Export / Import / Clear
@@ -1525,7 +1700,7 @@
         return out.map(s => s.trim());
       };
 
-      const monthNames = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+      const monthNames = MONTHS_ABBR;
       const header = parseCSVLine(lines[0]).map(h => h.replace(/^"+|"+$/g, '').trim().toLowerCase());
 
       const idx = {
@@ -1557,7 +1732,7 @@
             const mm = m[1].padStart(2, '0'); const dd = m[2].padStart(2, '0');
             let yyyy = m[3]; if (yyyy.length === 2) yyyy = (parseInt(yyyy, 10) > 70 ? '19' : '20') + yyyy;
             const dateISO = `${yyyy}-${mm}-${dd}`;
-            const monthName = monthNames[parseInt(mm, 10) - 1];
+            const monthName = monthNames[parseInt(mm, 10) - 1] || MONTHS_ABBR[parseInt(mm, 10) - 1];
             const key = `${monthName}-${parseInt(dd, 10)}`;
             if (!result[key]) result[key] = { details: [] };
             result[key].details.push({
@@ -1574,7 +1749,8 @@
 
     function convertBankCreditLinesToJSON(text, year) {
       const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
-      const out = {}; const monthNames = ["Jan", "Feb", "March", "April", "May", "June", "July", "Aug", "Sept", "Oct", "Nov", "Dec"];
+      const out = {};
+      const monthNames = MONTHS_ABBR;
       for (const line of lines) {
         const m = line.match(/^(\d{2})\/(\d{2})\s+(\d{2})\/(\d{2})\s+(.+?)\s+([\d.-]+)$/);
         if (!m) continue;
@@ -1594,7 +1770,8 @@
 
     function convertBankDebitLinesToJSON(text, year) {
       const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
-      const out = {}; const monthNames = ["Jan", "Feb", "March", "April", "May", "June", "July", "Aug", "Sept", "Oct", "Nov", "Dec"];
+      const out = {};
+      const monthNames = MONTHS_ABBR;
       for (const line of lines) {
         const m = line.match(/^(\d{2})\/(\d{2})\s+(.+?)\s+(-?\$[\d,.]+)\s+(\$[\d,.]+)?$/);
         if (!m) continue;
