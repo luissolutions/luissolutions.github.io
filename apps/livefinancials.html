@@ -1389,7 +1389,6 @@
       const MULTI_TAG_MODE = 'split';
 
       const MONTH_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-      const MONTH_ABBR = months; // your existing ['Jan','Feb',...]
       const EPS = 1e-9;
 
       // tag -> { monthIndex -> netValue }
@@ -1419,7 +1418,7 @@
           const isInc = type === 'income';
           const isExp = (type === 'expenses' || type === 'expense');
 
-          // Net rule (NEW):
+          // Net rule:
           //   Expense = +amt
           //   Income  = -amt
           const net = isExp ? amt : -amt;
@@ -1900,15 +1899,11 @@
 
     const BP_DEFAULT_BASE = { year: new Date().getUTCFullYear(), incomeYear: 0, categories: [], budgetOverrides: {}, actuals: {} };
 
-    // IMPORTANT: You said you want negatives to show in categories.
-    // This is the key fix: allow negative values to DISPLAY in the table.
-    // (Your old code had input.min="0" which can cause some browsers to clamp/ignore negatives.)
     const BP_MULTITAG_MODE = 'split';
     const BP_UNTITLED = 'Uncategorized';
 
     let BP_STATE = structuredClone(BP_DEFAULT_BASE);
     let BP_DOM_WIRED = false;
-
 
     function BP_yearActualSpendOnly() {
       // Sum only positive category actuals (cash-out), ignore negative values (income netting)
@@ -2477,12 +2472,6 @@
       BP_STATE.year = desired;
     }
 
-    function BP_ymFromISO(iso) {
-      const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return null;
-      return { y: d.getUTCFullYear(), m: d.getUTCMonth() };
-    }
-
     async function BP_syncFromFinancial() {
       try {
         const path = `${DATABASE_BASE_PATH}/budget`;
@@ -2494,9 +2483,6 @@
 
         let incomeGross = 0;
         let expensesGross = 0;
-
-        // income that we ALSO apply into categories as negative spend
-        let incomeAppliedToCategories = 0;
 
         // monthTagSums[m] = Map(tag -> net), where:
         //   expenses add +
@@ -2528,19 +2514,10 @@
 
             if (type === 'income') {
               incomeGross += amount;
-
-              incomeAppliedToCategories += amount;
-
-              for (const tag of tagList) {
-                const prev = mMap.get(tag) || 0;
-                mMap.set(tag, prev - share);
-              }
+              for (const tag of tagList) mMap.set(tag, (mMap.get(tag) || 0) - share);
             } else if (type === 'expenses' || type === 'expense') {
               expensesGross += amount;
-              for (const tag of tagList) {
-                const prev = mMap.get(tag) || 0;
-                mMap.set(tag, prev + share);
-              }
+              for (const tag of tagList) mMap.set(tag, (mMap.get(tag) || 0) + share);
             }
           }
         }
@@ -2550,28 +2527,20 @@
         monthTagSums.forEach(mMap => mMap.forEach((_, tag) => seen.add(tag)));
         for (const t of seen) BP_ensureCategory(t);
 
-        // ✅ REBUILD actuals from scratch so moved/removed items don't "stick"
+        // rebuild actuals
         BP_STATE.actuals = {};
-
         for (let mi = 0; mi < 12; mi++) {
           const mKey = BP_MONTHS[mi];
           BP_STATE.actuals[mKey] = {};
-
-          const mMap = monthTagSums[mi];
-          mMap.forEach((sum, tag) => {
+          monthTagSums[mi].forEach((sum, tag) => {
             BP_STATE.actuals[mKey][tag] = BP_toMoney(sum);
           });
-
-          // Optional: if you prefer empty months to be truly empty:
-          // if (Object.keys(BP_STATE.actuals[mKey]).length === 0) delete BP_STATE.actuals[mKey];
         }
 
-        // Store gross totals for header math
         BP_STATE.incomeYear = BP_toMoney(incomeGross);
         BP_STATE.syncTotals = {
           incomeGross: BP_toMoney(incomeGross),
-          expensesGross: BP_toMoney(expensesGross),
-          incomeAppliedToCategories: BP_toMoney(incomeAppliedToCategories)
+          expensesGross: BP_toMoney(expensesGross)
         };
 
         BP_renderAll();
@@ -2581,66 +2550,6 @@
         console.error(e);
         alert('Sync failed. See console.');
       }
-    }
-
-    function BP_exportCSV() {
-      const { perMonth, yearBudget, yearActual, yearVariance } = BP_totals();
-      const monthsCount = BP_countMonthsForAvg();
-
-      const header = [
-        'Category',
-        ...BP_MONTHS.map(m => `${m} Budget`),
-        'Avg Budget',
-        ...BP_MONTHS.map(m => `${m} Actual`),
-        'Avg Actual'
-      ];
-      const rows = [header];
-
-      for (const c of BP_STATE.categories) {
-        const row = [c.name];
-        for (let mi = 0; mi < 12; mi++) row.push(BP_plan(c.name, mi));
-        row.push(BP_avgBudget(c.name));
-        for (let mi = 0; mi < 12; mi++) row.push(BP_actual(c.name, mi));
-        row.push(BP_avgActual(c.name) ?? '');
-        rows.push(row);
-      }
-
-      const pad = (arr) => { while (arr.length < header.length) arr.push(''); return arr; };
-
-      const budgetTotals = ['Totals (Budget)'];
-      perMonth.forEach(m => budgetTotals.push(m.budget));
-      budgetTotals.push(monthsCount ? (yearBudget / monthsCount) : '');
-      for (let i = 0; i < 12; i++) budgetTotals.push('');
-      budgetTotals.push('');
-      rows.push(pad(budgetTotals));
-
-      const actualRow = ['Totals (Actual)'];
-      for (let i = 0; i < 12; i++) actualRow.push('');
-      actualRow.push('');
-      perMonth.forEach(m => actualRow.push(m.actual));
-      actualRow.push(monthsCount ? (yearActual / monthsCount) : '');
-      rows.push(pad(actualRow));
-
-      const varianceRow = ['Variance (Actual - Budget)'];
-      perMonth.forEach(m => varianceRow.push(m.variance));
-      varianceRow.push(monthsCount ? ((yearActual - yearBudget) / monthsCount) : '');
-      for (let i = 0; i < 12; i++) varianceRow.push('');
-      varianceRow.push('');
-      rows.push(pad(varianceRow));
-
-      rows.push([]);
-      rows.push(['Metric', 'Value']);
-      rows.push(['Year Income', BP_toMoney(BP_STATE.incomeYear)]);
-      rows.push(['Year Net (Income − Budget)', BP_toMoney(BP_STATE.incomeYear) - yearBudget]);
-      rows.push(['Year Net (Income − Actual)', BP_toMoney(BP_STATE.incomeYear) - yearActual]);
-      rows.push(['Year Expense Variance (Actual − Budget)', yearVariance]);
-
-      const csvEscape = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-      const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `budget_${BP_STATE.year}.csv`; a.click();
-      URL.revokeObjectURL(url);
     }
 
     async function BP_initOnce() {
@@ -2661,7 +2570,6 @@
         const y = Number(prompt('Enter year to add (e.g., 2027):', String(new Date().getUTCFullYear() + 1)));
         if (!Number.isInteger(y) || y < 2000 || y > 2100) return;
 
-        // create the node if missing (doesn't touch /budget)
         const yearRef = ref(database, `${DATABASE_BASE_PATH}/budgetPlan/${y}`);
         const snap = await get(yearRef);
 
@@ -2671,7 +2579,6 @@
           await set(yearRef, BP_encode(init));
         }
 
-        // now rebuild dropdown from /budgetPlan and select the new year
         await BP_populateYearSelect(y);
         await BP_loadYear(y);
         BP_renderAll();
@@ -2688,7 +2595,7 @@
       }
 
       document.getElementById('bp-save')?.addEventListener('click', BP_save);
-      document.getElementById('bp-export-csv')?.addEventListener('click', BP_exportCSV);
+      document.getElementById('bp-sync-from-tracker')?.addEventListener('click', BP_syncFromFinancial);
       document.getElementById('bp-reset-defaults')?.addEventListener('click', async () => {
         if (!confirm('Reset this year to default baseline (keeps year & income)?')) return;
         const keepYear = BP_STATE.year;
@@ -2700,12 +2607,12 @@
         BP_renderAll();
         await BP_save();
       });
-      document.getElementById('bp-sync-from-tracker')?.addEventListener('click', BP_syncFromFinancial);
     }
 
     /* =========================
-       Utils
+       Utilities
     ========================== */
+    // (kept in case you use it later)
     function csvEscape2(v) { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 
   </script>
