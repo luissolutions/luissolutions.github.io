@@ -12,6 +12,30 @@
   <!-- Your existing CSS (walmart-tracker look) -->
   <link rel="stylesheet" href="../other/assets/css/tracker.css" />
   <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
+
+  <!-- ✅ Column toggle styles (can move into tracker.css if you want) -->
+  <style>
+    .col-toggles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      padding: 8px 0;
+    }
+
+    .col-toggles label {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-muted, #8d96a8);
+      user-select: none;
+    }
+
+    .col-hidden {
+      display: none !important;
+    }
+  </style>
 </head>
 
 <body>
@@ -127,14 +151,17 @@
               </div>
             </div>
 
+            <!-- ✅ Column toggles -->
+            <div id="dailyColToggles" class="col-toggles"></div>
+
             <div style="overflow:auto;">
               <table class="detail-table" id="dailyTasksTable">
                 <thead>
                   <tr>
-                    <th>Date/Time</th>
-                    <th>Notes</th>
-                    <th style="width:240px;">Images</th>
-                    <th>Actions</th>
+                    <th data-col="date">Date/Time</th>
+                    <th data-col="notes">Notes</th>
+                    <th data-col="images" style="width:240px;">Images</th>
+                    <th data-col="actions">Actions</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -193,19 +220,22 @@
               <button id="addItemBtn" type="button">Add Item</button>
             </div>
 
+            <!-- ✅ Column toggles -->
+            <div id="listColToggles" class="col-toggles"></div>
+
             <div style="overflow:auto; margin-top:8px;">
               <table class="detail-table" id="activeListTable">
                 <thead>
                   <tr>
-                    <th style="width:120px;">ID</th>
-                    <th>Model</th>
-                    <th>Type</th>
-                    <th>Location</th>
-                    <th>Status</th>
-                    <th style="width:150px;">IP</th>
-                    <th style="width:170px;">MAC</th>
-                    <th style="width:240px;">Images</th>
-                    <th style="width:210px;">Actions</th>
+                    <th data-col="id" style="width:120px;">ID</th>
+                    <th data-col="model">Model</th>
+                    <th data-col="type">Type</th>
+                    <th data-col="location">Location</th>
+                    <th data-col="status">Status</th>
+                    <th data-col="ip" style="width:150px;">IP</th>
+                    <th data-col="mac" style="width:170px;">MAC</th>
+                    <th data-col="images" style="width:240px;">Images</th>
+                    <th data-col="actions" style="width:210px;">Actions</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -344,6 +374,10 @@
       activeListTableBody: document.querySelector("#activeListTable tbody"),
 
       imageUploadInput: $("imageUploadInput"),
+
+      // ✅ Column toggle containers
+      dailyColToggles: $("dailyColToggles"),
+      listColToggles: $("listColToggles"),
     };
 
     let pendingUploadTarget = null; // { kind:'daily'|'listItem', dailyKey?, listId?, itemId? }
@@ -384,6 +418,102 @@
 
     function clearLastOpenState() {
       try { localStorage.removeItem(LS_KEY()); } catch { }
+    }
+
+    // ============================
+    // ✅ Column visibility (localStorage + toggle)
+    // ============================
+    function colLsKey(tableId) {
+      return `jobInfoManager:cols:${DATABASE_BASE_PATH}:${tableId}`;
+    }
+
+    function getColPrefs(tableId) {
+      try {
+        const raw = localStorage.getItem(colLsKey(tableId));
+        const obj = raw ? JSON.parse(raw) : {};
+        return obj && typeof obj === "object" ? obj : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function setColPref(tableId, colKey, isVisible) {
+      const prefs = getColPrefs(tableId);
+      prefs[colKey] = !!isVisible;
+      try { localStorage.setItem(colLsKey(tableId), JSON.stringify(prefs)); } catch { }
+    }
+
+    function applyColumnVisibility(tableEl, colKey, isVisible) {
+      if (!tableEl) return;
+
+      // headers
+      tableEl.querySelectorAll(`thead [data-col="${CSS.escape(colKey)}"]`)
+        .forEach(el => el.classList.toggle("col-hidden", !isVisible));
+
+      // body cells
+      tableEl.querySelectorAll(`tbody [data-col="${CSS.escape(colKey)}"]`)
+        .forEach(el => el.classList.toggle("col-hidden", !isVisible));
+    }
+
+    function buildColumnToggles({ tableEl, containerEl, columns }) {
+      if (!tableEl || !containerEl) return;
+
+      containerEl.innerHTML = "";
+      const prefs = getColPrefs(tableEl.id);
+
+      columns.forEach(col => {
+        const label = document.createElement("label");
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+
+        const visible = (prefs[col.key] ?? true);
+        cb.checked = !!visible;
+
+        cb.addEventListener("change", () => {
+          applyColumnVisibility(tableEl, col.key, cb.checked);
+          setColPref(tableEl.id, col.key, cb.checked);
+        });
+
+        const text = document.createElement("span");
+        text.textContent = col.label;
+
+        label.appendChild(cb);
+        label.appendChild(text);
+        containerEl.appendChild(label);
+
+        // initial apply
+        applyColumnVisibility(tableEl, col.key, cb.checked);
+      });
+    }
+
+    function initColumnUI() {
+      buildColumnToggles({
+        tableEl: document.getElementById("dailyTasksTable"),
+        containerEl: ui.dailyColToggles,
+        columns: [
+          { key: "date", label: "Date/Time" },
+          { key: "notes", label: "Notes" },
+          { key: "images", label: "Images" },
+          { key: "actions", label: "Actions" },
+        ]
+      });
+
+      buildColumnToggles({
+        tableEl: document.getElementById("activeListTable"),
+        containerEl: ui.listColToggles,
+        columns: [
+          { key: "id", label: "ID" },
+          { key: "model", label: "Model" },
+          { key: "type", label: "Type" },
+          { key: "location", label: "Location" },
+          { key: "status", label: "Status" },
+          { key: "ip", label: "IP" },
+          { key: "mac", label: "MAC" },
+          { key: "images", label: "Images" },
+          { key: "actions", label: "Actions" },
+        ]
+      });
     }
 
     // ============================
@@ -1247,6 +1377,7 @@
         const tr = document.createElement("tr");
 
         const tdDate = document.createElement("td");
+        tdDate.dataset.col = "date";
         const dateInput = document.createElement("input");
         dateInput.type = "datetime-local";
         dateInput.value = t.date || "";
@@ -1254,6 +1385,7 @@
         tdDate.appendChild(dateInput);
 
         const tdNotes = document.createElement("td");
+        tdNotes.dataset.col = "notes";
         const notesArea = document.createElement("textarea");
         notesArea.value = t.notes || "";
         notesArea.placeholder = "Notes...";
@@ -1261,6 +1393,7 @@
         tdNotes.appendChild(notesArea);
 
         const tdImg = document.createElement("td");
+        tdImg.dataset.col = "images";
         const addImgBtn = document.createElement("button");
         addImgBtn.textContent = "Add Image";
         addImgBtn.addEventListener("click", () => {
@@ -1296,6 +1429,7 @@
         }));
 
         const tdActions = document.createElement("td");
+        tdActions.dataset.col = "actions";
         const delBtn = document.createElement("button");
         delBtn.textContent = "Delete";
         delBtn.className = "danger-btn";
@@ -1320,6 +1454,11 @@
         tr.appendChild(tdActions);
         ui.dailyTasksTableBody.appendChild(tr);
       });
+
+      // ✅ Re-apply current column visibility (important because rows just changed)
+      const dailyTable = document.getElementById("dailyTasksTable");
+      const prefs = getColPrefs(dailyTable.id);
+      ["date", "notes", "images", "actions"].forEach(k => applyColumnVisibility(dailyTable, k, (prefs[k] ?? true)));
     }
 
     async function addDailyTask() {
@@ -1380,13 +1519,16 @@
 
       ui.activeListCountLabel.textContent = `(${rows.length})`;
 
-      const mkTdInput = (initialVal, placeholder, saveFn) => {
+      const mkTdInput = (colKey, initialVal, placeholder, saveFn) => {
         const td = document.createElement("td");
+        td.dataset.col = colKey;
+
         const input = document.createElement("input");
         input.type = "text";
         input.value = initialVal || "";
         input.placeholder = placeholder || "";
         attachDirtyBlur(input, saveFn);
+
         td.appendChild(input);
         return td;
       };
@@ -1395,15 +1537,16 @@
         const tr = document.createElement("tr");
         const baseItemPath = PATH.item(state.recordId, listId, r.key);
 
-        tr.appendChild(mkTdInput(r.id, "Camera ID / Cable #", (val) => dbUpdate(baseItemPath, { id: val })));
-        tr.appendChild(mkTdInput(r.model, "Model", (val) => dbUpdate(baseItemPath, { model: val })));
-        tr.appendChild(mkTdInput(r.type, "Type (Camera, Controller, etc)", (val) => dbUpdate(baseItemPath, { type: val })));
-        tr.appendChild(mkTdInput(r.location, "Location", (val) => dbUpdate(baseItemPath, { location: val })));
-        tr.appendChild(mkTdInput(r.status, "Status", (val) => dbUpdate(baseItemPath, { status: val })));
-        tr.appendChild(mkTdInput(r.ip, "IP Address", (val) => dbUpdate(baseItemPath, { ip: val })));
-        tr.appendChild(mkTdInput(r.mac, "MAC Address", (val) => dbUpdate(baseItemPath, { mac: val })));
+        tr.appendChild(mkTdInput("id", r.id, "Camera ID / Cable #", (val) => dbUpdate(baseItemPath, { id: val })));
+        tr.appendChild(mkTdInput("model", r.model, "Model", (val) => dbUpdate(baseItemPath, { model: val })));
+        tr.appendChild(mkTdInput("type", r.type, "Type (Camera, Controller, etc)", (val) => dbUpdate(baseItemPath, { type: val })));
+        tr.appendChild(mkTdInput("location", r.location, "Location", (val) => dbUpdate(baseItemPath, { location: val })));
+        tr.appendChild(mkTdInput("status", r.status, "Status", (val) => dbUpdate(baseItemPath, { status: val })));
+        tr.appendChild(mkTdInput("ip", r.ip, "IP Address", (val) => dbUpdate(baseItemPath, { ip: val })));
+        tr.appendChild(mkTdInput("mac", r.mac, "MAC Address", (val) => dbUpdate(baseItemPath, { mac: val })));
 
         const tdImg = document.createElement("td");
+        tdImg.dataset.col = "images";
         const addImgBtn = document.createElement("button");
         addImgBtn.textContent = "Add Image";
         addImgBtn.addEventListener("click", () => {
@@ -1439,6 +1582,7 @@
         }));
 
         const tdActions = document.createElement("td");
+        tdActions.dataset.col = "actions";
         const delBtn = document.createElement("button");
         delBtn.textContent = "Delete";
         delBtn.className = "danger-btn";
@@ -1461,6 +1605,12 @@
 
         ui.activeListTableBody.appendChild(tr);
       });
+
+      // ✅ Re-apply current column visibility (important because rows just changed)
+      const listTable = document.getElementById("activeListTable");
+      const prefs = getColPrefs(listTable.id);
+      ["id", "model", "type", "location", "status", "ip", "mac", "images", "actions"]
+        .forEach(k => applyColumnVisibility(listTable, k, (prefs[k] ?? true)));
     }
 
     async function createList() {
@@ -1829,6 +1979,9 @@
       startTasksDropdownListener();
       renderSidebarPills();
       setActivePanel("daily");
+
+      // ✅ Build toggle UI (uses DATABASE_BASE_PATH in its LS key)
+      initColumnUI();
     }
 
     initUIForBasePath();
