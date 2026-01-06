@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Finance Suite — Import • Transactions • Budget</title>
+  <title>Finance Ledger</title>
   <link rel="icon" href="./assets/img/financial_logo.png">
   <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
   <script type="module" src="./assets/js/login.js" defer></script>
@@ -12,14 +12,53 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
 
   <style>
-    html {
-      scroll-behavior: smooth;
+    /* tiny modal for image view */
+    #imgModal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .75);
+      z-index: 999;
+      padding: 24px;
     }
 
-    @media (prefers-reduced-motion: reduce) {
-      html {
-        scroll-behavior: auto;
-      }
+    #imgModal .box {
+      max-width: 980px;
+      margin: 0 auto;
+      background: rgba(20, 20, 20, .95);
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    #imgModal .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    #imgModal .close {
+      cursor: pointer;
+      font-size: 22px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, .14);
+      background: rgba(255, 255, 255, .06);
+    }
+
+    #imgModal img {
+      width: 100%;
+      height: auto;
+      border-radius: 12px;
+      display: block;
+      border: 1px solid rgba(255, 255, 255, .12);
+    }
+
+    .mini {
+      font-size: .9rem;
+      opacity: .85;
     }
 
     /* Tabs */
@@ -50,13 +89,6 @@
       margin-top: 12px;
     }
 
-    textarea {
-      width: 100%;
-      min-height: 160px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      line-height: 1.35;
-    }
-
     textarea#standardText,
     textarea#shorthandText {
       width: 90%;
@@ -74,7 +106,7 @@
     .transaction-row select,
     .transaction-row button {
       padding-bottom: 3px;
-      padding-top: 0;
+      padding-top: 3px;
       margin-bottom: 0;
     }
 
@@ -117,63 +149,6 @@
       z-index: 99;
       opacity: .7;
     }
-
-    /* Budget Planner helpers */
-    #bp-table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-
-    #bp-table th,
-    #bp-table td {
-      border: 1px solid #e3e3e3;
-      padding: 6px 8px;
-      text-align: right;
-    }
-
-    #bp-table th.sticky {
-      position: sticky;
-      top: 0;
-      background: #fafafa;
-      z-index: 2;
-    }
-
-    #bp-table td:first-child,
-    #bp-table th:first-child {
-      text-align: left;
-      position: sticky;
-      left: 0;
-      z-index: 1;
-      background: #fff;
-    }
-
-    .bp-ok {
-      color: #10893e;
-    }
-
-    .bp-warn {
-      color: #b71c1c;
-    }
-
-    .bp-under {
-      background: lightblue;
-    }
-
-    .bp-over {
-      background: lightcoral;
-    }
-
-    #bp-cats input[type="number"],
-    #bp-table input[type="number"],
-    #bp-cats input[type="text"] {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 6px;
-    }
-
-    .table {
-      display: flex;
-    }
   </style>
 </head>
 
@@ -191,12 +166,11 @@
         <br>
         <button type="submit">Sign in</button>
       </form>
-      <button id="logout" style="display: none;">Logout</button>
+      <button id="logout" style="display:none;">Logout</button>
     </section>
 
     <nav id="tabs" class="tabs">
       <button data-tab-target="transactions" class="active">Activity</button>
-      <button data-tab-target="budget">Budget Planner</button>
       <button data-tab-target="import">Import & Cleanup</button>
     </nav>
   </header>
@@ -217,6 +191,7 @@
           <input type="text" id="global-search" placeholder="Search by name, tag, amount…"
             oninput="filterGlobalEntries()" disabled title="Load ./assets/js/search.js to enable advanced search">
         </div>
+
         <div class="table">
           <table id="transactions-table">
             <thead>
@@ -234,7 +209,7 @@
         </div>
       </section>
 
-      <p id="filtered-total">Filtered Net: $0.00</p>
+      <p id="filtered-total">Filtered Total: $0.00</p>
 
       <section id="yearly-budget-calculator">
         <h2>Monthly Summary</h2>
@@ -310,7 +285,7 @@
 
             <label>Show:
               <select id="pie-metric">
-                <option value="expenses" selected>Spending</option>
+                <option value="expense" selected>Spending</option>
                 <option value="income">Income</option>
               </select>
             </label>
@@ -337,6 +312,7 @@
       <button id="export-tags-csv">Export Tag Summary (CSV)</button>
       <button id="export-tx-csv">Export Transactions (CSV)</button>
       <button id="export-monthly-csv">Export Monthly Summary (CSV)</button>
+
       <button id="export-details">Download Backup (JSON)</button>
       <button id="trigger-import">Restore Backup (Overwrite)</button>
       <input type="file" id="load-data" accept=".json" style="display:none">
@@ -345,57 +321,13 @@
       <a href="#top" class="to-top" aria-label="Back to top">↑</a>
     </section>
 
-    <!-- TAB: Budget (Full Planner) -->
-    <section data-tab="budget" hidden>
-      <h2>Budget Planner</h2>
-
-      <div class="row">
-        <label>Year:
-          <select id="bp-year"></select>
-        </label>
-        <button id="bp-add-year" title="Add a year even if you have no transactions for it yet">Add Year</button>
-
-        <label title="Gross income you expect for this year">
-          Planned Yearly Income:
-          <input id="bp-incomeYear" type="number" step="0.01" style="width:12ch;" />
-        </label>
-
-        <button id="bp-save">Save</button>
-        <button id="bp-reset-defaults" class="clear-button">Reset</button>
-        <button id="bp-sync-from-tracker" title="Pull actuals + income from /budget">Sync Actuals from
-          Transactions</button>
-
-        <div id="bp-yearTotals" class="card"></div>
-
-        <section class="card">
-          <h3>Categories & Monthly Budget</h3>
-          <p class="small">Edit a category’s <b>Monthly Budget</b> to change all months at once. In the table below, you
-            can override specific months.</p>
-          <div id="bp-cats" class="grid table"></div>
-        </section>
-
-        <section>
-          <h3>Budget vs Actual</h3>
-          <div class="table">
-            <table id="bp-table">
-              <thead>
-                <tr id="bp-header-row"></tr>
-              </thead>
-              <tbody></tbody>
-              <tfoot></tfoot>
-            </table>
-          </div>
-        </section>
-    </section>
-
     <!-- TAB: Import -->
     <section data-tab="import" hidden>
       <h2>Import & Cleanup</h2>
-      <p class="small">Paste bank or card exports. Preview first, then add to your transactions with duplicate
-        protection.</p>
+      <p class="small">Paste bank or card exports. Preview first, then add with duplicate protection.</p>
 
       <label>Year:
-        <input id="import-year" type="number" min="2000" max="2100" value="2025" style="width:8ch">
+        <input id="import-year" type="number" min="2000" max="2100">
       </label>
 
       <label><input type="radio" name="importMode" value="bankCredit" checked> Credit card export (two dates)</label>
@@ -420,101 +352,351 @@
 
   </main>
 
-  <!-- ======= CORE SCRIPT ======= -->
+  <!-- Image Modal -->
+  <div id="imgModal">
+    <div class="box">
+      <div class="top">
+        <div>
+          <div id="imgTitle" style="font-weight:700;"></div>
+          <div id="imgSub" class="mini"></div>
+        </div>
+        <button id="imgClose" class="close" type="button">✕</button>
+      </div>
+      <img id="imgEl" alt="Transaction image">
+    </div>
+  </div>
+
+  <!-- ======= CORE SCRIPT (Year TX Model + Images) ======= -->
   <script type="module">
-    import { auth, onAuthStateChanged, database, ref, onValue, set, get } from '../assets/js/firebase-init.js';
-
-    /* =========================
-       Tabs
-    ========================== */
-    function initTabs() {
-      const tabs = document.querySelectorAll('#tabs button');
-      const panes = document.querySelectorAll('section[data-tab]');
-
-      const show = async (which) => {
-        tabs.forEach(b => b.classList.toggle('active', b.dataset.tabTarget === which));
-        panes.forEach(p => p.hidden = (p.dataset.tab !== which));
-
-        if (which === 'transactions') {
-          renderCharts();
-        } else if (which === 'budget') {
-          await BP_initOnce();
-        }
-      };
-
-      tabs.forEach(btn => btn.addEventListener('click', () => show(btn.dataset.tabTarget)));
-
-      // default view
-      show('transactions');
-    }
+    import {
+      auth, onAuthStateChanged,
+      database, ref, onValue, set,
+      storage, storageRef, uploadBytes, getDownloadURL, deleteObject
+    } from '../assets/js/firebase-init.js';
 
     /* =========================
        Constants & Helpers
     ========================== */
     const MONTHS_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const MONTHS_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
     function pad2(n) { return String(n).padStart(2, '0'); }
-    function isoDateOnlyUTC(d) {
-      const dt = new Date(d);
+
+    function ymdFromUtcTS(ts) {
+      const dt = new Date(Number(ts));
       if (Number.isNaN(dt.getTime())) return '';
       return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
     }
-    function isoUTCNoonFromYMD(y, mIndex, d) { return new Date(Date.UTC(y, mIndex, d, 12, 0, 0)).toISOString(); }
-    function monthDayKeyUTC(iso) {
-      const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      const dt = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12, 0, 0)) : new Date(iso);
-      if (Number.isNaN(dt.getTime())) throw new Error('Bad date');
-      const mn = months[dt.getUTCMonth()];
-      const day = dt.getUTCDate();
-      return `${mn}-${day}`;
+
+    function utcNoonTSFromYMD(ymd) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return Date.now();
+      const y = +ymd.slice(0, 4);
+      const m = +ymd.slice(5, 7) - 1;
+      const d = +ymd.slice(8, 10);
+      return Date.UTC(y, m, d, 12, 0, 0);
+    }
+
+    function utcNoonTS(year, monthIndex, day) {
+      return Date.UTC(year, monthIndex, day, 12, 0, 0);
+    }
+
+    function yearFromTS(ts) {
+      return new Date(Number(ts)).getUTCFullYear();
+    }
+
+    function fmtUSD(n) {
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(Number(n) || 0);
+    }
+
+    function csvEscape(v) {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     }
 
     /* =========================
        App State
     ========================== */
     let currentYear = new Date().getUTCFullYear();
-    let yearlyDetails = initializeYearlyDetails();
     let DATABASE_BASE_PATH = 'public';
-    let _engine = null;
+
+    // ✅ keep node name consistent with your other finance apps
+    const TX_NODE = 'ledgerTx';
+
+    let ledgerUnsub = null;
     let handlersBound = false;
-    let _lastSavedData = {};
-    let budgetUnsub = null;
+    let tabsInited = false;
+
+    let _allTx = [];   // contains ALL years for current base path
+    let _engine = null;
     let _txSortAsc = true;
+    let monthlyBarChart = null;
+    let yearPieChart = null;
+    let _openDayYMD = null;
+    let _isRefreshingModal = false;
 
-    function initializeYearlyDetails() { return months.reduce((acc, m) => { acc[m] = { details: [] }; return acc; }, {}); }
 
-    onAuthStateChanged(auth, (user) => {
-      DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
-      if (typeof budgetUnsub === 'function') { budgetUnsub(); budgetUnsub = null; }
-      setupEventListeners();
-      wireSearchEngine();
-      attachBudgetListener();
-      initTabs();
+    /* =========================
+       Paths
+    ========================== */
+    function ledgerBasePath() {
+      return `${DATABASE_BASE_PATH}/${TX_NODE}`;
+    }
+    function txYearPath(year) {
+      return `${ledgerBasePath()}/${year}`;
+    }
+    function txItemPath(year, id) {
+      return `${txYearPath(year)}/${id}`;
+    }
+    function imgBasePath() {
+      return `${DATABASE_BASE_PATH}/txImages`;
+    }
+
+    /* =========================
+       Normalize / Save shape
+    ========================== */
+    function normalizeTx(id, v) {
+      if (!v || typeof v !== 'object') return null;
+
+      const dateTS = Number(v.date);
+      if (!Number.isFinite(dateTS)) return null;
+      const dt = new Date(dateTS);
+      if (Number.isNaN(dt.getTime())) return null;
+
+      const type = String(v.type || '').toLowerCase();
+      const normType = (type === 'income') ? 'income' : 'expense';
+
+      const tags = Array.isArray(v.tags) ? v.tags.map(t => String(t).trim()).filter(Boolean) : [];
+
+      const img = (typeof v.img === 'string') ? v.img : (v.img?.url || '');
+      const imgPath = (typeof v.imgPath === 'string') ? v.imgPath : (v.img?.path || '');
+
+      return {
+        id: String(id),
+        amt: Number(v.amt ?? 0),
+        cat: String(v.cat ?? ''),
+        sub: String(v.sub ?? ''),
+        sku: String(v.sku ?? ''),
+        link: String(v.link ?? ''),
+        img: String(img || ''),
+        imgPath: String(imgPath || ''),
+        desc: String(v.desc ?? ''),
+        name: String(v.name ?? ''),
+        tags,
+        type: normType,
+        date: dateTS,
+        _dt: dt
+      };
+    }
+
+    function stripTxForSave(t) {
+      return {
+        amt: Number(t.amt ?? 0),
+        cat: String(t.cat ?? ''),
+        sub: String(t.sub ?? ''),
+        sku: String(t.sku ?? ''),
+        link: String(t.link ?? ''),
+        img: String(t.img ?? ''),
+        imgPath: String(t.imgPath ?? ''),
+        desc: String(t.desc ?? ''),
+        name: String(t.name ?? ''),
+        tags: Array.isArray(t.tags) ? t.tags : [],
+        type: (String(t.type || '').toLowerCase() === 'income') ? 'income' : 'expense',
+        date: Number(t.date ?? Date.now())
+      };
+    }
+
+    /* =========================
+       Database operations (Year-aware)
+    ========================== */
+    async function upsertTx(prevTx, nextTx) {
+      const next = stripTxForSave(nextTx);
+      const nextYear = yearFromTS(next.date);
+
+      // if date moved across years, delete old location first
+      if (prevTx) {
+        const prevYear = yearFromTS(prevTx.date);
+        if (prevYear !== nextYear) {
+          await set(ref(database, txItemPath(prevYear, prevTx.id)), null);
+        }
+      }
+
+      await set(ref(database, txItemPath(nextYear, nextTx.id)), next);
+    }
+
+    async function deleteTxFull(tx) {
+      const y = yearFromTS(tx.date);
+      await set(ref(database, txItemPath(y, tx.id)), null);
+
+      // try delete image too (best-effort)
+      if (tx.imgPath) {
+        try {
+          await deleteObject(storageRef(storage, tx.imgPath));
+        } catch (err) {
+          console.warn('Storage delete failed:', err);
+        }
+      }
+    }
+
+    /* =========================
+       Image modal
+    ========================== */
+    function openImgModal(title, subtitle, url) {
+      const modal = document.getElementById('imgModal');
+      const img = document.getElementById('imgEl');
+      document.getElementById('imgTitle').textContent = title || 'Image';
+      document.getElementById('imgSub').textContent = subtitle || '';
+      img.src = url;
+      modal.style.display = 'block';
+    }
+    function closeImgModal() {
+      const modal = document.getElementById('imgModal');
+      const img = document.getElementById('imgEl');
+      img.src = '';
+      modal.style.display = 'none';
+    }
+    document.getElementById('imgClose')?.addEventListener('click', closeImgModal);
+    document.getElementById('imgModal')?.addEventListener('click', (e) => {
+      if (e.target === document.getElementById('imgModal')) closeImgModal();
     });
 
-    function attachBudgetListener() {
-      if (budgetUnsub) return;
-      const budgetRef = ref(database, `${DATABASE_BASE_PATH}/budget`);
-      budgetUnsub = onValue(budgetRef, (snapshot) => {
-        const savedData = snapshot.exists() ? snapshot.val() : {};
-        renderAll(savedData);
-      }, (err) => console.error('❌ onValue error:', err));
+    async function uploadTxImage(tx) {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.style.display = 'none';
+      document.body.appendChild(input);
+
+      input.addEventListener('change', async () => {
+        const f = input.files?.[0];
+        input.remove();
+        if (!f) return;
+
+        try {
+          const safe = f.name.replace(/[^\w.\-]+/g, '_');
+          const y = yearFromTS(tx.date);
+          const storagePath = `${imgBasePath()}/${y}/${tx.id}_${Date.now()}_${safe}`;
+
+          const sref = storageRef(storage, storagePath);
+          await uploadBytes(sref, f);
+          const url = await getDownloadURL(sref);
+
+          // optionally delete previous image if there was one
+          if (tx.imgPath) {
+            try { await deleteObject(storageRef(storage, tx.imgPath)); } catch { }
+          }
+
+          await upsertTx(tx, { ...tx, img: url, imgPath: storagePath });
+        } catch (err) {
+          console.error(err);
+          alert('❌ Upload failed.');
+        }
+      });
+
+      input.click();
+    }
+
+    async function deleteTxImage(tx) {
+      if (!confirm('Delete this image? (Clears fields and deletes file if possible)')) return;
+
+      try {
+        if (tx.imgPath) {
+          await deleteObject(storageRef(storage, tx.imgPath));
+        }
+      } catch (err) {
+        console.warn('Storage delete failed (still clearing fields):', err);
+      }
+
+      await upsertTx(tx, { ...tx, img: '', imgPath: '' });
+    }
+
+    /* =========================
+       Tabs
+    ========================== */
+    function initTabsOnce() {
+      if (tabsInited) return;
+      tabsInited = true;
+
+      const tabs = document.querySelectorAll('#tabs button[data-tab-target]');
+      const panes = document.querySelectorAll('section[data-tab]');
+      const show = (which) => {
+        tabs.forEach(b => b.classList.toggle('active', b.dataset.tabTarget === which));
+        panes.forEach(p => p.hidden = (p.dataset.tab !== which));
+        if (which === 'transactions') renderCharts();
+      };
+      tabs.forEach(btn => btn.addEventListener('click', () => show(btn.dataset.tabTarget)));
+      show('transactions');
+    }
+
+    /* =========================
+       Auth -> base path + listener
+    ========================== */
+    onAuthStateChanged(auth, (user) => {
+      DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
+
+      if (typeof ledgerUnsub === 'function') {
+        ledgerUnsub();
+        ledgerUnsub = null;
+      }
+
+      setupEventListenersOnce();
+      wireSearchEngine();
+      attachLedgerListener();
+      initTabsOnce();
+    });
+
+    function attachLedgerListener() {
+      const r = ref(database, ledgerBasePath());
+      ledgerUnsub = onValue(r, (snap) => {
+        const root = snap.exists() ? snap.val() : {};
+        const out = [];
+
+        // root is { "2026": {id:{...}}, "2025": {...}, ... }
+        for (const [yearKey, yearObj] of Object.entries(root || {})) {
+          if (!yearObj || typeof yearObj !== 'object') continue;
+          for (const [id, v] of Object.entries(yearObj || {})) {
+            const n = normalizeTx(id, v);
+            if (n) out.push(n);
+          }
+        }
+
+        _allTx = out;
+        renderAll();
+        refreshOpenDayModalIfNeeded();
+      }, (err) => console.error('❌ ledger onValue error:', err));
     }
 
     /* =========================
        Render orchestration
     ========================== */
-    function renderAll(savedData) {
-      _lastSavedData = savedData || {};
-      populateYearDropdown(_lastSavedData);
-      fetchOverallTotals(_lastSavedData);
-      renderTagBar(_lastSavedData);
-      yearlyDetails = aggregateMonthlyData(_lastSavedData, currentYear);
+    function renderAll() {
+      populateYearDropdown();
+      renderTagBar();
+      displayAllTransactions();
       populateMonths();
       calculateYearlyTotals();
-      generateYearGrid(_lastSavedData);
-      displayAllTransactions();
+      renderOverallTotals();
+      generateYearGrid();
       renderCharts();
+    }
+
+    function refreshOpenDayModalIfNeeded() {
+      const modal = document.getElementById('detailsModal');
+      if (!modal) return;
+
+      const isOpen = modal.style.display === 'block';
+      if (!isOpen) return;
+
+      if (!_openDayYMD) return;
+
+      // prevent re-entrant refresh loops
+      if (_isRefreshingModal) return;
+      _isRefreshingModal = true;
+
+      try {
+        showDayModal(_openDayYMD); // ✅ rebuild modal with latest _allTx
+      } finally {
+        _isRefreshingModal = false;
+      }
     }
 
     /* =========================
@@ -523,53 +705,50 @@
     function wireSearchEngine() {
       const input = document.getElementById('global-search');
       if (!input) return;
+
       if (window.SearchEngine) {
         _engine = window.SearchEngine.create({
           fields: {
             name: { type: 'string', resolver: r => r.name },
             type: { type: 'string', resolver: r => r.type },
-            amount: { type: 'number', resolver: r => r.amount },
-            date: { type: 'date', resolver: r => r.date },
-            dateKey: { type: 'string', resolver: r => r.dateKey },
-            tags: { type: 'string', resolver: r => Array.isArray(r.tags) ? r.tags.join(' ') : '' }
+            amount: { type: 'number', resolver: r => r.amt },
+            date: { type: 'date', resolver: r => new Date(r.date) },
+            tags: { type: 'string', resolver: r => (Array.isArray(r.tags) ? r.tags.join(' ') : '') }
           },
-          defaultFields: ['name', 'type', 'dateKey', 'tags'],
+          defaultFields: ['name', 'type', 'tags'],
           caseSensitive: false
         });
         input.disabled = false;
         input.placeholder = 'Search…  e.g. tag:"rent", name:"gas", amount:>200';
         input.title = _engine.operatorsHelp();
       } else {
-        input.disabled = true;
-        input.placeholder = 'Search unavailable';
-        input.title = 'Load ./assets/js/search.js to enable advanced search';
+        input.disabled = false;
+        input.placeholder = 'Search…  (basic: tags:food, text match)';
+        input.title = 'Basic search enabled';
       }
     }
 
     /* =========================
        Events
     ========================== */
-    function setupEventListeners() {
-      if (handlersBound) return; handlersBound = true;
+    function setupEventListenersOnce() {
+      if (handlersBound) return;
+      handlersBound = true;
 
+      document.getElementById('export-tags-csv')?.addEventListener('click', exportTagsCSV);
       document.getElementById('export-tx-csv')?.addEventListener('click', exportTransactionsCSV);
       document.getElementById('export-monthly-csv')?.addEventListener('click', exportMonthlySummaryCSV);
 
-      document.getElementById('export-details')?.addEventListener('click', exportDetailsToJSON);
-      document.getElementById('export-tags-csv')?.addEventListener('click', exportTagsCSV);
-      document.getElementById('trigger-import')?.addEventListener('click', () => document.getElementById('load-data').click());
-      document.getElementById('load-data')?.addEventListener('change', importJSONReplaceExisting);
-      document.getElementById('clear-details')?.addEventListener('click', clearDetails);
+      document.getElementById('export-details')?.addEventListener('click', exportBackupJSON);
+      document.getElementById('trigger-import')?.addEventListener('click', () => document.getElementById('load-data')?.click());
+      document.getElementById('load-data')?.addEventListener('change', restoreBackupOverwrite);
+      document.getElementById('clear-details')?.addEventListener('click', clearAllTx);
 
       document.getElementById('yearSelect')?.addEventListener('change', handleYearChange);
-      document.getElementById('closeModal').onclick = closeModal;
-      window.onclick = (e) => { if (e.target === document.getElementById('detailsModal')) closeModal(); };
 
-      const headerTitle = document.querySelector('header h1');
-      const loginSection = document.getElementById('login-section');
-      headerTitle?.addEventListener('dblclick', () => {
-        loginSection.style.display =
-          (loginSection.style.display === 'none' || getComputedStyle(loginSection).display === 'none') ? 'block' : 'none';
+      document.getElementById('closeModal')?.addEventListener('click', closeModal);
+      window.addEventListener('click', (e) => {
+        if (e.target === document.getElementById('detailsModal')) closeModal();
       });
 
       document.getElementById('pie-breakdown')?.addEventListener('change', () => renderPie());
@@ -580,366 +759,633 @@
         displayAllTransactions();
       });
 
-      // Import wiring
       wireImportTab();
     }
 
     /* =========================
-       Year switching (Transactions)
+       Year handling
     ========================== */
+    function populateYearDropdown() {
+      const sel = document.getElementById('yearSelect');
+      if (!sel) return;
+
+      const years = new Set(_allTx.map(t => yearFromTS(t.date)));
+      years.add(currentYear);
+
+      const arr = Array.from(years).filter(n => Number.isFinite(n)).sort((a, b) => a - b);
+      sel.innerHTML = arr.map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`).join('');
+    }
+
     function handleYearChange() {
-      currentYear = parseInt(document.getElementById('yearSelect').value, 10);
-      yearlyDetails = aggregateMonthlyData(_lastSavedData, currentYear);
-      populateMonths();
-      calculateYearlyTotals();
-      generateYearGrid(_lastSavedData);
-      displayAllTransactions();
-      renderCharts();
-      renderTagBar(_lastSavedData);
+      currentYear = parseInt(document.getElementById('yearSelect')?.value || String(currentYear), 10);
+      renderAll();
+      refreshOpenDayModalIfNeeded();
     }
 
-    function populateYearDropdown(savedData) {
-      const yearSelect = document.getElementById('yearSelect');
-      const years = getYearsFromData(savedData);
-
-      // Always ensure current year exists as an option
-      if (!years.includes(currentYear)) years.push(currentYear);
-
-      years.sort((a, b) => a - b);
-      yearSelect.innerHTML = years
-        .map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`)
-        .join('');
+    function txInCurrentYear() {
+      return _allTx.filter(t => yearFromTS(t.date) === currentYear);
     }
 
-    function getYearsFromData(data) {
-      const years = new Set();
-      Object.values(data || {}).forEach(dayData => {
-        if (dayData?.details) {
-          dayData.details.forEach(detail => {
-            const dt = new Date(detail.date);
-            if (!Number.isNaN(dt.getTime())) years.add(dt.getUTCFullYear());
-          });
+    /* =========================
+       Tag bar
+    ========================== */
+    function parseTags(input) {
+      if (!input) return [];
+      return String(input).split(',').map(t => t.trim()).filter(Boolean).slice(0, 20);
+    }
+
+    function renderTagBar() {
+      const bar = document.getElementById('tag-bar');
+      if (!bar) return;
+      bar.innerHTML = '';
+
+      const map = new Map();
+      for (const t of txInCurrentYear()) {
+        for (const raw of (t.tags || [])) {
+          const tag = String(raw || '').trim();
+          if (!tag) continue;
+          const key = tag.toLowerCase();
+          const prev = map.get(key);
+          if (prev) prev.count += 1;
+          else map.set(key, { label: tag, count: 1 });
         }
+      }
+
+      const tags = Array.from(map.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+      if (!tags.length) {
+        const s = document.createElement('span');
+        s.textContent = 'No tags for this year.';
+        s.style.opacity = '.7';
+        bar.appendChild(s);
+        return;
+      }
+
+      const clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'tag-chip';
+      clear.textContent = 'Clear';
+      clear.addEventListener('click', () => {
+        const input = document.getElementById('global-search');
+        if (input) input.value = '';
+        filterGlobalEntries();
+        bar.querySelectorAll('.tag-chip').forEach(el => el.classList.remove('active'));
       });
-      return Array.from(years);
+      bar.appendChild(clear);
+
+      for (const { label, count } of tags) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tag-chip';
+        btn.textContent = `${label} (${count})`;
+        btn.title = `Filter by tag: ${label}`;
+        btn.addEventListener('click', () => {
+          const input = document.getElementById('global-search');
+          if (!input) return;
+          input.value = `tags:${label.includes(' ') ? `"${label.replace(/"/g, '\\"')}"` : label}`;
+          filterGlobalEntries();
+          bar.querySelectorAll('.tag-chip').forEach(el => el.classList.remove('active'));
+          btn.classList.add('active');
+        });
+        bar.appendChild(btn);
+      }
     }
 
-    function aggregateMonthlyData(data, year) {
-      const result = initializeYearlyDetails();
-      const alias = { September: 'Sep', Sept: 'Sep', March: 'Mar', April: 'Apr', June: 'Jun', July: 'Jul' };
-      Object.entries(data || {}).forEach(([key, value]) => {
-        let [month] = key.split('-');
-        month = (alias[month] || month);
-        const details = (value.details || []).filter(d => new Date(d.date).getUTCFullYear() === year);
-        if (!result[month]) result[month] = { details: [] };
-        details.forEach(detail => result[month].details.push(detail));
+    /* =========================
+       Transactions table
+    ========================== */
+    window.filterGlobalEntries = function () { displayAllTransactions(); };
+
+    function basicFilter(records, query) {
+      const q = String(query || '').trim();
+      if (!q) return records;
+
+      const m = q.match(/tags\s*:\s*(?:"([^"]+)"|([^\s]+))/i);
+      if (m) {
+        const want = (m[1] || m[2] || '').toLowerCase();
+        return records.filter(r => (r.tags || []).some(t => String(t).toLowerCase() === want));
+      }
+
+      const low = q.toLowerCase();
+      return records.filter(r => {
+        const name = String(r.name || '').toLowerCase();
+        const tags = (r.tags || []).join(' ').toLowerCase();
+        return name.includes(low) || tags.includes(low);
       });
-      return result;
     }
 
-    function createButton(className, textContent, dataMonth, onClickCallback) {
+    function createTypeSelect(currentType, onChange) {
+      const sel = document.createElement('select');
+      ['income', 'expense'].forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        if ((currentType || '').toLowerCase() === v) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', e => onChange(e.target.value));
+      return sel;
+    }
+
+    function updateFilteredTotal(txArr) {
+      let inc = 0, exp = 0;
+      for (const t of txArr) {
+        const v = Math.abs(Number(t.amt) || 0);
+        if (t.type === 'income') inc += v;
+        else exp += v;
+      }
+      const net = inc - exp;
+      const el = document.getElementById('filtered-total');
+      if (el) el.textContent = `Filtered Total: ${fmtUSD(net)} (Income: ${fmtUSD(inc)} • Expenses: ${fmtUSD(exp)})`;
+    }
+
+    async function displayAllTransactions() {
+      const tbody = document.querySelector('#transactions-table tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      const input = document.getElementById('global-search');
+      const query = input ? (input.value ?? '') : '';
+
+      let records = txInCurrentYear();
+      const filtered = _engine ? _engine.filter(records, query) : basicFilter(records, query);
+
+      updateFilteredTotal(filtered);
+
+      filtered.sort((a, b) => {
+        const ad = Number(a.date) || 0;
+        const bd = Number(b.date) || 0;
+        if (_txSortAsc) {
+          if (ad !== bd) return ad - bd;
+        } else {
+          if (ad !== bd) return bd - ad;
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      });
+
+      for (const t of filtered) {
+        const tr = document.createElement('tr');
+        tr.classList.add('transaction-row');
+
+        // Date
+        const tdDate = document.createElement('td');
+        const dateInput = document.createElement('input');
+        dateInput.type = 'date';
+        dateInput.value = ymdFromUtcTS(t.date);
+        dateInput.style.minWidth = '130px';
+        dateInput.title = 'Change effective date (UTC)';
+        dateInput.addEventListener('change', async (e) => {
+          const ymd = e.target.value;
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+            e.target.value = ymdFromUtcTS(t.date);
+            return;
+          }
+          const nextTS = utcNoonTSFromYMD(ymd);
+          await upsertTx(t, { ...t, date: nextTS });
+        });
+        tdDate.appendChild(dateInput);
+
+        // Name
+        const tdName = document.createElement('td');
+        tdName.contentEditable = 'true';
+        tdName.textContent = t.name || '';
+        tdName.addEventListener('focus', e => { e.target.dataset.original = e.target.innerText.trim(); });
+        tdName.addEventListener('blur', async (e) => {
+          const next = e.target.innerText.trim();
+          const prev = (e.target.dataset.original || '').trim();
+          if (next === prev) return;
+          await upsertTx(t, { ...t, name: next });
+        });
+
+        // Type
+        const tdType = document.createElement('td');
+        tdType.appendChild(createTypeSelect(t.type, async (v) => {
+          await upsertTx(t, { ...t, type: v });
+        }));
+
+        // Amount
+        const tdAmt = document.createElement('td');
+        tdAmt.contentEditable = 'true';
+        tdAmt.textContent = Number(t.amt || 0).toFixed(2);
+        tdAmt.addEventListener('focus', e => { e.target.dataset.original = String(t.amt ?? 0); });
+        tdAmt.addEventListener('blur', async (e) => {
+          const raw = e.target.innerText.replace(/[^\d.-]/g, '');
+          const v = parseFloat(raw);
+          if (Number.isNaN(v)) {
+            e.target.textContent = Number(t.amt || 0).toFixed(2);
+            return;
+          }
+          const prev = parseFloat(e.target.dataset.original || 'NaN');
+          if (!Number.isNaN(prev) && v === prev) {
+            e.target.textContent = prev.toFixed(2);
+            return;
+          }
+          e.target.textContent = v.toFixed(2);
+          await upsertTx(t, { ...t, amt: v });
+        });
+
+        // Tags
+        const tdTags = document.createElement('td');
+        tdTags.contentEditable = 'true';
+        tdTags.textContent = (t.tags || []).join(', ');
+        tdTags.addEventListener('focus', e => { e.target.dataset.original = e.target.innerText.trim(); });
+        tdTags.addEventListener('blur', async (e) => {
+          const next = e.target.innerText.trim();
+          const prev = (e.target.dataset.original || '').trim();
+          if (next === prev) return;
+          const tags = parseTags(next);
+          await upsertTx(t, { ...t, tags });
+          renderTagBar();
+        });
+
+        // Actions
+        const tdActions = document.createElement('td');
+        const btnRow = document.createElement('div');
+        btnRow.className = 'btnrow';
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'clear-button';
+        delBtn.textContent = 'x';
+        delBtn.title = 'Delete transaction';
+        delBtn.addEventListener('click', async () => {
+          if (!confirm('Delete this entry?')) return;
+          await deleteTxFull(t);
+        });
+
+        const imgBtn = document.createElement('button');
+        imgBtn.textContent = t.img ? 'Replace Img' : 'Add Img';
+        imgBtn.title = 'Upload/Replace image';
+        imgBtn.addEventListener('click', () => uploadTxImage(t));
+
+        const viewBtn = document.createElement('button');
+        viewBtn.textContent = 'View';
+        viewBtn.disabled = !t.img;
+        viewBtn.addEventListener('click', () => {
+          if (!t.img) return;
+          openImgModal(t.name || 'Image', `${ymdFromUtcTS(t.date)} • ${t.type} • ${fmtUSD(Math.abs(t.amt || 0))}`, t.img);
+        });
+
+        const rmBtn = document.createElement('button');
+        rmBtn.textContent = 'Remove';
+        rmBtn.className = 'clear-button';
+        rmBtn.disabled = !(t.img || t.imgPath);
+        rmBtn.addEventListener('click', () => deleteTxImage(t));
+
+        btnRow.append(delBtn, imgBtn, viewBtn, rmBtn);
+        tdActions.appendChild(btnRow);
+
+        tr.append(tdDate, tdName, tdType, tdAmt, tdTags, tdActions);
+        tbody.appendChild(tr);
+      }
+
+      populateMonths(filtered);
+    }
+
+    /* =========================
+       Months table + add entry
+    ========================== */
+    function createButton(className, text, dataMonth, onClick) {
       const b = document.createElement('button');
-      b.className = className;
-      b.textContent = textContent;
-      if (dataMonth) b.setAttribute('data-month', dataMonth);
-      b.addEventListener('click', onClickCallback);
+      if (className) b.className = className;
+      b.textContent = text;
+      if (dataMonth) b.dataset.month = dataMonth;
+      b.addEventListener('click', onClick);
       return b;
     }
 
-    /* =========================
-       Months table
-    ========================== */
-    function populateMonths(records) {
-      const monthsContainer = document.querySelector('#months-container tbody');
-      if (!monthsContainer) return;
-      monthsContainer.innerHTML = '';
+    function populateMonths(txArr = null) {
+      const tbody = document.querySelector('#months-container tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
 
-      if (!records) {
-        records = [];
-        const savedData = _lastSavedData || {};
-        const yr = currentYear;
-        Object.entries(savedData).forEach(([dateKey, data]) => {
-          const [monthName, dayStr] = dateKey.split('-');
-          const mIdx = months.indexOf(monthName);
-          const baseDate = new Date(Date.UTC(yr, mIdx, parseInt(dayStr, 10)));
-          const details = (data.details || []).filter(d => new Date(d.date).getUTCFullYear() === yr);
-          details.forEach(d => {
-            records.push({
-              name: d.name ?? '',
-              type: d.type ?? '',
-              amount: Number(d.amount ?? 0),
-              _dateObject: baseDate,
-              dateKey,
-              tags: Array.isArray(d.tags) ? d.tags : []
-            });
-          });
-        });
-      }
+      const sums = Array.from({ length: 12 }, () => ({ income: 0, expense: 0 }));
+      const list = (txArr || txInCurrentYear());
 
-      const sums = Array.from({ length: 12 }, () => ({ income: 0, expenses: 0 }));
-
-      for (const r of records) {
-        let dt = r._dateObject instanceof Date ? r._dateObject : null;
-        if (!dt && r.dateKey) {
-          const [mName, dayStr] = String(r.dateKey).split('-');
-          const mIdx = months.indexOf(mName);
-          const dNum = parseInt(dayStr, 10) || 1;
-          dt = new Date(Date.UTC(currentYear, mIdx, dNum));
-        }
-        if (!dt) dt = new Date(r.date);
-        if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) continue;
+      for (const t of list) {
+        const dt = new Date(t.date);
         if (dt.getUTCFullYear() !== currentYear) continue;
-
         const mi = dt.getUTCMonth();
-        const amt = Number(r.amount) || 0;
-        const t = String(r.type || '').toLowerCase();
-
-        if (t === 'income') sums[mi].income += Math.abs(amt);
-        if (t === 'expenses' || t === 'expense') sums[mi].expenses += Math.abs(amt);
+        const v = Math.abs(Number(t.amt) || 0);
+        if (t.type === 'income') sums[mi].income += v;
+        else sums[mi].expense += v;
       }
 
-      months.forEach((month, i) => {
-        const income = sums[i].income, expenses = sums[i].expenses, balance = income - expenses;
-        const row = monthsContainer.insertRow();
-        row.innerHTML = `<td>${month}</td><td>${income.toFixed(2)}</td><td>${expenses.toFixed(2)}</td><td>${balance.toFixed(2)}</td><td></td><td></td>`;
-        row.cells[4].appendChild(createButton('add-income', 'Add Income', month, () => addEntry('Income', month)));
-        row.cells[5].appendChild(createButton('add-expense', 'Add Expense', month, () => addEntry('Expenses', month)));
+      MONTHS_ABBR.forEach((m, i) => {
+        const income = sums[i].income;
+        const expense = sums[i].expense;
+        const net = income - expense;
+        const row = tbody.insertRow();
+        row.innerHTML = `
+          <td>${m}</td>
+          <td>${income.toFixed(2)}</td>
+          <td>${expense.toFixed(2)}</td>
+          <td>${net.toFixed(2)}</td>
+          <td></td>
+          <td></td>
+        `;
+        row.cells[4].appendChild(createButton('add-income', 'Add Income', m, () => addEntry('income', i)));
+        row.cells[5].appendChild(createButton('add-expense', 'Add Expense', m, () => addEntry('expense', i)));
       });
     }
 
-    function calculateTotal(details, type) {
-      return (details || []).filter(d => String(d.type) === type).reduce((a, d) => a + (Number(d.amount) || 0), 0);
+    async function addEntry(type, monthIndex) {
+      const name = prompt(`Enter a name for this ${type}:`);
+      if (!name) return;
+
+      const amt = parseFloat(prompt(`Enter ${type} amount:`));
+      if (Number.isNaN(amt)) return;
+
+      let day = parseInt(prompt(`Enter day of month (1-31):`), 10);
+      if (Number.isNaN(day) || day < 1 || day > 31) day = new Date().getUTCDate();
+
+      const tags = parseTags(prompt('Add tags (comma-separated), optional:'));
+
+      const id = String(Date.now());
+      const dateTS = utcNoonTS(currentYear, monthIndex, day);
+
+      const tx = {
+        id,
+        amt: Math.abs(amt),
+        cat: '',
+        sub: '',
+        sku: '',
+        link: '',
+        img: '',
+        imgPath: '',
+        desc: '',
+        name,
+        tags,
+        type: (type === 'income') ? 'income' : 'expense',
+        date: dateTS
+      };
+
+      await upsertTx(null, tx);
     }
 
-    function addEntry(type, selectedMonth) {
-      const name = prompt(`Enter a name for this ${type}:`); if (!name) return;
-      const amount = parseFloat(prompt(`Enter ${type} amount:`)); if (isNaN(amount)) return;
-      const year = currentYear;
-
-      let inputDate = prompt(`Enter day of month for ${type} (1-31, default is today-UTC):`);
-      let day = parseInt(inputDate, 10);
-      if (isNaN(day) || day < 1 || day > 31) { const todayUTC = new Date(); day = todayUTC.getUTCDate(); }
-
-      const tagsInput = prompt('Add tags (comma-separated), optional:');
-      const tags = parseTags(tagsInput);
-
-      const monthIndex = months.indexOf(selectedMonth);
-      if (monthIndex === -1) { alert('Invalid month selection.'); return; }
-
-      if (!yearlyDetails[selectedMonth]) yearlyDetails[selectedMonth] = { details: [] };
-      const entryDateISO = isoUTCNoonFromYMD(year, monthIndex, day);
-      const dateKey = `${selectedMonth}-${day}`;
-
-      const newEntry = { name, type, amount: Math.abs(amount), date: entryDateISO, tags };
-
-      yearlyDetails[selectedMonth].details.push(newEntry);
-
-      fetchSavedData().then(savedData => {
-        if (!savedData[dateKey]) savedData[dateKey] = { details: [] };
-        savedData[dateKey].details.push(newEntry);
-        saveData(savedData);
-      });
-    }
-
+    /* =========================
+       Totals
+    ========================== */
     function calculateYearlyTotals() {
-      let totalIncome = 0, totalExpenses = 0, totalTransactions = 0;
-      months.forEach(m => {
-        if (yearlyDetails[m]) {
-          totalIncome += calculateTotal(yearlyDetails[m].details, 'Income');
-          totalExpenses += calculateTotal(yearlyDetails[m].details, 'Expenses');
-          totalTransactions += yearlyDetails[m].details.length;
-        }
-      });
-      document.getElementById('total-income').textContent = totalIncome.toFixed(2);
-      document.getElementById('total-expenses').textContent = totalExpenses.toFixed(2);
-      document.getElementById('yearly-balance').textContent = (totalIncome - totalExpenses).toFixed(2);
-      document.getElementById('total-transactions').textContent = totalTransactions;
+      const list = txInCurrentYear();
+      let income = 0, expense = 0;
+      for (const t of list) {
+        const v = Math.abs(Number(t.amt) || 0);
+        if (t.type === 'income') income += v;
+        else expense += v;
+      }
+      document.getElementById('total-income').textContent = income.toFixed(2);
+      document.getElementById('total-expenses').textContent = expense.toFixed(2);
+      document.getElementById('yearly-balance').textContent = (income - expense).toFixed(2);
+      document.getElementById('total-transactions').textContent = String(list.length);
     }
 
-    function fetchOverallTotals(savedData) {
-      let overallIncome = 0, overallExpenses = 0;
-      Object.values(savedData || {}).forEach(dayData => {
-        if (dayData?.details) {
-          overallIncome += calculateTotal(dayData.details, 'Income');
-          overallExpenses += calculateTotal(dayData.details, 'Expenses');
-        }
-      });
-      document.getElementById('overall-income').textContent = overallIncome.toFixed(2);
-      document.getElementById('overall-expenses').textContent = overallExpenses.toFixed(2);
-      document.getElementById('overall-balance').textContent = (overallIncome - overallExpenses).toFixed(2);
+    function renderOverallTotals() {
+      let income = 0, expense = 0;
+      for (const t of _allTx) {
+        const v = Math.abs(Number(t.amt) || 0);
+        if (t.type === 'income') income += v;
+        else expense += v;
+      }
+      document.getElementById('overall-income').textContent = income.toFixed(2);
+      document.getElementById('overall-expenses').textContent = expense.toFixed(2);
+      document.getElementById('overall-balance').textContent = (income - expense).toFixed(2);
     }
 
     /* =========================
-       Daily tracker
+       Daily grid + modal
     ========================== */
-    function generateYearGrid(savedData) {
-      const yearGrid = document.getElementById('year-grid'); if (!yearGrid) return;
-      yearGrid.innerHTML = '';
-      const start = new Date(Date.UTC(currentYear, 0, 1));
-      const end = new Date(Date.UTC(currentYear, 11, 31));
+    function generateYearGrid() {
+      const grid = document.getElementById('year-grid');
+      if (!grid) return;
+
+      grid.innerHTML = '';
+      const start = new Date(Date.UTC(currentYear, 0, 1, 12, 0, 0));
+      const end = new Date(Date.UTC(currentYear, 11, 31, 12, 0, 0));
       const today = new Date();
-      const todayMid = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+      const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 12, 0, 0));
 
-      for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
-        const monthName = months[d.getUTCMonth()];
-        const dayOfMonth = d.getUTCDate();
-        const dateKey = `${monthName}-${dayOfMonth}`;
-        const details = (savedData?.[dateKey]?.details || []).filter(e => new Date(e.date).getUTCFullYear() === currentYear);
-        const income = details.filter(x => x.type === 'Income').reduce((s, x) => s + (x.amount || 0), 0);
-        const expenses = details.filter(x => x.type === 'Expenses').reduce((s, x) => s + (x.amount || 0), 0);
+      const map = new Map();
+      for (const t of txInCurrentYear()) {
+        const key = ymdFromUtcTS(t.date);
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(t);
+      }
 
-        if (dayOfMonth === 1) {
+      for (let d = new Date(start); d <= end; d = new Date(d.getTime() + 86400000)) {
+        const ymd = `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+
+        if (d.getUTCDate() === 1) {
           const label = document.createElement('div');
-          label.textContent = monthName;
+          label.textContent = MONTHS_ABBR[d.getUTCMonth()];
           label.style.gridColumn = '1 / -1';
-          yearGrid.appendChild(label);
+          label.style.opacity = '.85';
+          label.style.fontWeight = '600';
+          grid.appendChild(label);
         }
 
-        const dayBlock = document.createElement('div');
-        dayBlock.className = 'day-block';
-        dayBlock.textContent = dayOfMonth;
-        dayBlock.setAttribute('data-date', dateKey);
+        const items = map.get(ymd) || [];
+        const income = items.filter(x => x.type === 'income').reduce((s, x) => s + Math.abs(Number(x.amt) || 0), 0);
+        const expense = items.filter(x => x.type !== 'income').reduce((s, x) => s + Math.abs(Number(x.amt) || 0), 0);
 
-        const sameDay = d.getUTCFullYear() === todayMid.getUTCFullYear() && d.getUTCMonth() === todayMid.getUTCMonth() && d.getUTCDate() === todayMid.getUTCDate();
-        if (sameDay) dayBlock.classList.add('today');
-        if (details.length > 0) {
-          if (expenses > income) dayBlock.classList.add('expenses-higher');
-          else dayBlock.classList.add('has-data');
+        const block = document.createElement('div');
+        block.className = 'day-block';
+        block.textContent = String(d.getUTCDate());
+        block.dataset.ymd = ymd;
+
+        if (items.length) {
+          if (expense > income) block.classList.add('expenses-higher');
+          else block.classList.add('has-data');
         }
 
-        dayBlock.addEventListener('click', () => displayDayDetails(dateKey));
-        yearGrid.appendChild(dayBlock);
+        if (d.getTime() === todayUTC.getTime()) block.classList.add('today');
+
+        block.addEventListener('click', () => showDayModal(ymd));
+        grid.appendChild(block);
       }
     }
 
-    function displayDayDetails(dateKey) {
-      const savedData = _lastSavedData || {};
-      const details = savedData[dateKey] || { details: [] };
-      const modalContent = document.getElementById('modalContent');
-      modalContent.innerHTML = '';
+    function showDayModal(ymd) {
+      _openDayYMD = ymd;  // ✅ remember which date is open
+      const modal = document.getElementById('detailsModal');
+      const content = document.getElementById('modalContent');
+      content.innerHTML = '';
 
-      const [month, day] = dateKey.split('-');
-      document.getElementById('date-selected').textContent = `${month} ${day}, ${currentYear}`;
+      const dt = new Date(utcNoonTSFromYMD(ymd));
+      const monthName = MONTHS_ABBR[dt.getUTCMonth()];
+      const day = dt.getUTCDate();
+      document.getElementById('date-selected').textContent = `${monthName} ${day}, ${currentYear} (UTC)`;
 
-      const filtered = (details.details || []).filter(d => new Date(d.date).getUTCFullYear() === currentYear);
+      const items = txInCurrentYear().filter(t => ymdFromUtcTS(t.date) === ymd)
+        .sort((a, b) => Number(a.date) - Number(b.date) || a.id.localeCompare(b.id));
 
-      if (filtered.length > 0) {
+      if (items.length) {
         const table = document.createElement('table');
-        table.innerHTML = `<thead><tr><th>Description</th><th>Category/Direction</th><th>Amount</th><th>Tags</th><th>Manage</th></tr></thead><tbody></tbody>`;
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Name</th><th>Type</th><th>Amount</th><th>Tags</th><th>Image</th><th>ID</th><th>Manage</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        `;
         const tbody = table.querySelector('tbody');
-        filtered.forEach((detail, index) => {
-          const row = document.createElement('tr');
-          row.innerHTML = `
-            <td contenteditable="true" data-key="name">${detail.name ?? ''}</td>
-            <td>${detail.type ?? ''}</td>
-            <td contenteditable="true" data-key="amount">${(detail.amount ?? 0)}</td>
-            <td contenteditable="true" data-key="tags">${formatTags(detail.tags || [])}</td>
-            <td><button class="clear-button" onclick="deleteEntry('${dateKey}', ${index})">Delete</button></td>
-          `;
-          row.querySelectorAll('[contenteditable="true"]').forEach(cell => {
-            cell.addEventListener('blur', (ev) => {
-              const key = ev.target.dataset.key;
-              let val = ev.target.innerText;
-              if (key === 'amount') updateEntry(dateKey, index, 'amount', val);
-              else if (key === 'tags') updateEntry(dateKey, index, 'tags', parseTags(val));
-              else updateEntry(dateKey, index, key, val);
-            });
+
+        for (const t of items) {
+          const tr = document.createElement('tr');
+
+          const tdName = document.createElement('td');
+          tdName.contentEditable = 'true';
+          tdName.textContent = t.name || '';
+          tdName.addEventListener('blur', async (e) => {
+            await upsertTx(t, { ...t, name: e.target.innerText.trim() });
           });
-          tbody.appendChild(row);
-        });
-        modalContent.appendChild(table);
+
+          const tdType = document.createElement('td');
+          tdType.appendChild(createTypeSelect(t.type, async (v) => {
+            await upsertTx(t, { ...t, type: v });
+          }));
+
+          const tdAmt = document.createElement('td');
+          tdAmt.contentEditable = 'true';
+          tdAmt.textContent = Number(t.amt || 0).toFixed(2);
+          tdAmt.addEventListener('blur', async (e) => {
+            const v = parseFloat(String(e.target.innerText).replace(/[^\d.-]/g, ''));
+            if (Number.isNaN(v)) { e.target.textContent = Number(t.amt || 0).toFixed(2); return; }
+            e.target.textContent = v.toFixed(2);
+            await upsertTx(t, { ...t, amt: v });
+          });
+
+          const tdTags = document.createElement('td');
+          tdTags.contentEditable = 'true';
+          tdTags.textContent = (t.tags || []).join(', ');
+          tdTags.addEventListener('blur', async (e) => {
+            const tags = parseTags(e.target.innerText);
+            await upsertTx(t, { ...t, tags });
+            renderTagBar();
+          });
+
+          const tdImg = document.createElement('td');
+          const row = document.createElement('div');
+          row.className = 'btnrow';
+
+          const up = document.createElement('button');
+          up.textContent = t.img ? 'Replace Img' : 'Add Img';
+          up.addEventListener('click', () => uploadTxImage(t));
+
+          const view = document.createElement('button');
+          view.textContent = 'View';
+          view.disabled = !t.img;
+          view.addEventListener('click', () => {
+            if (!t.img) return;
+            openImgModal(t.name || 'Image', `${ymdFromUtcTS(t.date)} • ${t.type} • ${fmtUSD(Math.abs(t.amt || 0))}`, t.img);
+          });
+
+          const rm = document.createElement('button');
+          rm.textContent = 'Remove';
+          rm.className = 'clear-button';
+          rm.disabled = !(t.img || t.imgPath);
+          rm.addEventListener('click', () => deleteTxImage(t));
+
+          row.append(up, view, rm);
+          tdImg.appendChild(row);
+
+          const tdId = document.createElement('td');
+          tdId.textContent = t.id;
+
+          const tdManage = document.createElement('td');
+          const del = document.createElement('button');
+          del.className = 'clear-button';
+          del.textContent = 'Delete';
+          del.addEventListener('click', async () => {
+            if (!confirm('Delete this entry?')) return;
+            await deleteTxFull(t);
+          });
+          tdManage.appendChild(del);
+
+          tr.append(tdName, tdType, tdAmt, tdTags, tdImg, tdId, tdManage);
+          tbody.appendChild(tr);
+        }
+
+        content.appendChild(table);
       } else {
-        modalContent.innerHTML = '<p>No details available for this date.</p>';
+        content.innerHTML = '<p>No entries for this date.</p>';
       }
 
-      modalContent.appendChild(createButton('', 'Add Income', null, () => addEntryFromModal(dateKey, 'Income')));
-      modalContent.appendChild(createButton('', 'Add Expense', null, () => addEntryFromModal(dateKey, 'Expenses')));
-      document.getElementById('detailsModal').style.display = 'block';
+      const addWrap = document.createElement('div');
+      addWrap.style.marginTop = '10px';
+      addWrap.appendChild(createButton('', 'Add Income', null, () => addEntryOnDate(ymd, 'income')));
+      addWrap.appendChild(createButton('', 'Add Expense', null, () => addEntryOnDate(ymd, 'expense')));
+      addWrap.style.display = 'flex';
+      addWrap.style.gap = '10px';
+      content.appendChild(addWrap);
+
+      modal.style.display = 'block';
     }
 
-    function addEntryFromModal(dateKey, type) {
-      const name = prompt(`Enter a name for this ${type}:`); if (!name) return;
-      const amount = parseFloat(prompt(`Enter ${type} amount:`)); if (isNaN(amount)) return;
+    async function addEntryOnDate(ymd, type) {
+      const name = prompt(`Enter a name for this ${type}:`);
+      if (!name) return;
+      const amt = parseFloat(prompt(`Enter ${type} amount:`));
+      if (Number.isNaN(amt)) return;
+      const tags = parseTags(prompt('Add tags (comma-separated), optional:'));
 
-      const [month, dayStr] = dateKey.split('-');
-      const day = parseInt(dayStr, 10) || 1;
-      const tagsInput = prompt('Add tags (comma-separated), optional:');
-      const tags = parseTags(tagsInput);
-      const monthIndex = months.indexOf(month);
+      const id = String(Date.now());
+      const dateTS = utcNoonTSFromYMD(ymd);
 
-      const newEntry = { name, type, amount: Math.abs(amount), date: isoUTCNoonFromYMD(currentYear, monthIndex, day), tags };
+      const tx = {
+        id,
+        amt: Math.abs(amt),
+        cat: '', sub: '', sku: '', link: '',
+        img: '', imgPath: '',
+        desc: '',
+        name,
+        tags,
+        type: (type === 'income') ? 'income' : 'expense',
+        date: dateTS
+      };
 
-      fetchSavedData().then(savedData => {
-        if (!savedData[dateKey]) savedData[dateKey] = { details: [] };
-        savedData[dateKey].details.push(newEntry);
-        saveData(savedData);
-        displayDayDetails(dateKey);
-      });
+      await upsertTx(null, tx);
+      showDayModal(ymd);
     }
 
-    window.deleteEntry = async function (dateKey, entryIndex) {
-      if (!confirm('Are you sure?')) return;
-      try {
-        let saved = await fetchSavedData();
-        if (saved[dateKey] && saved[dateKey].details.length > entryIndex) {
-          const filtered = saved[dateKey].details.filter(d => new Date(d.date).getUTCFullYear() === currentYear);
-          if (filtered.length > entryIndex) {
-            const globalIndex = saved[dateKey].details.indexOf(filtered[entryIndex]);
-            if (globalIndex !== -1) saved[dateKey].details.splice(globalIndex, 1);
-            if (saved[dateKey].details.length === 0) delete saved[dateKey];
-            await saveData(saved);
-            displayDayDetails(dateKey);
-          }
-        }
-      } catch (e) { console.error('❌ delete error', e); }
-    }
-
-    async function updateEntry(dateKey, entryIndex, field, newValue) {
-      let saved = await fetchSavedData();
-      if (saved[dateKey] && saved[dateKey].details.length > entryIndex) {
-        const filtered = saved[dateKey].details.filter(d => new Date(d.date).getUTCFullYear() === currentYear);
-        if (filtered.length > entryIndex) {
-          const globalIndex = saved[dateKey].details.indexOf(filtered[entryIndex]);
-          if (globalIndex !== -1) {
-            if (field === 'amount') { newValue = parseFloat(newValue); if (isNaN(newValue)) return; }
-            if (field === 'tags') { if (!Array.isArray(newValue)) newValue = parseTags(String(newValue ?? '')); }
-            saved[dateKey].details[globalIndex][field] = newValue;
-            await saveData(saved);
-          }
-        }
-      }
+    function closeModal() {
+      const el = document.getElementById('detailsModal');
+      if (el) el.style.display = 'none';
     }
 
     /* =========================
-       Charts
+       Charts (monthly bar + pie)
     ========================== */
-    let monthlyBarChart = null, yearPieChart = null;
-
-    function getMonthlyIncomeExpenses() {
-      const income = Array(12).fill(0), expenses = Array(12).fill(0);
-      months.forEach((m, idx) => {
-        const md = yearlyDetails[m] || { details: [] };
-        md.details.forEach(d => {
-          if (d.type === 'Income') income[idx] += d.amount || 0;
-          if (d.type === 'Expenses') expenses[idx] += d.amount || 0;
-        });
-      });
-      return { income, expenses };
+    function getMonthlyIncomeExpense() {
+      const income = Array(12).fill(0);
+      const expense = Array(12).fill(0);
+      for (const t of txInCurrentYear()) {
+        const dt = new Date(t.date);
+        const mi = dt.getUTCMonth();
+        const v = Math.abs(Number(t.amt) || 0);
+        if (t.type === 'income') income[mi] += v;
+        else expense[mi] += v;
+      }
+      return { income, expense };
     }
 
     function renderCharts() {
-      const { income, expenses } = getMonthlyIncomeExpenses();
-      const labels = months;
-
       const barCanvas = document.getElementById('monthlyBar');
-      if (!barCanvas) return;
-      const barCtx = barCanvas.getContext('2d');
-      if (!barCtx) return;
+      if (!barCanvas || typeof Chart === 'undefined') return;
+      const ctx = barCanvas.getContext('2d');
+      if (!ctx) return;
 
+      const { income, expense } = getMonthlyIncomeExpense();
       if (monthlyBarChart) monthlyBarChart.destroy();
-      monthlyBarChart = new Chart(barCtx, {
+
+      monthlyBarChart = new Chart(ctx, {
         type: 'bar',
-        data: { labels, datasets: [{ label: 'Income', data: income }, { label: 'Expenses', data: expenses }] },
+        data: {
+          labels: MONTHS_ABBR,
+          datasets: [
+            { label: 'Income', data: income },
+            { label: 'Expenses', data: expense }
+          ]
+        },
         options: {
           responsive: true,
           plugins: {
@@ -954,25 +1400,31 @@
       renderPie();
     }
 
+    function currentPieControls() {
+      const breakdown = (document.getElementById('pie-breakdown')?.value || 'months').toLowerCase();
+      const metric = (document.getElementById('pie-metric')?.value || 'expense').toLowerCase();
+      return { breakdown, metric };
+    }
+
     function renderPie() {
-      const { breakdown, metric } = currentPieControls();
       const pieCanvas = document.getElementById('yearPie');
-      if (!pieCanvas) return;
+      if (!pieCanvas || typeof Chart === 'undefined') return;
       const ctx = pieCanvas.getContext('2d');
       if (!ctx) return;
 
+      const { breakdown, metric } = currentPieControls();
+
       let labels = [], values = [];
-      if (breakdown === 'months') ({ labels, values } = groupByMonths(_lastSavedData, metric));
-      else if (breakdown === 'tags') ({ labels, values } = groupByTags(_lastSavedData, metric, 12));
-      else ({ labels, values } = groupByYears(_lastSavedData, metric));
+      if (breakdown === 'months') ({ labels, values } = pieByMonths(metric));
+      else if (breakdown === 'tags') ({ labels, values } = pieByTags(metric, 12));
+      else ({ labels, values } = pieByYears(metric));
 
-      let title = '';
-      if (breakdown === 'months') title = `${capitalize(metric)} by Month — ${currentYear}`;
-      else if (breakdown === 'tags') title = `${capitalize(metric)} by Tag — ${currentYear}`;
-      else title = `${capitalize(metric)} by Year`;
+      const title =
+        breakdown === 'months' ? `${metric.toUpperCase()} by Month — ${currentYear}` :
+          breakdown === 'tags' ? `${metric.toUpperCase()} by Tag — ${currentYear}` :
+            `${metric.toUpperCase()} by Year`;
 
-      if (yearPieChart && typeof yearPieChart.destroy === 'function') yearPieChart.destroy();
-
+      if (yearPieChart) yearPieChart.destroy();
       yearPieChart = new Chart(ctx, {
         type: 'pie',
         data: { labels, datasets: [{ label: title, data: values }] },
@@ -981,88 +1433,51 @@
           plugins: {
             title: { display: true, text: title },
             legend: { position: 'right' },
-            tooltip: { callbacks: { label: (tt) => `${tt.label ?? ''}: $${Number(tt.raw ?? 0).toFixed(2)}` } }
+            tooltip: { callbacks: { label: (tt) => `${tt.label ?? ''}: ${fmtUSD(Number(tt.raw ?? 0))}` } }
           }
         }
       });
     }
 
-    function isIncome(d) { return String(d?.type || '').toLowerCase() === 'income'; }
-
-    function isExpense(d) { const t = String(d?.type || '').toLowerCase(); return t === 'expenses' || t === 'expense'; }
-
-    function currentPieControls() {
-      const breakdown = (document.getElementById('pie-breakdown')?.value || 'months').toLowerCase();
-      const metric = (document.getElementById('pie-metric')?.value || 'expenses').toLowerCase();
-      return { breakdown, metric };
-    }
-
-    function capitalize(s) { return String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1); }
-
-    function groupByMonths(savedData, metric) {
+    function pieByMonths(metric) {
       const totals = Array(12).fill(0);
-      for (const bucket of Object.values(savedData || {})) {
-        const items = Array.isArray(bucket?.details) ? bucket.details : [];
-        for (const d of items) {
-          if (!d?.date) continue;
-          const dt = new Date(d.date);
-          if (dt.getUTCFullYear() !== currentYear) continue;
-          const m = dt.getUTCMonth();
-          const val = Number(d.amount) || 0;
-          if (metric === 'income' && isIncome(d)) totals[m] += val;
-          if (metric === 'expenses' && isExpense(d)) totals[m] += val;
-        }
+      for (const t of txInCurrentYear()) {
+        if (t.type !== metric) continue;
+        const dt = new Date(t.date);
+        totals[dt.getUTCMonth()] += Math.abs(Number(t.amt) || 0);
       }
-      return { labels: months.slice(), values: totals };
+      return { labels: MONTHS_ABBR.slice(), values: totals };
     }
 
-    function groupByTags(savedData, metric, topN = 12) {
+    function pieByTags(metric, topN = 12) {
       const map = new Map();
-      for (const bucket of Object.values(savedData || {})) {
-        const items = Array.isArray(bucket?.details) ? bucket.details : [];
-        for (const d of items) {
-          if (!d?.date) continue;
-          const dt = new Date(d.date);
-          if (dt.getUTCFullYear() !== currentYear) continue;
-          const val = Number(d.amount) || 0;
-          const ok = (metric === 'income' && isIncome(d)) || (metric === 'expenses' && isExpense(d));
-          if (!ok) continue;
-          const tags = Array.isArray(d.tags) ? d.tags : [];
-          if (!tags.length) {
-            map.set('(No tag)', (map.get('(No tag)') || 0) + val);
-          } else {
-            for (const raw of tags) {
-              const t = String(raw || '').trim();
-              if (!t) continue;
-              map.set(t, (map.get(t) || 0) + val);
-            }
-          }
+      for (const t of txInCurrentYear()) {
+        if (t.type !== metric) continue;
+        const v = Math.abs(Number(t.amt) || 0);
+        const tags = (t.tags && t.tags.length) ? t.tags : ['(No tag)'];
+        for (const raw of tags) {
+          const key = String(raw || '').trim() || '(No tag)';
+          map.set(key, (map.get(key) || 0) + v);
         }
       }
       const entries = Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
       const top = entries.slice(0, topN);
       const rest = entries.slice(topN);
-      const otherSum = rest.reduce((s, [, v]) => s + v, 0);
+      const other = rest.reduce((s, [, v]) => s + v, 0);
 
       const labels = top.map(([k]) => k);
       const values = top.map(([, v]) => v);
-      if (otherSum > 0) { labels.push('Other'); values.push(otherSum); }
+      if (other > 0) { labels.push('Other'); values.push(other); }
       if (!labels.length) return { labels: ['(No data)'], values: [0] };
       return { labels, values };
     }
 
-    function groupByYears(savedData, metric) {
+    function pieByYears(metric) {
       const map = new Map();
-      for (const bucket of Object.values(savedData || {})) {
-        const items = Array.isArray(bucket?.details) ? bucket.details : [];
-        for (const d of items) {
-          if (!d?.date) continue;
-          const dt = new Date(d.date);
-          const y = dt.getUTCFullYear();
-          const val = Number(d.amount) || 0;
-          if (metric === 'income' && isIncome(d)) map.set(y, (map.get(y) || 0) + val);
-          if (metric === 'expenses' && isExpense(d)) map.set(y, (map.get(y) || 0) + val);
-        }
+      for (const t of _allTx) {
+        if (t.type !== metric) continue;
+        const y = yearFromTS(t.date);
+        map.set(y, (map.get(y) || 0) + Math.abs(Number(t.amt) || 0));
       }
       const years = Array.from(map.keys()).sort((a, b) => a - b);
       const values = years.map(y => map.get(y));
@@ -1071,329 +1486,47 @@
     }
 
     /* =========================
-       Transactions table (flatten/edit)
+       CSV Exports
     ========================== */
-    window.filterGlobalEntries = function () { displayAllTransactions(); };
-
-    async function displayAllTransactions() {
-      const savedData = _lastSavedData || {};
-      const tbody = document.querySelector('#transactions-table tbody'); if (!tbody) return;
-      tbody.innerHTML = '';
-
-      const input = document.getElementById('global-search');
-      const query = input ? (input.value ?? '') : '';
-      const current = currentYear;
-
-      const records = [];
-      Object.entries(savedData).forEach(([dateKey, data]) => {
-        const [monthName, dayStr] = dateKey.split('-');
-        const monthIndex = months.indexOf(monthName);
-        const dateObject = new Date(Date.UTC(current, monthIndex, parseInt(dayStr, 10)));
-        const details = (data.details || []).filter(d => new Date(d.date).getUTCFullYear() === current);
-        details.forEach((detail, index) => {
-          records.push({
-            name: detail.name ?? '',
-            type: detail.type ?? '',
-            amount: Number(detail.amount ?? 0),
-            date: new Date(detail.date || dateObject),
-            dateKey,
-            _dateObject: dateObject,
-            _detail: detail,
-            _index: index,
-            tags: Array.isArray(detail.tags) ? detail.tags : []
-          });
-        });
-      });
-
-      const filtered = _engine ? _engine.filter(records, query) : simpleFilter(records, query);
-
-      updateFilteredTotal(filtered.map(r => r._detail));
-
-      filtered.sort((a, b) => {
-        const ad = a._detail?.date ? new Date(a._detail.date).getTime() : a._dateObject.getTime();
-        const bd = b._detail?.date ? new Date(b._detail.date).getTime() : b._dateObject.getTime();
-        if (_txSortAsc) { if (ad !== bd) return ad - bd; } else { if (ad !== bd) return bd - ad; }
-        const an = String(a.name || ''); const bn = String(b.name || '');
-        if (an !== bn) return an.localeCompare(bn);
-        return (a.amount || 0) - (b.amount || 0);
-      });
-
-      filtered.forEach(rec => {
-        const { dateKey, _detail: detail, _index: index } = rec;
-        const tr = document.createElement('tr'); tr.classList.add('transaction-row');
-
-        // Date
-        const tdDate = document.createElement('td');
-        const currentISO = isoDateOnlyUTC(detail.date || rec._dateObject);
-        const dateInput = document.createElement('input');
-        dateInput.type = 'date';
-        dateInput.value = currentISO;
-        dateInput.style.minWidth = '130px';
-        dateInput.title = 'Change date';
-        dateInput.addEventListener('change', async (e) => {
-          const next = e.target.value;
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) { alert('Invalid date format. Use YYYY-MM-DD.'); e.target.value = currentISO; return; }
-          try { await moveEntryDate(dateKey, index, next); } catch (err) { console.error(err); alert('Failed to change date.'); e.target.value = currentISO; }
-        });
-        tdDate.appendChild(dateInput);
-
-        // Name
-        const tdName = document.createElement('td');
-        tdName.contentEditable = 'true'; tdName.dataset.key = 'name';
-        tdName.textContent = detail.name || 'Unknown';
-        tdName.addEventListener('focus', e => { e.target.dataset.original = e.target.innerText.trim(); });
-        tdName.addEventListener('blur', e => {
-          const next = e.target.innerText.trim(); const prev = (e.target.dataset.original ?? '').trim();
-          if (next === prev) return;
-          updateTransactionEntry(dateKey, index, 'name', next);
-        });
-
-        // Type
-        const tdType = document.createElement('td');
-        tdType.appendChild(createTypeSelect(detail.type || 'Expenses', async v => {
-          await updateTransactionEntry(dateKey, index, 'type', v);
-          handleYearChange();
-        }));
-
-        // Amount
-        const tdAmount = document.createElement('td');
-        tdAmount.contentEditable = 'true'; tdAmount.dataset.key = 'amount';
-        tdAmount.textContent = (detail.amount ?? 0).toFixed(2);
-        tdAmount.addEventListener('focus', e => { e.target.dataset.original = String(detail.amount ?? 0); });
-        tdAmount.addEventListener('blur', e => {
-          let v = parseFloat(e.target.innerText.replace(/[^\d.-]/g, ''));
-          if (isNaN(v)) { e.target.textContent = (detail.amount ?? 0).toFixed(2); return; }
-          const prev = parseFloat(e.target.dataset.original ?? 'NaN');
-          if (!isNaN(prev) && v === prev) { e.target.textContent = prev.toFixed(2); return; }
-          e.target.textContent = v.toFixed(2);
-          updateTransactionEntry(dateKey, index, 'amount', v);
-        });
-
-        // Tags
-        const tdTags = document.createElement('td');
-        tdTags.contentEditable = 'true'; tdTags.dataset.key = 'tags';
-        tdTags.textContent = formatTags(detail.tags || []);
-        tdTags.addEventListener('focus', e => { e.target.dataset.original = e.target.innerText.trim(); });
-        tdTags.addEventListener('blur', async e => {
-          const next = e.target.innerText.trim(); const prev = (e.target.dataset.original ?? '').trim();
-          if (next === prev) return;
-          const tagsArr = parseTags(next);
-          await updateTransactionEntry(dateKey, index, 'tags', tagsArr);
-          handleYearChange();
-        });
-
-        // Actions
-        const tdActions = document.createElement('td');
-        const delBtn = document.createElement('button'); delBtn.className = 'clear-button'; delBtn.textContent = 'x';
-        delBtn.addEventListener('click', () => { deleteTransactionEntry(dateKey, index); });
-        tdActions.appendChild(delBtn);
-
-        tr.append(tdDate, tdName, tdType, tdAmount, tdTags, tdActions);
-        tbody.appendChild(tr);
-      });
-
-      populateMonths(filtered);
-    }
-
-    async function updateTransactionEntry(dateKey, entryIndex, field, newValue) {
-      let saved = await fetchSavedData();
-      if (saved[dateKey] && saved[dateKey].details.length > entryIndex) {
-        const filtered = saved[dateKey].details.filter(d => new Date(d.date).getUTCFullYear() === currentYear);
-        if (filtered.length > entryIndex) {
-          const globalIndex = saved[dateKey].details.indexOf(filtered[entryIndex]);
-          if (globalIndex !== -1) {
-            if (field === 'amount') { newValue = parseFloat(newValue); if (isNaN(newValue)) return; }
-            if (field === 'tags') { if (!Array.isArray(newValue)) newValue = parseTags(String(newValue ?? '')); }
-            saved[dateKey].details[globalIndex][field] = newValue;
-            await saveData(saved);
-          }
-        }
+    function exportTransactionsCSV() {
+      const rows = [['Date', 'Name', 'Type', 'Amount', 'Tags', 'ID', 'ImgURL', 'ImgPath']];
+      for (const t of txInCurrentYear()) {
+        rows.push([
+          ymdFromUtcTS(t.date),
+          t.name ?? '',
+          t.type,
+          Number(t.amt || 0).toFixed(2),
+          (t.tags || []).join('|'),
+          t.id,
+          t.img || '',
+          t.imgPath || ''
+        ]);
       }
+      if (rows.length === 1) { alert(`No transactions found for ${currentYear}.`); return; }
+      downloadCSV(`transactions_${currentYear}.csv`, rows);
     }
 
-    function updateFilteredTotal(filteredData) {
-      let totalIncome = 0, totalExpenses = 0;
-      for (const detail of filteredData) {
-        const amt = Number(detail?.amount) || 0;
-        const t = String(detail?.type || '').toLowerCase();
-        if (t === 'income') totalIncome += amt;
-        else if (t === 'expenses' || t === 'expense') totalExpenses += amt;
+    function exportMonthlySummaryCSV() {
+      const sums = Array.from({ length: 12 }, () => ({ income: 0, expense: 0 }));
+      for (const t of txInCurrentYear()) {
+        const mi = new Date(t.date).getUTCMonth();
+        const v = Math.abs(Number(t.amt) || 0);
+        if (t.type === 'income') sums[mi].income += v;
+        else sums[mi].expense += v;
       }
-      const net = totalIncome - totalExpenses;
-      const fmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' });
-      const el = document.getElementById('filtered-total');
-      if (el) el.textContent = `Filtered Total: ${fmt.format(net)} (Income: ${fmt.format(totalIncome)} • Expenses: ${fmt.format(totalExpenses)})`;
-    }
-
-    function simpleFilter(records, query) {
-      const q = String(query || '').trim(); if (!q) return records;
-      const m = q.match(/tags\s*:\s*(?:"([^"]+)"|([^\s]+))/i); if (!m) return records;
-      const want = (m[1] || m[2] || '').toLowerCase(); if (!want) return records;
-      return records.filter(r => Array.isArray(r.tags) && r.tags.some(t => String(t).toLowerCase() === want));
-    }
-
-    function createTypeSelect(currentType, onChange) {
-      const sel = document.createElement('select');
-      ['Income', 'Expenses'].forEach(val => {
-        const opt = document.createElement('option');
-        opt.value = val; opt.textContent = val;
-        if ((currentType || '').toLowerCase() === val.toLowerCase()) opt.selected = true;
-        sel.appendChild(opt);
-      });
-      sel.addEventListener('change', e => onChange(e.target.value));
-      return sel;
-    }
-
-    window.deleteTransactionEntry = async function (dateKey, entryIndex) {
-      if (!confirm('Are you sure you want to delete this entry?')) return;
-      try {
-        let saved = await fetchSavedData();
-        if (saved[dateKey] && saved[dateKey].details.length > entryIndex) {
-          const filtered = saved[dateKey].details.filter(d => new Date(d.date).getUTCFullYear() === currentYear);
-          if (filtered.length > entryIndex) {
-            const globalIndex = saved[dateKey].details.indexOf(filtered[entryIndex]);
-            if (globalIndex !== -1) saved[dateKey].details.splice(globalIndex, 1);
-            if (saved[dateKey].details.length === 0) delete saved[dateKey];
-            await saveData(saved);
-            handleYearChange();
-            displayAllTransactions();
-          }
-        }
-      } catch (e) { console.error('❌ Error deleting entry:', e); }
-    }
-
-    async function moveEntryDate(oldDateKey, entryIndex, newISODate) {
-      const safeISO = new Date(Date.UTC(+newISODate.slice(0, 4), +newISODate.slice(5, 7) - 1, +newISODate.slice(8, 10), 12, 0, 0)).toISOString();
-      let saved = await fetchSavedData();
-      if (!saved[oldDateKey] || !Array.isArray(saved[oldDateKey].details)) return;
-
-      const sameYear = saved[oldDateKey].details.filter(d => new Date(d.date).getUTCFullYear() === currentYear);
-      if (entryIndex < 0 || entryIndex >= sameYear.length) return;
-      const entry = sameYear[entryIndex];
-      const globalIndex = saved[oldDateKey].details.indexOf(entry);
-      if (globalIndex === -1) return;
-
-      saved[oldDateKey].details.splice(globalIndex, 1);
-      if (saved[oldDateKey].details.length === 0) delete saved[oldDateKey];
-
-      entry.date = safeISO;
-      const newKey = monthDayKeyUTC(newISODate);
-      if (!saved[newKey]) saved[newKey] = { details: [] };
-      saved[newKey].details.push(entry);
-      await saveData(saved);
-
-      const nextYear = new Date(safeISO).getUTCFullYear();
-      if (nextYear !== currentYear) {
-        const yrSel = document.getElementById('yearSelect');
-        if (yrSel) { yrSel.value = String(nextYear); currentYear = nextYear; }
+      const rows = [['Month', 'Income', 'Expenses', 'Net']];
+      for (let i = 0; i < 12; i++) {
+        const inc = sums[i].income, exp = sums[i].expense;
+        rows.push([MONTHS_ABBR[i], inc.toFixed(2), exp.toFixed(2), (inc - exp).toFixed(2)]);
       }
-      handleYearChange(); generateYearGrid(_lastSavedData); displayAllTransactions();
-    }
-
-    /* =========================
-       Tag bar & CSV export
-    ========================== */
-    function parseTags(input) { if (!input) return []; return String(input).split(',').map(t => t.trim()).filter(Boolean).slice(0, 20); }
-
-    function formatTags(arr) { if (!Array.isArray(arr)) return ''; return arr.join(', '); }
-
-    function buildTagIndex(savedData) {
-      const map = new Map();
-      for (const [, bucket] of Object.entries(savedData || {})) {
-        const details = Array.isArray(bucket?.details) ? bucket.details : [];
-        for (const d of details) {
-          if (!d?.date || new Date(d.date).getUTCFullYear() !== currentYear) continue;
-          const tags = Array.isArray(d.tags) ? d.tags : [];
-          for (const raw of tags) {
-            const t = String(raw || '').trim(); if (!t) continue;
-            const key = t.toLowerCase();
-            const prev = map.get(key);
-            if (prev) prev.count += 1; else map.set(key, { label: t, count: 1 });
-          }
-        }
-      }
-      return Array.from(map.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-    }
-
-    function renderTagBar(savedData) {
-      const bar = document.getElementById('tag-bar'); if (!bar) return;
-      bar.innerHTML = '';
-      const tags = buildTagIndex(savedData);
-      if (!tags.length) {
-        const empty = document.createElement('span');
-        empty.textContent = 'No tags for this year.';
-        empty.style.opacity = '.7';
-        bar.appendChild(empty);
-        return;
-      }
-
-      const clear = document.createElement('button');
-      clear.type = 'button';
-      clear.className = 'tag-chip';
-      clear.textContent = 'Clear';
-      clear.addEventListener('click', () => {
-        const input = document.getElementById('global-search');
-        if (input) { input.value = ''; filterGlobalEntries(); }
-        bar.querySelectorAll('.tag-chip').forEach(el => el.classList.remove('active'));
-      });
-      bar.appendChild(clear);
-
-      tags.forEach(({ label, count }) => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'tag-chip';
-        btn.title = `Filter by tag: ${label}`;
-        btn.textContent = `${label} (${count})`;
-        btn.addEventListener('click', () => {
-          applyTagFilter(label);
-          bar.querySelectorAll('.tag-chip').forEach(el => el.classList.remove('active'));
-          btn.classList.add('active');
-        });
-        bar.appendChild(btn);
-      });
-    }
-
-    function quoteForQuery(s) {
-      if (s == null) return '';
-      const has = /[\s"]/g.test(s);
-      const safe = String(s).replace(/"/g, '\\"');
-      return has ? `"${safe}"` : s;
-    }
-
-    function applyTagFilter(tag) {
-      const input = document.getElementById('global-search');
-      if (!input) return;
-      input.value = `tags:${quoteForQuery(tag)}`;
-      filterGlobalEntries();
-      input.focus();
-    }
-
-    function normalizeTags(tags) {
-      if (Array.isArray(tags)) return tags.map(t => String(t).trim()).filter(Boolean);
-      if (typeof tags === 'string') return tags.split(',').map(t => t.trim()).filter(Boolean);
-      return [];
-    }
-
-    function csvEscape(v) {
-      const s = String(v ?? '');
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      downloadCSV(`monthly_summary_${currentYear}.csv`, rows);
     }
 
     function exportTagsCSV() {
-      const savedData = _lastSavedData || {};
-      const Y = currentYear;
-
-      // How to handle multi-tag transactions:
-      // - "split" = divide amount evenly across tags (prevents double counting)
-      // - "full"  = count full amount under every tag (inflates totals when multi-tagged)
       const MULTI_TAG_MODE = 'split';
-
-      const MONTH_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
       const EPS = 1e-9;
 
-      // tag -> { monthIndex -> netValue }
       const tagMonth = new Map();
-      // monthIndex -> netValue (total monthly row)
       const monthTotals = Array(12).fill(0);
 
       function addTo(tag, mi, delta) {
@@ -1402,86 +1535,40 @@
         monthTotals[mi] += delta;
       }
 
-      for (const bucket of Object.values(savedData || {})) {
-        const items = Array.isArray(bucket?.details) ? bucket.details : [];
-        for (const d of items) {
-          if (!d?.date) continue;
-          const dt = new Date(d.date);
-          if (Number.isNaN(dt.getTime())) continue;
-          if (dt.getUTCFullYear() !== Y) continue;
+      for (const t of txInCurrentYear()) {
+        const dt = new Date(t.date);
+        const mi = dt.getUTCMonth();
+        const amt = Math.abs(Number(t.amt) || 0);
+        if (amt < EPS) continue;
 
-          const mi = dt.getUTCMonth();
-          const amt = Number(d.amount) || 0;
-          if (Math.abs(amt) < EPS) continue;
+        // expenses positive, income negative (net spending by tag)
+        const net = (t.type === 'expense') ? amt : -amt;
 
-          const type = String(d.type || '').toLowerCase();
-          const isInc = type === 'income';
-          const isExp = (type === 'expenses' || type === 'expense');
+        let tags = (t.tags || []).map(x => String(x || '').trim()).filter(Boolean);
+        if (!tags.length) tags = ['(No tag)'];
 
-          // Net rule:
-          //   Expense = +amt
-          //   Income  = -amt
-          const net = isExp ? amt : -amt;
-
-          let tags = Array.isArray(d.tags) ? d.tags : [];
-          tags = tags.map(t => String(t || '').trim()).filter(Boolean);
-          if (!tags.length) tags = ['(No tag)'];
-
-          const share = (MULTI_TAG_MODE === 'split' && tags.length > 0) ? (net / tags.length) : net;
-
-          for (const tag of tags) addTo(tag, mi, share);
-        }
+        const share = (MULTI_TAG_MODE === 'split' && tags.length) ? (net / tags.length) : net;
+        for (const tag of tags) addTo(tag, mi, share);
       }
 
-      if (tagMonth.size === 0) {
-        alert(`No tagged transactions found for ${Y}.`);
-        return;
-      }
+      if (!tagMonth.size) { alert(`No tagged transactions found for ${currentYear}.`); return; }
 
-      // Build rows sorted by annual total (largest magnitude first), then name
       const rows = [];
-      rows.push(['Tags', ...MONTH_FULL, 'Total Annually']);
+      rows.push(['Tags', ...MONTHS_FULL, 'Total Annually']);
 
       const tagRows = Array.from(tagMonth.entries()).map(([tag, arr]) => {
         const annual = arr.reduce((s, v) => s + v, 0);
         return { tag, arr, annual };
-      }).sort((a, b) => {
-        const am = Math.abs(a.annual), bm = Math.abs(b.annual);
-        if (bm !== am) return bm - am;
-        return a.tag.localeCompare(b.tag);
-      });
+      }).sort((a, b) => Math.abs(b.annual) - Math.abs(a.annual) || a.tag.localeCompare(b.tag));
 
       for (const r of tagRows) {
-        rows.push([
-          r.tag,
-          ...r.arr.map(v => Number(v.toFixed(2))),
-          Number(r.annual.toFixed(2))
-        ]);
+        rows.push([r.tag, ...r.arr.map(v => Number(v.toFixed(2))), Number(r.annual.toFixed(2))]);
       }
 
       const annualTotal = monthTotals.reduce((s, v) => s + v, 0);
-      rows.push([
-        'Total Monthly',
-        ...monthTotals.map(v => Number(v.toFixed(2))),
-        Number(annualTotal.toFixed(2))
-      ]);
+      rows.push(['Total Monthly', ...monthTotals.map(v => Number(v.toFixed(2))), Number(annualTotal.toFixed(2))]);
 
-      const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
-
-      try {
-        const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `tags_by_month_${Y}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } catch (e) {
-        console.error('CSV export failed:', e);
-        alert('CSV export failed.');
-      }
+      downloadCSV(`tags_by_month_${currentYear}.csv`, rows);
     }
 
     function downloadCSV(filename, rows) {
@@ -1497,357 +1584,360 @@
       URL.revokeObjectURL(url);
     }
 
-    function flattenTransactions(savedData, yearFilter = null) {
-      const out = [];
-      for (const [dateKey, bucket] of Object.entries(savedData || {})) {
-        const arr = Array.isArray(bucket?.details) ? bucket.details : [];
-        for (let i = 0; i < arr.length; i++) {
-          const d = arr[i];
-          if (!d?.date) continue;
-          const dt = new Date(d.date);
-          if (Number.isNaN(dt.getTime())) continue;
-
-          const y = dt.getUTCFullYear();
-          if (yearFilter != null && y !== Number(yearFilter)) continue;
-
-          const m = months[dt.getUTCMonth()];
-          const day = dt.getUTCDate();
-          const iso = dt.toISOString().slice(0, 10);
-
-          const type = String(d.type || '');
-          const amt = Number(d.amount) || 0;
-          const tagsArr = Array.isArray(d.tags) ? d.tags : (typeof d.tags === 'string' ? d.tags.split(',') : []);
-          const tags = tagsArr.map(t => String(t).trim()).filter(Boolean);
-
-          out.push({
-            year: y,
-            month: m,
-            day,
-            iso,
-            dateKey,
-            indexInBucket: i,
-            name: String(d.name ?? ''),
-            type,
-            amount: amt,
-            tags
-          });
-        }
+    /* =========================
+       Backup / Restore (year-bucketed)
+    ========================== */
+    function exportBackupJSON() {
+      const years = {};
+      for (const t of _allTx) {
+        const y = yearFromTS(t.date);
+        years[y] ||= {};
+        years[y][t.id] = stripTxForSave(t);
       }
-      return out;
-    }
+      const payload = { schema: 'ledgerTx.v2', exportedAt: new Date().toISOString(), years };
 
-    function exportTransactionsCSV() {
-      const savedData = _lastSavedData || {};
-      const Y = currentYear;
-
-      const rows = [];
-      rows.push(['Date', 'Name', 'Type', 'Amount', 'Tags']);
-
-      for (const bucket of Object.values(savedData || {})) {
-        const items = Array.isArray(bucket?.details) ? bucket.details : [];
-        for (const d of items) {
-          if (!d?.date) continue;
-
-          const dt = new Date(d.date);
-          if (Number.isNaN(dt.getTime())) continue;
-          if (dt.getUTCFullYear() !== Y) continue;
-
-          const amount = Number(d.amount) || 0;
-          const tags = Array.isArray(d.tags)
-            ? d.tags.map(t => String(t).trim()).filter(Boolean)
-            : [];
-
-          rows.push([
-            dt.toISOString().slice(0, 10),
-            String(d.name ?? ''),
-            String(d.type ?? ''),
-            amount.toFixed(2),
-            tags.join('|')
-          ]);
-        }
-      }
-
-      if (rows.length === 1) {
-        alert(`No transactions found for ${Y}.`);
-        return;
-      }
-
-      const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
-      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-
-      const url = URL.createObjectURL(blob);
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `transactions_${Y}.csv`;
+      a.href = dataStr;
+      a.download = `ledgerTx_backup_${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      a.remove();
     }
 
-    function exportMonthlySummaryCSV() {
-      const savedData = _lastSavedData || {};
-      const tx = flattenTransactions(savedData, currentYear);
-
-      const sums = {};
-      months.forEach(m => sums[m] = { income: 0, expenses: 0 });
-
-      for (const t of tx) {
-        const type = String(t.type).toLowerCase();
-        if (type === 'income') sums[t.month].income += t.amount;
-        else if (type === 'expenses' || type === 'expense') sums[t.month].expenses += t.amount;
-      }
-
-      const rows = [['Month', 'Income', 'Expenses', 'Net']];
-      for (const m of months) {
-        const income = sums[m].income;
-        const expenses = sums[m].expenses;
-        rows.push([m, income.toFixed(2), expenses.toFixed(2), (income - expenses).toFixed(2)]);
-      }
-
-      downloadCSV(`monthly_summary_${currentYear}.csv`, rows);
-    }
-
-    /* =========================
-       Export / Import / Clear
-    ========================== */
-    function exportDetailsToJSON() {
-      fetchSavedData().then(saved => {
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(saved, null, 2));
-        const a = document.createElement('a');
-        a.setAttribute('href', dataStr);
-        a.setAttribute('download', `financial_tracker_backup_${new Date().toISOString().slice(0, 10)}.json`);
-        document.body.appendChild(a); a.click(); a.remove();
-      });
-    }
-
-    async function importJSONReplaceExisting(event) {
-      const file = event.target.files?.[0]; event.target.value = '';
+    async function restoreBackupOverwrite(e) {
+      const file = e.target.files?.[0];
+      e.target.value = '';
       if (!file) return;
-      const warned = confirm('⚠️ WARNING: Importing will REPLACE all current data.\n\nPlease export a BACKUP first.\n\nClick OK to continue.');
+
+      const warned = confirm('⚠️ WARNING: Restore will OVERWRITE all current transactions.\n\nExport a backup first.\n\nClick OK to continue.');
       if (!warned) return;
 
       let parsed;
-      try { const text = await file.text(); parsed = JSON.parse(text); }
-      catch (err) { console.error('Failed to parse JSON:', err); alert('❌ Invalid JSON file.'); return; }
-
-      const isObj = parsed && typeof parsed === 'object' && !Array.isArray(parsed);
-      if (!isObj) { alert('❌ Invalid format: root must be an object of { "Mon-1": { details: [...] }, ... }'); return; }
-
-      let dayBuckets = 0, entries = 0;
-      try { Object.values(parsed).forEach(v => { dayBuckets++; const arr = (v && Array.isArray(v.details)) ? v.details : []; entries += arr.length; }); } catch (_) { }
-
-      const confirmReplace = confirm(`This will OVERWRITE existing data at "Budget".\n\nAbout to import ~${dayBuckets} day buckets and ~${entries} entries.\n\nAre you sure?`);
-      if (!confirmReplace) return;
-
-      try { await set(ref(database, `${DATABASE_BASE_PATH}/budget`), parsed); alert('✅ Import complete.'); }
-      catch (err) { console.error('Error writing imported data:', err); alert('❌ Failed to write imported data.'); }
-    }
-
-    function clearDetails() {
-      if (confirm('Are you sure you want to clear all data? This cannot be undone.')) {
-        set(ref(database, `${DATABASE_BASE_PATH}/budget`), {});
-        alert('All data has been cleared.');
-      }
-    }
-
-    async function fetchSavedData() {
       try {
-        const snapshot = await get(ref(database, `${DATABASE_BASE_PATH}/budget`));
-        return snapshot.exists() ? snapshot.val() : {};
-      } catch (e) {
-        console.error('❌ fetch error', e);
-        return {};
+        parsed = JSON.parse(await file.text());
+      } catch {
+        alert('❌ Invalid JSON file.');
+        return;
+      }
+
+      const yearsObj = parsed?.years && typeof parsed.years === 'object' ? parsed.years : null;
+      if (!yearsObj) {
+        alert('❌ Invalid format. Expected: { schema, exportedAt, years: { "2026": { "id": {...} } } }');
+        return;
+      }
+
+      const out = {};
+      let count = 0;
+
+      for (const [yearKey, items] of Object.entries(yearsObj)) {
+        if (!items || typeof items !== 'object') continue;
+        out[yearKey] ||= {};
+        for (const [id, v] of Object.entries(items)) {
+          const n = normalizeTx(id, v);
+          if (!n) continue;
+          out[yearKey][id] = stripTxForSave(n);
+          count++;
+        }
+      }
+
+      const ok = confirm(`About to overwrite with ${count} transaction(s) at:\n${ledgerBasePath()}\n\nProceed?`);
+      if (!ok) return;
+
+      try {
+        await set(ref(database, ledgerBasePath()), out);
+        alert('✅ Restore complete.');
+      } catch (err) {
+        console.error(err);
+        alert('❌ Restore failed.');
       }
     }
 
-    async function saveData(data) { _lastSavedData = data; await set(ref(database, `${DATABASE_BASE_PATH}/budget`), data); }
-
-    function closeModal() { const el = document.getElementById('detailsModal'); if (el) el.style.display = 'none'; }
+    async function clearAllTx() {
+      if (!confirm('Delete ALL transactions? This cannot be undone.')) return;
+      await set(ref(database, ledgerBasePath()), {});
+      alert('All transactions cleared.');
+    }
 
     /* =========================
-       Import Tab (CSV & lines) with DEDUPE MODES
+       Import tab
     ========================== */
-    let _importParsed = null;
+    let _importParsed = [];
 
-    function convertToFinancial(text) {
-      const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
-      if (lines.length < 2) return JSON.stringify({}, null, 2);
+    function makeSignature(tx, mode = 'strict') {
+      const ymd = ymdFromUtcTS(tx.date);
+      const amt = Math.round((Number(tx.amt) || 0) * 100);
+      if (mode === 'loose') return `${ymd}|${amt}`;
+      const nm = String(tx.name || '').trim().toLowerCase();
+      const tp = String(tx.type || '').trim().toLowerCase();
+      return `${ymd}|${amt}|${nm}|${tp}`;
+    }
 
-      const parseCSVLine = (line) => {
-        const out = []; let cur = '', inQuotes = false;
+    function importDedupeEnabled() {
+      return !!document.getElementById('import-dedupe-enabled')?.checked;
+    }
+    function currentImportDedupeMode() {
+      return (document.getElementById('import-dedupe-mode')?.value || 'loose');
+    }
+
+    function parseCSVLine(line) {
+      const out = []; let cur = '', inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+          else inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+          out.push(cur); cur = '';
+        } else cur += ch;
+      }
+      out.push(cur);
+      return out.map(s => s.trim());
+    }
+
+    function importParse(rawText, mode, year) {
+      const raw = String(rawText || '').trim();
+      if (!raw) return [];
+
+      const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      if (!lines.length) return [];
+
+      const looksCSV = lines[0].includes(',') && lines.length >= 2;
+      const out = [];
+
+      // --- Helpers (local to importParse) ---
+      function parseCSVLine(line) {
+        const out = [];
+        let cur = '', inQuotes = false;
         for (let i = 0; i < line.length; i++) {
           const ch = line[i];
-          if (ch === '"') { if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; } else { inQuotes = !inQuotes; } }
-          else if (ch === ',' && !inQuotes) { out.push(cur); cur = ''; }
-          else { cur += ch; }
+          if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+            else inQuotes = !inQuotes;
+          } else if (ch === ',' && !inQuotes) {
+            out.push(cur); cur = '';
+          } else cur += ch;
         }
         out.push(cur);
         return out.map(s => s.trim());
-      };
+      }
 
-      const monthNames = MONTHS_ABBR;
-      const header = parseCSVLine(lines[0]).map(h => h.replace(/^"+|"+$/g, '').trim().toLowerCase());
+      function toNum(v) {
+        const n = parseFloat(String(v ?? '').replace(/[$,]/g, '').trim());
+        return Number.isFinite(n) ? n : NaN;
+      }
 
-      const idx = {
-        transDate: header.findIndex(h => ['transaction date', 'date'].includes(h)),
-        postDate: header.findIndex(h => ['posting date', 'posted date', 'post date'].includes(h)),
-        desc: header.findIndex(h => ['description', 'name', 'memo', 'payee'].includes(h)),
-        type: header.findIndex(h => ['type', 'transaction type', 'credit/debit'].includes(h)),
-        amount: header.findIndex(h => ['amount', 'transaction amount', 'amt'].includes(h))
-      };
-      const safe = (i, f) => (i >= 0 ? i : f);
-      const iTrans = safe(idx.transDate, 0), iPost = safe(idx.postDate, 1), iDesc = safe(idx.desc, 2), iType = safe(idx.type, 3), iAmt = safe(idx.amount, 4);
+      // CSV date parser -> returns UTC noon timestamp or null
+      function dateToTS(dateStr, fallbackYear) {
+        const s = String(dateStr || '').trim();
+        if (!s) return null;
 
-      const result = {};
-      for (let r = 1; r < lines.length; r++) {
-        const raw = lines[r]; if (!raw || !raw.trim()) continue;
-        const parts = parseCSVLine(raw).map(s => s.replace(/^"+|"+$/g, '').trim());
-        if (parts.length <= Math.max(iTrans, iPost, iDesc, iType, iAmt)) continue;
-
-        const postingDateStr = parts[iPost] || parts[iTrans];
-        const description = parts[iDesc] || '';
-        const transactionType = (parts[iType] || '').toLowerCase();
-        const amountStr = parts[iAmt] || '';
-        const amount = Math.abs(parseFloat(amountStr.replace(/[$,"]/g, '')));
-        if (isNaN(amount)) continue;
-
-        if (postingDateStr) {
-          const m = postingDateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-          if (m) {
-            const mm = m[1].padStart(2, '0'); const dd = m[2].padStart(2, '0');
-            let yyyy = m[3]; if (yyyy.length === 2) yyyy = (parseInt(yyyy, 10) > 70 ? '19' : '20') + yyyy;
-            const dateISO = `${yyyy}-${mm}-${dd}`;
-            const monthName = monthNames[parseInt(mm, 10) - 1] || MONTHS_ABBR[parseInt(mm, 10) - 1];
-            const key = `${monthName}-${parseInt(dd, 10)}`;
-            if (!result[key]) result[key] = { details: [] };
-            result[key].details.push({
-              amount,
-              date: new Date(Date.UTC(+yyyy, +mm - 1, +dd, 12, 0, 0)).toISOString(),
-              name: description,
-              type: transactionType === 'credit' ? 'Income' : 'Expenses'
-            });
-          }
+        // YYYY-MM-DD
+        let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (m) {
+          const yy = +m[1], mm = +m[2], dd = +m[3];
+          return utcNoonTS(yy, mm - 1, dd);
         }
-      }
-      return JSON.stringify(result, null, 2);
-    }
 
-    function convertBankCreditLinesToJSON(text, year) {
-      const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
-      const out = {};
-      const monthNames = MONTHS_ABBR;
-      for (const line of lines) {
-        const m = line.match(/^(\d{2})\/(\d{2})\s+(\d{2})\/(\d{2})\s+(.+?)\s+([\d.-]+)$/);
-        if (!m) continue;
-        const [, , , postMonth, postDay, description, amountStr] = m;
-        const amount = parseFloat(amountStr); if (Number.isNaN(amount)) continue;
-        const monthIdx = parseInt(postMonth, 10) - 1; const key = `${monthNames[monthIdx]}-${parseInt(postDay, 10)}`;
-        if (!out[key]) out[key] = { details: [] };
-        out[key].details.push({
-          name: description,
-          amount: Math.abs(amount),
-          date: new Date(Date.UTC(year, monthIdx, parseInt(postDay, 10), 12, 0, 0)).toISOString(),
-          type: amount < 0 ? 'Income' : 'Expenses'
-        });
-      }
-      return out;
-    }
+        // MM/DD/YYYY or MM/DD/YY
+        m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+        if (m) {
+          const mm = +m[1], dd = +m[2];
+          let yy = +m[3];
+          if (yy < 100) yy += 2000;
+          return utcNoonTS(yy, mm - 1, dd);
+        }
 
-    function convertBankDebitLinesToJSON(text, year) {
-      const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
-      const out = {};
-      const monthNames = MONTHS_ABBR;
+        // MM/DD (no year) -> use provided year
+        m = s.match(/^(\d{1,2})\/(\d{1,2})$/);
+        if (m) {
+          const mm = +m[1], dd = +m[2];
+          return utcNoonTS(fallbackYear, mm - 1, dd);
+        }
+
+        // fallback: try Date.parse (last resort)
+        const d = new Date(s);
+        if (!Number.isNaN(d.getTime())) {
+          return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0);
+        }
+
+        return null;
+      }
+
+      // Infer type from sign + type text
+      function inferType(amountRaw, typeText) {
+        const t = String(typeText || '').toLowerCase();
+
+        // If bank uses sign, trust it
+        if (amountRaw < 0) return 'expense';
+        if (amountRaw > 0) {
+          // Use type text when provided
+          if (/(credit|payment|refund|reversal|return|deposit)/.test(t)) return 'income';
+          if (/(debit|purchase|charge|withdrawal|fee)/.test(t)) return 'expense';
+
+          // Common CSV pattern: positive amounts are expenses
+          return 'expense';
+        }
+
+        // Amount is 0: fall back to text
+        if (/(credit|payment|refund|reversal|return|deposit)/.test(t)) return 'income';
+        return 'expense';
+      }
+
+      // =========================
+      // CSV import
+      // =========================
+      if (looksCSV) {
+        const header = parseCSVLine(lines[0])
+          .map(h => h.replace(/^"+|"+$/g, '').trim().toLowerCase());
+
+        const idx = {
+          date: header.findIndex(h => ['transaction date', 'date'].includes(h)),
+          post: header.findIndex(h => ['posting date', 'posted date', 'post date'].includes(h)),
+          desc: header.findIndex(h => ['description', 'name', 'memo', 'payee', 'merchant'].includes(h)),
+          type: header.findIndex(h => ['type', 'transaction type', 'credit/debit', 'debit/credit'].includes(h)),
+          amt: header.findIndex(h => ['amount', 'transaction amount', 'amt'].includes(h)),
+          debit: header.findIndex(h => ['debit'].includes(h)),
+          credit: header.findIndex(h => ['credit'].includes(h)),
+        };
+
+        const safe = (i, fallback) => (i >= 0 ? i : fallback);
+
+        // Fallback positions if header names aren't recognized
+        const iDate = safe(idx.date, 0);
+        const iPost = safe(idx.post, 1);
+        const iDesc = safe(idx.desc, 2);
+        const iType = safe(idx.type, 3);
+        const iAmt = idx.amt;     // only used if found
+        const iDebit = idx.debit; // optional
+        const iCredit = idx.credit; // optional
+
+        for (let r = 1; r < lines.length; r++) {
+          const parts = parseCSVLine(lines[r]).map(s => s.replace(/^"+|"+$/g, '').trim());
+          if (parts.length < 3) continue;
+
+          const dateStr = parts[iPost] || parts[iDate] || '';
+          const name = parts[iDesc] || '';
+          const typeStr = parts[iType] || '';
+
+          // Amount: supports either a single Amount column OR separate Debit/Credit columns
+          let amtRaw = NaN;
+
+          if (iAmt != null && iAmt >= 0 && iAmt < parts.length) {
+            amtRaw = toNum(parts[iAmt]);
+          } else {
+            // Try debit/credit columns
+            const debitVal = (iDebit != null && iDebit >= 0 && iDebit < parts.length) ? toNum(parts[iDebit]) : NaN;
+            const creditVal = (iCredit != null && iCredit >= 0 && iCredit < parts.length) ? toNum(parts[iCredit]) : NaN;
+
+            if (Number.isFinite(debitVal) && debitVal !== 0) amtRaw = -Math.abs(debitVal);
+            else if (Number.isFinite(creditVal) && creditVal !== 0) amtRaw = Math.abs(creditVal);
+          }
+
+          if (!Number.isFinite(amtRaw)) continue;
+
+          const dateTS = dateToTS(dateStr, year);
+          if (!dateTS) continue;
+
+          const type = inferType(amtRaw, typeStr);
+
+          out.push({
+            amt: Math.abs(amtRaw),
+            name,
+            type,
+            date: dateTS,
+            tags: []
+          });
+        }
+
+        return out;
+      }
+
+      // =========================
+      // Non-CSV: Credit card export (two dates)
+      // =========================
+      if (mode === 'bankCredit') {
+        for (const line of lines) {
+          const m = line.match(/^(\d{2})\/(\d{2})\s+(\d{2})\/(\d{2})\s+(.+?)\s+([\d.-]+)$/);
+          if (!m) continue;
+
+          const postMonth = parseInt(m[3], 10);
+          const postDay = parseInt(m[4], 10);
+          const name = m[5].trim();
+          const amount = parseFloat(m[6]);
+          if (Number.isNaN(amount)) continue;
+
+          const dateTS = utcNoonTS(year, postMonth - 1, postDay);
+
+          // In your credit-card text format, negative is usually a payment/credit
+          const type = (amount < 0) ? 'income' : 'expense';
+
+          out.push({ amt: Math.abs(amount), name, type, date: dateTS, tags: [] });
+        }
+        return out;
+      }
+
+      // =========================
+      // Non-CSV: Bank/Checking export (amounts with $)
+      // =========================
       for (const line of lines) {
         const m = line.match(/^(\d{2})\/(\d{2})\s+(.+?)\s+(-?\$[\d,.]+)\s+(\$[\d,.]+)?$/);
         if (!m) continue;
-        const [, month, day, description, amountStr] = m;
-        const monthIdx = parseInt(month, 10) - 1;
-        const amt = parseFloat(amountStr.replace(/[$,]/g, ''));
-        const key = `${monthNames[monthIdx]}-${parseInt(day, 10)}`;
-        if (!out[key]) out[key] = { details: [] };
-        out[key].details.push({
-          name: description,
-          amount: Math.abs(amt),
-          date: new Date(Date.UTC(year, monthIdx, parseInt(day, 10), 12, 0, 0)).toISOString(),
-          type: amt < 0 ? 'Expenses' : 'Income'
-        });
+
+        const month = parseInt(m[1], 10);
+        const day = parseInt(m[2], 10);
+        const name = m[3].trim();
+        const amt = parseFloat(String(m[4]).replace(/[$,]/g, ''));
+        if (Number.isNaN(amt)) continue;
+
+        const dateTS = utcNoonTS(year, month - 1, day);
+
+        // In this text format, negative is expense, positive is income
+        const type = (amt < 0) ? 'expense' : 'income';
+
+        out.push({ amt: Math.abs(amt), name, type, date: dateTS, tags: [] });
+      }
+
+      return out;
+    }
+
+    function collapseParsedDuplicates(list, mode = 'strict') {
+      const seen = new Set();
+      const out = [];
+      for (const t of list) {
+        const sig = makeSignature(t, mode);
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        out.push(t);
       }
       return out;
     }
 
-    function parseImportText(raw, mode, year) {
-      const looksCSV = raw.includes(',') && raw.split('\n')[0].includes(',');
-      if (looksCSV) {
-        try { const jsonStr = convertToFinancial(raw); return JSON.parse(jsonStr); } catch { return {}; }
-      }
-      if (mode === 'bankCredit') return convertBankCreditLinesToJSON(raw, year);
-      return convertBankDebitLinesToJSON(raw, year);
-    }
-
-    function makeSignature(detail, mode = 'strict') {
-      const iso = (detail.date || '').slice(0, 10);
-      const amt = Math.round((Number(detail.amount) || 0) * 100);
-      if (mode === 'loose') return `${iso}|${amt}`;
-      const nm = String(detail.name || '').trim().toLowerCase();
-      const tp = String(detail.type || '').trim().toLowerCase();
-      return `${iso}|${amt}|${nm}|${tp}`;
-    }
-
-    function collapseParsedDuplicates(parsed, mode = 'strict') {
-      const seen = new Set(); const out = {};
-      for (const [dayKey, bucket] of Object.entries(parsed || {})) {
-        const arr = Array.isArray(bucket?.details) ? bucket.details : [];
-        const uniq = [];
-        for (const d of arr) {
-          const s = makeSignature(d, mode);
-          if (seen.has(s)) continue;
-          seen.add(s);
-          uniq.push(d);
-        }
-        if (uniq.length) out[dayKey] = { details: uniq };
-      }
-      return out;
-    }
-
-    function currentImportDedupeMode() { return (document.getElementById('import-dedupe-mode')?.value || 'loose'); }
-
-    function importDedupeEnabled() { return !!document.getElementById('import-dedupe-enabled')?.checked; }
-
-    async function mergeParsedToBudget(parsed, mode = 'strict') {
-      const saved = await fetchSavedData();
-
-      const sigs = new Set();
-      for (const bucket of Object.values(saved || {})) {
-        const arr = Array.isArray(bucket?.details) ? bucket.details : [];
-        for (const d of arr) sigs.add(makeSignature(d, mode));
-      }
+    async function mergeParsed(list, mode = 'strict') {
+      const sigs = new Set(_allTx.map(t => makeSignature(t, mode)));
 
       let added = 0;
+      for (const t of list) {
+        const sig = makeSignature(t, mode);
+        if (sigs.has(sig)) continue;
+        sigs.add(sig);
 
-      for (const [dayKey, bucket] of Object.entries(parsed || {})) {
-        const arr = Array.isArray(bucket?.details) ? bucket.details : [];
-        if (!arr.length) continue;
+        const id = String(Date.now() + Math.floor(Math.random() * 1000));
+        const tx = {
+          id,
+          amt: Number(t.amt) || 0,
+          cat: '', sub: '', sku: '', link: '',
+          img: '', imgPath: '',
+          desc: '',
+          name: String(t.name || ''),
+          tags: Array.isArray(t.tags) ? t.tags : [],
+          type: (String(t.type).toLowerCase() === 'income') ? 'income' : 'expense',
+          date: Number(t.date) || Date.now()
+        };
 
-        if (!saved[dayKey]) saved[dayKey] = { details: [] };
-
-        for (const d of arr) {
-          const s = makeSignature(d, mode);
-          if (sigs.has(s)) continue;
-          sigs.add(s);
-
-          saved[dayKey].details.push({
-            name: d.name ?? '',
-            amount: Number(d.amount) || 0,
-            date: d.date,
-            type: d.type ?? 'Expenses',
-            tags: Array.isArray(d.tags) ? d.tags : []
-          });
-          added++;
-        }
+        await upsertTx(null, tx);
+        added++;
       }
-
-      await saveData(saved);
       return added;
     }
 
@@ -1858,764 +1948,62 @@
       if (!btnParse) return;
 
       btnParse.addEventListener('click', () => {
-        const year = Number(document.getElementById('import-year').value) || new Date().getUTCFullYear();
+        const year = Number(document.getElementById('import-year')?.value) || new Date().getUTCFullYear();
         const mode = document.querySelector('input[name="importMode"]:checked')?.value || 'bankCredit';
-        const raw = document.getElementById('import-raw').value || '';
-        let parsed = parseImportText(raw, mode, year);
+        const raw = document.getElementById('import-raw')?.value || '';
+
+        let parsed = importParse(raw, mode, year);
 
         if (importDedupeEnabled()) {
-          const sigMode = currentImportDedupeMode();
-          parsed = collapseParsedDuplicates(parsed, sigMode);
+          parsed = collapseParsedDuplicates(parsed, currentImportDedupeMode());
         }
 
         _importParsed = parsed;
-        const count = Object.values(parsed || {}).reduce((s, b) => s + (Array.isArray(b.details) ? b.details.length : 0), 0);
-        preview.innerHTML = `<div class="card"><b>Preview:</b> ${count} row(s) parsed${importDedupeEnabled() ? ' (deduped)' : ''}</div><pre style="white-space:pre-wrap">${JSON.stringify(parsed, null, 2)}</pre>`;
-        btnMerge.disabled = count === 0;
+
+        const count = parsed.length;
+        const sample = parsed.slice(0, 50).map(t => ({
+          date: ymdFromUtcTS(t.date),
+          amt: Number(t.amt || 0),
+          type: t.type,
+          name: t.name
+        }));
+
+        preview.innerHTML = `
+          <div class="card">
+            <b>Preview:</b> ${count} row(s) parsed${importDedupeEnabled() ? ' (deduped)' : ''}
+            <div class="small">Showing up to 50 rows below.</div>
+          </div>
+          <pre style="white-space:pre-wrap">${JSON.stringify(sample, null, 2)}</pre>
+        `;
+
+        if (btnMerge) btnMerge.disabled = count === 0;
       });
 
       btnMerge?.addEventListener('click', async () => {
-        if (!_importParsed) return;
-        const sigMode = currentImportDedupeMode();
-        const added = await mergeParsedToBudget(_importParsed, sigMode);
-        alert(`Imported ${added} new entr${added === 1 ? 'y' : 'ies'} (duplicates skipped by ${sigMode} mode).`);
-        _importParsed = null;
+        if (!_importParsed?.length) return;
+        const mode = currentImportDedupeMode();
+        const added = await mergeParsed(_importParsed, mode);
+        alert(`Imported ${added} new entr${added === 1 ? 'y' : 'ies'} (duplicates skipped by ${mode}).`);
+        _importParsed = [];
         btnMerge.disabled = true;
       });
     }
 
-    /* =========================
-       BUDGET PLANNER (namespaced as BP_)
-    ========================= */
-    const BP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const BP_FORBIDDEN = /[.#$/[\]]/g;
-    const BP_fmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' });
-    const BP_toMoney = (v) => {
-      const n = Number(String(v ?? '').replace(/[^0-9.\-]/g, ''));
-      if (!Number.isFinite(n) || Math.abs(n) > 1e9) return 0;
-      return Math.round(n * 100) / 100;
-    };
-    const BP_safeKey = (s) => String(s ?? '').replace(BP_FORBIDDEN, '_');
+    document.addEventListener('DOMContentLoaded', () => {
 
-    const BP_DEFAULT_BASE = { year: new Date().getUTCFullYear(), incomeYear: 0, categories: [], budgetOverrides: {}, actuals: {} };
+      const headerTitle = document.querySelector('header h1');
+      const loginSection = document.getElementById('login-section');
 
-    const BP_MULTITAG_MODE = 'split';
-    const BP_UNTITLED = 'Uncategorized';
-
-    let BP_STATE = structuredClone(BP_DEFAULT_BASE);
-    let BP_DOM_WIRED = false;
-
-    function BP_yearActualSpendOnly() {
-      // Sum only positive category actuals (cash-out), ignore negative values (income netting)
-      let sum = 0;
-      for (const c of BP_STATE.categories || []) {
-        for (let mi = 0; mi < 12; mi++) {
-          const v = BP_toMoney(BP_actual(c.name, mi));
-          if (v > 0) sum += v;
-        }
-      }
-      return BP_toMoney(sum);
-    }
-
-    function BP_yearActualNetAllCats() {
-      // Sum everything including negatives (net)
-      let sum = 0;
-      for (const c of BP_STATE.categories || []) {
-        for (let mi = 0; mi < 12; mi++) sum += BP_toMoney(BP_actual(c.name, mi));
-      }
-      return BP_toMoney(sum);
-    }
-
-    function BP_buildNameMap(state) {
-      return Object.fromEntries((state.categories || []).map(c => [BP_safeKey(c.name), c.name]));
-    }
-
-    function BP_encode(state) {
-      const out = structuredClone(state);
-      const nameMap = BP_buildNameMap(state);
-      out._nameMap = nameMap;
-
-      const encA = {};
-      for (const m of Object.keys(out.actuals || {})) {
-        encA[m] = {};
-        for (const [catName, val] of Object.entries(out.actuals[m] || {})) {
-          encA[m][BP_safeKey(catName)] = BP_toMoney(val);
-        }
-      }
-      out.actuals = encA;
-
-      const encO = {};
-      for (const [k, val] of Object.entries(out.budgetOverrides || {})) {
-        const idx = k.lastIndexOf('::');
-        if (idx > -1) {
-          const cat = k.slice(0, idx);
-          const mi = k.slice(idx + 2);
-          encO[`${BP_safeKey(cat)}::${mi}`] = BP_toMoney(val);
-        } else {
-          encO[BP_safeKey(k)] = BP_toMoney(val);
-        }
-      }
-      out.budgetOverrides = encO;
-      return out;
-    }
-
-    function BP_decode(obj, targetYear) {
-      if (!obj) return null;
-      const nameMap = obj._nameMap || {};
-      const rev = (safe) => nameMap[safe] || safe;
-
-      const out = structuredClone(obj);
-      out.year = Number(targetYear);
-
-      const decA = {};
-      for (const m of Object.keys(out.actuals || {})) {
-        decA[m] = {};
-        for (const [safeCat, val] of Object.entries(out.actuals[m] || {})) {
-          decA[m][rev(safeCat)] = BP_toMoney(val);
-        }
-      }
-      out.actuals = decA;
-
-      const decO = {};
-      for (const [k, val] of Object.entries(out.budgetOverrides || {})) {
-        const idx = k.lastIndexOf('::');
-        if (idx > -1) {
-          const safeCat = k.slice(0, idx);
-          const mi = k.slice(idx + 2);
-          decO[`${rev(safeCat)}::${mi}`] = BP_toMoney(val);
-        } else {
-          decO[rev(k)] = BP_toMoney(val);
-        }
-      }
-      out.budgetOverrides = decO;
-
-      delete out._nameMap;
-      return out;
-    }
-
-    function BP_ensureShapes() {
-      if (!Array.isArray(BP_STATE.categories)) BP_STATE.categories = [];
-      BP_STATE.budgetOverrides ||= {};
-      BP_STATE.actuals ||= {};
-      if (typeof BP_STATE.incomeYear !== 'number') BP_STATE.incomeYear = 0;
-    }
-
-    function BP_monthsElapsedForYear(y) {
-      const now = new Date();
-      const currY = now.getUTCFullYear();
-      if (y < currY) return 12;
-      if (y > currY) return 0;
-      return now.getUTCMonth() + 1;
-    }
-
-    function BP_hasActual(catName, mi) {
-      const mKey = BP_MONTHS[mi];
-      const v = BP_STATE.actuals?.[mKey]?.[catName];
-      return v !== undefined && v !== null && String(v) !== '';
-    }
-
-    function BP_avgBudget(catName) {
-      let sum = 0;
-      for (let mi = 0; mi < 12; mi++) sum += BP_plan(catName, mi);
-      return sum / 12;
-    }
-
-    function BP_avgActual(catName) {
-      const limit = BP_monthsElapsedForYear(Number(BP_STATE.year));
-      let sum = 0, count = 0;
-      for (let mi = 0; mi < limit; mi++) { sum += BP_toMoney(BP_actual(catName, mi)); count++; }
-      for (let mi = limit; mi < 12; mi++) {
-        if (BP_hasActual(catName, mi)) { sum += BP_toMoney(BP_actual(catName, mi)); count++; }
-      }
-      return count ? (sum / count) : null;
-    }
-
-    function BP_ensureCategory(name) {
-      if (!name) return;
-      if (!BP_STATE.categories.some(c => c.name === name)) {
-        BP_STATE.categories.push({ name, monthly: 0 });
-      }
-    }
-
-    async function BP_loadYear(y) {
-      const snap = await get(ref(database, `${DATABASE_BASE_PATH}/budgetPlan/${y}`));
-      if (snap.exists()) BP_STATE = BP_decode(snap.val(), y);
-      else { BP_STATE = structuredClone(BP_DEFAULT_BASE); BP_STATE.year = y; }
-      BP_ensureShapes();
-    }
-
-    async function BP_save() {
-      try {
-        const toWrite = BP_encode(BP_STATE);
-        await set(ref(database, `${DATABASE_BASE_PATH}/budgetPlan/${BP_STATE.year}`), toWrite);
-        BP_status('Saved.');
-      } catch (e) {
-        console.error('BP Save failed', e);
-        BP_status('Save failed', true);
-      }
-    }
-
-    function BP_plan(catName, mi) {
-      const key = `${catName}::${mi}`;
-      const ov = BP_STATE.budgetOverrides[key];
-      if (ov != null) return BP_toMoney(ov);
-      const cat = BP_STATE.categories.find(c => c.name === catName);
-      return BP_toMoney(cat?.monthly);
-    }
-
-    function BP_actual(catName, mi) {
-      const mKey = BP_MONTHS[mi];
-      return BP_toMoney(BP_STATE.actuals?.[mKey]?.[catName]);
-    }
-
-    function BP_setActual(catName, mi, val) {
-      const mKey = BP_MONTHS[mi];
-      BP_STATE.actuals[mKey] ||= {};
-      BP_STATE.actuals[mKey][catName] = BP_toMoney(val);
-    }
-
-    function BP_setMonthly(catName, monthly) {
-      const cat = BP_STATE.categories.find(c => c.name === catName);
-      if (cat) cat.monthly = BP_toMoney(monthly);
-    }
-
-    function BP_setOverride(catName, mi, val) {
-      const key = `${catName}::${mi}`;
-      if (val === '' || val == null) delete BP_STATE.budgetOverrides[key];
-      else BP_STATE.budgetOverrides[key] = BP_toMoney(val);
-    }
-
-    function BP_categoryTotals(catName) {
-      let budget = 0, actual = 0;
-      for (let mi = 0; mi < 12; mi++) { budget += BP_plan(catName, mi); actual += BP_actual(catName, mi); }
-      return { budget, actual };
-    }
-
-    function BP_totals() {
-      const perMonth = BP_MONTHS.map((_, mi) => {
-        let budget = 0, actual = 0;
-        for (const c of BP_STATE.categories) { budget += BP_plan(c.name, mi); actual += BP_actual(c.name, mi); }
-        return { budget, actual, variance: actual - budget };
+      headerTitle.addEventListener('dblclick', () => {
+        loginSection.style.display =
+          loginSection.style.display === 'none' || getComputedStyle(loginSection).display === 'none'
+            ? 'block'
+            : 'none';
       });
-      const yearBudget = perMonth.reduce((s, m) => s + m.budget, 0);
-      const yearActual = perMonth.reduce((s, m) => s + m.actual, 0);
-      return { perMonth, yearBudget, yearActual, yearVariance: yearActual - yearBudget };
-    }
-
-    function BP_countMonthsForAvg() {
-      const limit = BP_monthsElapsedForYear(Number(BP_STATE.year));
-      let extra = 0;
-      for (let mi = limit; mi < 12; mi++) {
-        if (BP_STATE.categories.some(c => BP_hasActual(c.name, mi))) extra++;
-      }
-      return limit + extra;
-    }
-
-    function BP_status(msg, isErr = false) {
-      const el = document.getElementById('bp-status');
-      if (!el) return;
-      el.textContent = msg || '';
-      el.style.color = isErr ? '#b71c1c' : 'inherit';
-      if (msg) setTimeout(() => { el.textContent = ''; }, 2500);
-    }
-
-    function BP_renderHeader() {
-      const hdr = document.getElementById('bp-header-row'); if (!hdr) return;
-      hdr.innerHTML =
-        '<th class="sticky">Category</th>' +
-        BP_MONTHS.map(m => `<th class="sticky">${m}</th>`).join('') +
-        `<th class="sticky">Avg</th>`;
-    }
-
-    function BP_setActualCellColor(td, catName, mi) {
-      const a = BP_actual(catName, mi);
-      const b = BP_plan(catName, mi);
-      td.classList.remove('bp-under', 'bp-over');
-      const raw = td.querySelector('input')?.value;
-      if (raw === '' || raw == null) return;
-      td.classList.add(a <= b ? 'bp-under' : 'bp-over');
-    }
-
-    function BP_setAvgActualColor(td, catName) {
-      const a = BP_avgActual(catName);
-      const b = BP_avgBudget(catName);
-      td.classList.remove('bp-ok', 'bp-warn');
-      if (a == null) return;
-      td.classList.add(a <= b ? 'bp-ok' : 'bp-warn');
-    }
-
-    function BP_updateCatLabels(idx) {
-      const tbody = document.querySelector('#bp-table tbody'); if (!tbody) return;
-      const cat = BP_STATE.categories[idx]; if (!cat) return;
-      const { budget, actual } = BP_categoryTotals(cat.name);
-
-      const b = tbody.querySelector(`tr[data-idx="${idx}"][data-kind="budget"] td:first-child`);
-      const a = tbody.querySelector(`tr[data-idx="${idx}"][data-kind="actual"] td:first-child`);
-      if (b) b.textContent = `${cat.name} (${BP_fmt.format(budget)})`;
-      if (a) a.innerHTML = `<span class="small">Actual — ${cat.name} (${BP_fmt.format(actual)})</span>`;
-    }
-
-    function BP_renderCatsEditor() {
-      const wrap = document.getElementById('bp-cats'); if (!wrap) return;
-      wrap.innerHTML = '';
-
-      BP_STATE.categories.forEach((c, idx) => {
-        const row = document.createElement('div');
-        row.className = 'grid';
-        row.innerHTML = `
-          <div>
-            <label class="small">Category</label>
-            <div><input type="text" value="${c.name}"></div>
-          </div>
-          <div>
-            <label class="small">Monthly Budget</label>
-            <input type="number" step="0.01" value="${c.monthly}">
-          </div>
-          <button type="button" class="clear-button small del-cat" title="Delete category">X</button>
-        `;
-
-        const [nameEl, monthlyEl] = row.querySelectorAll('input');
-
-        nameEl.addEventListener('blur', async () => {
-          const newName = nameEl.value.trim() || `Category ${idx + 1}`;
-          if (newName === c.name) return;
-
-          // migrate overrides/actuals
-          for (let mi = 0; mi < BP_MONTHS.length; mi++) {
-            const oldKey = `${c.name}::${mi}`;
-            const newKey = `${newName}::${mi}`;
-            if (BP_STATE.budgetOverrides[oldKey] != null) {
-              BP_STATE.budgetOverrides[newKey] = BP_STATE.budgetOverrides[oldKey];
-              delete BP_STATE.budgetOverrides[oldKey];
-            }
-            const mKey = BP_MONTHS[mi];
-            if (BP_STATE.actuals[mKey]?.[c.name] != null) {
-              BP_STATE.actuals[mKey][newName] = BP_STATE.actuals[mKey][c.name];
-              delete BP_STATE.actuals[mKey][c.name];
-            }
-          }
-
-          c.name = newName;
-          await BP_save();
-          BP_renderAll();
-        });
-
-        monthlyEl.addEventListener('input', () => {
-          BP_setMonthly(c.name, monthlyEl.value);
-          BP_renderTable();
-          BP_renderMonthTotals();
-          BP_renderYearTotals();
-        });
-
-        row.querySelector('.del-cat').addEventListener('click', async () => {
-          if (!confirm(`Delete category "${c.name}" and all its data?`)) return;
-          BP_STATE.categories = BP_STATE.categories.filter(x => x.name !== c.name);
-          for (let mi = 0; mi < 12; mi++) delete BP_STATE.budgetOverrides[`${c.name}::${mi}`];
-          for (const mKey of BP_MONTHS) if (BP_STATE.actuals[mKey]) delete BP_STATE.actuals[mKey][c.name];
-          BP_renderAll();
-          await BP_save();
-        });
-
-        wrap.appendChild(row);
-      });
-
-      const add = document.createElement('button');
-      add.className = 'btn';
-      add.textContent = '+ Add Category';
-      add.addEventListener('click', async () => {
-        BP_STATE.categories.push({ name: `Category ${BP_STATE.categories.length + 1}`, monthly: 0 });
-        BP_renderAll();
-        await BP_save();
-      });
-      wrap.appendChild(add);
-    }
-
-    function BP_renderTable() {
-      const tbody = document.querySelector('#bp-table tbody'); if (!tbody) return;
-      tbody.innerHTML = '';
-
-      BP_STATE.categories.forEach((c, idx) => {
-        const { budget, actual } = BP_categoryTotals(c.name);
-
-        // Budget row
-        const tr = document.createElement('tr');
-        tr.dataset.idx = idx; tr.dataset.kind = 'budget';
-
-        const nameTd = document.createElement('td');
-        nameTd.textContent = `${c.name} (${BP_fmt.format(budget)})`;
-        tr.appendChild(nameTd);
-
-        BP_MONTHS.forEach((m, mi) => {
-          const td = document.createElement('td');
-          const input = document.createElement('input');
-          input.type = 'number';
-          input.step = '0.01';
-          input.removeAttribute('min');
-          input.value = BP_plan(c.name, mi);
-          input.title = 'Budget (override this month). Leave blank to use category monthly.';
-          input.addEventListener('input', () => {
-            const v = input.value;
-            if (v === '') BP_setOverride(c.name, mi, '');
-            else BP_setOverride(c.name, mi, v);
-
-            BP_updateCatLabels(idx);
-
-            const actualCell = tbody.querySelector(`tr[data-idx="${idx}"][data-kind="actual"] td[data-mi="${mi}"]`);
-            if (actualCell) BP_setActualCellColor(actualCell, c.name, mi);
-
-            BP_renderMonthTotals();
-            BP_renderYearTotals();
-
-            avgBudTd.textContent = BP_fmt.format(BP_avgBudget(c.name));
-            const avgActRef = tbody.querySelector(`tr[data-idx="${idx}"][data-kind="actual"] td:last-child`);
-            if (avgActRef) BP_setAvgActualColor(avgActRef, c.name);
-          });
-          td.appendChild(input);
-          tr.appendChild(td);
-        });
-
-        const avgBudTd = document.createElement('td');
-        avgBudTd.textContent = BP_fmt.format(BP_avgBudget(c.name));
-        tr.appendChild(avgBudTd);
-
-        // Actual row
-        const tr2 = document.createElement('tr');
-        tr2.dataset.idx = idx; tr2.dataset.kind = 'actual';
-
-        const name2 = document.createElement('td');
-        name2.innerHTML = `<span class="small">Actual — ${c.name} (${BP_fmt.format(actual)})</span>`;
-        tr2.appendChild(name2);
-
-        BP_MONTHS.forEach((m, mi) => {
-          const td = document.createElement('td');
-          td.setAttribute('data-mi', mi);
-
-          const input = document.createElement('input');
-          input.type = 'number';
-          input.step = '0.01';
-          const mKey = BP_MONTHS[mi];
-          const hasVal = BP_STATE.actuals?.[mKey] && Object.prototype.hasOwnProperty.call(BP_STATE.actuals[mKey], c.name);
-          input.value = hasVal ? BP_STATE.actuals[mKey][c.name] : '';
-          input.placeholder = '0.00';
-
-          input.addEventListener('input', () => {
-            const val = input.value;
-            const key = BP_MONTHS[mi];
-
-            if (val === '') {
-              if (BP_STATE.actuals?.[key]) delete BP_STATE.actuals[key][c.name];
-            } else {
-              BP_setActual(c.name, mi, val);
-            }
-
-            BP_setActualCellColor(td, c.name, mi);
-            BP_updateCatLabels(idx);
-            BP_renderMonthTotals();
-            BP_renderYearTotals();
-
-            const a = BP_avgActual(c.name);
-            avgActTd.textContent = (a == null) ? '—' : BP_fmt.format(a);
-            BP_setAvgActualColor(avgActTd, c.name);
-          });
-
-          td.appendChild(input);
-          BP_setActualCellColor(td, c.name, mi);
-          tr2.appendChild(td);
-        });
-
-        const avgActTd = document.createElement('td');
-        const initAvgA = BP_avgActual(c.name);
-        avgActTd.textContent = (initAvgA == null) ? '—' : BP_fmt.format(initAvgA);
-        BP_setAvgActualColor(avgActTd, c.name);
-        tr2.appendChild(avgActTd);
-
-        tbody.appendChild(tr);
-        tbody.appendChild(tr2);
-      });
-    }
-
-    function BP_renderMonthTotals() {
-      const tfoot = document.querySelector('#bp-table tfoot'); if (!tfoot) return;
-      tfoot.innerHTML = '';
-
-      const { perMonth, yearBudget, yearActual } = BP_totals();
-      const monthsCount = BP_countMonthsForAvg();
-
-      const trB = document.createElement('tr');
-      trB.innerHTML = `<td>Monthly Budget Total</td>` +
-        perMonth.map(m => `<td>${BP_fmt.format(m.budget)}</td>`).join('') +
-        `<td>${monthsCount ? BP_fmt.format(yearBudget / monthsCount) : '—'}</td>`;
-
-      const trA = document.createElement('tr');
-      trA.innerHTML = `<td>Monthly Actual Total</td>` +
-        perMonth.map(m => `<td>${BP_fmt.format(m.actual)}</td>`).join('') +
-        `<td>${monthsCount ? BP_fmt.format(yearActual / monthsCount) : '—'}</td>`;
-
-      const trV = document.createElement('tr');
-      const yearVar = yearActual - yearBudget;
-      trV.innerHTML = `<td>Variance (Actual - Budget)</td>` +
-        perMonth.map(m => {
-          const cls = m.variance <= 0 ? 'bp-ok' : 'bp-warn';
-          return `<td class="${cls}">${BP_fmt.format(m.variance)}</td>`;
-        }).join('') +
-        `<td class="${(yearVar <= 0 ? 'bp-ok' : 'bp-warn')}">${monthsCount ? BP_fmt.format(yearVar / monthsCount) : '—'}</td>`;
-
-      tfoot.appendChild(trB);
-      tfoot.appendChild(trA);
-      tfoot.appendChild(trV);
-    }
-
-    function BP_renderYearTotals() {
-      const box = document.getElementById('bp-yearTotals'); if (!box) return;
-
-      const { yearBudget } = BP_totals();
-
-      const sync = BP_STATE.syncTotals || {};
-      const incomeGross = BP_toMoney(sync.incomeGross ?? BP_STATE.incomeYear ?? 0);
-      const expensesGross = BP_toMoney(sync.expensesGross ?? 0);
-
-      const actualSpendOnly = BP_yearActualSpendOnly();
-      const actualNetCats = BP_yearActualNetAllCats();
-
-      const spendVariance = actualSpendOnly - yearBudget;
-
-      const projectedNet = incomeGross - yearBudget;
-      const actualNetCashFlow = incomeGross - expensesGross;
-
-      box.innerHTML = `
-        <div>Gross Income: <strong>${BP_fmt.format(incomeGross)}</strong></div>
-        <div class="small">Total Spending (Cash Out): <strong>${BP_fmt.format(expensesGross)}</strong></div>
-        <hr>
-
-        <div>Planned Spending (Budget): <strong>${BP_fmt.format(yearBudget)}</strong></div>
-        <div>Actual Spending (Categories, Cash Out Only):
-          <strong>${BP_fmt.format(actualSpendOnly)}</strong>
-        </div>
-        <div class="small">Category Net (includes income netting):
-          <strong>${BP_fmt.format(actualNetCats)}</strong>
-        </div>
-
-        <div>Spending Variance (Actual Spend − Budget):
-          <strong class="${spendVariance <= 0 ? 'bp-ok' : 'bp-warn'}">${BP_fmt.format(spendVariance)}</strong>
-        </div>
-        <hr>
-
-        <div>Projected Net (Income − Budget):
-          <strong class="${projectedNet >= 0 ? 'bp-ok' : 'bp-warn'}">${BP_fmt.format(projectedNet)}</strong>
-        </div>
-
-        <div>Actual Net Cash Flow (Income − Actual Spend):
-          <strong class="${actualNetCashFlow >= 0 ? 'bp-ok' : 'bp-warn'}">${BP_fmt.format(actualNetCashFlow)}</strong>
-        </div>
-      `;
-    }
-
-    function BP_renderAll() {
-      const yEl = document.getElementById('bp-year');
-      if (yEl) yEl.value = String(BP_STATE.year);
-
-      const incEl = document.getElementById('bp-incomeYear');
-      if (incEl) incEl.value = BP_STATE.incomeYear ?? 0;
-
-      BP_renderHeader();
-      BP_renderCatsEditor();
-      BP_renderTable();
-      BP_renderMonthTotals();
-      BP_renderYearTotals();
-    }
-
-    async function BP_fetchYears() {
-      const years = new Set();
-
-      const snap = await get(ref(database, `${DATABASE_BASE_PATH}/budgetPlan`));
-      if (!snap.exists()) return [];
-
-      const root = snap.val();
-
-      // Most common structure: /budgetPlan/{year}
-      if (root && typeof root === 'object' && !Array.isArray(root)) {
-        for (const [k, v] of Object.entries(root)) {
-          const y = Number(k);
-          if (Number.isInteger(y) && y >= 2000 && y <= 2100) {
-            years.add(y);
-          }
-        }
-      }
-
-      // Legacy: /budgetPlan is the plan object itself with a .year field
-      if (root && typeof root === 'object' && Number.isInteger(Number(root.year))) {
-        years.add(Number(root.year));
-      }
-
-      return Array.from(years).sort((a, b) => a - b);
-    }
-
-    async function BP_populateYearSelect(selectYear = null) {
-      const yearEl = document.getElementById('bp-year');
-      if (!yearEl) return;
-
-      const years = await BP_fetchYears();
-      yearEl.innerHTML = '';
-
-      years.forEach(y => {
-        const opt = document.createElement('option');
-        opt.value = String(y);
-        opt.textContent = String(y);
-        yearEl.appendChild(opt);
-      });
-
-      const desired = (selectYear != null && years.includes(Number(selectYear)))
-        ? Number(selectYear)
-        : (years.includes(BP_STATE.year) ? BP_STATE.year : years[years.length - 1]);
-
-      yearEl.value = String(desired);
-      BP_STATE.year = desired;
-    }
-
-    async function BP_syncFromFinancial() {
-      try {
-        const path = `${DATABASE_BASE_PATH}/budget`;
-        const snap = await get(ref(database, path));
-        if (!snap.exists()) { alert('No financial data at /budget'); return; }
-
-        const raw = snap.val();
-        const wantYear = Number(BP_STATE.year);
-
-        let incomeGross = 0;
-        let expensesGross = 0;
-
-        // monthTagSums[m] = Map(tag -> net), where:
-        //   expenses add +
-        //   income subtracts -
-        const monthTagSums = Array.from({ length: 12 }, () => new Map());
-
-        for (const bucket of Object.values(raw || {})) {
-          const details = Array.isArray(bucket?.details) ? bucket.details : [];
-          for (const d of details) {
-            if (!d?.date) continue;
-            const dt = new Date(d.date);
-            if (Number.isNaN(dt.getTime())) continue;
-            if (dt.getUTCFullYear() !== wantYear) continue;
-
-            const mi = dt.getUTCMonth();
-            const amount = BP_toMoney(d.amount);
-            const type = String(d.type || '').toLowerCase();
-
-            const tagsRaw = Array.isArray(d.tags) ? d.tags : [];
-            const tagList = (tagsRaw.length ? tagsRaw : [BP_UNTITLED])
-              .map(t => String(t).trim())
-              .filter(Boolean);
-
-            const share = (BP_MULTITAG_MODE === 'split' && tagList.length > 0)
-              ? (amount / tagList.length)
-              : amount;
-
-            const mMap = monthTagSums[mi];
-
-            if (type === 'income') {
-              incomeGross += amount;
-              for (const tag of tagList) mMap.set(tag, (mMap.get(tag) || 0) - share);
-            } else if (type === 'expenses' || type === 'expense') {
-              expensesGross += amount;
-              for (const tag of tagList) mMap.set(tag, (mMap.get(tag) || 0) + share);
-            }
-          }
-        }
-
-        // Ensure categories exist
-        const seen = new Set();
-        monthTagSums.forEach(mMap => mMap.forEach((_, tag) => seen.add(tag)));
-        for (const t of seen) BP_ensureCategory(t);
-
-        // rebuild actuals
-        BP_STATE.actuals = {};
-        for (let mi = 0; mi < 12; mi++) {
-          const mKey = BP_MONTHS[mi];
-          BP_STATE.actuals[mKey] = {};
-          monthTagSums[mi].forEach((sum, tag) => {
-            BP_STATE.actuals[mKey][tag] = BP_toMoney(sum);
-          });
-        }
-
-        BP_STATE.incomeYear = BP_toMoney(incomeGross);
-        BP_STATE.syncTotals = {
-          incomeGross: BP_toMoney(incomeGross),
-          expensesGross: BP_toMoney(expensesGross)
-        };
-
-        BP_renderAll();
-        await BP_save();
-        alert('Actuals & income synced from Financial Data (UTC).');
-      } catch (e) {
-        console.error(e);
-        alert('Sync failed. See console.');
-      }
-    }
-
-    async function BP_initOnce() {
-      if (BP_DOM_WIRED) return;
-      BP_DOM_WIRED = true;
-
-      await BP_populateYearSelect();
-      await BP_loadYear(BP_STATE.year);
-      BP_renderAll();
-
-      document.getElementById('bp-year')?.addEventListener('change', async (e) => {
-        const y = Number(e.target.value);
-        await BP_loadYear(y);
-        BP_renderAll();
-      });
-
-      document.getElementById('bp-add-year')?.addEventListener('click', async () => {
-        const y = Number(prompt('Enter year to add (e.g., 2027):', String(new Date().getUTCFullYear() + 1)));
-        if (!Number.isInteger(y) || y < 2000 || y > 2100) return;
-
-        const yearRef = ref(database, `${DATABASE_BASE_PATH}/budgetPlan/${y}`);
-        const snap = await get(yearRef);
-
-        if (!snap.exists()) {
-          const init = structuredClone(BP_DEFAULT_BASE);
-          init.year = y;
-          await set(yearRef, BP_encode(init));
-        }
-
-        await BP_populateYearSelect(y);
-        await BP_loadYear(y);
-        BP_renderAll();
-      });
-
-      const incEl = document.getElementById('bp-incomeYear');
-      if (incEl && !incEl._wired) {
-        incEl.addEventListener('input', () => {
-          BP_STATE.incomeYear = BP_toMoney(incEl.value);
-          BP_renderYearTotals();
-        });
-        incEl.addEventListener('blur', () => BP_save());
-        incEl._wired = true;
-      }
-
-      document.getElementById('bp-save')?.addEventListener('click', BP_save);
-      document.getElementById('bp-sync-from-tracker')?.addEventListener('click', BP_syncFromFinancial);
-      document.getElementById('bp-reset-defaults')?.addEventListener('click', async () => {
-        if (!confirm('Reset this year to default baseline (keeps year & income)?')) return;
-        const keepYear = BP_STATE.year;
-        const keepIncome = BP_STATE.incomeYear;
-        BP_STATE = structuredClone(BP_DEFAULT_BASE);
-        BP_STATE.year = keepYear;
-        BP_STATE.incomeYear = keepIncome;
-        BP_ensureShapes();
-        BP_renderAll();
-        await BP_save();
-      });
-    }
-
-    /* =========================
-       Utilities
-    ========================== */
-    // (kept in case you use it later)
-    function csvEscape2(v) { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+    });
 
   </script>
+
 </body>
 
 </html>
