@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Budget Planner</title>
+  <title>Finance Budget Planner</title>
   <link rel="stylesheet" href="../assets/css/app-styles.css" />
   <style>
     .grid {
@@ -68,7 +68,6 @@
       padding: 6px;
     }
 
-
     .small {
       font-size: .9rem;
     }
@@ -111,6 +110,7 @@
   </header>
 
   <main>
+
     <section>
       <div>
 
@@ -132,13 +132,16 @@
       </div>
       <div id="yearTotals"></div>
     </section>
+
     <section class="card">
       <h2>Categories & Base Monthly Budgets</h2>
       <p>Tip: adjust a category's <strong>Monthly Budget</strong> to change all months at once. In
         the big table, you can override specific months for a category.</p>
       <div id="cats" class="grid table" style="gap:14px"></div>
     </section>
+
     <br>
+
     <section class="table">
       <h2>Budget vs Actual (by Month)</h2>
       <table id="budget-table">
@@ -151,6 +154,7 @@
         <tfoot></tfoot>
       </table>
     </section>
+
   </main>
 
   <footer>
@@ -159,6 +163,7 @@
       • The right panel shows <strong>live totals</strong> and <strong>variance</strong> (green is under budget).
     </p>
   </footer>
+
 </body>
 
 <script type="module">
@@ -184,7 +189,13 @@
   };
 
   // Optional: where the Financial Tracker lives (only used by sync function)
-  const FIN_TRACKER_PATH = (basePath) => `${basePath}/budget`;
+  // NEW: ledgerTx year-bucketed structure
+  const TX_NODE = 'ledgerTx';
+  const TX_YEAR_PATH = (basePath, year) => `${basePath}/${TX_NODE}/${year}`;
+
+  // For MULTI-TAG tx lines:
+  // - 'split' = divide amount across tags
+  // - 'full'  = count full amount under every tag
   const MULTITAG_MODE = "split";
   const UNTITLED_CATEGORY = "Uncategorized";
 
@@ -201,6 +212,25 @@
   /* ============ Helpers ============ */
   const fmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' });
   const yearPrefKey = () => `${DATABASE_BASE_PATH}:budget:lastYear`;
+
+  function normalizeTx(id, v) {
+    if (!v || typeof v !== 'object') return null;
+
+    // You said you want timestamps as numbers, so date should be ms epoch
+    const dateTS = Number(v.date);
+    if (!Number.isFinite(dateTS)) return null;
+
+    const type = String(v.type || '').toLowerCase();
+    const normType = (type === 'income') ? 'income' : 'expense';
+
+    const amt = toMoney(v.amt ?? v.amount ?? 0);
+
+    const tags = Array.isArray(v.tags)
+      ? v.tags.map(t => String(t).trim()).filter(Boolean)
+      : [];
+
+    return { id: String(id), date: dateTS, type: normType, amt, tags };
+  }
 
   function monthsElapsedForYear(y) {
     const now = new Date();
@@ -693,25 +723,43 @@
     const box = document.getElementById('yearTotals');
     if (!box) return;
 
-    const { yearBudget, yearActual, yearVariance } = totals();
+    const { yearBudget, yearActual } = totals();
     const yearIncome = Math.max(0, toMoney(STATE.incomeYear));
-    const netVsBudget = yearIncome - yearBudget;
-    const netVsActual = yearIncome - yearActual;
+
+    const grossIncome = yearIncome;
+    const totalSpendingCashOut = yearActual;                 // this app’s “actuals” = cash-out spending
+    const plannedSpendingBudget = yearBudget;
+    const actualSpendingCategoriesCashOutOnly = yearActual;  // same here
+    const categoryNetIncludesIncomeNetting = yearActual;     // same here (no income netting in categories)
+    const spendingVariance = yearActual - yearBudget;        // Actual Spend − Budget
+    const projectedNet = yearIncome - yearBudget;            // Income − Budget
+    const actualNetCashFlow = yearIncome - yearActual;       // Income − Actual Spend
+
+    const cls = (n, positiveIsGood = true) => {
+      if (positiveIsGood) return n >= 0 ? 'ok' : 'warn';
+      return n <= 0 ? 'ok' : 'warn';
+    };
 
     box.innerHTML = `
-      <div>Expected Income: <strong>${fmt.format(yearIncome)}</strong></div>
+      <div>Gross Income: <strong>${fmt.format(grossIncome)}</strong></div>
+      <div>Total Spending (Cash Out): <strong>${fmt.format(totalSpendingCashOut)}</strong></div>
+
       <hr>
-      <div>Budgeted Expenses: <strong>${fmt.format(yearBudget)}</strong></div>
-      <div>Actual Expenses: <strong>${fmt.format(yearActual)}</strong></div>
-      <div>Expense Variance (Actual − Budget):
-        <strong class="${(yearActual - yearBudget) <= 0 ? 'ok' : 'warn'}">${fmt.format(yearActual - yearBudget)}</strong>
-      </div>
+
+      <div>Planned Spending (Budget): <strong>${fmt.format(plannedSpendingBudget)}</strong></div>
+      <div>Actual Spending (Categories, Cash Out Only): <strong>${fmt.format(actualSpendingCategoriesCashOutOnly)}</strong></div>
+      <div>Category Net (includes income netting): <strong>${fmt.format(categoryNetIncludesIncomeNetting)}</strong></div>
+
       <hr>
-      <div>Net (Income − Budget):
-        <strong class="${netVsBudget >= 0 ? 'ok' : 'warn'}">${fmt.format(netVsBudget)}</strong>
+
+      <div>Spending Variance (Actual Spend − Budget):
+        <strong class="${cls(spendingVariance, false)}">${fmt.format(spendingVariance)}</strong>
       </div>
-      <div>Net (Income − Actual):
-        <strong class="${netVsActual >= 0 ? 'ok' : 'warn'}">${fmt.format(netVsActual)}</strong>
+      <div>Projected Net (Income − Budget):
+        <strong class="${cls(projectedNet, true)}">${fmt.format(projectedNet)}</strong>
+      </div>
+      <div>Actual Net Cash Flow (Income − Actual Spend):
+        <strong class="${cls(actualNetCashFlow, true)}">${fmt.format(actualNetCashFlow)}</strong>
       </div>
     `;
   }
@@ -819,64 +867,85 @@
 
   /* ============ Sync from Financial Tracker (UTC) ============ */
   async function syncFromFinancialTracker() {
-    const snap = await get(ref(database, FIN_TRACKER_PATH(DATABASE_BASE_PATH)));
-    if (!snap.exists()) {
-      alert('No financial data found at: ' + FIN_TRACKER_PATH(DATABASE_BASE_PATH));
-      return;
-    }
-    const raw = snap.val();
     const wantYear = Number(STATE.year);
 
-    // Aggregate
-    let incomeYearSum = 0;
+    const yearSnap = await get(ref(database, TX_YEAR_PATH(DATABASE_BASE_PATH, wantYear)));
+    if (!yearSnap.exists()) {
+      alert(`No transactions found at: ${TX_YEAR_PATH(DATABASE_BASE_PATH, wantYear)}`);
+      return;
+    }
+
+    const raw = yearSnap.val() || {};
+
+    let incomeGross = 0;
+    let expensesGross = 0;
+
+    // month -> tag -> sum
     const monthTagSums = Array.from({ length: 12 }, () => new Map());
 
-    for (const bucket of Object.values(raw)) {
-      const details = Array.isArray(bucket?.details) ? bucket.details : [];
-      for (const d of details) {
-        if (!d?.date) continue;
-        const ym = ymFromISO(d.date); // UTC
-        if (!ym || ym.y !== wantYear) continue;
+    for (const [id, v] of Object.entries(raw)) {
+      const t = normalizeTx(id, v);
+      if (!t) continue;
 
-        const amount = toMoney(d.amount);
-        const type = String(d.type || '').toLowerCase();
-        const tags = Array.isArray(d.tags) ? d.tags.filter(t => String(t).trim()) : [];
+      const dt = new Date(t.date);
+      if (Number.isNaN(dt.getTime())) continue;
+      if (dt.getUTCFullYear() !== wantYear) continue;
 
-        if (type === 'income') {
-          incomeYearSum += amount;
-        } else if (type === 'expenses' || type === 'expense') {
-          const tagList = (tags.length ? tags : [UNTITLED_CATEGORY]).map(t => String(t).trim());
-          const share = (MULTITAG_MODE === 'split' && tagList.length > 0) ? (amount / tagList.length) : amount;
-          const mMap = monthTagSums[ym.m];
-          for (const tag of tagList) {
-            const prev = mMap.get(tag) || 0;
-            mMap.set(tag, prev + (MULTITAG_MODE === 'split' ? share : amount));
-          }
+      const mi = dt.getUTCMonth();
+      const amount = Math.abs(toMoney(t.amt));
+
+      const tagsRaw = Array.isArray(t.tags) ? t.tags : [];
+      const tagList = (tagsRaw.length ? tagsRaw : [UNTITLED_CATEGORY])
+        .map(x => String(x).trim())
+        .filter(Boolean);
+
+      const share = (MULTITAG_MODE === 'split' && tagList.length > 0)
+        ? (amount / tagList.length)
+        : amount;
+
+      const mMap = monthTagSums[mi];
+
+      if (t.type === 'income') {
+        incomeGross += amount;
+
+        // IMPORTANT:
+        // - Your Budget Planner expects "Actual Expenses" to be POSITIVE numbers.
+        // - So we do NOT store income in actuals (or store it as negative).
+        // We'll just track incomeGross and set STATE.incomeYear from it.
+      } else {
+        expensesGross += amount;
+
+        for (const tag of tagList) {
+          const prev = mMap.get(tag) || 0;
+          mMap.set(tag, prev + (MULTITAG_MODE === 'split' ? share : amount));
         }
       }
     }
 
-    // Ensure categories exist for all tags
+    // Ensure categories exist for all expense tags
     const seen = new Set();
     monthTagSums.forEach(mMap => mMap.forEach((_, tag) => seen.add(tag)));
-    for (const t of seen) ensureCategory(t);
+    for (const tag of seen) ensureCategory(tag);
 
-    // Write actuals into STATE (overwrite per found tag/month; leave others intact)
+    // Write actuals (OVERWRITE months we computed)
+    // If you prefer merge-only (keep manual entries), say so and I’ll flip it.
+    STATE.actuals = {};
     for (let mi = 0; mi < 12; mi++) {
       const mKey = months[mi];
-      STATE.actuals[mKey] ||= {};
-      const mMap = monthTagSums[mi];
-      mMap.forEach((sum, tag) => {
+      STATE.actuals[mKey] = {};
+      monthTagSums[mi].forEach((sum, tag) => {
         STATE.actuals[mKey][tag] = toMoney(sum);
       });
     }
 
-    STATE.incomeYear = toMoney(incomeYearSum);
+    // Income box = gross income from ledgerTx
+    STATE.incomeYear = toMoney(incomeGross);
+
     renderAll();
     await saveToDB();
-    alert('Actuals & income synced from Financial Tracker (UTC).');
-  }
 
+    alert(`Synced from ${TX_NODE}/${wantYear} (UTC). Income: ${fmt.format(incomeGross)} • Spending: ${fmt.format(expensesGross)}`);
+  }
   /* ============ Export CSV (optional) ============ */
   function exportCSV() {
     const { perMonth, yearBudget, yearActual, yearVariance } = totals();

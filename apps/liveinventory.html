@@ -2,913 +2,844 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventory Database</title>
+    <title>Finance Inventory</title>
+
     <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
+    <link rel="stylesheet" href="./assets/css/inventory.css">
+
     <script type="module" src="./assets/js/login.js" defer></script>
+
     <style>
-        input,
-        textarea {
-            resize: vertical;
-            white-space: normal;
-            overflow-wrap: break-word;
-            word-wrap: break-word;
-        }
-
-        .category-icon,
-        .part-image {
-            width: 120px;
-            height: 120px;
-            object-fit: cover;
-            margin: 10px;
-            border-radius: 10px;
-            cursor: pointer;
-            border: 2px solid #ccc;
-            transition: transform 0.2s;
-        }
-
-        .category-icon:hover,
-        .part-image:hover {
-            transform: scale(1.05);
-        }
-
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.6);
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-            padding: 20px;
-            box-sizing: border-box;
-            overflow-y: auto;
-        }
-
-        .modal-content {
-            background: #fff;
-            padding: 20px;
-            border-radius: 10px;
-            max-width: 540px;
-            width: 100%;
-            max-height: 90vh;
-            overflow-y: auto;
-            text-align: left;
-            position: relative;
-            box-sizing: border-box;
-        }
-
-        .modal-content img {
-            width: 100%;
-            height: auto;
-            border-radius: 10px;
-            display: block;
-            margin: 0 auto 10px;
-        }
-
-        #entries-container {
+        .row {
             display: flex;
+            gap: 10px;
             flex-wrap: wrap;
-            gap: 16px;
-            justify-content: center;
-            padding: 16px;
+            align-items: end;
         }
 
-        .item-card {
-            width: 180px;
-            border: 1px solid #ccc;
-            padding: 8px;
-            border-radius: 8px;
-            background-color: white;
-            transition: transform 0.2s ease;
-            text-align: center;
+        .grow {
+            flex: 1;
+            min-width: 240px;
         }
 
-        .item-card:hover {
-            transform: scale(1.05);
+        .tight {
+            flex: 0;
+            min-width: 160px;
         }
 
-        .item-card img {
-            width: 100%;
-            border-radius: 5px;
-        }
-
-        .item-card p {
-            margin: 0;
-            overflow: auto;
-            font-weight: bold;
-        }
-
-        .toolbar {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            flex-wrap: wrap;
-            margin: 8px 0;
-        }
-
-        .qty-controls {
-            display: inline-flex;
-            gap: 4px;
-            align-items: center;
-            margin-top: 4px;
-        }
-
-        .qty-controls input[type="number"] {
-            width: 80px;
+        .small {
+            font-size: 0.92rem;
+            margin-top: 8px;
         }
 
         .muted {
-            color: #666;
-            font-size: 0.9rem;
+            opacity: 0.75;
         }
 
-        @media (max-width: 768px) {
-            .container {
-                width: 95%;
-            }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+            gap: 12px;
+        }
 
-            table {
-                font-size: 14px;
-            }
+        .card {
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.12);
+            padding: 10px;
+        }
 
-            td img {
-                width: 40px;
-                height: 40px;
-            }
+        .top {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: baseline;
+        }
+
+        .name {
+            font-weight: 600;
+            border-bottom: 1px dashed rgba(255, 255, 255, 0.25);
+            padding-bottom: 2px;
+        }
+
+        .amt {
+            font-variant-numeric: tabular-nums;
+            opacity: 0.95;
+        }
+
+        .thumb {
+            width: 100%;
+            height: 160px;
+            margin-top: 10px;
+            border-radius: 10px;
+            object-fit: cover;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .fields {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .field .label {
+            font-size: 0.85rem;
+            opacity: 0.75;
+            margin-bottom: 4px;
+        }
+
+        .edit {
+            border-bottom: 1px dashed rgba(255, 255, 255, 0.25);
+            padding: 2px 0;
+            min-height: 22px;
+        }
+
+        .expandBtn {
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            background: rgba(0, 0, 0, 0.18);
+            color: inherit;
+            border-radius: 10px;
+            padding: 4px 10px;
+            cursor: pointer;
+        }
+
+        .expandArea {
+            display: none;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed rgba(255, 255, 255, 0.18);
         }
     </style>
 </head>
 
 <body>
     <header>
-        <h1>Inventory Database</h1>
+        <h1>Inventory</h1>
+
         <section id="login-section">
-            <form id="login-form">
-                <label>Email:</label><input type="email" id="username" required>
-                <label>Password:</label><input type="password" id="password" required>
-                <button type="submit">Login</button>
+            <form id="login-form" class="row">
+                <div>
+                    <label>Email</label>
+                    <input type="email" id="username" required>
+                </div>
+                <div>
+                    <label>Password</label>
+                    <input type="password" id="password" required>
+                </div>
+                <div class="tight">
+                    <label>&nbsp;</label>
+                    <button class="btn" type="submit">Login</button>
+                </div>
             </form>
-            <button id="logout" style="display: none;">Logout</button>
+
+            <button id="logout" class="btn" style="display:none; margin-top:10px;">Logout</button>
+
+        </section>
+
+        <section>
+            <div class="row">
+                <div class="tight">
+                    <label>Year</label>
+                    <select id="yearSelect"></select>
+                </div>
+
+                <div class="grow">
+                    <label>Search</label>
+                    <input id="q" placeholder="Search name, tags, cat, sku…" />
+                </div>
+
+                <div class="tight">
+                    <label>Show</label>
+                    <select id="mode">
+                        <option value="all" selected>All (expenses + income)</option>
+                        <option value="expenses">Expenses only</option>
+                        <option value="inv">Inventory only (tag: inv)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="small" id="summary">Loading…</div>
         </section>
     </header>
 
-    <main>
-        <section class="app-section">
-            <div class="entry-container">
-                <form id="create-form">
-                    <label>Category: </label><input type="text" id="category" required>
-                    <label>Sub-Category: </label><input type="text" id="component" required>
-                    <label>Item: </label><input type="text" id="part" required>
-                    <label>Price: </label><input type="number" id="price" step="0.01">
-                    <label>Cost: </label><input type="number" id="actualPrice" step="0.01">
-                    <label>Quantity: </label><input type="number" id="quantity">
-                    <label>Link: </label><input type="url" id="affiliateUrl" placeholder="https://...">
-                    <label>Description: </label><textarea id="description"></textarea>
-                    <label>Upload Image: </label><input type="file" id="imageInput" accept="image/*">
-                    <button id="save-data-button">Save</button>
-                </form>
-            </div>
-
-            <div class="toolbar">
-                <label for="viewToggle">Mode:</label>
-                <select id="viewToggle">
-                    <option value="view">View Mode</option>
-                    <option value="edit">Edit Mode</option>
-                </select>
-
-                <label>Filter Category:
-                    <select id="category-filter">
-                        <option value="">All</option>
-                    </select>
-                </label>
-                <input type="text" id="search-input" placeholder="Search Items / Desc / Link">
-
-                <button id="exportCsvBtn" type="button" title="Export currently shown items">Export CSV</button>
-
-                <div style="display: none;">
-                    <button id="autoNameFromNodeBtn" type="button">Auto-name from node</button>
-                    <label title="Preview without saving">
-                        <input type="checkbox" id="dryRunNode" checked> Preview only
-                    </label>
-                </div>
-
-            </div>
-
-            <div class="checkbox">
-                <label><input type="checkbox" class="toggle-column" value="category-column" checked> Category |</label>
-                <label><input type="checkbox" class="toggle-column" value="component-column" checked> Sub-Category
-                    |</label>
-                <label><input type="checkbox" class="toggle-column" value="item-column" checked> Item |</label>
-                <label><input type="checkbox" class="toggle-column" value="price-column"> Price |</label>
-                <label><input type="checkbox" class="toggle-column" value="cost-column"> Cost |</label>
-                <label><input type="checkbox" class="toggle-column" value="quantity-column" checked> Quantity |</label>
-                <label><input type="checkbox" class="toggle-column" value="link-column" checked> Link |</label>
-                <label><input type="checkbox" class="toggle-column" value="description-column"> Description
-                    |</label>
-                <label><input type="checkbox" class="toggle-column" value="image-column" checked> Image |</label>
-                <label><input type="checkbox" class="toggle-column" value="actions-column" checked> Actions</label>
-            </div>
-
-            <div class="table">
-                <div id="entries-container"></div>
-            </div>
-        </section>
-
-        <section id="modal" class="modal">
-            <div class="modal-content">
-                <button id="closeModal">&times;</button>
-                <img id="part-image" src="" alt="Part Image">
-                <h3 id="modal-title"></h3>
-                <p><strong>Category:</strong> <span id="modal-category"></span></p>
-                <p><strong>Sub-Category:</strong> <span id="modal-component"></span></p>
-                <p><strong>Price:</strong> $<span id="modal-price"></span></p>
-                <p><strong>Cost:</strong> $<span id="modal-cost"></span></p>
-                <p><strong>Quantity:</strong> <span id="modal-quantity"></span></p>
-                <p><strong>Link:</strong> <a id="modal-link" href="#" target="_blank" rel="noopener noreferrer"></a></p>
-                <p><strong>Description:</strong> <span id="modal-description"></span></p>
-            </div>
-        </section>
-
+    <main class="wrap">
+        <section id="list" class="grid"></section>
+        <p id="empty" class="muted" style="display:none;">No matches.</p>
     </main>
-</body>
 
-<script type="module">
-    import {
-        auth, onAuthStateChanged,
-        storage, storageRef, uploadBytesResumable, deleteObject, getDownloadURL,
-        database, ref, set, remove, update, get, onValue, push, runTransaction
-    } from "./assets/js/firebase-init.js";
+    <script type="module">
+        import {
+            auth, onAuthStateChanged,
+            database, ref, onValue, set,
+            storage, storageRef, uploadBytes, getDownloadURL, deleteObject
+        } from '../assets/js/firebase-init.js';
 
-    let DATABASE_BASE_PATH = 'public';
-    let inventoryEntries = {};
-    let lastFilteredEntries = {}; // for CSV export
+        /* =========================
+           CONFIG (year-separated)
+        ========================== */
+        const TX_NODE = 'ledgerTx';
+        let DATABASE_BASE_PATH = 'public';
+        let currentYear = new Date().getUTCFullYear();
 
-    onAuthStateChanged(auth, (user) => {
-        DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
-        loadDatabaseEntries();
-    });
-
-    function loadDatabaseEntries() {
-        const inventoryRef = ref(database, `${DATABASE_BASE_PATH}/inventory`);
-        const mode = document.getElementById('viewToggle').value;
-        toggleColumnControlsVisibility(mode);
-
-        onValue(inventoryRef, (snapshot) => {
-            inventoryEntries = snapshot.val() || {};
-            updateCategoryFilter(inventoryEntries);
-            filterEntries();
-            loadColumnVisibility();
-            applyColumnVisibility();
-        });
-    }
-
-    function updateCategoryFilter(entries) {
-        const categoryFilter = document.getElementById('category-filter');
-        categoryFilter.innerHTML = '<option value="">All</option>';
-        Object.keys(entries).forEach(category => {
-            const option = document.createElement('option');
-            option.value = category;
-            option.innerText = category;
-            categoryFilter.appendChild(option);
-        });
-    }
-
-    function displayEntries(entries) {
-        const container = document.getElementById('entries-container');
-        const mode = document.getElementById('viewToggle').value;
-
-        container.innerHTML = "";
-
-        if (mode === 'view') {
-            renderViewMode(entries, container);
-        } else {
-            renderEditMode(entries, container);
+        function txYearsRootPath() {
+            return `${DATABASE_BASE_PATH}/${TX_NODE}`;
         }
-    }
-
-    // --------- Image fetch cache ----------
-    const imageCache = {};
-
-    async function fetchImageForPart(category, component, partName, row) {
-        const sanitizedPartName = partName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
-        const storagePathBase = `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${sanitizedPartName}`;
-
-        if (imageCache[storagePathBase]) {
-            row.querySelector('img').src = imageCache[storagePathBase];
-            return;
+        function txYearPath(year) {
+            return `${txYearsRootPath()}/${year}`;
+        }
+        function txItemPath(year, id) {
+            return `${txYearPath(year)}/${id}`;
+        }
+        function imgBasePath() {
+            return `${DATABASE_BASE_PATH}/txImages`;
         }
 
-        const possibleExtensions = ['png', 'jpg', 'jpeg', 'webp'];
+        /* =========================
+           HELPERS
+        ========================== */
+        const $ = (id) => document.getElementById(id);
 
-        for (let ext of possibleExtensions) {
-            const storagePath = `${storagePathBase}.${ext}`;
-            const fileReference = storageRef(storage, storagePath);
+        function pad2(n) { return String(n).padStart(2, '0'); }
 
-            try {
-                const downloadURL = await getDownloadURL(fileReference);
-                imageCache[storagePathBase] = downloadURL;
-                row.querySelector('img').src = downloadURL;
-                return;
-            } catch (error) {
-                if (error.code !== 'storage/object-not-found') {
-                    console.error(`Error fetching image for ${sanitizedPartName}:`, error);
-                }
-            }
+        function ymdFromUtcTS(ts) {
+            const dt = new Date(Number(ts));
+            if (Number.isNaN(dt.getTime())) return '';
+            return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
         }
 
-        imageCache[storagePathBase] = "./assets/img/default.png";
-        row.querySelector('img').src = "./assets/img/default.png";
-    }
-
-    // --------- Edit listeners ----------
-    function attachEventListeners() {
-        document.querySelectorAll('[contenteditable="true"]').forEach(cell => {
-            cell.addEventListener('blur', (event) => {
-                const row = event.target.closest("tr");
-                updateInventoryField(event, row);
-            });
-        });
-
-        document.querySelectorAll('.delete-button').forEach(button => {
-            button.addEventListener('click', (event) => {
-                const row = event.target.closest("tr");
-                deleteEntry(row);
-            });
-        });
-
-        document.querySelectorAll('.image-upload').forEach(input => {
-            input.addEventListener('change', uploadImage);
-        });
-
-        // Live qty controls
-        document.querySelectorAll('.inc-btn').forEach(btn => {
-            btn.addEventListener('click', () => adjustQuantity(btn.closest('tr'), +1));
-        });
-        document.querySelectorAll('.dec-btn').forEach(btn => {
-            btn.addEventListener('click', () => adjustQuantity(btn.closest('tr'), -1));
-        });
-        document.querySelectorAll('.set-qty-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const tr = btn.closest('tr');
-                const v = tr.querySelector('.set-qty-input').value;
-                setExactQuantity(tr, v);
-            });
-        });
-    }
-
-    function rowPath(row) {
-        const category = row.dataset.category;
-        const component = row.dataset.component;
-        const uniqueKey = row.dataset.uniqueKey;
-        return `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`;
-    }
-
-    async function adjustQuantity(row, delta) {
-        const qRef = ref(database, `${rowPath(row)}/quantity`);
-        try {
-            await runTransaction(qRef, (cur) => {
-                const n = parseInt(cur || 0, 10) || 0;
-                return n + delta;
-            });
-        } catch (e) {
-            alert("Adjust failed: " + (e?.message || e));
-        }
-    }
-
-    async function setExactQuantity(row, val) {
-        const n = Number(val);
-        if (!Number.isFinite(n)) return alert("Enter a valid number to Set.");
-        const qRef = ref(database, `${rowPath(row)}/quantity`);
-        try {
-            await runTransaction(qRef, () => n);
-        } catch (e) {
-            alert("Set failed: " + (e?.message || e));
-        }
-    }
-
-    function updateInventoryField(event, row) {
-        const key = event.target.dataset.key;
-        const newValue = event.target.innerText.trim();
-
-        // quantity edited directly: set exact value via transaction
-        if (key === 'quantity') {
-            setExactQuantity(row, newValue);
-            return;
+        function utcNoonTSFromYMD(ymd) {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return Date.now();
+            const y = +ymd.slice(0, 4);
+            const m = +ymd.slice(5, 7) - 1;
+            const d = +ymd.slice(8, 10);
+            return Date.UTC(y, m, d, 12, 0, 0);
         }
 
-        const selectedCategory = document.getElementById('category-filter').value;
-        const searchTerm = document.getElementById('search-input').value.toLowerCase();
-
-        const originalValue = event.target.getAttribute("data-original");
-        if (newValue === originalValue) return;
-
-        update(ref(database, rowPath(row)), { [key]: newValue })
-            .then(() => {
-                event.target.setAttribute("data-original", newValue);
-                // keep filters sticky on re-render
-                setTimeout(() => {
-                    document.getElementById('category-filter').value = selectedCategory;
-                    document.getElementById('search-input').value = searchTerm;
-                    filterEntries();
-                }, 50);
-            })
-            .catch(error => console.error("Error updating entry:", error));
-    }
-
-    async function deleteEntry(row) {
-        const category = row.dataset.category;
-        const component = row.dataset.component;
-        const uniqueKey = row.dataset.uniqueKey;
-        const partName = row.dataset.part;
-
-        const confirmation = confirm(`Delete "${partName}"? This action cannot be undone.`);
-        if (!confirmation) return;
-
-        await deletePreviousImage(category, component, partName);
-
-        remove(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`))
-            .then(() => row.remove())
-            .catch(error => console.error("Error deleting entry:", error));
-    }
-
-    // --------- Filtering with smarter name fallback ----------
-    function smartName(data = {}) {
-        const first =
-            (data.part && String(data.part).trim()) ||
-            (data.name && String(data.name).trim()) ||
-            (data.title && String(data.title).trim()) ||
-            (data.displayName && String(data.displayName).trim());
-
-        if (first) return first;
-
-        const url = (data.affiliateUrl || "").trim();
-        if (url) {
-            const slug = decodeURIComponent((url.split("?")[0] || "").split("/").filter(Boolean).pop() || "")
-                .replace(/[-_]+/g, " ").trim();
-            if (slug) return slug;
-        }
-        return "Unnamed Item";
-    }
-
-    function filterEntries() {
-        const mode = document.getElementById('viewToggle').value;
-        const selectedCategory = document.getElementById('category-filter').value;
-        const searchTerm = document.getElementById('search-input').value.toLowerCase();
-
-        const filteredEntries = {};
-
-        Object.entries(inventoryEntries).forEach(([category, components]) => {
-            if (selectedCategory && category !== selectedCategory) return;
-
-            Object.entries(components).forEach(([component, items]) => {
-                Object.entries(items).forEach(([uniqueKey, data]) => {
-                    const nameBlob = smartName(data).toLowerCase();
-                    const descBlob = (data.description || "").toLowerCase();
-                    const linkBlob = (data.affiliateUrl || "").toLowerCase();
-                    const searchBlob = `${nameBlob} ${descBlob} ${linkBlob}`;
-
-                    if (searchTerm && !searchBlob.includes(searchTerm)) return;
-
-                    if (!filteredEntries[category]) filteredEntries[category] = {};
-                    if (!filteredEntries[category][component]) filteredEntries[category][component] = {};
-                    filteredEntries[category][component][uniqueKey] = data;
-                });
-            });
-        });
-
-        lastFilteredEntries = filteredEntries;
-        displayEntries(filteredEntries);
-    }
-
-    // --------- Image handling ----------
-    async function uploadImage(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-
-        const row = event.target.closest("tr");
-        const category = row.dataset.category;
-        const component = row.dataset.component;
-        const uniqueKey = row.dataset.uniqueKey;
-        const partName = row.dataset.part.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
-
-        if (!category || !component || !partName) {
-            alert("Error: Missing entry information for image upload.");
-            return;
+        function fmtUSD(n) {
+            return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' })
+                .format(Number(n) || 0);
         }
 
-        const storagePath = `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${partName}.png`;
-        const fileReference = storageRef(storage, storagePath);
-
-        try {
-            await deletePreviousImage(category, component, partName);
-
-            const uploadTask = await uploadBytesResumable(fileReference, file);
-            const imageUrl = await getDownloadURL(uploadTask.ref);
-
-            await update(ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`), {
-                imageUrl: imageUrl
-            });
-
-            row.querySelector("img").src = imageUrl;
-        } catch (error) {
-            console.error("Error uploading image:", error);
-        }
-        filterEntries();
-    }
-
-    async function deletePreviousImage(category, component, partName) {
-        const storagePathBase = `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${partName}`;
-        const exts = ['png', 'jpg', 'jpeg', 'webp'];
-        for (const ext of exts) {
-            const fullPath = `${storagePathBase}.${ext}`;
-            const fileRef = storageRef(storage, fullPath);
-            try {
-                await deleteObject(fileRef);
-                break;
-            } catch (err) {
-                if (err.code !== 'storage/object-not-found') {
-                    console.error(`Error deleting ${fullPath}:`, err);
-                    return;
-                }
-            }
-        }
-    }
-
-    // --------- Create new item ----------
-    document.getElementById('save-data-button').addEventListener('click', async (event) => {
-        event.preventDefault();
-
-        const category = document.getElementById('category').value.trim();
-        const component = document.getElementById('component').value.trim();
-        const partNameRaw = document.getElementById('part').value || "";
-        const partName = partNameRaw.trim();
-        if (!category || !component || !partName) {
-            alert("Category, Sub-Category, and Item are required.");
-            return;
+        function parseTags(input) {
+            if (!input) return [];
+            return String(input).split(',').map(t => t.trim()).filter(Boolean).slice(0, 25);
         }
 
-        const price = parseFloat(document.getElementById('price').value) || 0;
-        const actualPrice = parseFloat(document.getElementById('actualPrice').value) || 0;
-        const quantity = parseInt(document.getElementById('quantity').value) || 0;
-        const description = document.getElementById('description').value.trim();
-        const affiliateUrl = document.getElementById('affiliateUrl').value.trim();
-        const imageFile = document.getElementById('imageInput').files[0];
-
-        const uniqueKey = Date.now().toString();
-        const inventoryRef = ref(database, `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}`);
-
-        let imageUrl = null;
-
-        if (imageFile) {
-            try {
-                const sanitizedPartForFile = partName.replace(/[^a-zA-Z0-9_-]/g, "_");
-                imageUrl = await uploadImageForNewEntry(imageFile, category, component, sanitizedPartForFile);
-            } catch (error) {
-                console.error("Image upload failed:", error);
-                alert("Failed to upload image. Try again.");
-                return;
-            }
+        function hasTag(tx, want) {
+            const w = String(want || '').toLowerCase();
+            return (tx.tags || []).some(t => String(t).toLowerCase() === w);
         }
 
-        const itemData = {
-            part: partName,
-            price,
-            actualPrice,
-            quantity,
-            description,
-            affiliateUrl: affiliateUrl || "",
-            imageUrl
-        };
-
-        set(inventoryRef, itemData)
-            .then(() => {
-                resetForm();
-                loadDatabaseEntries();
-            })
-            .catch(error => console.error("Error saving item:", error));
-    });
-
-    function resetForm() {
-        document.getElementById('create-form').reset();
-    }
-
-    async function uploadImageForNewEntry(file, category, component, partNameSanitized) {
-        const storagePath = `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${partNameSanitized}.png`;
-        const fileReference = storageRef(storage, storagePath);
-
-        await deletePreviousImage(category, component, partNameSanitized);
-        const uploadTask = await uploadBytesResumable(fileReference, file);
-        const imageUrl = await getDownloadURL(uploadTask.ref);
-        return imageUrl;
-    }
-
-    // --------- Modal ----------
-    function attachImageClickEvent() {
-        document.querySelectorAll("#inventory-body img").forEach(img => {
-            img.addEventListener("click", function () {
-                const modal = document.getElementById("modal");
-                const modalImg = document.getElementById("part-image");
-                modal.style.display = "flex";
-                modalImg.src = this.src;
-            });
-        });
-
-        document.getElementById("modal").addEventListener("click", function (event) {
-            if (event.target === this) {
-                this.style.display = "none";
-            }
-        });
-    }
-
-    function showDetailsModal(data, category, component, partName, imageUrl) {
-        const modal = document.getElementById("modal");
-        modal.style.display = "flex";
-
-        document.getElementById("part-image").src = imageUrl;
-        document.getElementById("modal-title").innerText = smartName(data);
-        document.getElementById("modal-category").innerText = category ?? "Unknown Category";
-        document.getElementById("modal-component").innerText = component ?? "Unknown Sub-Category";
-        document.getElementById("modal-price").innerText = (data.price ?? "0").toString();
-        document.getElementById("modal-cost").innerText = (data.actualPrice ?? "0").toString();
-        document.getElementById("modal-quantity").innerText = (data.quantity ?? "0").toString();
-
-        const link = data.affiliateUrl?.trim() || "";
-        const linkEl = document.getElementById("modal-link");
-        linkEl.textContent = link || "—";
-        linkEl.href = link || "#";
-
-        document.getElementById("modal-description").innerText = data.description?.trim() || "No description available";
-    }
-
-    document.getElementById("closeModal").addEventListener("click", () => {
-        document.getElementById("modal").style.display = "none";
-    });
-
-    document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
-            document.getElementById("modal").style.display = "none";
+        function safeURL(u) {
+            const s = String(u || '').trim();
+            if (!s) return '';
+            if (/^https?:\/\//i.test(s)) return s;
+            return '';
         }
-    });
 
-    // --------- Renderers ----------
-    function renderViewMode(entries, container) {
-        const selectedCategory = document.getElementById('category-filter').value;
-        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+        function roundMoney(n) {
+            return Math.round((Number(n) || 0) * 100) / 100;
+        }
 
-        container.innerHTML = "";
-        container.style.display = "flex";
-        container.style.flexWrap = "wrap";
-        container.style.gap = "16px";
-        container.style.justifyContent = "center";
+        function normalizeTx(id, v) {
+            if (!v || typeof v !== 'object') return null;
 
-        Object.entries(entries).forEach(([category, components]) => {
-            Object.entries(components).forEach(([component, items]) => {
-                Object.entries(items).forEach(([uniqueKey, data]) => {
-                    const displayName = smartName(data);
-                    const imageUrl = data.imageUrl || "./assets/img/default.png";
+            const dateTS = Number(v.date);
+            if (!Number.isFinite(dateTS)) return null;
 
-                    const matchesCategory = selectedCategory === '' || category === selectedCategory;
-                    const blob = `${displayName} ${(data.description || "")} ${(data.affiliateUrl || "")}`.toLowerCase();
-                    const matchesSearch = searchTerm === '' || blob.includes(searchTerm);
-                    if (!(matchesCategory && matchesSearch)) return;
+            const type = String(v.type || '').toLowerCase();
+            const normType = (type === 'income') ? 'income' : 'expense';
+            const tags = Array.isArray(v.tags) ? v.tags.map(t => String(t).trim()).filter(Boolean) : [];
 
-                    const partName = displayName.replace(/[^a-zA-Z0-9_-]/g, "_");
+            return {
+                id: String(id),
+                amt: Number(v.amt ?? 0),
+                altAmt: Number(v.altAmt ?? 0),
+                cat: String(v.cat ?? ''),
+                sub: String(v.sub ?? ''),
+                sku: String(v.sku ?? ''),
+                link: String(v.link ?? ''),
+                img: (typeof v.img === 'string') ? v.img : (v.img?.url || ''),
+                imgPath: (typeof v.imgPath === 'string') ? v.imgPath : (v.img?.path || ''),
+                desc: String(v.desc ?? ''),
+                name: String(v.name ?? ''),
+                tags,
+                type: normType,
+                date: dateTS
+            };
+        }
 
-                    const card = document.createElement('div');
-                    card.className = 'item-card';
-                    card.dataset.category = category;
-                    card.dataset.component = component;
-                    card.dataset.uniqueKey = uniqueKey;
-                    card.dataset.part = partName;
+        function stripTxForSave(t) {
+            return {
+                amt: Number(t.amt ?? 0),
+                altAmt: Number(t.altAmt ?? 0),
+                cat: String(t.cat ?? ''),
+                sub: String(t.sub ?? ''),
+                sku: String(t.sku ?? ''),
+                link: String(t.link ?? ''),
+                img: String(t.img ?? ''),
+                imgPath: String(t.imgPath ?? ''),
+                desc: String(t.desc ?? ''),
+                name: String(t.name ?? ''),
+                tags: Array.isArray(t.tags) ? t.tags : [],
+                type: (String(t.type || '').toLowerCase() === 'income') ? 'income' : 'expense',
+                date: Number(t.date ?? Date.now())
+            };
+        }
 
-                    card.innerHTML = `
-            <img src="${imageUrl}" alt="${partName}">
-            <p>${displayName}</p>
-            <p class="muted">${category} / ${component}</p>
-          `;
+        async function writeTx(year, id, obj) {
+            await set(ref(database, txItemPath(year, id)), obj);
+        }
 
-                    card.addEventListener('click', () => {
-                        showDetailsModal(data, category, component, partName, imageUrl);
+        async function deleteTx(year, id) {
+            await set(ref(database, txItemPath(year, id)), null);
+        }
+
+        function groupKeyForTx(t) {
+            const sku = String(t.sku || '').trim();
+            if (sku) return `sku:${sku.toLowerCase()}`;
+            const nm = String(t.name || '').trim();
+            return `name:${nm.toLowerCase()}`;
+        }
+
+        function labelForGroup(t) {
+            const sku = String(t.sku || '').trim();
+            return sku ? sku : (t.name || '(no name)');
+        }
+
+        function buildGroups(list) {
+            const map = new Map();
+
+            for (const t of list) {
+                const key = groupKeyForTx(t);
+                if (!map.has(key)) {
+                    map.set(key, {
+                        key,
+                        sku: String(t.sku || '').trim(),
+                        name: String(t.name || '').trim(),
+                        qty: 0,
+                        total: 0,
+                        prices: new Map(), // price -> count
+                        latest: t,
+                        all: []
                     });
-
-                    container.appendChild(card);
-                });
-            });
-        });
-    }
-
-    function renderEditMode(entries, container) {
-        container.style.display = "block";
-        container.innerHTML = `<table id="inventory-table">
-        <thead>
-            <tr>
-                <th class="category-column">Category</th>
-                <th class="component-column">Sub-Category</th>
-                <th class="item-column">Item Name</th>
-                <th class="price-column">Price</th>
-                <th class="cost-column">Cost</th>
-                <th class="quantity-column">Quantity</th>
-                <th class="link-column">Link</th>
-                <th class="description-column">Description</th>
-                <th class="image-column">Image</th>
-                <th class="actions-column">Actions</th>
-            </tr>
-        </thead>
-        <tbody id="inventory-body"></tbody>
-    </table>`;
-
-        const tbody = document.getElementById('inventory-body');
-
-        Object.entries(entries).forEach(([category, components]) => {
-            Object.entries(components).forEach(([component, items]) => {
-                Object.entries(items).forEach(([uniqueKey, data]) => {
-                    const nameForAttr = (data.part || '').replace(/[^a-zA-Z0-9_-]/g, "_");
-                    const imageUrl = data.imageUrl ? data.imageUrl : "./assets/img/default.png";
-
-                    const row = document.createElement('tr');
-                    row.dataset.uniqueKey = uniqueKey;
-                    row.dataset.category = category;
-                    row.dataset.component = component;
-                    row.dataset.part = nameForAttr;
-
-                    row.innerHTML = `
-              <td class="category-column">${category}</td>
-              <td class="component-column">${component}</td>
-              <!-- NOTE: no placeholder here; empty cell if missing, and data-original is empty -->
-              <td class="item-column" contenteditable="true" data-key="part" data-original="${(data.part || '').replace(/"/g, '&quot;')}">${data.part || ''}</td>
-              <td class="price-column" contenteditable="true" data-key="price" data-original="${data.price || 0}">${data.price || 0}</td>
-              <td class="cost-column" contenteditable="true" data-key="actualPrice" data-original="${data.actualPrice || 0}">${data.actualPrice || 0}</td>
-              <td class="quantity-column">
-                  <div contenteditable="true" data-key="quantity" data-original="${data.quantity || 0}" style="display:inline-block; min-width:44px; border-bottom:1px dotted #bbb;">${data.quantity || 0}</div>
-                  <div class="qty-controls">
-                      <button type="button" class="dec-btn">−1</button>
-                      <button type="button" class="inc-btn">+1</button>
-                      <input type="number" class="set-qty-input" placeholder="Set…">
-                      <button type="button" class="set-qty-btn">Set</button>
-                  </div>
-              </td>
-              <td class="link-column" contenteditable="true" data-key="affiliateUrl" data-original="${(data.affiliateUrl || '').replace(/"/g, '&quot;')}">${data.affiliateUrl || ''}</td>
-              <td class="description-column" contenteditable="true" data-key="description" data-original="${(data.description || '').replace(/"/g, '&quot;')}">${data.description || ''}</td>
-              <td class="image-column">
-                  <img src="${imageUrl}" width="50" height="50" style="cursor: pointer;" data-part="${nameForAttr}">
-                  <input type="file" class="image-upload" accept="image/*">
-              </td>
-              <td class="actions-column">
-                  <button class="delete-button clear-button" type="button">Delete</button>
-              </td>
-          `;
-                    tbody.appendChild(row);
-                });
-            });
-        });
-
-        attachEventListeners();
-        attachImageClickEvent();
-    }
-
-    // --------- Column visibility ----------
-    document.getElementById('category-filter').addEventListener('change', filterEntries);
-    document.getElementById('search-input').addEventListener('input', filterEntries);
-    document.getElementById('viewToggle').addEventListener('change', loadDatabaseEntries);
-
-    document.querySelectorAll('.toggle-column').forEach(checkbox => {
-        checkbox.addEventListener('change', () => {
-            saveColumnVisibility();
-            applyColumnVisibility();
-        });
-    });
-
-    function saveColumnVisibility() {
-        const checkboxStates = {};
-        document.querySelectorAll('.toggle-column').forEach(checkbox => {
-            checkboxStates[checkbox.value] = checkbox.checked;
-        });
-        localStorage.setItem('inventoryColumnVisibility', JSON.stringify(checkboxStates));
-    }
-
-    function loadColumnVisibility() {
-        const savedStates = JSON.parse(localStorage.getItem('inventoryColumnVisibility'));
-        if (savedStates) {
-            document.querySelectorAll('.toggle-column').forEach(checkbox => {
-                checkbox.checked = savedStates[checkbox.value] !== undefined ? savedStates[checkbox.value] : checkbox.checked;
-            });
-        }
-    }
-
-    function applyColumnVisibility() {
-        document.querySelectorAll('.toggle-column').forEach(checkbox => {
-            const columnClass = checkbox.value;
-            document.querySelectorAll(`.${columnClass}`).forEach(cell => {
-                cell.style.display = checkbox.checked ? '' : 'none';
-            });
-        });
-    }
-
-    function toggleColumnControlsVisibility(mode) {
-        const columnControls = document.querySelector('.checkbox');
-        columnControls.style.display = (mode === 'edit') ? 'block' : 'none';
-    }
-
-    // --------- CSV Export (exports what’s currently shown) ----------
-    document.getElementById('exportCsvBtn').addEventListener('click', () => {
-        const rows = [["Category", "Sub-Category", "Item", "Quantity", "Price", "Cost", "Link", "Description", "ImageURL", "Key"]];
-        Object.entries(lastFilteredEntries).forEach(([category, components]) => {
-            Object.entries(components).forEach(([component, items]) => {
-                Object.entries(items).forEach(([uniqueKey, data]) => {
-                    rows.push([
-                        category,
-                        component,
-                        smartName(data),
-                        String(data.quantity ?? 0),
-                        String(data.price ?? ""),
-                        String(data.actualPrice ?? ""),
-                        String(data.affiliateUrl ?? ""),
-                        (data.description || "").replace(/\r?\n/g, " ").trim(),
-                        String(data.imageUrl ?? ""),
-                        uniqueKey
-                    ]);
-                });
-            });
-        });
-
-        const csv = rows.map(r =>
-            r.map(field => {
-                const s = String(field ?? "");
-                return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-            }).join(",")
-        ).join("\n");
-
-        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `inventory_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-    });
-
-
-    // --- Auto-name missing items using their node key (uniqueKey) ---
-    document.getElementById('autoNameFromNodeBtn').addEventListener('click', autoNameFromNode);
-
-    async function autoNameFromNode() {
-        try {
-            const dryRun = document.getElementById('dryRunNode')?.checked ?? true;
-
-            // Pull current inventory tree
-            const rootRef = ref(database, `${DATABASE_BASE_PATH}/inventory`);
-            const snap = await get(rootRef);
-            const inv = snap.val() || {};
-
-            const updates = {};
-            const preview = [];
-
-            // Walk: category -> component -> uniqueKey -> data
-            for (const [category, components] of Object.entries(inv)) {
-                for (const [component, items] of Object.entries(components || {})) {
-                    for (const [uniqueKey, data] of Object.entries(items || {})) {
-                        const currentName = String(data?.part || '').trim();
-                        if (currentName) continue; // skip items that already have a name
-
-                        // Use the node key directly as the name
-                        const candidate = String(uniqueKey);
-
-                        const path = `${DATABASE_BASE_PATH}/inventory/${category}/${component}/${uniqueKey}/part`;
-                        updates[path] = candidate;
-                        preview.push({ category, component, uniqueKey, name: candidate });
-                    }
                 }
+
+                const g = map.get(key);
+                g.all.push(t);
+
+                g.qty += 1;
+                g.total += Math.abs(Number(t.amt) || 0);
+
+                const price = roundMoney(Math.abs(Number(t.amt) || 0));
+                g.prices.set(price, (g.prices.get(price) || 0) + 1);
+
+                const isNewer =
+                    (Number(t.date) > Number(g.latest?.date || 0)) ||
+                    (Number(t.date) === Number(g.latest?.date || 0) && String(t.id) > String(g.latest?.id || ''));
+                if (isNewer) g.latest = t;
+
+                if (!g.sku && t.sku) g.sku = String(t.sku).trim();
+                if (!g.name && t.name) g.name = String(t.name).trim();
             }
 
-            if (preview.length === 0) {
-                alert('No unnamed items found.');
-                return;
-            }
+            const out = Array.from(map.values());
+            for (const g of out) g.total = roundMoney(g.total);
 
-            if (dryRun) {
-                console.table(preview);
-                alert(`Preview: ${preview.length} items would be named from their node key. Open the console for details. Uncheck "Preview only" to apply.`);
-                return;
-            }
-
-            // One atomic fan-out update
-            await update(ref(database), updates);
-            alert(`Named ${preview.length} items from their node key.`);
-            // Re-apply your current filters/render
-            filterEntries?.();
-        } catch (err) {
-            console.error('Auto-name from node failed:', err);
-            alert(`Auto-name from node failed: ${err?.message || err}`);
+            out.sort((a, b) => (Number(b.latest?.date || 0) - Number(a.latest?.date || 0)));
+            return out;
         }
-    }
 
-</script>
+        /* =========================
+           STATE + LISTENERS
+        ========================== */
+        let _yearTx = [];         // ONLY tx for the selected year
+        let yearsUnsub = null;    // listener for years list
+        let yearUnsub = null;     // listener for selected year records
+        let uiBound = false;
+        const _selectedPriceByGroup = new Map(); // groupKey -> number(price)
+
+        onAuthStateChanged(auth, (user) => {
+            DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
+
+            if (typeof yearsUnsub === 'function') { yearsUnsub(); yearsUnsub = null; }
+            if (typeof yearUnsub === 'function') { yearUnsub(); yearUnsub = null; }
+
+            bindUIOnce();
+            attachYearsListener();
+        });
+
+        function bindUIOnce() {
+            if (uiBound) return;
+            uiBound = true;
+
+            $('yearSelect')?.addEventListener('change', () => {
+                currentYear = parseInt($('yearSelect').value, 10) || currentYear;
+                attachYearListener(currentYear);
+            });
+
+            $('q')?.addEventListener('input', renderAll);
+            $('mode')?.addEventListener('change', renderAll);
+        }
+
+        function attachYearsListener() {
+            const r = ref(database, txYearsRootPath());
+            yearsUnsub = onValue(r, (snap) => {
+                const raw = snap.exists() ? snap.val() : {};
+                const years = Object.keys(raw || {})
+                    .map(y => parseInt(y, 10))
+                    .filter(n => Number.isFinite(n))
+                    .sort((a, b) => a - b);
+
+                // Ensure current year is present
+                if (!years.includes(currentYear)) years.push(currentYear);
+
+                // Populate dropdown without breaking selection
+                const sel = $('yearSelect');
+                const prev = parseInt(sel.value, 10) || currentYear;
+                sel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+                sel.value = String(years.includes(prev) ? prev : currentYear);
+
+                currentYear = parseInt(sel.value, 10) || currentYear;
+                attachYearListener(currentYear);
+            }, (err) => console.error('❌ years listener error:', err));
+        }
+
+        function attachYearListener(year) {
+            if (typeof yearUnsub === 'function') { yearUnsub(); yearUnsub = null; }
+
+            const r = ref(database, txYearPath(year));
+            yearUnsub = onValue(r, (snap) => {
+                const raw = snap.exists() ? snap.val() : {};
+                const out = [];
+                for (const [id, v] of Object.entries(raw || {})) {
+                    const n = normalizeTx(id, v);
+                    if (n) out.push(n);
+                }
+                _yearTx = out;
+                renderAll();
+            }, (err) => console.error('❌ year listener error:', err));
+        }
+
+        /* =========================
+           FILTERS + RENDER
+        ========================== */
+        function applyMode(list) {
+            const mode = $('mode')?.value || 'all';
+            if (mode === 'expenses') return list.filter(t => t.type === 'expense');
+            if (mode === 'inv') return list.filter(t => t.type === 'expense' && hasTag(t, 'inv'));
+            return list;
+        }
+
+        function applySearch(list) {
+            const q = String($('q')?.value || '').trim().toLowerCase();
+            if (!q) return list;
+
+            const m = q.match(/\btag\s*:\s*(?:"([^"]+)"|([^\s]+))/i);
+            if (m) {
+                const want = (m[1] || m[2] || '').toLowerCase();
+                return list.filter(t => (t.tags || []).some(x => String(x).toLowerCase() === want));
+            }
+
+            return list.filter(t => {
+                const blob = [
+                    t.name, t.desc, t.cat, t.sub, t.sku, t.link, (t.tags || []).join(' ')
+                ].join(' ').toLowerCase();
+                return blob.includes(q);
+            });
+        }
+
+        function setSummary(lines, groups) {
+            let spend = 0, income = 0;
+            for (const t of lines) {
+                const v = Math.abs(Number(t.amt) || 0);
+                if (t.type === 'income') income += v;
+                else spend += v;
+            }
+            $('summary').innerHTML =
+                `Year <b>${currentYear}</b> • Groups: <b>${groups.length}</b> • Lines: <b>${lines.length}</b> • Income: <b>${fmtUSD(income)}</b> • Spending: <b>${fmtUSD(spend)}</b>`;
+        }
+
+        function renderAll() {
+            const lines = applySearch(applyMode(_yearTx.slice()));
+            const groups = buildGroups(lines);
+
+            setSummary(lines, groups);
+            renderGroupList(groups);
+        }
+
+        function renderGroupList(groups) {
+            const wrap = $('list');
+            const empty = $('empty');
+            wrap.innerHTML = '';
+
+            if (!groups.length) {
+                empty.style.display = 'block';
+                return;
+            }
+            empty.style.display = 'none';
+
+            for (const g of groups) wrap.appendChild(renderGroupCard(g));
+        }
+
+        /* =========================
+           CARD UI (grouped)
+        ========================== */
+        function renderGroupCard(g) {
+            // Sort group's lines newest -> oldest (stable)
+            const sorted = g.all.slice().sort((a, b) =>
+                (Number(b.date) - Number(a.date)) || String(b.id).localeCompare(String(a.id))
+            );
+
+            // Price options (distinct prices)
+            const distinctPrices = Array.from(g.prices.entries())
+                .sort((a, b) => a[0] - b[0]); // [price, count]
+
+            // Determine selected price for this group
+            const defaultPrice = roundMoney(Math.abs(Number(sorted[0]?.amt || 0)));
+            let selectedPrice = _selectedPriceByGroup.has(g.key)
+                ? _selectedPriceByGroup.get(g.key)
+                : defaultPrice;
+
+            // If selection isn't valid anymore, fall back
+            const validPrices = new Set(distinctPrices.map(([p]) => p));
+            if (!validPrices.has(selectedPrice)) selectedPrice = defaultPrice;
+
+            const t = sorted[0];
+
+
+            const card = document.createElement('div');
+            card.className = 'card';
+
+            // Header row
+            const top = document.createElement('div');
+            top.className = 'top';
+
+            const title = document.createElement('div');
+            title.className = 'name';
+            title.textContent = labelForGroup(t);
+
+            const right = document.createElement('div');
+            right.className = 'amt';
+
+            const qtyTxt = document.createElement('span');
+            qtyTxt.textContent = `${g.qty} × • Total: ${fmtUSD(g.total)}`;
+
+            // Only show expand for groups with multiples
+            let expandBtn = null;
+            if (g.qty > 1) {
+                expandBtn = document.createElement('button');
+                expandBtn.className = 'expandBtn';
+                expandBtn.type = 'button';
+                expandBtn.textContent = '▾';
+                expandBtn.title = 'Show all lines in this group';
+                right.append(qtyTxt, document.createTextNode(' '), expandBtn);
+            } else {
+                right.append(qtyTxt);
+            }
+
+            top.append(title, right);
+
+            // Prices UI
+            const priceWrap = document.createElement('div');
+            priceWrap.className = 'small muted';
+
+            // If only one price OR only one line, no dropdown
+            if (g.qty <= 1 || distinctPrices.length <= 1) {
+                const p = distinctPrices.length ? distinctPrices[0][0] : roundMoney(Math.abs(Number(t.amt || 0)));
+                priceWrap.textContent = `Price: ${fmtUSD(p)}`;
+            } else {
+                const label = document.createElement('span');
+                label.textContent = 'Prices: ';
+
+                const sel = document.createElement('select');
+                for (const [price, count] of distinctPrices) {
+                    const opt = document.createElement('option');
+                    opt.value = String(price);
+                    opt.textContent = `${fmtUSD(price)} (${count})`;
+                    sel.appendChild(opt);
+                }
+                sel.value = String(selectedPrice);
+
+                const hint = document.createElement('span');
+                hint.style.marginLeft = '8px';
+                hint.textContent = 'Select a price to target a line (newest matching that price).';
+
+                sel.addEventListener('change', () => {
+                    const p = parseFloat(sel.value);
+                    _selectedPriceByGroup.set(g.key, Number.isFinite(p) ? p : defaultPrice);
+                    renderAll();
+                });
+
+                const priceWrap = document.createElement('div');
+                priceWrap.className = 'small muted';
+                priceWrap.textContent = (g.qty > 1)
+                    ? `Grouped item • ${g.qty} lines`
+                    : `Single item`;
+            }
+
+            // Main view (selected line)
+            const mainLineCard = renderLineCard(t, g, { showMetaPrefix: 'Selected line' });
+
+            // Expand area (ONLY for qty > 1)
+            if (g.qty > 1) {
+                const expandArea = document.createElement('div');
+                expandArea.className = 'expandArea';
+
+                const expandHdr = document.createElement('div');
+                expandHdr.className = 'small muted';
+                expandHdr.textContent = `All lines (${sorted.length}) — newest first`;
+                expandArea.appendChild(expandHdr);
+
+                // IMPORTANT: don't duplicate the main selected line in the expanded list
+                const expandedLines = sorted.filter(x => String(x.id) !== String(t.id));
+
+                for (const line of expandedLines) {
+                    const sub = document.createElement('div');
+                    sub.className = 'card';
+                    sub.style.marginTop = '10px';
+                    sub.appendChild(renderLineCard(line, g, { compact: true }));
+                    expandArea.appendChild(sub);
+                }
+
+                expandBtn.addEventListener('click', () => {
+                    const open = expandArea.style.display === 'block';
+                    expandArea.style.display = open ? 'none' : 'block';
+                    expandBtn.textContent = open ? '▾' : '▴';
+                });
+
+                card.append(top, priceWrap, mainLineCard, expandArea);
+                return card;
+            }
+
+            // qty === 1 (no expand area)
+            card.append(top, priceWrap, mainLineCard);
+            return card;
+        }
+
+        function renderLineCard(t, g, opts = {}) {
+            const wrap = document.createElement('div');
+
+            // Image
+            const img = document.createElement('img');
+            img.className = 'thumb';
+            img.alt = (t.name || t.sku || 'item');
+            img.src = t.img ? t.img : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`
+                <svg xmlns="http://www.w3.org/2000/svg" width="800" height="450">
+                <rect width="100%" height="100%" fill="rgba(255,255,255,0.06)"/>
+                <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
+                    fill="rgba(255,255,255,0.55)" font-family="Arial" font-size="28">No Image</text>
+                </svg>
+            `);
+
+            img.style.cursor = t.img ? 'pointer' : 'default';
+            img.addEventListener('click', () => {
+                if (!t.img) return;
+                window.open(t.img, '_blank', 'noopener,noreferrer');
+            });
+
+            // Image controls (act on THIS line)
+            const imgRow = document.createElement('div');
+            imgRow.className = 'row';
+
+            const file = document.createElement('input');
+            file.type = 'file';
+            file.accept = 'image/*';
+            file.style.display = 'none';
+
+            const upBtn = document.createElement('button');
+            upBtn.className = 'btn';
+            upBtn.textContent = t.img ? 'Replace Image' : 'Upload Image';
+            upBtn.addEventListener('click', () => file.click());
+
+            file.addEventListener('change', async () => {
+                const f = file.files?.[0];
+                file.value = '';
+                if (!f) return;
+
+                try {
+                    upBtn.disabled = true;
+                    upBtn.textContent = 'Uploading…';
+
+                    const safeName = f.name.replace(/[^\w.\-]+/g, '_');
+                    const storagePath = `${imgBasePath()}/${t.id}_${Date.now()}_${safeName}`;
+
+                    const sref = storageRef(storage, storagePath);
+                    await uploadBytes(sref, f);
+                    const url = await getDownloadURL(sref);
+
+                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, img: url, imgPath: storagePath }));
+                } catch (err) {
+                    console.error(err);
+                    alert('❌ Upload failed.');
+                } finally {
+                    upBtn.disabled = false;
+                    upBtn.textContent = t.img ? 'Replace Image' : 'Upload Image';
+                }
+            });
+
+            const delImgBtn = document.createElement('button');
+            delImgBtn.className = 'btn danger';
+            delImgBtn.textContent = 'Delete Image';
+            delImgBtn.disabled = !t.img && !t.imgPath;
+
+            delImgBtn.addEventListener('click', async () => {
+                if (!confirm('Delete this image for THIS line?')) return;
+
+                try {
+                    if (t.imgPath) {
+                        const sref = storageRef(storage, t.imgPath);
+                        await deleteObject(sref);
+                    }
+                } catch (err) {
+                    console.warn('Storage delete failed:', err);
+                }
+
+                await writeTx(currentYear, t.id, stripTxForSave({ ...t, img: '', imgPath: '' }));
+            });
+
+            imgRow.append(upBtn, delImgBtn, file);
+
+            // Editable fields
+            const fields = document.createElement('div');
+            fields.className = 'fields';
+
+            fields.appendChild(fieldText('Name', t.name, async (next) => {
+                await writeTx(currentYear, t.id, stripTxForSave({ ...t, name: next }));
+            }));
+
+            fields.appendChild(fieldText('SKU', t.sku, async (next) => {
+                await writeTx(currentYear, t.id, stripTxForSave({ ...t, sku: next }));
+            }));
+
+            fields.appendChild(fieldText('Price', String(roundMoney(Math.abs(Number(t.amt || 0)))), async (next) => {
+                const v = roundMoney(Math.abs(Number(String(next).replace(/[^0-9.\-]/g, '')) || 0));
+                const signed = (t.type === 'income') ? v : -v;
+                await writeTx(currentYear, t.id, stripTxForSave({ ...t, amt: signed }));
+            }));
+
+            fields.appendChild(fieldText('Alt Price', String(roundMoney(Math.abs(Number(t.altAmt || 0)))), async (next) => {
+                const v = roundMoney(Math.abs(Number(String(next).replace(/[^0-9.\-]/g, '')) || 0));
+                const signed = (t.type === 'income') ? v : -v;
+                await writeTx(currentYear, t.id, stripTxForSave({ ...t, altAmt: signed }));
+            }));
+
+            fields.appendChild(fieldText('Tags', (t.tags || []).join(', '), async (next) => {
+                await writeTx(currentYear, t.id, stripTxForSave({ ...t, tags: parseTags(next) }));
+            }));
+
+            fields.appendChild(fieldText('Category', t.cat, async (next) => {
+                await writeTx(currentYear, t.id, stripTxForSave({ ...t, cat: next }));
+            }));
+
+            fields.appendChild(fieldLink(t));
+
+            // Meta
+            const meta = document.createElement('div');
+            meta.className = 'small muted';
+            const prefix = opts.showMetaPrefix ? `${opts.showMetaPrefix}: ` : '';
+            meta.textContent =
+                `${prefix}${ymdFromUtcTS(t.date)} • Price: ${fmtUSD(Math.abs(t.amt || 0))} • ID: ${t.id}`;
+
+            // Delete THIS line
+            const bottom = document.createElement('div');
+            bottom.className = 'row';
+
+            const delTxBtn = document.createElement('button');
+            delTxBtn.className = 'btn danger';
+            delTxBtn.textContent = 'Delete Line';
+            delTxBtn.addEventListener('click', async () => {
+                if (!confirm('Delete THIS line?')) return;
+                await deleteTx(currentYear, t.id);
+            });
+
+            bottom.append(delTxBtn);
+
+            // Build
+            wrap.append(img, imgRow, fields, meta, bottom);
+            return wrap;
+        }
+
+        function fieldWrap(labelText) {
+            const w = document.createElement('div');
+            w.className = 'field';
+
+            const l = document.createElement('div');
+            l.className = 'label';
+            l.textContent = labelText;
+
+            const v = document.createElement('div');
+            v.className = 'value';
+
+            w.append(l, v);
+            return { w, v };
+        }
+
+        function fieldText(label, value, onCommit) {
+            const { w, v } = fieldWrap(label);
+
+            const d = document.createElement('div');
+            d.className = 'edit';
+            d.contentEditable = 'true';
+            d.spellcheck = false;
+            d.textContent = value ?? '';
+
+            d.addEventListener('focus', e => e.target.dataset.orig = e.target.innerText);
+            d.addEventListener('blur', async (e) => {
+                const next = e.target.innerText.trim();
+                const prev = (e.target.dataset.orig || '').trim();
+                if (next === prev) return;
+                await onCommit(next);
+            });
+
+            v.appendChild(d);
+            return w;
+        }
+
+        function fieldLink(t) {
+            const { w, v } = fieldWrap('Link');
+
+            const a = document.createElement('a');
+            const href = safeURL(t.link);
+
+            a.textContent = t.link ? t.link : '(none)';
+            a.href = href || '#';
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            if (!href) a.className = 'muted';
+            a.addEventListener('click', (e) => { if (!href) e.preventDefault(); });
+
+            const inp = document.createElement('input');
+            inp.placeholder = 'https://...';
+            inp.value = t.link || '';
+            inp.addEventListener('change', async () => {
+                const next = inp.value.trim();
+                await writeTx(currentYear, t.id, stripTxForSave({ ...t, link: next }));
+            });
+
+            v.append(a, document.createElement('div'), inp);
+            return w;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+
+            const headerTitle = document.querySelector('header h1');
+            const loginSection = document.getElementById('login-section');
+
+            headerTitle.addEventListener('dblclick', () => {
+                loginSection.style.display =
+                    loginSection.style.display === 'none' || getComputedStyle(loginSection).display === 'none'
+                        ? 'block'
+                        : 'none';
+            });
+        });
+
+    </script>
+
+</body>
 
 </html>
