@@ -154,6 +154,25 @@
     #modalContent {
       display: inline-block;
     }
+
+    .chart-carousel {
+      width: 80%;
+      margin: 0 auto;
+      outline: none;
+    }
+
+    .chart-carousel-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .chart-carousel-top button {
+      padding: 6px 10px;
+      border-radius: 10px;
+    }
   </style>
 </head>
 
@@ -199,6 +218,10 @@
           <input type="text" id="global-search" placeholder="Search by name, tag, amount…"
             oninput="filterGlobalEntries()" disabled title="Load ./assets/js/search.js to enable advanced search">
         </div>
+        <div>
+          <button id="toggle-show-all" type="button">Show all</button>
+          <span id="shown-count" class="small" style="opacity:.8;"></span>
+        </div>
 
         <div class="table">
           <table id="transactions-table">
@@ -218,25 +241,52 @@
       </section>
 
       <section id="yearly-budget-calculator">
-        <h2>Monthly Summary</h2>
+        <h2>Summary Graphs</h2>
         <div class="visuals">
-          <canvas id="monthlyBar"></canvas>
-        </div>
-        <div class="table">
-          <table id="months-container">
-            <thead>
-              <tr>
-                <th>Month</th>
-                <th>Income</th>
-                <th>Spending</th>
-                <th>Net</th>
-                <th>+ Income</th>
-                <th>+ Expense</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
+          <div class="pie-controls">
+            <label>Group by:
+              <select id="pie-breakdown">
+                <option value="months" selected>By Month</option>
+                <option value="tags">By Tag</option>
+                <option value="years">By Year</option>
+              </select>
+            </label>
+
+            <label>Show:
+              <select id="pie-metric">
+                <option value="expense" selected>Spending</option>
+                <option value="income">Income</option>
+              </select>
+            </label>
+
+            <div id="chartCarousel" class="chart-carousel" tabindex="0" aria-label="Charts carousel">
+              <div class="chart-carousel-top">
+                <button id="chartPrev" type="button">←</button>
+                <div id="chartTitle" style="font-weight:700;">Chart</div>
+                <button id="chartNext" type="button">→</button>
+              </div>
+              <canvas id="chartCanvas"></canvas>
+              <div class="small" style="margin-top:6px; opacity:.8;">
+                Tip: use Left/Right arrow keys to switch charts.
+              </div>
+            </div>
+          </div>
+
+          <div class="table">
+            <table id="months-container">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Income</th>
+                  <th>Spending</th>
+                  <th>Net</th>
+                  <th>+ Income</th>
+                  <th>+ Expense</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
       </section>
 
       <section>
@@ -279,25 +329,6 @@
         </table>
 
         <br>
-        <div class="visuals">
-          <div class="pie-controls">
-            <label>Group by:
-              <select id="pie-breakdown">
-                <option value="months" selected>By Month</option>
-                <option value="tags">By Tag</option>
-                <option value="years">By Year</option>
-              </select>
-            </label>
-
-            <label>Show:
-              <select id="pie-metric">
-                <option value="expense" selected>Spending</option>
-                <option value="income">Income</option>
-              </select>
-            </label>
-          </div>
-          <canvas id="yearPie" height="120"></canvas>
-        </div>
       </section>
 
       <section>
@@ -385,6 +416,16 @@
     ========================== */
     const MONTHS_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const MONTHS_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const YEAR_STORAGE_KEY = 'financeLedger.selectedYear.v1';
+
+    function loadSavedYear() {
+      const v = parseInt(localStorage.getItem(YEAR_STORAGE_KEY) || '', 10);
+      return Number.isFinite(v) ? v : null;
+    }
+
+    function saveSelectedYear(y) {
+      try { localStorage.setItem(YEAR_STORAGE_KEY, String(y)); } catch { }
+    }
 
     function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -435,11 +476,14 @@
     let _allTx = [];   // contains ALL years for current base path
     let _engine = null;
     let _txSortAsc = true;
-    let monthlyBarChart = null;
-    let yearPieChart = null;
+    let carouselChart = null;
+    let chartSlideIndex = 0; // 0 = Monthly Bar, 1 = Pie
+    const CHART_SLIDES = ['monthly', 'pie'];
     let _openDayYMD = null;
     let _isRefreshingModal = false;
 
+    let _showAllTx = false;
+    const TX_PAGE_SIZE = 20;
 
     /* =========================
        Paths
@@ -639,6 +683,9 @@
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
 
+      const saved = loadSavedYear();
+      if (saved) currentYear = saved;
+
       if (typeof ledgerUnsub === 'function') {
         ledgerUnsub();
         ledgerUnsub = null;
@@ -753,17 +800,43 @@
       document.getElementById('yearSelect')?.addEventListener('change', handleYearChange);
 
       document.getElementById('closeModal')?.addEventListener('click', closeModal);
+      document.getElementById('chartNext')?.addEventListener('click', nextChartSlide);
+      document.getElementById('chartPrev')?.addEventListener('click', prevChartSlide);
+
+      window.addEventListener('keydown', (e) => {
+        // don’t hijack arrows while user is editing fields
+        if (isTypingTarget(e.target)) return;
+
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          nextChartSlide();
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          prevChartSlide();
+        }
+      });
+
       window.addEventListener('click', (e) => {
         if (e.target === document.getElementById('detailsModal')) closeModal();
       });
 
-      document.getElementById('pie-breakdown')?.addEventListener('change', () => renderPie());
-      document.getElementById('pie-metric')?.addEventListener('change', () => renderPie());
+      document.getElementById('pie-breakdown')?.addEventListener('change', () => {
+        if (CHART_SLIDES[chartSlideIndex] === 'pie') renderChartSlide(chartSlideIndex);
+      });
+      document.getElementById('pie-metric')?.addEventListener('change', () => {
+        if (CHART_SLIDES[chartSlideIndex] === 'pie') renderChartSlide(chartSlideIndex);
+      });
 
       document.getElementById('tx-sort-date')?.addEventListener('dblclick', () => {
         _txSortAsc = !_txSortAsc;
         displayAllTransactions();
       });
+
+      document.getElementById('toggle-show-all')?.addEventListener('click', () => {
+        _showAllTx = !_showAllTx;
+        displayAllTransactions();
+      });
+
 
       wireImportTab();
     }
@@ -776,14 +849,22 @@
       if (!sel) return;
 
       const years = new Set(_allTx.map(t => yearFromTS(t.date)));
-      years.add(currentYear);
+      years.add(new Date().getUTCFullYear());
 
       const arr = Array.from(years).filter(n => Number.isFinite(n)).sort((a, b) => a - b);
-      sel.innerHTML = arr.map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`).join('');
+
+      // ✅ pick saved year if it exists in the list
+      const saved = loadSavedYear();
+      if (saved && arr.includes(saved)) currentYear = saved;
+
+      sel.innerHTML = arr
+        .map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`)
+        .join('');
     }
 
     function handleYearChange() {
       currentYear = parseInt(document.getElementById('yearSelect')?.value || String(currentYear), 10);
+      saveSelectedYear(currentYear);
       renderAll();
       refreshOpenDayModalIfNeeded();
     }
@@ -928,7 +1009,22 @@
         return String(a.name || '').localeCompare(String(b.name || ''));
       });
 
-      for (const t of filtered) {
+      // ✅ limit render
+      const total = filtered.length;
+      const slice = _showAllTx ? filtered : filtered.slice(0, TX_PAGE_SIZE);
+
+      // update UI labels
+      const btn = document.getElementById('toggle-show-all');
+      if (btn) btn.textContent = _showAllTx ? `Show first ${TX_PAGE_SIZE}` : 'Show all';
+
+      const shown = document.getElementById('shown-count');
+      if (shown) {
+        shown.textContent = total <= TX_PAGE_SIZE
+          ? `${total} shown`
+          : (_showAllTx ? `${total} shown` : `${slice.length} of ${total} shown`);
+      }
+
+      for (const t of slice) {
         const tr = document.createElement('tr');
         tr.classList.add('transaction-row');
 
@@ -1379,48 +1475,53 @@
     }
 
     function renderCharts() {
-      const barCanvas = document.getElementById('monthlyBar');
-      if (!barCanvas || typeof Chart === 'undefined') return;
-      const ctx = barCanvas.getContext('2d');
+      // Always re-render the *current* slide
+      renderChartSlide(chartSlideIndex);
+    }
+
+    function renderChartSlide(idx) {
+      const canvas = document.getElementById('chartCanvas');
+      const titleEl = document.getElementById('chartTitle');
+      if (!canvas || typeof Chart === 'undefined') return;
+
+      const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      const { income, expense } = getMonthlyIncomeExpense();
-      if (monthlyBarChart) monthlyBarChart.destroy();
+      // Kill previous instance (important)
+      if (carouselChart) {
+        carouselChart.destroy();
+        carouselChart = null;
+      }
 
-      monthlyBarChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: MONTHS_ABBR,
-          datasets: [
-            { label: 'Income', data: income },
-            { label: 'Expenses', data: expense }
-          ]
-        },
-        options: {
-          responsive: true,
-          plugins: {
-            title: { display: true, text: `Income vs Expenses by Month — ${currentYear}` },
-            tooltip: { mode: 'index', intersect: false },
-            legend: { position: 'top' }
+      const slide = CHART_SLIDES[idx] || 'monthly';
+
+      if (slide === 'monthly') {
+        const { income, expense } = getMonthlyIncomeExpense();
+
+        if (titleEl) titleEl.textContent = `Income vs Expenses — ${currentYear}`;
+
+        carouselChart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: MONTHS_ABBR,
+            datasets: [
+              { label: 'Income', data: income },
+              { label: 'Expenses', data: expense }
+            ]
           },
-          scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
-        }
-      });
+          options: {
+            responsive: true,
+            plugins: {
+              title: { display: true, text: `Income vs Expenses by Month — ${currentYear}` },
+              tooltip: { mode: 'index', intersect: false },
+              legend: { position: 'top' }
+            },
+            scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
+          }
+        });
 
-      renderPie();
-    }
-
-    function currentPieControls() {
-      const breakdown = (document.getElementById('pie-breakdown')?.value || 'months').toLowerCase();
-      const metric = (document.getElementById('pie-metric')?.value || 'expense').toLowerCase();
-      return { breakdown, metric };
-    }
-
-    function renderPie() {
-      const pieCanvas = document.getElementById('yearPie');
-      if (!pieCanvas || typeof Chart === 'undefined') return;
-      const ctx = pieCanvas.getContext('2d');
-      if (!ctx) return;
+        return;
+      }
 
       const { breakdown, metric } = currentPieControls();
 
@@ -1434,8 +1535,9 @@
           breakdown === 'tags' ? `${metric.toUpperCase()} by Tag — ${currentYear}` :
             `${metric.toUpperCase()} by Year`;
 
-      if (yearPieChart) yearPieChart.destroy();
-      yearPieChart = new Chart(ctx, {
+      if (titleEl) titleEl.textContent = title;
+
+      carouselChart = new Chart(ctx, {
         type: 'pie',
         data: { labels, datasets: [{ label: title, data: values }] },
         options: {
@@ -1448,6 +1550,29 @@
         }
       });
     }
+
+    function currentPieControls() {
+      const breakdown = (document.getElementById('pie-breakdown')?.value || 'months').toLowerCase();
+      const metric = (document.getElementById('pie-metric')?.value || 'expense').toLowerCase();
+      return { breakdown, metric };
+    }
+
+    function isTypingTarget(el) {
+      if (!el) return false;
+      const tag = (el.tagName || '').toLowerCase();
+      return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+    }
+
+    function setChartSlide(nextIdx) {
+      const n = CHART_SLIDES.length;
+      chartSlideIndex = ((nextIdx % n) + n) % n; // loop
+      renderChartSlide(chartSlideIndex);
+    }
+
+    function nextChartSlide() { setChartSlide(chartSlideIndex + 1); }
+    function prevChartSlide() { setChartSlide(chartSlideIndex - 1); }
+
+
 
     function pieByMonths(metric) {
       const totals = Array(12).fill(0);
@@ -1494,6 +1619,7 @@
       if (!years.length) return { labels: ['(No data)'], values: [0] };
       return { labels: years.map(String), values };
     }
+
 
     /* =========================
        CSV Exports

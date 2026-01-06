@@ -5,10 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Finance Inventory</title>
-
     <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
-    <link rel="stylesheet" href="./assets/css/inventory.css">
-
     <script type="module" src="./assets/js/login.js" defer></script>
 
     <style>
@@ -113,10 +110,17 @@
             padding-top: 10px;
             border-top: 1px dashed rgba(255, 255, 255, 0.18);
         }
+
+        .wrap {
+            display: flex;
+            flex-direction: column;
+        }
     </style>
+
 </head>
 
 <body>
+
     <header>
         <h1>Inventory</h1>
 
@@ -134,14 +138,20 @@
                     <label>&nbsp;</label>
                     <button class="btn" type="submit">Login</button>
                 </div>
+
             </form>
+            <a href="livebudget.html"><button>Budget</button></a>
 
             <button id="logout" class="btn" style="display:none; margin-top:10px;">Logout</button>
 
         </section>
 
-        <section>
-            <div class="row">
+    </header>
+
+    <main>
+
+        <section class="wrap">
+            <div>
                 <div class="tight">
                     <label>Year</label>
                     <select id="yearSelect"></select>
@@ -164,9 +174,24 @@
 
             <div class="small" id="summary">Loading…</div>
         </section>
-    </header>
 
-    <main class="wrap">
+        <div class="card" style="margin-top:12px;">
+            <div class="small muted" style="margin:0 0 8px;"><b>Fields</b> (show/hide)</div>
+            <div id="fieldToggles" class="row" style="gap:12px; align-items:center;">
+                <label><input type="checkbox" data-field="date" checked> Date</label>
+                <label><input type="checkbox" data-field="name" checked> Name</label>
+                <label><input type="checkbox" data-field="sku" checked> SKU</label>
+                <label><input type="checkbox" data-field="price" checked> Price</label>
+                <label><input type="checkbox" data-field="altPrice" checked> Alt Price</label>
+                <label><input type="checkbox" data-field="tags" checked> Tags</label>
+                <label><input type="checkbox" data-field="cat" checked> Category</label>
+                <label><input type="checkbox" data-field="link" checked> Link</label>
+                <label><input type="checkbox" data-field="id" checked> ID</label>
+                <label><input type="checkbox" data-field="imgControls" checked> Image Buttons</label>
+                <label><input type="checkbox" data-field="delete" checked> Delete</label>
+            </div>
+        </div>
+
         <section id="list" class="grid"></section>
         <p id="empty" class="muted" style="display:none;">No matches.</p>
     </main>
@@ -182,8 +207,12 @@
            CONFIG (year-separated)
         ========================== */
         const TX_NODE = 'ledgerTx';
+        const LAST_YEAR_KEY = 'inventory.lastYear';
         let DATABASE_BASE_PATH = 'public';
-        let currentYear = new Date().getUTCFullYear();
+        let currentYear = (() => {
+            const saved = parseInt(localStorage.getItem(LAST_YEAR_KEY), 10);
+            return Number.isFinite(saved) ? saved : new Date().getUTCFullYear();
+        })();
 
         function txYearsRootPath() {
             return `${DATABASE_BASE_PATH}/${TX_NODE}`;
@@ -354,6 +383,44 @@
             return out;
         }
 
+        async function resizeImageToMaxWidth(file, maxWidth = 2048) {
+            const img = new Image();
+            const blobURL = URL.createObjectURL(file);
+
+            try {
+                await new Promise((res, rej) => {
+                    img.onload = res;
+                    img.onerror = () => rej(new Error('Image decode failed'));
+                    img.src = blobURL;
+                });
+
+                // If already within limits, return original file
+                if (img.width <= maxWidth) {
+                    return file;
+                }
+
+                const scale = maxWidth / img.width;
+                const canvas = document.createElement('canvas');
+                canvas.width = maxWidth;
+                canvas.height = Math.round(img.height * scale);
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                const blob = await new Promise(res =>
+                    canvas.toBlob(res, 'image/jpeg', 0.9)
+                );
+
+                return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), {
+                    type: 'image/jpeg'
+                });
+
+            } finally {
+                URL.revokeObjectURL(blobURL);
+            }
+        }
+
+
         /* =========================
            STATE + LISTENERS
         ========================== */
@@ -373,12 +440,71 @@
             attachYearsListener();
         });
 
+        const FIELD_TOGGLE_KEY = 'inventory.fieldToggles.v1';
+
+        const DEFAULT_FIELD_VIS = {
+            date: true,
+            name: true,
+            sku: true,
+            price: true,
+            altPrice: true,
+            tags: true,
+            cat: true,
+            link: true,
+            id: true,
+            imgControls: true,
+            delete: true
+        };
+
+        let _fieldVis = loadFieldVis();
+
+        function loadFieldVis() {
+            try {
+                const raw = JSON.parse(localStorage.getItem(FIELD_TOGGLE_KEY) || 'null');
+                if (!raw || typeof raw !== 'object') return { ...DEFAULT_FIELD_VIS };
+                return { ...DEFAULT_FIELD_VIS, ...raw };
+            } catch {
+                return { ...DEFAULT_FIELD_VIS };
+            }
+        }
+
+        function saveFieldVis() {
+            localStorage.setItem(FIELD_TOGGLE_KEY, JSON.stringify(_fieldVis));
+        }
+
+        function isFieldOn(key) {
+            return !!_fieldVis[key];
+        }
+
+        function bindFieldTogglesOnce() {
+            const wrap = document.getElementById('fieldToggles');
+            if (!wrap) return;
+
+            // initialize checkbox states
+            wrap.querySelectorAll('input[type="checkbox"][data-field]').forEach(cb => {
+                const k = cb.dataset.field;
+                cb.checked = isFieldOn(k);
+
+                cb.addEventListener('change', () => {
+                    _fieldVis[k] = !!cb.checked;
+                    saveFieldVis();
+                    renderAll(); // re-render cards with new visibility
+                });
+            });
+        }
+
         function bindUIOnce() {
             if (uiBound) return;
             uiBound = true;
 
+            bindFieldTogglesOnce();
+
             $('yearSelect')?.addEventListener('change', () => {
                 currentYear = parseInt($('yearSelect').value, 10) || currentYear;
+
+                // 💾 remember selection
+                localStorage.setItem(LAST_YEAR_KEY, String(currentYear));
+
                 attachYearListener(currentYear);
             });
 
@@ -402,9 +528,11 @@
                 const sel = $('yearSelect');
                 const prev = parseInt(sel.value, 10) || currentYear;
                 sel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
-                sel.value = String(years.includes(prev) ? prev : currentYear);
+                const saved = parseInt(localStorage.getItem(LAST_YEAR_KEY), 10);
+                const want = years.includes(saved) ? saved : (years.includes(prev) ? prev : currentYear);
 
-                currentYear = parseInt(sel.value, 10) || currentYear;
+                sel.value = String(want);
+                currentYear = want;
                 attachYearListener(currentYear);
             }, (err) => console.error('❌ years listener error:', err));
         }
@@ -575,13 +703,7 @@
             const img = document.createElement('img');
             img.className = 'thumb';
             img.alt = (t.name || t.sku || 'item');
-            img.src = t.img ? t.img : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`
-                <svg xmlns="http://www.w3.org/2000/svg" width="800" height="450">
-                <rect width="100%" height="100%" fill="rgba(255,255,255,0.06)"/>
-                <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-                    fill="rgba(255,255,255,0.55)" font-family="Arial" font-size="28">No Image</text>
-                </svg>
-            `);
+            img.src = t.img ? t.img : './assets/img/default.png';
 
             img.style.cursor = t.img ? 'pointer' : 'default';
             img.addEventListener('click', () => {
@@ -589,19 +711,19 @@
                 window.open(t.img, '_blank', 'noopener,noreferrer');
             });
 
-            // Image controls (act on THIS line)
+            // Image controls (optional)
             const imgRow = document.createElement('div');
             imgRow.className = 'row';
 
             const file = document.createElement('input');
             file.type = 'file';
             file.accept = 'image/*';
-            file.style.display = 'none';
 
-            const upBtn = document.createElement('button');
-            upBtn.className = 'btn';
-            upBtn.textContent = t.img ? 'Replace Image' : 'Upload Image';
-            upBtn.addEventListener('click', () => file.click());
+            // optional: make it look nicer / fit your UI
+            file.className = 'btn';
+            file.style.padding = '8px';
+            file.style.width = '100%';
+            file.title = 'Choose an image to upload';
 
             file.addEventListener('change', async () => {
                 const f = file.files?.[0];
@@ -609,11 +731,19 @@
                 if (!f) return;
 
                 try {
-                    upBtn.disabled = true;
-                    upBtn.textContent = 'Uploading…';
+                    file.disabled = true;
 
-                    const safeName = f.name.replace(/[^\w.\-]+/g, '_');
-                    const storagePath = `${imgBasePath()}/${t.id}_${Date.now()}_${safeName}`;
+                    const base = (t.name || t.sku || 'item')
+                        .trim()
+                        .replace(/\s+/g, '_')
+                        .replace(/[^\w\-]+/g, '_')
+                        .replace(/_+/g, '_')
+                        .replace(/^_+|_+$/g, '');
+
+                    const ext = (f.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^\w]+/g, '');
+                    const safeFile = `${base}_${t.id}_${Date.now()}.${ext}`;
+
+                    const storagePath = `${imgBasePath()}/${safeFile}`;
 
                     const sref = storageRef(storage, storagePath);
                     await uploadBytes(sref, f);
@@ -624,94 +754,120 @@
                     console.error(err);
                     alert('❌ Upload failed.');
                 } finally {
-                    upBtn.disabled = false;
-                    upBtn.textContent = t.img ? 'Replace Image' : 'Upload Image';
+                    file.disabled = false;
                 }
             });
 
-            const delImgBtn = document.createElement('button');
-            delImgBtn.className = 'btn danger';
-            delImgBtn.textContent = 'Delete Image';
-            delImgBtn.disabled = !t.img && !t.imgPath;
 
-            delImgBtn.addEventListener('click', async () => {
-                if (!confirm('Delete this image for THIS line?')) return;
+            if (isFieldOn('imgControls')) {
+                imgRow.append(file);
 
-                try {
-                    if (t.imgPath) {
-                        const sref = storageRef(storage, t.imgPath);
-                        await deleteObject(sref);
-                    }
-                } catch (err) {
-                    console.warn('Storage delete failed:', err);
+                // only show delete image if something exists
+                if (t.img || t.imgPath) {
+                    const delImgBtn = document.createElement('button');
+                    delImgBtn.className = 'btn danger';
+                    delImgBtn.textContent = 'Delete Image';
+
+                    delImgBtn.addEventListener('click', async () => {
+                        if (!confirm('Delete this image for THIS line?')) return;
+
+                        try {
+                            if (t.imgPath) await deleteObject(storageRef(storage, t.imgPath));
+                        } catch (err) {
+                            console.warn('Storage delete failed:', err);
+                        }
+
+                        await writeTx(currentYear, t.id, stripTxForSave({ ...t, img: '', imgPath: '' }));
+                    });
+
+                    imgRow.appendChild(delImgBtn);
                 }
+            }
 
-                await writeTx(currentYear, t.id, stripTxForSave({ ...t, img: '', imgPath: '' }));
-            });
-
-            imgRow.append(upBtn, delImgBtn, file);
-
-            // Editable fields
+            // Editable fields (optional per toggle)
             const fields = document.createElement('div');
             fields.className = 'fields';
 
-            fields.appendChild(fieldText('Date', ymdFromUtcTS(t.date), async (next) => {
-                const ymd = String(next || '').trim();
-                const ts = utcNoonTSFromYMD(ymd); // uses your helper
-                await writeTx(currentYear, t.id, stripTxForSave({ ...t, date: ts }));
-            }));
+            if (isFieldOn('date')) {
+                fields.appendChild(fieldText('Date', ymdFromUtcTS(t.date), async (next) => {
+                    const ymd = String(next || '').trim();
+                    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return;
+                    const ts = utcNoonTSFromYMD(ymd);
+                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, date: ts }));
+                }));
+            }
 
-            fields.appendChild(fieldText('Name', t.name, async (next) => {
-                await writeTx(currentYear, t.id, stripTxForSave({ ...t, name: next }));
-            }));
+            if (isFieldOn('name')) {
+                fields.appendChild(fieldText('Name', t.name, async (next) => {
+                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, name: next }));
+                }));
+            }
 
-            fields.appendChild(fieldText('SKU', t.sku, async (next) => {
-                await writeTx(currentYear, t.id, stripTxForSave({ ...t, sku: next }));
-            }));
+            if (isFieldOn('sku')) {
+                fields.appendChild(fieldText('SKU', t.sku, async (next) => {
+                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, sku: next }));
+                }));
+            }
 
-            fields.appendChild(fieldText('Price', String(roundMoney(Math.abs(Number(t.amt || 0)))), async (next) => {
-                const v = roundMoney(Math.abs(Number(String(next).replace(/[^0-9.\-]/g, '')) || 0));
-                const signed = (t.type === 'income') ? v : -v;
-                await writeTx(currentYear, t.id, stripTxForSave({ ...t, amt: signed }));
-            }));
+            if (isFieldOn('price')) {
+                fields.appendChild(fieldText('Price', String(roundMoney(Math.abs(Number(t.amt || 0)))), async (next) => {
+                    const v = roundMoney(Math.abs(Number(String(next).replace(/[^0-9.\-]/g, '')) || 0));
+                    const signed = (t.type === 'income') ? v : -v;
+                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, amt: signed }));
+                }));
+            }
 
-            fields.appendChild(fieldText('Alt Price', String(roundMoney(Math.abs(Number(t.altAmt || 0)))), async (next) => {
-                const v = roundMoney(Math.abs(Number(String(next).replace(/[^0-9.\-]/g, '')) || 0));
-                const signed = (t.type === 'income') ? v : -v;
-                await writeTx(currentYear, t.id, stripTxForSave({ ...t, altAmt: signed }));
-            }));
+            if (isFieldOn('altPrice')) {
+                fields.appendChild(fieldText('Alt Price', String(roundMoney(Math.abs(Number(t.altAmt || 0)))), async (next) => {
+                    const v = roundMoney(Math.abs(Number(String(next).replace(/[^0-9.\-]/g, '')) || 0));
+                    const signed = (t.type === 'income') ? v : -v;
+                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, altAmt: signed }));
+                }));
+            }
 
-            fields.appendChild(fieldText('Tags', (t.tags || []).join(', '), async (next) => {
-                await writeTx(currentYear, t.id, stripTxForSave({ ...t, tags: parseTags(next) }));
-            }));
+            if (isFieldOn('tags')) {
+                fields.appendChild(fieldText('Tags', (t.tags || []).join(', '), async (next) => {
+                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, tags: parseTags(next) }));
+                }));
+            }
 
-            fields.appendChild(fieldText('Category', t.cat, async (next) => {
-                await writeTx(currentYear, t.id, stripTxForSave({ ...t, cat: next }));
-            }));
+            if (isFieldOn('cat')) {
+                fields.appendChild(fieldText('Category', t.cat, async (next) => {
+                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, cat: next }));
+                }));
+            }
 
-            fields.appendChild(fieldLink(t));
+            if (isFieldOn('link')) {
+                fields.appendChild(fieldLink(t));
+            }
 
-            // Meta
+            // Meta (ID only, optional)
             const meta = document.createElement('div');
             meta.className = 'small muted';
-            meta.textContent = `ID: ${t.id}`;
+            if (isFieldOn('id')) meta.textContent = `ID: ${t.id}`;
 
-            // Delete THIS line
+            // Delete THIS line (optional)
             const bottom = document.createElement('div');
             bottom.className = 'row';
 
-            const delTxBtn = document.createElement('button');
-            delTxBtn.className = 'btn danger';
-            delTxBtn.textContent = 'Delete Line';
-            delTxBtn.addEventListener('click', async () => {
-                if (!confirm('Delete THIS line?')) return;
-                await deleteTx(currentYear, t.id);
-            });
-
-            bottom.append(delTxBtn);
+            if (isFieldOn('delete')) {
+                const delTxBtn = document.createElement('button');
+                delTxBtn.className = 'btn danger';
+                delTxBtn.textContent = 'Delete Line';
+                delTxBtn.addEventListener('click', async () => {
+                    if (!confirm('Delete THIS line?')) return;
+                    await deleteTx(currentYear, t.id);
+                });
+                bottom.append(delTxBtn);
+            }
 
             // Build
-            wrap.append(img, imgRow, fields, meta, bottom);
+            wrap.append(img);
+            if (isFieldOn('imgControls')) wrap.append(imgRow);
+            wrap.append(fields);
+            if (isFieldOn('id')) wrap.append(meta);
+            if (isFieldOn('delete')) wrap.append(bottom);
+
             return wrap;
         }
 
