@@ -724,40 +724,72 @@
     if (!box) return;
 
     const { yearBudget, yearActual } = totals();
-    const yearIncome = Math.max(0, toMoney(STATE.incomeYear));
+    const income = Math.max(0, toMoney(STATE.incomeYear));
 
-    const grossIncome = yearIncome;
-    const totalSpendingCashOut = yearActual;                 // this app’s “actuals” = cash-out spending
+    const grossIncome = income;
+    const totalSpendingCashOut = yearActual;
     const plannedSpendingBudget = yearBudget;
-    const actualSpendingCategoriesCashOutOnly = yearActual;  // same here
-    const categoryNetIncludesIncomeNetting = yearActual;     // same here (no income netting in categories)
-    const spendingVariance = yearActual - yearBudget;        // Actual Spend − Budget
-    const projectedNet = yearIncome - yearBudget;            // Income − Budget
-    const actualNetCashFlow = yearIncome - yearActual;       // Income − Actual Spend
+
+    // Option B
+    const categoryNet = grossIncome - totalSpendingCashOut; // Income − Spending
+
+    // Variances
+    const spendingVariance = totalSpendingCashOut - plannedSpendingBudget; // Actual − Budget
+    const projectedNet = grossIncome - plannedSpendingBudget;              // Income − Budget
+    const actualNetCashFlow = categoryNet;                                  // same number
+
+    // Extra useful metrics
+    const budgetHitPct = plannedSpendingBudget > 0
+      ? (totalSpendingCashOut / plannedSpendingBudget) * 100
+      : null;
+
+    const savingsRatePct = grossIncome > 0
+      ? (actualNetCashFlow / grossIncome) * 100
+      : null;
+
+    const avgMonthlySpend = totalSpendingCashOut / 12;
+    const avgMonthlyBudget = plannedSpendingBudget / 12;
+
+    const fmtPct = (n) => (n == null || !Number.isFinite(n)) ? '—' : `${n.toFixed(1)}%`;
 
     const cls = (n, positiveIsGood = true) => {
-      if (positiveIsGood) return n >= 0 ? 'ok' : 'warn';
-      return n <= 0 ? 'ok' : 'warn';
+      if (!Number.isFinite(n)) return '';
+      return positiveIsGood ? (n >= 0 ? 'ok' : 'warn') : (n <= 0 ? 'ok' : 'warn');
     };
 
     box.innerHTML = `
-      <div>Gross Income: <strong>${fmt.format(grossIncome)}</strong></div>
-      <div>Total Spending (Cash Out): <strong>${fmt.format(totalSpendingCashOut)}</strong></div>
-
-      <hr>
-
-      <div>Planned Spending (Budget): <strong>${fmt.format(plannedSpendingBudget)}</strong></div>
-      <div>Actual Spending (Categories, Cash Out Only): <strong>${fmt.format(actualSpendingCategoriesCashOutOnly)}</strong></div>
-      <div>Category Net (includes income netting): <strong>${fmt.format(categoryNetIncludesIncomeNetting)}</strong></div>
-
-      <hr>
-
-      <div>Spending Variance (Actual Spend − Budget):
-        <strong class="${cls(spendingVariance, false)}">${fmt.format(spendingVariance)}</strong>
+      <div>Gross Income:
+        <strong>${fmt.format(grossIncome)}</strong>
       </div>
+
+      <div>Total Spending (Cash Out):
+        <strong>${fmt.format(totalSpendingCashOut)}</strong>
+        <span class="muted small">(${fmt.format(avgMonthlySpend)}/mo)</span>
+      </div>
+
+      <hr>
+
+      <div>Planned Spending (Budget):
+        <strong>${fmt.format(plannedSpendingBudget)}</strong>
+        <span class="muted small">(${fmt.format(avgMonthlyBudget)}/mo)</span>
+      </div>
+
+      <div>Over / Under Budget (Actual − Budget):
+        <strong class="${cls(-spendingVariance, true)}">${fmt.format(spendingVariance)}</strong>
+        <span class="muted small">(${fmtPct(budgetHitPct)} of budget)</span>
+      </div>
+
+      <hr>
+
+      <div>Category Net (Income − Spending):
+        <strong class="${cls(categoryNet, true)}">${fmt.format(categoryNet)}</strong>
+        <span class="muted small">(Savings rate: ${fmtPct(savingsRatePct)})</span>
+      </div>
+
       <div>Projected Net (Income − Budget):
         <strong class="${cls(projectedNet, true)}">${fmt.format(projectedNet)}</strong>
       </div>
+
       <div>Actual Net Cash Flow (Income − Actual Spend):
         <strong class="${cls(actualNetCashFlow, true)}">${fmt.format(actualNetCashFlow)}</strong>
       </div>
