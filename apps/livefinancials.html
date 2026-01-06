@@ -25,7 +25,7 @@
     #imgModal .box {
       max-width: 980px;
       margin: 0 auto;
-      background: rgba(20, 20, 20, .95);
+      background: var(--backgroundColor);
       border: 1px solid rgba(255, 255, 255, .12);
       border-radius: 14px;
       padding: 12px;
@@ -101,6 +101,7 @@
 
     .modal {
       margin-top: 80px;
+      overflow-x: auto;
     }
 
     .transaction-row select,
@@ -149,6 +150,10 @@
       z-index: 99;
       opacity: .7;
     }
+
+    #modalContent {
+      display: inline-block;
+    }
   </style>
 </head>
 
@@ -172,10 +177,12 @@
     <nav id="tabs" class="tabs">
       <button data-tab-target="transactions" class="active">Activity</button>
       <button data-tab-target="import">Import & Cleanup</button>
+      <a href="livebudget.html"><button>Budget</button></a>
     </nav>
   </header>
 
   <main id="top">
+
 
     <!-- TAB: Transactions -->
     <section data-tab="transactions">
@@ -185,6 +192,7 @@
       </div>
 
       <div id="tag-bar" class="tag-bar" aria-label="Tag filters"></div>
+      <p id="filtered-total">Filtered Total: $0.00</p>
 
       <section id="all-transactions">
         <div>
@@ -208,8 +216,6 @@
           </table>
         </div>
       </section>
-
-      <p id="filtered-total">Filtered Total: $0.00</p>
 
       <section id="yearly-budget-calculator">
         <h2>Monthly Summary</h2>
@@ -1002,19 +1008,16 @@
         const btnRow = document.createElement('div');
         btnRow.className = 'btnrow';
 
-        const delBtn = document.createElement('button');
-        delBtn.className = 'clear-button';
-        delBtn.textContent = 'x';
-        delBtn.title = 'Delete transaction';
-        delBtn.addEventListener('click', async () => {
-          if (!confirm('Delete this entry?')) return;
-          await deleteTxFull(t);
-        });
-
         const imgBtn = document.createElement('button');
         imgBtn.textContent = t.img ? 'Replace Img' : 'Add Img';
         imgBtn.title = 'Upload/Replace image';
         imgBtn.addEventListener('click', () => uploadTxImage(t));
+
+        const rmBtn = document.createElement('button');
+        rmBtn.textContent = 'Del Img';
+        rmBtn.className = 'clear-button';
+        rmBtn.disabled = !(t.img || t.imgPath);
+        rmBtn.addEventListener('click', () => deleteTxImage(t));
 
         const viewBtn = document.createElement('button');
         viewBtn.textContent = 'View';
@@ -1024,13 +1027,16 @@
           openImgModal(t.name || 'Image', `${ymdFromUtcTS(t.date)} • ${t.type} • ${fmtUSD(Math.abs(t.amt || 0))}`, t.img);
         });
 
-        const rmBtn = document.createElement('button');
-        rmBtn.textContent = 'Remove';
-        rmBtn.className = 'clear-button';
-        rmBtn.disabled = !(t.img || t.imgPath);
-        rmBtn.addEventListener('click', () => deleteTxImage(t));
+        const delBtn = document.createElement('button');
+        delBtn.className = 'clear-button';
+        delBtn.textContent = 'Delete';
+        delBtn.title = 'Delete transaction';
+        delBtn.addEventListener('click', async () => {
+          if (!confirm('Delete this entry?')) return;
+          await deleteTxFull(t);
+        });
 
-        btnRow.append(delBtn, imgBtn, viewBtn, rmBtn);
+        btnRow.append(imgBtn, rmBtn, viewBtn, delBtn);
         tdActions.appendChild(btnRow);
 
         tr.append(tdDate, tdName, tdType, tdAmt, tdTags, tdActions);
@@ -1222,7 +1228,7 @@
         table.innerHTML = `
           <thead>
             <tr>
-              <th>Name</th><th>Type</th><th>Amount</th><th>Tags</th><th>Image</th><th>ID</th><th>Manage</th>
+              <th>Name</th><th>Type</th><th>Amount</th><th>Tags</th><th>Image</th><th>Action</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -1279,13 +1285,17 @@
             openImgModal(t.name || 'Image', `${ymdFromUtcTS(t.date)} • ${t.type} • ${fmtUSD(Math.abs(t.amt || 0))}`, t.img);
           });
 
-          const rm = document.createElement('button');
-          rm.textContent = 'Remove';
-          rm.className = 'clear-button';
-          rm.disabled = !(t.img || t.imgPath);
-          rm.addEventListener('click', () => deleteTxImage(t));
+          let rm = null;
+          if (t.img || t.imgPath) {
+            rm = document.createElement('button');
+            rm.textContent = 'Remove';
+            rm.className = 'clear-button';
+            rm.addEventListener('click', () => deleteTxImage(t));
+          }
 
-          row.append(up, view, rm);
+          row.append(up, view);
+          if (rm) row.append(rm);
+
           tdImg.appendChild(row);
 
           const tdId = document.createElement('td');
@@ -1301,7 +1311,7 @@
           });
           tdManage.appendChild(del);
 
-          tr.append(tdName, tdType, tdAmt, tdTags, tdImg, tdId, tdManage);
+          tr.append(tdName, tdType, tdAmt, tdTags, tdImg, tdManage);
           tbody.appendChild(tr);
         }
 

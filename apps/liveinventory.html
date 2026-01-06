@@ -495,22 +495,7 @@
                 (Number(b.date) - Number(a.date)) || String(b.id).localeCompare(String(a.id))
             );
 
-            // Price options (distinct prices)
-            const distinctPrices = Array.from(g.prices.entries())
-                .sort((a, b) => a[0] - b[0]); // [price, count]
-
-            // Determine selected price for this group
-            const defaultPrice = roundMoney(Math.abs(Number(sorted[0]?.amt || 0)));
-            let selectedPrice = _selectedPriceByGroup.has(g.key)
-                ? _selectedPriceByGroup.get(g.key)
-                : defaultPrice;
-
-            // If selection isn't valid anymore, fall back
-            const validPrices = new Set(distinctPrices.map(([p]) => p));
-            if (!validPrices.has(selectedPrice)) selectedPrice = defaultPrice;
-
-            const t = sorted[0];
-
+            const t = sorted[0]; // ✅ ALWAYS newest line is the main one
 
             const card = document.createElement('div');
             card.className = 'card';
@@ -544,46 +529,8 @@
 
             top.append(title, right);
 
-            // Prices UI
-            const priceWrap = document.createElement('div');
-            priceWrap.className = 'small muted';
-
-            // If only one price OR only one line, no dropdown
-            if (g.qty <= 1 || distinctPrices.length <= 1) {
-                const p = distinctPrices.length ? distinctPrices[0][0] : roundMoney(Math.abs(Number(t.amt || 0)));
-                priceWrap.textContent = `Price: ${fmtUSD(p)}`;
-            } else {
-                const label = document.createElement('span');
-                label.textContent = 'Prices: ';
-
-                const sel = document.createElement('select');
-                for (const [price, count] of distinctPrices) {
-                    const opt = document.createElement('option');
-                    opt.value = String(price);
-                    opt.textContent = `${fmtUSD(price)} (${count})`;
-                    sel.appendChild(opt);
-                }
-                sel.value = String(selectedPrice);
-
-                const hint = document.createElement('span');
-                hint.style.marginLeft = '8px';
-                hint.textContent = 'Select a price to target a line (newest matching that price).';
-
-                sel.addEventListener('change', () => {
-                    const p = parseFloat(sel.value);
-                    _selectedPriceByGroup.set(g.key, Number.isFinite(p) ? p : defaultPrice);
-                    renderAll();
-                });
-
-                const priceWrap = document.createElement('div');
-                priceWrap.className = 'small muted';
-                priceWrap.textContent = (g.qty > 1)
-                    ? `Grouped item • ${g.qty} lines`
-                    : `Single item`;
-            }
-
-            // Main view (selected line)
-            const mainLineCard = renderLineCard(t, g, { showMetaPrefix: 'Selected line' });
+            // Main view (newest line)
+            const mainLineCard = renderLineCard(t, g);
 
             // Expand area (ONLY for qty > 1)
             if (g.qty > 1) {
@@ -595,8 +542,8 @@
                 expandHdr.textContent = `All lines (${sorted.length}) — newest first`;
                 expandArea.appendChild(expandHdr);
 
-                // IMPORTANT: don't duplicate the main selected line in the expanded list
-                const expandedLines = sorted.filter(x => String(x.id) !== String(t.id));
+                // Don't duplicate the newest line in expanded list
+                const expandedLines = sorted.slice(1);
 
                 for (const line of expandedLines) {
                     const sub = document.createElement('div');
@@ -612,12 +559,12 @@
                     expandBtn.textContent = open ? '▾' : '▴';
                 });
 
-                card.append(top, priceWrap, mainLineCard, expandArea);
+                card.append(top, mainLineCard, expandArea);
                 return card;
             }
 
-            // qty === 1 (no expand area)
-            card.append(top, priceWrap, mainLineCard);
+            // qty === 1
+            card.append(top, mainLineCard);
             return card;
         }
 
@@ -708,6 +655,12 @@
             const fields = document.createElement('div');
             fields.className = 'fields';
 
+            fields.appendChild(fieldText('Date', ymdFromUtcTS(t.date), async (next) => {
+                const ymd = String(next || '').trim();
+                const ts = utcNoonTSFromYMD(ymd); // uses your helper
+                await writeTx(currentYear, t.id, stripTxForSave({ ...t, date: ts }));
+            }));
+
             fields.appendChild(fieldText('Name', t.name, async (next) => {
                 await writeTx(currentYear, t.id, stripTxForSave({ ...t, name: next }));
             }));
@@ -741,9 +694,7 @@
             // Meta
             const meta = document.createElement('div');
             meta.className = 'small muted';
-            const prefix = opts.showMetaPrefix ? `${opts.showMetaPrefix}: ` : '';
-            meta.textContent =
-                `${prefix}${ymdFromUtcTS(t.date)} • Price: ${fmtUSD(Math.abs(t.amt || 0))} • ID: ${t.id}`;
+            meta.textContent = `ID: ${t.id}`;
 
             // Delete THIS line
             const bottom = document.createElement('div');
