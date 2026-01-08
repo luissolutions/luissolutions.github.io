@@ -497,6 +497,10 @@
 
         <div class="remaining">
           <label>Amount Paid: $ <input type="number" id="amount-paid"></label>
+
+          <label class="no-print" for="paid-date">Paid Date:</label>
+          <input type="datetime-local" id="paid-date" name="paid-date">
+
           <label class="final-total">Remaining Balance: $<span id="remaining-balance">0.00</span></label>
         </div>
 
@@ -822,7 +826,8 @@
       }
 
       // pick date for the ledger entry
-      const dateTS = utcNoonTSFromLocalDateTime(invoiceData.startTime || '');
+      const paidSourceDT = (invoiceData.paidDate || invoiceData.startTime || '');
+      const dateTS = utcNoonTSFromLocalDateTime(paidSourceDT);
       const year = yearFromTS(dateTS);
 
       // reuse existing txId if present, else create one
@@ -876,7 +881,7 @@
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
 
-      loadInventoryFromLedgerTx(); 
+      loadInventoryFromLedgerTx();
       populateInvoiceDropdown();
     });
 
@@ -895,6 +900,7 @@
       const invoiceType = document.getElementById('invoice-type').value;
       const amountPaid = document.getElementById('amount-paid').value;
       const startTime = document.getElementById('invoice-date').value;
+      const paidDate = document.getElementById('paid-date').value;
 
       const partsData = Array.from(partsTableBody.querySelectorAll('tr')).map(row => ({
         part: row.dataset.part || '',
@@ -927,6 +933,7 @@
         parts: partsData,
         labor: laborData,
         taxPercent: taxPercentInput.value,
+        paidDate,
         amountPaid,
       };
 
@@ -1273,6 +1280,16 @@
           document.getElementById('invoice-date').value = localStart;
         }
 
+        if (invoiceData.paidDate) {
+          const dt = new Date(invoiceData.paidDate);
+          const localDT = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000)
+            .toISOString()
+            .slice(0, 16);
+          document.getElementById('paid-date').value = localDT;
+        } else {
+          document.getElementById('paid-date').value = '';
+        }
+
         document.getElementById('amount-paid').value = invoiceData.amountPaid || '';
         document.getElementById('tax-percent').value = invoiceData.taxPercent || '';
 
@@ -1360,6 +1377,7 @@
         startTime: document.getElementById('invoice-date').value,
         project: document.getElementById('invoice-number').value,
         notes: document.getElementById('notes').value,
+        paidDate: document.getElementById('paid-date').value,
       };
 
       localStorage.setItem('inputData', JSON.stringify(inputData));
@@ -1378,6 +1396,8 @@
       document.getElementById('invoice-date').value = inputData.startTime || '';
       document.getElementById('invoice-number').value = inputData.project || '';
       document.getElementById('notes').value = (inputData.notes || '').replace(/\r?\n/g, " ");
+      document.getElementById('paid-date').value = inputData.paidDate || '';
+
     }
 
     document.getElementById('title-input').addEventListener('input', saveDataToLocalStorage);
@@ -1388,12 +1408,14 @@
     document.getElementById('invoice-date').addEventListener('input', saveDataToLocalStorage);
     document.getElementById('invoice-number').addEventListener('input', saveDataToLocalStorage);
     document.getElementById('notes').addEventListener('input', saveDataToLocalStorage);
+    document.getElementById('paid-date').addEventListener('input', saveDataToLocalStorage);
 
     document.addEventListener('DOMContentLoaded', loadDataFromLocalStorage);
 
     function clearInvoice() {
       ['title-input', 'customer-name', 'customer-phone', 'customer-email',
-        'customer-address', 'invoice-date', 'invoice-number', 'notes']
+        'customer-address', 'invoice-date', 'paid-date', 'invoice-number', 'notes']
+
         .forEach(id => document.getElementById(id).value = '');
 
       document.getElementById('invoice-number').dataset.id = '';
