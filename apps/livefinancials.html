@@ -218,10 +218,6 @@
           <input type="text" id="global-search" placeholder="Search by name, tag, amount…"
             oninput="filterGlobalEntries()" disabled title="Load ./assets/js/search.js to enable advanced search">
         </div>
-        <div>
-          <button id="toggle-show-all" type="button">Show all</button>
-          <span id="shown-count" class="small" style="opacity:.8;"></span>
-        </div>
 
         <div class="table">
           <table id="transactions-table">
@@ -238,6 +234,12 @@
             <tbody></tbody>
           </table>
         </div>
+
+        <div>
+          <button id="toggle-show-all" type="button">Show all</button>
+          <span id="shown-count" class="small" style="opacity:.8;"></span>
+        </div>
+
       </section>
 
       <section id="yearly-budget-calculator">
@@ -287,6 +289,7 @@
               <tbody></tbody>
             </table>
           </div>
+        </div>
       </section>
 
       <section>
@@ -460,6 +463,47 @@
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     }
 
+    function slugifyFilename(s) {
+      return String(s || '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 60) || 'item';
+    }
+
+    async function fileToJpegMaxWidth(file, maxW = 2048, quality = 0.9) {
+      // Not an image? return original
+      if (!file?.type?.startsWith('image/')) {
+        return { blob: file, contentType: file?.type || 'application/octet-stream', didResize: false };
+      }
+
+      // Decode
+      const bmp = await createImageBitmap(file);
+
+      // If already within max width, keep original bytes
+      if (bmp.width <= maxW) {
+        bmp.close?.();
+        return { blob: file, contentType: file.type || 'image/*', didResize: false };
+      }
+
+      const scale = maxW / bmp.width;
+      const w = Math.round(bmp.width * scale);
+      const h = Math.round(bmp.height * scale);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bmp, 0, 0, w, h);
+      bmp.close?.();
+
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+      return { blob, contentType: 'image/jpeg', didResize: true };
+    }
+
+
     /* =========================
        App State
     ========================== */
@@ -498,7 +542,7 @@
       return `${txYearPath(year)}/${id}`;
     }
     function imgBasePath() {
-      return `${DATABASE_BASE_PATH}/txImages`;
+      return `${DATABASE_BASE_PATH}/images`;
     }
 
     /* =========================
@@ -609,7 +653,14 @@
       if (e.target === document.getElementById('imgModal')) closeImgModal();
     });
 
-    async function uploadTxImage(tx) {
+    // ✅ Adapter for THIS app (ledger) so uploadImage can stay identical across apps
+    async function saveItemWithImage(item, url, path) {
+      // item is a tx in this ledger file
+      await upsertTx(item, { ...item, img: url, imgPath: path });
+    }
+
+    // ✅ Unified upload used by BOTH apps (same exact body)
+    async function uploadImage(item, kind) {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = 'image/*';
@@ -617,32 +668,52 @@
       document.body.appendChild(input);
 
       input.addEventListener('change', async () => {
-        const f = input.files?.[0];
+        const file = input.files?.[0];
         input.remove();
-        if (!f) return;
+        if (!file) return;
 
         try {
-          const safe = f.name.replace(/[^\w.\-]+/g, '_');
-          const y = yearFromTS(tx.date);
-          const storagePath = `${imgBasePath()}/${y}/${tx.id}_${Date.now()}_${safe}`;
+          // ✅ resize only if wider than 2048
+          const { blob, contentType } = await fileToJpegMaxWidth(file, 2048, 0.9);
 
-          const sref = storageRef(storage, storagePath);
-          await uploadBytes(sref, f);
-          const url = await getDownloadURL(sref);
+          // ✅ filename: simplified name then date
+          const namePart = slugifyFilename(item.name);
+          const datePart = item.date
+            ? new Date(Number(item.date)).toISOString().slice(0, 10)
+            : new Date().toISOString().slice(0, 10);
 
-          // optionally delete previous image if there was one
-          if (tx.imgPath) {
-            try { await deleteObject(storageRef(storage, tx.imgPath)); } catch { }
+          const y = new Date(Number(item.date || Date.now())).getUTCFullYear();
+          const storagePath = `${imgBasePath()}/${y}/${namePart}_${datePart}_${Date.now()}.jpg`;
+
+          // ✅ if there is an old image, delete it FIRST (keeps storage clean)
+          if (item.imgPath) {
+            try {
+              await deleteObject(storageRef(storage, item.imgPath));
+            } catch (e) {
+              console.warn('Old image delete failed (continuing):', e);
+            }
           }
 
-          await upsertTx(tx, { ...tx, img: url, imgPath: storagePath });
+          // ✅ upload new
+          const sref = storageRef(storage, storagePath);
+          await uploadBytes(sref, blob, { contentType: contentType || 'image/jpeg' });
+          const url = await getDownloadURL(sref);
+
+          // ✅ save url/path back to DB
+          await saveItemWithImage(item, url, storagePath);
+
         } catch (err) {
           console.error(err);
-          alert('❌ Upload failed.');
+          alert('❌ Image upload failed.');
         }
       });
 
       input.click();
+    }
+
+    // ✅ Keep your existing buttons unchanged (they call uploadTxImage(t))
+    function uploadTxImage(tx) {
+      return uploadImage(tx, 'ledger');
     }
 
     async function deleteTxImage(tx) {
@@ -1109,11 +1180,14 @@
         imgBtn.title = 'Upload/Replace image';
         imgBtn.addEventListener('click', () => uploadTxImage(t));
 
-        const rmBtn = document.createElement('button');
-        rmBtn.textContent = 'Del Img';
-        rmBtn.className = 'clear-button';
-        rmBtn.disabled = !(t.img || t.imgPath);
-        rmBtn.addEventListener('click', () => deleteTxImage(t));
+        let rmBtn = null;
+
+        if (t.img || t.imgPath) {
+          rmBtn = document.createElement('button');
+          rmBtn.textContent = 'Del Img';
+          rmBtn.className = 'clear-button';
+          rmBtn.addEventListener('click', () => deleteTxImage(t));
+        }
 
         const viewBtn = document.createElement('button');
         viewBtn.textContent = 'View';
@@ -1132,7 +1206,8 @@
           await deleteTxFull(t);
         });
 
-        btnRow.append(imgBtn, rmBtn, viewBtn, delBtn);
+        btnRow.append(imgBtn, viewBtn, delBtn);
+        if (rmBtn) btnRow.append(rmBtn);
         tdActions.appendChild(btnRow);
 
         tr.append(tdDate, tdName, tdType, tdAmt, tdTags, tdActions);

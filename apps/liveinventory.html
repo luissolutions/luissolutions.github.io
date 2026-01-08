@@ -287,7 +287,7 @@
             return `${txYearPath(year)}/${id}`;
         }
         function imgBasePath() {
-            return `${DATABASE_BASE_PATH}/txImages`;
+            return `${DATABASE_BASE_PATH}/images`;
         }
 
         /* =========================
@@ -446,43 +446,107 @@
             return out;
         }
 
-        async function resizeImageToMaxWidth(file, maxWidth = 2048) {
-            const img = new Image();
-            const blobURL = URL.createObjectURL(file);
-
-            try {
-                await new Promise((res, rej) => {
-                    img.onload = res;
-                    img.onerror = () => rej(new Error('Image decode failed'));
-                    img.src = blobURL;
-                });
-
-                // If already within limits, return original file
-                if (img.width <= maxWidth) {
-                    return file;
-                }
-
-                const scale = maxWidth / img.width;
-                const canvas = document.createElement('canvas');
-                canvas.width = maxWidth;
-                canvas.height = Math.round(img.height * scale);
-
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-                const blob = await new Promise(res =>
-                    canvas.toBlob(res, 'image/jpeg', 0.9)
-                );
-
-                return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), {
-                    type: 'image/jpeg'
-                });
-
-            } finally {
-                URL.revokeObjectURL(blobURL);
+        async function fileToJpegMaxWidth(file, maxW = 2048, quality = 0.9) {
+            if (!file?.type?.startsWith('image/')) {
+                return { blob: file, contentType: file?.type || 'application/octet-stream', didResize: false };
             }
+
+            const bmp = await createImageBitmap(file);
+
+            if (bmp.width <= maxW) {
+                bmp.close?.();
+                return { blob: file, contentType: file.type || 'image/*', didResize: false };
+            }
+
+            const scale = maxW / bmp.width;
+            const w = Math.round(bmp.width * scale);
+            const h = Math.round(bmp.height * scale);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(bmp, 0, 0, w, h);
+            bmp.close?.();
+
+            const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+            return { blob, contentType: 'image/jpeg', didResize: true };
         }
 
+        function slugifyFilename(s) {
+            return String(s || '')
+                .normalize('NFKD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-zA-Z0-9]+/g, '_')
+                .replace(/^_+|_+$/g, '')
+                .slice(0, 60) || 'item';
+        }
+
+        // ✅ Adapter for THIS app (inventory) so uploadImage can be identical across apps
+        async function saveItemWithImage(item, url, path) {
+            await writeTx(currentYear, item.id, stripTxForSave({ ...item, img: url, imgPath: path }));
+        }
+
+        let _uploadLocks = new Set(); // prevent double-open/double-upload
+
+        async function uploadImage(item, kind, file = null) {
+            // stop double triggers per item
+            const lockKey = `${kind}:${item.id}`;
+            if (_uploadLocks.has(lockKey)) return;
+
+            // if no file passed in, open picker ONCE
+            if (!file) {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.style.display = 'none';
+                document.body.appendChild(input);
+
+                input.addEventListener('change', async () => {
+                    const f = input.files?.[0] || null;
+                    input.remove();
+                    if (!f) return;
+                    await uploadImage(item, kind, f); // recurse with file (no picker)
+                }, { once: true });
+
+                input.click();
+                return;
+            }
+
+            _uploadLocks.add(lockKey);
+            try {
+                // ✅ resize to max width 2048 (use YOUR existing resize helper)
+                const resized = await fileToJpegMaxWidth(file, 2048, 0.9);
+
+                const namePart = slugifyFilename(item.name);
+                const datePart = item.date
+                    ? new Date(item.date).toISOString().slice(0, 10)
+                    : new Date().toISOString().slice(0, 10);
+
+                const y = new Date(Number(item.date || Date.now())).getUTCFullYear();
+                const storagePath = `${imgBasePath()}/${y}/${namePart}_${datePart}_${Date.now()}.jpg`;
+
+                const sref = storageRef(storage, storagePath);
+
+                // ✅ delete old image first (so replace is always clean)
+                if (item.imgPath) {
+                    try { await deleteObject(storageRef(storage, item.imgPath)); }
+                    catch (e) { console.warn('Old image delete failed:', e); }
+                }
+
+                await uploadBytes(sref, resized.blob, { contentType: resized.contentType || 'image/jpeg' });
+                const url = await getDownloadURL(sref);
+
+                await saveItemWithImage(item, url, storagePath);
+
+            } catch (err) {
+                console.error(err);
+                alert('❌ Image upload failed.');
+            } finally {
+                _uploadLocks.delete(lockKey);
+            }
+        }
 
         /* =========================
            STATE + LISTENERS
@@ -791,35 +855,8 @@
                 const f = file.files?.[0];
                 file.value = '';
                 if (!f) return;
-
-                try {
-                    file.disabled = true;
-
-                    const base = (t.name || t.sku || 'item')
-                        .trim()
-                        .replace(/\s+/g, '_')
-                        .replace(/[^\w\-]+/g, '_')
-                        .replace(/_+/g, '_')
-                        .replace(/^_+|_+$/g, '');
-
-                    const ext = (f.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^\w]+/g, '');
-                    const safeFile = `${base}_${t.id}_${Date.now()}.${ext}`;
-
-                    const storagePath = `${imgBasePath()}/${safeFile}`;
-
-                    const sref = storageRef(storage, storagePath);
-                    await uploadBytes(sref, f);
-                    const url = await getDownloadURL(sref);
-
-                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, img: url, imgPath: storagePath }));
-                } catch (err) {
-                    console.error(err);
-                    alert('❌ Upload failed.');
-                } finally {
-                    file.disabled = false;
-                }
+                await uploadImage(t, 'inventory', f); // ✅ no popup (picker already happened)
             });
-
 
             if (isFieldOn('imgControls')) {
                 imgRow.append(file);
