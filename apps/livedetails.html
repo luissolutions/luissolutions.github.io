@@ -514,58 +514,88 @@
 
         async function validateCode() {
             const input = document.getElementById('accessCode').value.trim().toLowerCase();
+            if (!input) return alert("Project ID cannot be blank.");
+
             const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
             if (!snapshot.exists()) return alert('No tasks found.');
 
             const tasks = snapshot.val();
-            const matchEntry = Object.entries(tasks).find(([id, data]) => {
-                return data.project?.trim().toLowerCase() === input;
-            });
 
-            if (matchEntry) {
-                const [matchedID, matchedData] = matchEntry;
+            // ✅ 1) If they entered an exact numeric ID and it exists, use it
+            if (/^\d+$/.test(input) && tasks[input]) {
+                const matchedID = input;
                 localStorage.setItem('lastProject', matchedID);
                 validated = true;
 
                 document.getElementById('authScreen')?.remove();
                 document.getElementById('mainApp')?.classList.remove('hidden');
+
                 await populateProjects();
                 document.getElementById('projectList').value = matchedID;
                 await loadProject(matchedID);
-            } else {
-                if (!input) {
-                    alert("Project name cannot be blank.");
-                    return;
-                }
+                return;
+            }
 
-                const shouldCreate = confirm(`Project "${input}" not found. Would you like to create it?`);
-                if (!shouldCreate) return;
+            // ✅ 2) Otherwise match by project code, but pick the newest deterministically
+            const bestTime = (task, id) => {
+                const candidates = [
+                    Number(task.updatedAt) || 0,
+                    Number(task.createdAt) || 0,
+                    Number(task.startTime) || 0,
+                    Number(task.timestamp) || 0,
+                    Number(id) || 0,
+                ];
+                return Math.max(...candidates);
+            };
 
-                const inputPassword = prompt("Enter password to create a new project:");
-                if (inputPassword !== ADMIN_PASSWORD) {
-                    alert("Incorrect password.");
-                    return;
-                }
+            const matches = Object.entries(tasks)
+                .filter(([id, data]) => (data.project || '').trim().toLowerCase() === input);
 
-                const newTimestamp = Date.now().toString();
-                const taskRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${newTimestamp}`);
+            if (matches.length) {
+                // pick newest match
+                matches.sort((a, b) => bestTime(b[1], b[0]) - bestTime(a[1], a[0]));
+                const [matchedID] = matches[0];
 
-                await update(taskRef, {
-                    id: newTimestamp,
-                    project: input,
-                    sensorCount: 0
-                });
-
-                localStorage.setItem('lastProject', newTimestamp);
+                localStorage.setItem('lastProject', matchedID);
                 validated = true;
 
-                alert("New project created. Please enter the total sensors and save.");
                 document.getElementById('authScreen')?.remove();
                 document.getElementById('mainApp')?.classList.remove('hidden');
+
                 await populateProjects();
-                document.getElementById('projectList').value = newTimestamp;
-                await loadProject(newTimestamp);
+                document.getElementById('projectList').value = matchedID;
+                await loadProject(matchedID);
+                return;
             }
+
+            // Not found -> create flow (same as you had)
+            const shouldCreate = confirm(`Project "${input}" not found. Would you like to create it?`);
+            if (!shouldCreate) return;
+
+            const inputPassword = prompt("Enter password to create a new project:");
+            if (inputPassword !== ADMIN_PASSWORD) return alert("Incorrect password.");
+
+            const newTimestamp = Date.now().toString();
+            const taskRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${newTimestamp}`);
+
+            await update(taskRef, {
+                id: newTimestamp,
+                project: input,
+                sensorCount: 0,
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            });
+
+            localStorage.setItem('lastProject', newTimestamp);
+            validated = true;
+
+            alert("New project created. Please enter the total sensors and save.");
+            document.getElementById('authScreen')?.remove();
+            document.getElementById('mainApp')?.classList.remove('hidden');
+
+            await populateProjects();
+            document.getElementById('projectList').value = newTimestamp;
+            await loadProject(newTimestamp);
         }
 
         document.getElementById('autoValidateBtn').addEventListener('click', async () => {
@@ -1074,39 +1104,43 @@
         }
 
         async function saveProject() {
-            const projectName = sanitize(document.getElementById('project').value);
-            const count = parseInt(document.getElementById('sensorCount').value);
-            if (!projectName || isNaN(count)) return alert('Enter valid project ID and sensor count');
+            // Use raw (not sanitized) for DB "project" field; sanitize only for storage paths
+            const projectNameRaw = document.getElementById('project').value.trim();
+            const count = parseInt(document.getElementById('sensorCount').value, 10);
 
-            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
-
-            let existingProjectId = null;
-
-            if (snapshot.exists()) {
-                const tasks = snapshot.val();
-                for (const [id, task] of Object.entries(tasks)) {
-                    if ((task.project || '').trim().toLowerCase() === projectName.toLowerCase()) {
-                        existingProjectId = id;
-                        break;
-                    }
-                }
+            if (!projectNameRaw || Number.isNaN(count) || count < 1) {
+                return alert('Enter a valid Project ID and Total Devices');
             }
 
-            const timestamp = existingProjectId || Date.now().toString();
+            // ✅ If a project is loaded, update THAT exact node (never search by name)
+            const timestamp = currentProject || Date.now().toString();
             const taskRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${timestamp}`);
 
             await update(taskRef, {
                 id: timestamp,
-                project: projectName,
-                sensorCount: count
+                project: projectNameRaw,      // keep it human-readable
+                sensorCount: count,
+                updatedAt: Date.now()
             });
 
+            // update local state immediately
+            currentProject = timestamp;
+            currentProjectName = projectNameRaw;
+            expectedSensors = count;
+
+            // refresh UI so it matches immediately
             await populateProjects();
             document.getElementById('projectList').value = timestamp;
-            await loadProject(timestamp);
-            alert(`Project "${projectName}" ${existingProjectId ? 'updated' : 'saved'} successfully!`);
+            populateSensorDropdown(expectedSensors);
+            await updateSiteImages();
+            await loadNotes();
+            await updateGallery();
 
-            const safeProjectName = sanitize(projectName);
+            alert(`Project "${projectNameRaw}" saved successfully!`);
+
+            // (Optional) only create placeholders if this is a "new" project
+            // If you always want to ensure folders exist, keep this block.
+            const safeProjectName = sanitize(projectNameRaw);
             const basePath = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}`;
             const blob = createPlaceholderBlob();
 
@@ -1243,7 +1277,7 @@
             if (!num || !serial) return alert("Sensor number and serial are required.");
 
             const deviceData = { serial, m1, m2, m3 };
-            await set(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/deviceMeta/${num}`), deviceData);
+            await set(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/sensorMeta/${num}`), deviceData);
             alert("Sensor info saved!");
         };
 
