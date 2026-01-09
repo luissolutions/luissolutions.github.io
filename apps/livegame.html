@@ -115,6 +115,7 @@
         let shopItems = [];
         let drag = null, hover = null;
         let clickCount = 0, lastClick = 0;
+        let mouseDownPos = null;
 
         const itemImageCache = new Map(); // url -> HTMLImageElement
         const canvas = document.getElementById('canvas');
@@ -819,34 +820,21 @@
         `;
         }
 
-        // click to inspect
-        canvas.addEventListener('click', (e) => {
-            const { x, y } = tile(e);
-            const item = getItem(x, y);
-            if (item) inspectItem(item);
-        });
-
         /* ================= DRAG + DELETE ================= */
 
         canvas.onmousedown = (e) => {
-            const now = Date.now();
+            const { x, y } = tile(e);
 
+            mouseDownPos = { x, y };
+
+            const now = Date.now();
             clickCount = (now - lastClick < 400) ? clickCount + 1 : 1;
             lastClick = now;
 
-            const { x, y } = tile(e);
             const item = getItem(x, y);
 
-            const interactable = rooms[currentRoom].interactables.find(o => o.x === x && o.y === y);
-
-            if (interactable && interactable.draggable) {
-                drag = { type: 'interactable', obj: interactable };
-                return;
-            }
-
-            if (!item) return;
-
-            if (clickCount === 3) {
+            // Triple click delete (items only)
+            if (item && clickCount === 3) {
                 const roomInventory = getCurrentRoomItems();
                 const arr = roomInventory[item.key];
                 const idx = arr.indexOf(item.obj);
@@ -859,43 +847,84 @@
                 return;
             }
 
-            drag = item;
         };
 
-        canvas.onmousemove = (e) => hover = tile(e);
+        canvas.onmousemove = (e) => {
+            hover = tile(e);
 
-        canvas.onmouseup = () => {
+            if (!mouseDownPos) return;
 
-            if (!drag || !hover) {
+            // If mouse moved to different tile → start drag
+            if (hover.x !== mouseDownPos.x || hover.y !== mouseDownPos.y) {
+
+                const interactable = rooms[currentRoom].interactables
+                    .find(o => o.x === mouseDownPos.x && o.y === mouseDownPos.y);
+
+                if (interactable && interactable.draggable) {
+                    drag = { type: 'interactable', obj: interactable };
+                    return;
+                }
+
+                const item = getItem(mouseDownPos.x, mouseDownPos.y);
+                if (item) {
+                    drag = item;
+                }
+            }
+        };
+
+        canvas.onmouseup = (e) => {
+            const { x, y } = tile(e);
+
+            // If mouse didn’t move → treat as click
+            if (mouseDownPos && mouseDownPos.x === x && mouseDownPos.y === y) {
+
+                const interactable = rooms[currentRoom].interactables
+                    .find(o => o.x === x && o.y === y);
+
+                if (interactable) {
+                    handleInteraction(interactable);
+                    drag = null;
+                    mouseDownPos = null;
+                    return;
+                }
+
+                const item = getItem(x, y);
+                if (item) inspectItem(item);
+
                 drag = null;
+                mouseDownPos = null;
                 return;
             }
 
-            // === INTERACTABLE DRAG ===
-            if (drag.type === 'interactable') {
+            // Otherwise it was a drag
+            if (!drag || !hover) {
+                drag = null;
+                mouseDownPos = null;
+                return;
+            }
 
+            // Interactable drag
+            if (drag.type === 'interactable') {
                 if (!isSolidTile(hover.x, hover.y)) {
                     drag.obj.x = hover.x;
                     drag.obj.y = hover.y;
                     persistPlayer();
                 }
-
                 drag = null;
+                mouseDownPos = null;
                 return;
             }
 
-            // === ROOM ITEM DRAG ===
+            // Room item drag
             const size = drag.obj.size || 1;
-
             if (isAreaFree(hover.x, hover.y, size)) {
-
                 drag.obj.x = hover.x;
                 drag.obj.y = hover.y;
-
                 persistPlayer();
             }
 
             drag = null;
+            mouseDownPos = null;
         };
 
         /* ================= PLAYER MOVEMENT (pokemon-ish step rate) ================= */
