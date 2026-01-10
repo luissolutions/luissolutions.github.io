@@ -513,6 +513,46 @@
             return node;
         }
 
+        function toMs(v) {
+            if (!v) return 0;
+
+            // numeric ms
+            if (typeof v === 'number' && isFinite(v)) return v;
+
+            // numeric string
+            if (typeof v === 'string' && /^\d+$/.test(v)) return Number(v);
+
+            // ISO string
+            const t = Date.parse(v);
+            return Number.isFinite(t) ? t : 0;
+        }
+
+        function taskScore(key, task) {
+            // Prefer explicit updated times first, then startTime, then key-as-timestamp
+            return Math.max(
+                toMs(task?.meta?.updatedAt),
+                toMs(task?.updatedAt),
+                toMs(task?.meta?.createdAt),
+                toMs(task?.createdAt),
+                toMs(task?.startTime),
+                toMs(key) // many of your keys ARE timestamps
+            );
+        }
+
+        function pickNewestByProject(all, projectId) {
+            let best = null;
+
+            for (const [key, data] of Object.entries(all || {})) {
+                if (!data || typeof data !== 'object') continue;
+                if (String(data.project ?? '') !== String(projectId ?? '')) continue;
+
+                const score = taskScore(key, data);
+                if (!best || score > best.score) best = { key, data, score };
+            }
+
+            return best ? { key: best.key, data: best.data } : null;
+        }
+
         // -------------------------------------------------------------------
         // Explorer rendering
         // -------------------------------------------------------------------
@@ -856,11 +896,21 @@
 
         async function getSourceTask(dbPath, projectId) {
             const all = await fetchAllTasks(dbPath);
-            for (const [k, v] of Object.entries(all)) {
-                if (v && typeof v === 'object' && v.project === projectId) return { key: k, data: v };
-            }
+
+            // ✅ pick newest among ALL matches (not first)
+            const bestMatch = pickNewestByProject(all, projectId);
+            if (bestMatch) return bestMatch;
+
+            // fallback if nothing matches project
             const fallback = pickBestFallbackTaskEntry(all);
             return fallback ? { key: fallback[0], data: fallback[1] } : null;
+        }
+
+        async function getDestinationTaskOrNull(dbPath, projectId) {
+            const all = await fetchAllTasks(dbPath);
+
+            // ✅ pick newest among ALL matches (not first)
+            return pickNewestByProject(all, projectId);
         }
 
         async function getDestinationTaskOrNull(dbPath, projectId) {

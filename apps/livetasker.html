@@ -321,7 +321,8 @@
         }
 
         function updateTaskInTable(task) {
-            const existingRow = document.querySelector(`[data-task-id="${task.id}"]`);
+            const key = task.__key || task.id;
+            const existingRow = document.querySelector(`[data-task-id="${key}"]`);
             if (existingRow) {
                 updateRow(existingRow, task);
             } else {
@@ -331,12 +332,16 @@
 
         function addTaskToTable(task) {
             const row = taskLogTable.insertRow();
-            row.dataset.taskId = task.id;
+            row.dataset.taskId = task.__key || task.id;
             updateRow(row, task);
             applyColumnVisibility();
         }
 
         function updateRow(row, task) {
+
+            const key = task.__key || task.id;
+            row.dataset.taskId = key;
+
             row.innerHTML = '';
 
             const nameCell = row.insertCell(0);
@@ -388,9 +393,9 @@
 
             const loadTaskButton = document.createElement('button');
             loadTaskButton.innerText = 'Load';
+
             loadTaskButton.addEventListener('click', () => {
-                loadTaskForEditing(task.id);
-                window.scrollTo({
+                loadTaskForEditing(key); window.scrollTo({
                     top: 0,
                     behavior: 'smooth'
                 });
@@ -416,15 +421,15 @@
             const deleteButton = document.createElement('button');
             deleteButton.classList.add('clear-button');
             deleteButton.innerText = 'Delete';
-            deleteButton.addEventListener('click', () => confirmDeleteTask(task.id, row));
+            deleteButton.addEventListener('click', () => confirmDeleteTask(key, row));
             actionsCell.appendChild(deleteButton);
 
             enableClickCopy(row);
         }
 
-        async function loadTaskForEditing(taskId) {
-            currentTaskId = taskId;
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${taskId}`);
+        async function loadTaskForEditing(taskKey) {
+            currentTaskId = taskKey;
+            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${taskKey}`);
 
             const snapshot = await get(taskRef);
             if (snapshot.exists()) {
@@ -573,7 +578,10 @@
                 taskLogTable.innerHTML = '';
                 allTasks = [];
                 snapshot.forEach(taskSnapshot => {
-                    allTasks.push(taskSnapshot.val());
+                    const task = taskSnapshot.val() || {};
+                    task.__key = taskSnapshot.key;
+                    task.id = task.id || task.__key;
+                    allTasks.push(task);
                 });
 
                 allTasks.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
