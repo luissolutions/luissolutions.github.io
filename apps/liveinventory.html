@@ -628,15 +628,73 @@
 
             $('yearSelect')?.addEventListener('change', () => {
                 currentYear = parseInt($('yearSelect').value, 10) || currentYear;
-
-                // 💾 remember selection
                 localStorage.setItem(LAST_YEAR_KEY, String(currentYear));
-
                 attachYearListener(currentYear);
             });
 
             $('q')?.addEventListener('input', renderAll);
             $('mode')?.addEventListener('change', renderAll);
+
+            // ✅ ADD THIS
+            const addForm = document.getElementById('addForm');
+            addForm?.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const type = (document.getElementById('addType').value || 'expense').toLowerCase();
+                const ymd = document.getElementById('addDate').value || new Date().toISOString().slice(0, 10);
+
+                const name = (document.getElementById('addName').value || '').trim();
+                const amtRaw = (document.getElementById('addAmt').value || '').trim();
+                const altRaw = (document.getElementById('addAltAmt').value || '').trim();
+
+                if (!name) return alert('Name is required.');
+
+                const amt = roundMoney(Math.abs(Number(amtRaw.replace(/[^0-9.\-]/g, '')) || 0));
+                const altAmt = roundMoney(Math.abs(Number(altRaw.replace(/[^0-9.\-]/g, '')) || 0));
+
+                // expenses stored negative, income positive (matches your render logic)
+                const signedAmt = (type === 'income') ? amt : -amt;
+                const signedAlt = (type === 'income') ? altAmt : -altAmt;
+
+                const sku = (document.getElementById('addSku').value || '').trim();
+                const cat = (document.getElementById('addCat').value || '').trim();
+                const tags = parseTags(document.getElementById('addTags').value || '');
+                const link = safeURL(document.getElementById('addLink').value || '');
+
+                const id = String(Date.now());
+                const tx = {
+                    amt: signedAmt,
+                    altAmt: signedAlt,
+                    cat,
+                    sub: '',
+                    sku,
+                    link,
+                    img: '',
+                    imgPath: '',
+                    desc: '',
+                    name,
+                    tags,
+                    type: (type === 'income') ? 'income' : 'expense',
+                    date: utcNoonTSFromYMD(ymd),
+                };
+
+                try {
+                    await writeTx(currentYear, id, tx);
+
+                    document.getElementById('addName').value = '';
+                    document.getElementById('addAmt').value = '';
+                    document.getElementById('addAltAmt').value = '';
+                    document.getElementById('addSku').value = '';
+                    document.getElementById('addCat').value = '';
+                    document.getElementById('addTags').value = '';
+                    document.getElementById('addLink').value = '';
+
+                    // document.getElementById('q').value = '';
+                } catch (err) {
+                    console.error('Add failed:', err);
+                    alert('❌ Failed to add entry (see console).');
+                }
+            });
         }
 
         function attachYearsListener() {
