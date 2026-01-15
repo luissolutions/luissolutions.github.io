@@ -501,6 +501,7 @@
         let DATABASE_BASE_PATH = 'public';
         let isLoadingProject = false;
         let currentProjectName = '';
+        let currentCustomerName = '';
 
         onAuthStateChanged(auth, (user) => {
             DATABASE_BASE_PATH = user ? user.uid : 'public';
@@ -750,6 +751,7 @@
                 const data = dataSnap.val();
 
                 currentProjectName = data.project || '';
+                currentCustomerName = (data.customerName || '').trim();
                 expectedSensors = data.sensorCount || 0;
 
                 document.getElementById('project').value = currentProjectName;
@@ -957,10 +959,13 @@
 
                 let blob = await resizeImage(file, 2048);
                 if (!skipMarkup) {
-                    blob = await addTextToImage(blob, `${currentProjectName} ${paddedNum} - ${serial}`);
+                    const labelBase = (currentCustomerName || currentProjectName || safeProjectName).trim();
+                    blob = await addTextToImage(blob, `${labelBase} ${paddedNum} - ${serial}`);
                 }
 
-                const desired = `${safeProjectName}_${paddedNum}-${serial}.jpg`;
+                const safeCustomer = sanitize(currentCustomerName || '');
+                const prefix = safeCustomer ? `${safeCustomer}` : '';
+                const desired = `${prefix}_${paddedNum}-${serial}.jpg`;
                 const uniqueName = await getUniqueFilename(folderPath, desired);
 
                 await uploadBytes(storageRef(storage, `${folderPath}/${uniqueName}`), blob);
@@ -1025,7 +1030,9 @@
                 }
 
                 const folder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/deliverables`;
-                const desired = `${baseName}.jpg`;
+                const safeCustomer = sanitize(currentCustomerName || '');
+                const prefix = safeCustomer ? `${safeCustomer}_` : '';
+                const desired = `${prefix}${baseName}.jpg`;
                 const uniqueName = await getUniqueFilename(folder, desired);
 
                 await uploadBytes(storageRef(storage, `${folder}/${uniqueName}`), blob);
@@ -1452,7 +1459,9 @@
 
             const blob = await resizeImage(file, 2048);
             const folder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/siteImages`;
-            const uniqueName = await getUniqueFilename(folder, sanitize(file.name));
+            const safeCustomer = sanitize(currentCustomerName || '');
+            const prefix = safeCustomer ? `${safeCustomer}_` : '';
+            const uniqueName = await getUniqueFilename(folder, prefix + sanitize(file.name));
             const path = `${folder}/${uniqueName}`;
 
             await uploadBytes(storageRef(storage, path), blob);
