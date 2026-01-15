@@ -490,7 +490,12 @@
     </main>
 
     <script type="module">
-        import { auth, onAuthStateChanged, database, storage, ref as dbRef, set, update, get, storageRef, uploadBytes, getDownloadURL, listAll, deleteObject } from '../apps/assets/js/firebase-init.js';
+        import {
+            auth, onAuthStateChanged, database, storage,
+            ref as dbRef, set, update, get,
+            storageRef, uploadBytes, getDownloadURL, listAll, deleteObject
+        } from '../apps/assets/js/firebase-init.js';
+
         import { accessToken, isTokenExpired } from '../apps/assets/js/microsoftAuth.js';
         import { getIP, updateVisitCount } from '../assets/js/visitLogger.js';
 
@@ -502,14 +507,28 @@
         let isLoadingProject = false;
         let currentProjectName = '';
         let currentCustomerName = '';
+        let metaOwnerTaskId = '';
+
+        const ADMIN_PASSWORD = "telaidadmin";
+        const sanitize = str => (str || '').trim().replace(/\s+/g, '_');
+        const normKey = s => (s || '').trim().toLowerCase();
+
+        // Choose best/freshest timestamp for a task
+        function bestTime(task, id) {
+            const candidates = [
+                Number(task.updatedAt) || 0,
+                Number(task.createdAt) || 0,
+                Number(task.startTime) || 0,
+                Number(task.timestamp) || 0,
+                Number(id) || 0, // many IDs are Date.now()
+            ];
+            return Math.max(...candidates);
+        }
 
         onAuthStateChanged(auth, (user) => {
             DATABASE_BASE_PATH = user ? user.uid : 'public';
             populateProjects();
         });
-
-        const ADMIN_PASSWORD = "telaidadmin";
-        const sanitize = str => str.trim().replace(/\s+/g, '_');
 
         let validated = false;
 
@@ -538,22 +557,10 @@
             }
 
             // ✅ 2) Otherwise match by project code, but pick the newest deterministically
-            const bestTime = (task, id) => {
-                const candidates = [
-                    Number(task.updatedAt) || 0,
-                    Number(task.createdAt) || 0,
-                    Number(task.startTime) || 0,
-                    Number(task.timestamp) || 0,
-                    Number(id) || 0,
-                ];
-                return Math.max(...candidates);
-            };
-
             const matches = Object.entries(tasks)
                 .filter(([id, data]) => (data.project || '').trim().toLowerCase() === input);
 
             if (matches.length) {
-                // pick newest match
                 matches.sort((a, b) => bestTime(b[1], b[0]) - bestTime(a[1], a[0]));
                 const [matchedID] = matches[0];
 
@@ -569,7 +576,7 @@
                 return;
             }
 
-            // Not found -> create flow (same as you had)
+            // Not found -> create flow
             const shouldCreate = confirm(`Project "${input}" not found. Would you like to create it?`);
             if (!shouldCreate) return;
 
@@ -579,6 +586,8 @@
             const newTimestamp = Date.now().toString();
             const taskRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${newTimestamp}`);
 
+            // NOTE: customerName is unknown at create-time here, so sensorCount defaults 0.
+            // Once customerName is set (in your task system), owner anchoring takes over.
             await update(taskRef, {
                 id: newTimestamp,
                 project: input,
@@ -620,7 +629,6 @@
             if (lastProjectID && foundLast) {
                 selectedID = lastProjectID;
             } else {
-                // Randomly pick one
                 const randomEntry = taskEntries[Math.floor(Math.random() * taskEntries.length)];
                 selectedID = randomEntry[0];
             }
@@ -680,6 +688,34 @@
             reader.readAsDataURL(blob);
         });
 
+        // ✅ NEW: resolve canonical owner task for (customer+project)
+        async function resolveMetaOwnerTaskId() {
+            metaOwnerTaskId = currentProject; // fallback
+
+            const projKey = normKey(currentProjectName);
+            const custKey = normKey(currentCustomerName);
+
+            if (!projKey && !custKey) return metaOwnerTaskId;
+
+            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
+            if (!snap.exists()) return metaOwnerTaskId;
+
+            const tasks = snap.val();
+            const matches = Object.entries(tasks)
+                .filter(([id, t]) => normKey(t.project) === projKey && normKey(t.customerName) === custKey);
+
+            if (!matches.length) return metaOwnerTaskId;
+
+            matches.sort((a, b) => bestTime(a[1], a[0]) - bestTime(b[1], b[0])); // oldest first
+            metaOwnerTaskId = matches[0][0];
+            return metaOwnerTaskId;
+        }
+
+        // ✅ NEW: sensorMeta path anchored to metaOwnerTaskId
+        function sensorMetaBasePath() {
+            return `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}/sensorMeta`;
+        }
+
         async function populateProjects() {
             const dropdown = document.getElementById('projectList');
             dropdown.innerHTML = '';
@@ -690,25 +726,12 @@
 
             const tasks = snap.val();
 
-            // Choose best/freshest timestamp for a task
-            const bestTime = (task, id) => {
-                const candidates = [
-                    Number(task.updatedAt) || 0,
-                    Number(task.createdAt) || 0,
-                    Number(task.startTime) || 0,
-                    Number(task.timestamp) || 0,
-                    Number(id) || 0, // many IDs are Date.now()
-                ];
-                return Math.max(...candidates);
-            };
-
             // Group by (project, customerName)
             const groups = new Map(); // key: `${projKey}||${custKey}` -> { id, task }
             for (const [id, task] of Object.entries(tasks)) {
                 const projectRaw = (task.project || '').trim();
                 const customerRaw = (task.customerName || '').trim();
 
-                // if there's truly no project and no customer, skip
                 if (!projectRaw && !customerRaw) continue;
 
                 const projKey = projectRaw.toLowerCase();
@@ -721,11 +744,9 @@
                 }
             }
 
-            // Sort groups by newest first
             const newestFirst = [...groups.values()]
                 .sort((a, b) => bestTime(b.task, b.id) - bestTime(a.task, a.id));
 
-            // Build options: "CustomerName — Project"
             for (const { id, task } of newestFirst) {
                 const customer = (task.customerName && task.customerName.trim()) ? task.customerName.trim() : '(No Customer)';
                 const project = (task.project && task.project.trim()) ? task.project.trim() : '(No Project)';
@@ -739,28 +760,31 @@
             isLoadingProject = true;
 
             try {
-                console.log(`[loadProject] Start loading project: ${id}`);
                 currentProject = id;
                 localStorage.setItem('lastProject', id);
 
                 const dataSnap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${id}`));
-                if (!dataSnap.exists()) {
-                    throw new Error(`No task found for ID ${id}`);
-                }
-
+                if (!dataSnap.exists()) throw new Error(`No task found for ID ${id}`);
                 const data = dataSnap.val();
 
                 currentProjectName = data.project || '';
                 currentCustomerName = (data.customerName || '').trim();
-                expectedSensors = data.sensorCount || 0;
+
+                // ✅ resolve owner FIRST
+                await resolveMetaOwnerTaskId();
+
+                // ✅ Always read sensorCount from the owner task so it doesn’t “reset to 0”
+                const ownerSnap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}`));
+                const owner = ownerSnap.exists() ? ownerSnap.val() : data;
+
+                expectedSensors = Number(owner.sensorCount) || 0;
 
                 document.getElementById('project').value = currentProjectName;
                 document.getElementById('sensorCount').value = expectedSensors;
 
-                console.log(`[loadProject] Sensor count: ${expectedSensors}`);
-
                 await updateSiteImages();
                 await loadNotes();
+
                 populateSensorDropdown(expectedSensors);
                 await updateGallery();
 
@@ -773,7 +797,10 @@
         }
 
         function populateSensorDropdown(count) {
-            const dropdowns = [document.getElementById('sensorMetaNumberDropdown'), document.getElementById('sensorNumberDropdown')];
+            const dropdowns = [
+                document.getElementById('sensorMetaNumberDropdown'),
+                document.getElementById('sensorNumberDropdown')
+            ];
             dropdowns.forEach(dropdown => {
                 dropdown.innerHTML = `<option value="">Select a Device</option>`;
                 for (let i = 1; i <= count; i++) {
@@ -784,19 +811,13 @@
         }
 
         const getFavorites = () => JSON.parse(localStorage.getItem('favorites') || '{}');
-        const toggleFavorite = path => {
-            const favs = getFavorites();
-            if (favs[path]) delete favs[path];
-            else favs[path] = true;
-            localStorage.setItem('favorites', JSON.stringify(favs));
-        };
 
         async function updateGallery() {
             const safeProjectName = sanitize(currentProjectName || currentProject);
             const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
             const base = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${isSensor ? 'sensors' : 'deliverables'}`;
-            const snapshot = await listAll(storageRef(storage, base));
 
+            const snapshot = await listAll(storageRef(storage, base));
             const items = await Promise.all(snapshot.items.map(async item => {
                 const url = await getDownloadURL(item);
                 return { name: item.name, url, fullPath: item.fullPath };
@@ -862,14 +883,12 @@
                         li.dataset.sensor = String(i);
                         li.className = 'missing-sensor';
                         li.setAttribute('role', 'button');
-                        li.setAttribute('tabindex', '0'); // keyboard focusable
+                        li.setAttribute('tabindex', '0');
                         missingList.appendChild(li);
                     }
                 }
 
-                // Click/keyboard: pick sensor, show the upload UI, and focus serial input
                 const handlePickMissing = (sensorNum) => {
-                    // Ensure "Device Images" mode is active
                     const sensorsRadio = document.querySelector('input[name="viewMode"][value="sensors"]');
                     if (sensorsRadio && !sensorsRadio.checked) {
                         sensorsRadio.checked = true;
@@ -877,36 +896,30 @@
                         document.getElementById('deliverableUploadSection').style.display = 'none';
                     }
 
-                    // Select in both dropdowns (upload + meta)
                     const uploadDd = document.getElementById('sensorNumberDropdown');
                     const metaDd = document.getElementById('sensorMetaNumberDropdown');
 
                     if (uploadDd) {
                         uploadDd.value = sensorNum;
-                        // 🔑 Trigger the existing listener that loads the serial
                         uploadDd.dispatchEvent(new Event('change', { bubbles: true }));
                     }
 
                     if (metaDd) {
                         metaDd.value = sensorNum;
-                        // 🔑 Trigger the existing listener that loads meta fields
                         metaDd.dispatchEvent(new Event('change', { bubbles: true }));
                     }
 
-                    // Scroll and focus for quick entry
                     const serialInput = document.getElementById('serialNumber');
                     document.getElementById('sensorUploadSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     setTimeout(() => serialInput?.focus(), 250);
                 };
 
-                // Event delegation so it works for all items we just added
                 missingList.onclick = (e) => {
                     const li = e.target.closest('li[data-sensor]');
                     if (!li) return;
                     handlePickMissing(li.dataset.sensor);
                 };
 
-                // Keyboard: Enter/Space activates the item
                 missingList.onkeydown = (e) => {
                     const li = e.target.closest('li[data-sensor]');
                     if (!li) return;
@@ -971,13 +984,8 @@
                 await uploadBytes(storageRef(storage, `${folderPath}/${uniqueName}`), blob);
 
                 const placeholderRef = storageRef(storage, `${folderPath}/.init.txt`);
-                try {
-                    await deleteObject(placeholderRef);
-                    console.log('Sensor .init.txt deleted.');
-                } catch (err) {
-                    if (err.code !== 'storage/object-not-found') {
-                        console.warn('Error deleting sensor placeholder:', err);
-                    }
+                try { await deleteObject(placeholderRef); } catch (err) {
+                    if (err.code !== 'storage/object-not-found') console.warn('Error deleting sensor placeholder:', err);
                 }
 
                 await updateGallery();
@@ -1012,9 +1020,8 @@
             const rawMarkup = markupEl.value.trim();
 
             const nameInput = sanitize(rawName);
-            const markupInput = rawMarkup;
 
-            if (!currentProject || !file || (!nameInput && !markupInput)) {
+            if (!currentProject || !file || (!nameInput && !rawMarkup)) {
                 alert('Please select a file and enter either a Name or Markup');
                 uploadBtn.disabled = false;
                 uploadBtn.textContent = 'Upload Image';
@@ -1025,9 +1032,7 @@
                 const baseName = nameInput || sanitize(rawMarkup);
                 let blob = await resizeImage(file, 2048);
 
-                if (rawMarkup) {
-                    blob = await addTextToImage(blob, rawMarkup);
-                }
+                if (rawMarkup) blob = await addTextToImage(blob, rawMarkup);
 
                 const folder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/deliverables`;
                 const safeCustomer = sanitize(currentCustomerName || '');
@@ -1038,13 +1043,8 @@
                 await uploadBytes(storageRef(storage, `${folder}/${uniqueName}`), blob);
 
                 const placeholderRef = storageRef(storage, `${folder}/.init.txt`);
-                try {
-                    await deleteObject(placeholderRef);
-                    console.log('Sensor .init.txt deleted.');
-                } catch (err) {
-                    if (err.code !== 'storage/object-not-found') {
-                        console.warn('Error deleting sensor placeholder:', err);
-                    }
+                try { await deleteObject(placeholderRef); } catch (err) {
+                    if (err.code !== 'storage/object-not-found') console.warn('Error deleting deliverable placeholder:', err);
                 }
 
                 await updateGallery();
@@ -1053,6 +1053,7 @@
                 fileEl.value = '';
                 nameEl.value = '';
                 markupEl.value = '';
+
             } catch (err) {
                 console.error('Upload failed:', err);
                 alert('Deliverable upload failed. See console for details.');
@@ -1070,7 +1071,8 @@
             const utcTimestamp = Date.now();
             await update(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/comments`), {
                 [utcTimestamp]: text
-            });;
+            });
+
             loadNotes();
             alert('Note saved successfully!');
         }
@@ -1090,10 +1092,10 @@
                         const formattedNote = notes[timestamp].replace(/\n/g, "<br>");
                         const div = document.createElement('div');
                         div.innerHTML = `
-                            <strong>${dateStr}</strong><br>${formattedNote}
-                            <button data-timestamp="${timestamp}" class="deleteNoteButton">🗑 Delete</button>
-                            <hr>
-                        `;
+          <strong>${dateStr}</strong><br>${formattedNote}
+          <button data-timestamp="${timestamp}" class="deleteNoteButton">🗑 Delete</button>
+          <hr>
+        `;
                         list.appendChild(div);
                     });
 
@@ -1111,7 +1113,6 @@
         }
 
         async function saveProject() {
-            // Use raw (not sanitized) for DB "project" field; sanitize only for storage paths
             const projectNameRaw = document.getElementById('project').value.trim();
             const count = parseInt(document.getElementById('sensorCount').value, 10);
 
@@ -1119,23 +1120,32 @@
                 return alert('Enter a valid Project ID and Total Devices');
             }
 
-            // ✅ If a project is loaded, update THAT exact node (never search by name)
+            // update current task node
             const timestamp = currentProject || Date.now().toString();
             const taskRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${timestamp}`);
 
             await update(taskRef, {
                 id: timestamp,
-                project: projectNameRaw,      // keep it human-readable
+                project: projectNameRaw,
                 sensorCount: count,
                 updatedAt: Date.now()
             });
 
-            // update local state immediately
+            // update local state
             currentProject = timestamp;
             currentProjectName = projectNameRaw;
+
+            // ✅ Re-resolve owner and ALSO persist count on owner task (so it sticks across tasks)
+            await resolveMetaOwnerTaskId();
+
+            const ownerRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}`);
+            await update(ownerRef, {
+                sensorCount: count,
+                updatedAt: Date.now()
+            });
+
             expectedSensors = count;
 
-            // refresh UI so it matches immediately
             await populateProjects();
             document.getElementById('projectList').value = timestamp;
             populateSensorDropdown(expectedSensors);
@@ -1145,19 +1155,15 @@
 
             alert(`Project "${projectNameRaw}" saved successfully!`);
 
-            // (Optional) only create placeholders if this is a "new" project
-            // If you always want to ensure folders exist, keep this block.
+            // placeholders
             const safeProjectName = sanitize(projectNameRaw);
             const basePath = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}`;
             const blob = createPlaceholderBlob();
 
             const uploadPlaceholder = async (folder, name = ".init.txt") => {
                 const fullPath = `${basePath}/${folder}/${name}`;
-                try {
-                    await uploadBytes(storageRef(storage, fullPath), blob);
-                } catch (err) {
-                    console.warn(`Failed to upload dummy to ${folder}:`, err);
-                }
+                try { await uploadBytes(storageRef(storage, fullPath), blob); }
+                catch (err) { console.warn(`Failed to upload dummy to ${folder}:`, err); }
             };
 
             await uploadPlaceholder('siteImages');
@@ -1181,9 +1187,7 @@
             document.getElementById('downloadButton').onclick = () => window.open(url, '_blank');
             document.getElementById('closeModalButton').onclick = () => modal.style.display = 'none';
             modal.addEventListener('click', e => {
-                if (e.target === modal) {
-                    modal.style.display = 'none';
-                }
+                if (e.target === modal) modal.style.display = 'none';
             });
         }
 
@@ -1201,7 +1205,7 @@
 
             try {
                 await deleteObject(storageRef(storage, path));
-                modal.style.display = 'none';
+                document.getElementById('modal').style.display = 'none';
                 updateGallery();
             } catch (err) {
                 console.error("Failed to delete image:", err);
@@ -1233,6 +1237,7 @@
         document.getElementById('uploadImage').onclick = uploadSensor;
         document.getElementById('uploadDeliverableImage').onclick = uploadDeliverable;
         document.getElementById('saveNote').onclick = saveNote;
+
         document.querySelectorAll('input[name="viewMode"]').forEach(radio => {
             radio.addEventListener('change', () => {
                 const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
@@ -1242,23 +1247,21 @@
             });
         });
 
-        // Image dropdown opens modal
         document.getElementById('imageDropdown').addEventListener('change', function () {
             const selectedOption = this.options[this.selectedIndex];
             const url = selectedOption.value;
             const name = selectedOption.textContent;
             if (url) {
-                const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
-                const folder = isSensor ? 'sensors' : 'deliverables';
-                showModal(url, name, `${DATABASE_BASE_PATH}/tasks/${currentProject}/${folder}`);
+                showModal(url, name, '');
             }
         });
 
+        // ✅ READ meta using metaOwnerTaskId
         document.getElementById("sensorMetaNumberDropdown").addEventListener("change", async (e) => {
             const num = e.target.value;
             if (!num || !currentProject) return;
 
-            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/sensorMeta/${num}`));
+            const snap = await get(dbRef(database, `${sensorMetaBasePath()}/${num}`));
             if (snap.exists()) {
                 const data = snap.val();
                 document.getElementById("sensorMetaSerial").value = data.serial || '';
@@ -1266,7 +1269,6 @@
                 document.getElementById("sensorMetaM2").value = data.m2 || '';
                 document.getElementById("sensorMetaM3").value = data.m3 || '';
             } else {
-
                 document.getElementById("sensorMetaSerial").value = '';
                 document.getElementById("sensorMetaM1").value = '';
                 document.getElementById("sensorMetaM2").value = '';
@@ -1274,6 +1276,7 @@
             }
         });
 
+        // ✅ WRITE meta using metaOwnerTaskId
         document.getElementById("saveSensorMeta").onclick = async () => {
             const num = document.getElementById("sensorMetaNumberDropdown").value;
             const serial = document.getElementById("sensorMetaSerial").value.trim();
@@ -1284,10 +1287,11 @@
             if (!num || !serial) return alert("Sensor number and serial are required.");
 
             const deviceData = { serial, m1, m2, m3 };
-            await set(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/sensorMeta/${num}`), deviceData);
+            await set(dbRef(database, `${sensorMetaBasePath()}/${num}`), deviceData);
             alert("Sensor info saved!");
         };
 
+        // ✅ autofill serial using metaOwnerTaskId
         document.getElementById("sensorNumberDropdown").addEventListener("change", async (e) => {
             const num = e.target.value;
             const serialEl = document.getElementById("serialNumber");
@@ -1297,16 +1301,11 @@
                 return;
             }
 
-            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/sensorMeta/${num}`));
-            if (snap.exists()) {
-                const data = snap.val();
-                serialEl.value = data.serial || '';
-            } else {
-                serialEl.value = '';
-            }
+            const snap = await get(dbRef(database, `${sensorMetaBasePath()}/${num}`));
+            serialEl.value = snap.exists() ? (snap.val().serial || '') : '';
         });
 
-        // Site images section
+        // -------------------- SITE IMAGES (unchanged logic) --------------------
         let siteImages = [];
         let currentSiteIndex = 0;
         let siteImageRotation = 0;
@@ -1335,7 +1334,6 @@
                 siteImages = await Promise.all(
                     imageItems.map(async item => ({ name: item.name, url: await getDownloadURL(item) }))
                 );
-                console.log('[siteImages] found:', siteImages.map(x => x.name));
             } catch (e) {
                 console.warn('[siteImages] list error:', e);
                 siteImages = [];
@@ -1353,14 +1351,13 @@
             const nextBtns = document.querySelectorAll('.nextSiteImage');
             const rotBtns = document.querySelectorAll('.rotateSiteImage');
 
-            // No images? reset UI
             if (!siteImages.length) {
                 wrapper.style.height = 'auto';
                 [...prevBtns, ...nextBtns, ...rotBtns].forEach(b => b.disabled = true);
                 img.src = '';
                 img.alt = '';
                 img.style.opacity = 1;
-                isSiteImageLoading = false; // ensure we clear lock
+                isSiteImageLoading = false;
                 return;
             }
 
@@ -1378,20 +1375,17 @@
             const src = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
 
             const pre = new Image();
-            let safetyTimer = setTimeout(() => {
-                tryNextImage();
-            }, 2000);
+            let safetyTimer = setTimeout(() => { tryNextImage(); }, 2000);
 
             pre.onload = () => {
                 clearTimeout(safetyTimer);
-                img.src = src;          // swap in decoded image
+                img.src = src;
                 requestAnimationFrame(() => {
                     wrapper.style.height = `${img.clientHeight}px`;
-                    // ✅ Re-enable controls now that the new image is visible
-                    [...prevBtns, ...nextBtns].forEach(b => b.disabled = !multi ? true : false);
+                    [...prevBtns, ...nextBtns].forEach(b => b.disabled = !multi);
                     rotBtns.forEach(b => b.disabled = false);
                     img.style.opacity = 1;
-                    isSiteImageLoading = false;  // 🔓 unlock
+                    isSiteImageLoading = false;
                 });
             };
 
@@ -1467,13 +1461,8 @@
             await uploadBytes(storageRef(storage, path), blob);
 
             const placeholderRef = storageRef(storage, `${folder}/.init.txt`);
-            try {
-                await deleteObject(placeholderRef);
-                console.log('Placeholder .init.txt deleted.');
-            } catch (err) {
-                if (err.code !== 'storage/object-not-found') {
-                    console.warn('Error deleting placeholder:', err);
-                }
+            try { await deleteObject(placeholderRef); } catch (err) {
+                if (err.code !== 'storage/object-not-found') console.warn('Error deleting placeholder:', err);
             }
 
             await updateSiteImages();
@@ -1498,15 +1487,13 @@
                     await getDownloadURL(storageRef(storage, path));
                     name = `${base}_${suffix++}`;
                 } catch (e) {
-                    if (e.code === 'storage/object-not-found') {
-                        return name + ext;
-                    }
+                    if (e.code === 'storage/object-not-found') return name + ext;
                     throw e;
                 }
             }
         }
 
-        // OneDrive upload code
+        // -------------------- OneDrive upload (unchanged, BUT CSV now uses metaOwner) --------------------
         document.getElementById("uploadFolderToOneDrive").addEventListener("click", async () => {
             const uploadBtn = document.getElementById("uploadFolderToOneDrive");
 
@@ -1542,19 +1529,15 @@
                     const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${oneDriveFolder}/${item.name}:/content`;
                     const res = await fetch(uploadUrl, {
                         method: "PUT",
-                        headers: {
-                            Authorization: `Bearer ${accessToken}`
-                        },
+                        headers: { Authorization: `Bearer ${accessToken}` },
                         body: blob
                     });
-                    if (!res.ok) {
-                        console.error(`Failed to upload ${item.name}:`, await res.text());
-                    }
+                    if (!res.ok) console.error(`Failed to upload ${item.name}:`, await res.text());
                 }
 
                 // ✅ Upload sensor CSV if in deliverables mode
                 if (!isSensor) {
-                    const refPath = `${DATABASE_BASE_PATH}/tasks/${currentProject}/sensorMeta`;
+                    const refPath = `${sensorMetaBasePath()}`; // ✅ anchored to metaOwnerTaskId
                     const snapshot = await get(dbRef(database, refPath));
 
                     if (snapshot.exists()) {
@@ -1579,17 +1562,11 @@
 
                         const csvRes = await fetch(csvUrl, {
                             method: "PUT",
-                            headers: {
-                                Authorization: `Bearer ${accessToken}`
-                            },
+                            headers: { Authorization: `Bearer ${accessToken}` },
                             body: blob
                         });
 
-                        if (!csvRes.ok) {
-                            console.error(`Failed to upload CSV:`, await csvRes.text());
-                        } else {
-                            console.log("Sensor CSV uploaded successfully.");
-                        }
+                        if (!csvRes.ok) console.error(`Failed to upload CSV:`, await csvRes.text());
                     }
                 }
 
@@ -1634,9 +1611,7 @@
                         })
                     });
 
-                    if (!createRes.ok) {
-                        throw new Error(`Failed to create folder "${part}": ${await createRes.text()}`);
-                    }
+                    if (!createRes.ok) throw new Error(`Failed to create folder "${part}": ${await createRes.text()}`);
                 }
             }
         }
@@ -1656,13 +1631,11 @@
 
         document.getElementById('siteImageDisplay').addEventListener('click', () => {
             clickCount++;
-
             if (clickCount === 3) {
                 rotateSiteImage();
                 clearTimeout(clickTimer);
                 clickCount = 0;
             }
-
             if (!clickTimer) {
                 clickTimer = setTimeout(() => {
                     clickCount = 0;
@@ -1676,26 +1649,23 @@
             const adminSection = document.getElementById("adminSection");
 
             if (loginSection) {
-                loginSection.style.display = (loginSection.style.display === "none" || loginSection.style.display === "") ? "flex" : "none";
+                loginSection.style.display =
+                    (loginSection.style.display === "none" || loginSection.style.display === "") ? "flex" : "none";
             }
 
             if (adminSection) {
-                adminSection.style.display = (adminSection.style.display === "none" || adminSection.style.display === "") ? "block" : "none";
+                adminSection.style.display =
+                    (adminSection.style.display === "none" || adminSection.style.display === "") ? "block" : "none";
             }
         });
 
         document.getElementById('downloadSiteImage').addEventListener('click', () => {
             if (!siteImages.length) return alert('No site image to open.');
-
             const currentImage = siteImages[currentSiteIndex];
             if (!currentImage) return alert('Image not found.');
 
             const sep = currentImage.url.includes('?') ? '&' : '?';
-            window.open(
-                `${currentImage.url}${sep}t=${Date.now()}`,
-                '_blank',
-                'noopener'
-            );
+            window.open(`${currentImage.url}${sep}t=${Date.now()}`, '_blank', 'noopener');
         });
 
         function createPlaceholderBlob(content = "This is a placeholder file.") {
@@ -1714,13 +1684,14 @@
                 .replace(/[^\x00-\x7F]/g, '');
         }
 
+        // ✅ Export CSV uses metaOwnerTaskId
         document.getElementById("exportCSV").addEventListener("click", async () => {
             if (!currentProject) {
                 alert("No project selected.");
                 return;
             }
 
-            const refPath = `${DATABASE_BASE_PATH}/tasks/${currentProject}/sensorMeta`;
+            const refPath = `${sensorMetaBasePath()}`;
             const snapshot = await get(dbRef(database, refPath));
 
             if (!snapshot.exists()) {
@@ -1754,36 +1725,30 @@
             URL.revokeObjectURL(url);
         });
 
+        // Customize view toggles (unchanged)
         document.querySelectorAll('.section-toggle').forEach(checkbox => {
             checkbox.addEventListener('change', () => {
                 const targetClass = checkbox.dataset.target;
                 const elements = document.getElementsByClassName(targetClass);
-                for (let el of elements) {
-                    el.style.display = checkbox.checked ? '' : 'none';
-                }
+                for (let el of elements) el.style.display = checkbox.checked ? '' : 'none';
 
-                // For single-ID targets like siteImagesSection
                 const single = document.getElementById(targetClass);
-                if (single) {
-                    single.style.display = checkbox.checked ? '' : 'none';
-                }
+                if (single) single.style.display = checkbox.checked ? '' : 'none';
             });
         });
 
-        // Save to localStorage
         document.querySelectorAll('.section-toggle').forEach(checkbox => {
             checkbox.addEventListener('change', () => {
                 localStorage.setItem(`toggle_${checkbox.dataset.target}`, checkbox.checked);
             });
         });
 
-        // Restore on load
         window.addEventListener('DOMContentLoaded', () => {
             document.querySelectorAll('.section-toggle').forEach(checkbox => {
                 const saved = localStorage.getItem(`toggle_${checkbox.dataset.target}`);
                 if (saved !== null) {
                     checkbox.checked = saved === 'true';
-                    checkbox.dispatchEvent(new Event('change')); // apply it
+                    checkbox.dispatchEvent(new Event('change'));
                 }
             });
         });
@@ -1791,17 +1756,14 @@
         function updateUploadPermissions() {
             const isAdmin = document.getElementById('adminToggle').checked;
 
-            // Upload buttons
             document.getElementById('uploadDeliverableImage').disabled = !isAdmin;
             document.getElementById('uploadSiteImage').disabled = !isAdmin;
             document.getElementById('uploadFolderToOneDrive').disabled = !isAdmin;
 
-            // Save buttons
             document.getElementById('saveNote').disabled = !isAdmin;
             document.getElementById('saveSensorMeta').disabled = !isAdmin;
             document.getElementById('saveProject').style.display = isAdmin ? 'inline-block' : 'none';
 
-            // Input fields
             document.getElementById('noteDate').disabled = !isAdmin;
             document.getElementById('noteText').disabled = !isAdmin;
             document.getElementById('skipMarkupCheckbox').disabled = !isAdmin;
@@ -1810,7 +1772,6 @@
             document.getElementById('markupTextInput').disabled = !isAdmin;
             document.getElementById('sensorCount').disabled = !isAdmin;
 
-            // ✅ Hide or show fieldSelector
             document.getElementById('fieldSelector').style.display = isAdmin ? 'block' : 'none';
         }
 
@@ -1822,9 +1783,7 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             const saved = localStorage.getItem('adminMode');
-            if (saved) {
-                document.getElementById('adminToggle').checked = saved === 'true';
-            }
+            if (saved) document.getElementById('adminToggle').checked = saved === 'true';
             updateUploadPermissions();
         });
 
