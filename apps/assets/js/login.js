@@ -68,6 +68,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+document.addEventListener('DOMContentLoaded', () => {
+
+    const headerTitle = document.querySelector('header h1');
+    const loginSection = document.getElementById('login-section');
+
+    headerTitle.addEventListener('dblclick', () => {
+        loginSection.style.display =
+            loginSection.style.display === 'none' || getComputedStyle(loginSection).display === 'none'
+                ? 'block'
+                : 'none';
+    });
+});
+
 export function getCurrentUserUID() {
     return localStorage.getItem("currentUserUID");
 }
