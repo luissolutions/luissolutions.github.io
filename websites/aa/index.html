@@ -97,7 +97,7 @@
             display: flex;
             align-items: center;
             gap: 14px;
-            padding: 12px 0;
+            padding: 12px;
             flex-wrap: nowrap;
             min-height: 72px;
             justify-content: space-between;
@@ -477,6 +477,60 @@
                 padding: 0 14px;
             }
         }
+
+        /* Prevent visual flicker while recalculating nav mode */
+        body.nav-measuring .main-nav,
+        body.nav-measuring .desktop-only,
+        body.nav-measuring .mobile-only {
+            visibility: hidden;
+        }
+
+        /* Expandable service cards */
+        .service-accordion {
+            padding: 0;
+            /* details controls its own padding */
+            cursor: pointer;
+        }
+
+        .service-accordion>summary {
+            list-style: none;
+            padding: 16px;
+            font-weight: 800;
+            text-align: center;
+            user-select: none;
+        }
+
+        .service-accordion>summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .service-accordion>summary::after {
+            content: "▾";
+            margin-left: 10px;
+            opacity: .8;
+        }
+
+        .service-accordion[open]>summary::after {
+            content: "▴";
+        }
+
+        .service-accordion .brands {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            padding: 0 16px 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .service-accordion .brands span {
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, .03);
+            font-size: .9rem;
+            color: var(--muted);
+        }
     </style>
 </head>
 
@@ -571,18 +625,54 @@
             </div>
         </section>
 
-        <!-- SERVICES -->
         <section id="services" class="section">
             <div class="container">
                 <h2>Our Services</h2>
 
                 <div class="service-grid">
-                    <div class="service-card">Washer Repair</div>
-                    <div class="service-card">Dryer Repair</div>
-                    <div class="service-card">Refrigerator Repair</div>
-                    <div class="service-card">Oven &amp; Range Repair</div>
-                    <div class="service-card">Dishwasher Repair</div>
-                    <div class="service-card">Microwave Repair</div>
+
+                    <details class="service-card service-accordion">
+                        <summary>Washer Repair</summary>
+                        <div class="brands">
+                            <span>Whirlpool</span><span>GE</span><span>Samsung</span><span>LG</span><span>Maytag</span><span>Kenmore</span>
+                        </div>
+                    </details>
+
+                    <details class="service-card service-accordion">
+                        <summary>Dryer Repair</summary>
+                        <div class="brands">
+                            <span>Whirlpool</span><span>GE</span><span>Samsung</span><span>LG</span><span>Maytag</span><span>Kenmore</span>
+                        </div>
+                    </details>
+
+                    <details class="service-card service-accordion">
+                        <summary>Refrigerator Repair</summary>
+                        <div class="brands">
+                            <span>Whirlpool</span><span>GE</span><span>Frigidaire</span><span>Samsung</span><span>LG</span><span>KitchenAid</span>
+                        </div>
+                    </details>
+
+                    <details class="service-card service-accordion">
+                        <summary>Oven &amp; Range Repair</summary>
+                        <div class="brands">
+                            <span>GE</span><span>Whirlpool</span><span>Frigidaire</span><span>Samsung</span><span>LG</span><span>KitchenAid</span>
+                        </div>
+                    </details>
+
+                    <details class="service-card service-accordion">
+                        <summary>Dishwasher Repair</summary>
+                        <div class="brands">
+                            <span>Whirlpool</span><span>GE</span><span>Bosch</span><span>KitchenAid</span><span>Frigidaire</span><span>Samsung</span>
+                        </div>
+                    </details>
+
+                    <details class="service-card service-accordion">
+                        <summary>Microwave Repair</summary>
+                        <div class="brands">
+                            <span>GE</span><span>Whirlpool</span><span>Samsung</span><span>LG</span><span>Panasonic</span><span>Frigidaire</span>
+                        </div>
+                    </details>
+
                 </div>
             </div>
         </section>
@@ -658,7 +748,6 @@
         </div>
     </footer>
 
-
     <script>
         // Year
         document.getElementById("year").textContent = new Date().getFullYear();
@@ -668,8 +757,7 @@
         const menu = document.getElementById("mobile-menu");
 
         function setMenuClosed() {
-            // Guard: button exists even when hidden by CSS
-            if (!btn) return;
+            if (!btn || !menu) return;
             btn.setAttribute("aria-expanded", "false");
             btn.setAttribute("aria-label", "Open menu");
             document.body.classList.remove("menu-open");
@@ -678,7 +766,7 @@
         }
 
         function setMenuOpen() {
-            if (!btn) return;
+            if (!btn || !menu) return;
             btn.setAttribute("aria-expanded", "true");
             btn.setAttribute("aria-label", "Close menu");
             document.body.classList.add("menu-open");
@@ -702,24 +790,92 @@
             if (e.key === "Escape") setMenuClosed();
         });
 
-        // Fit check: only collapse nav when it doesn't fit
-        function updateNavMode() {
-            if (!headerInner) return;
-            const needsCollapse = headerInner.scrollWidth > headerInner.clientWidth + 4;
-            document.body.classList.toggle("nav-collapsed", needsCollapse);
-            if (!needsCollapse) setMenuClosed();
+        // ---- Stable nav mode measurement ----
+        // We measure the DESKTOP layout widths only:
+        // brand + desktop nav + desktop portal. This avoids oscillation.
+        function measureDesktopNeededWidth() {
+            const brand = headerInner.querySelector(".brand");
+            const nav = headerInner.querySelector(".main-nav");
+            const portal = headerInner.querySelector(".desktop-only");
+
+            const brandW = brand ? brand.getBoundingClientRect().width : 0;
+            const navW = nav ? nav.getBoundingClientRect().width : 0;
+            const portalW = portal ? portal.getBoundingClientRect().width : 0;
+
+            // add a little for gaps/padding tolerance
+            return brandW + navW + portalW + 36;
         }
 
-        window.addEventListener("load", updateNavMode);
-        window.addEventListener("resize", () => {
-            updateNavMode();
-            if (document.body.classList.contains("menu-open")) {
-                menu.style.maxHeight = menu.scrollHeight + "px";
-            }
-        });
+        let rafId = 0;
+        let lastState = null; // true/false
 
-        updateNavMode();
+        function updateNavModeStable() {
+            if (!headerInner) return;
+
+            // Hide elements briefly while we compute, preventing visible "flash"
+            document.body.classList.add("nav-measuring");
+
+            // Temporarily ensure we're measuring in desktop mode
+            // (so .main-nav and .desktop-only have real widths)
+            document.body.classList.remove("nav-collapsed");
+            setMenuClosed();
+
+            // Measure on next frame after layout settles
+            requestAnimationFrame(() => {
+                const available = headerInner.getBoundingClientRect().width;
+
+                // Hysteresis buffer prevents ping-pong on tiny width changes
+                const BUFFER = 10;
+
+                const needed = measureDesktopNeededWidth();
+                const shouldCollapse = needed > (available - BUFFER);
+
+                // Only change class when it actually changes
+                if (lastState !== shouldCollapse) {
+                    document.body.classList.toggle("nav-collapsed", shouldCollapse);
+                    lastState = shouldCollapse;
+                    if (!shouldCollapse) setMenuClosed();
+                } else {
+                    // Ensure state is applied (covers first run)
+                    document.body.classList.toggle("nav-collapsed", shouldCollapse);
+                }
+
+                document.body.classList.remove("nav-measuring");
+
+                // If menu is open, keep height correct
+                if (document.body.classList.contains("menu-open") && menu) {
+                    menu.style.maxHeight = menu.scrollHeight + "px";
+                }
+            });
+        }
+
+        function scheduleUpdate() {
+            cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(updateNavModeStable);
+        }
+
+        window.addEventListener("load", scheduleUpdate);
+        window.addEventListener("resize", scheduleUpdate);
+        window.addEventListener("orientationchange", scheduleUpdate);
+
+        // Fonts can change widths after load on mobile → re-check once fonts are ready
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(scheduleUpdate);
+        }
+
+        // Initial
+        scheduleUpdate();
+
+        document.querySelectorAll(".service-accordion").forEach(d => {
+            d.addEventListener("toggle", () => {
+                if (!d.open) return;
+                document.querySelectorAll(".service-accordion").forEach(other => {
+                    if (other !== d) other.open = false;
+                });
+            });
+        });
     </script>
+
 
 </body>
 
