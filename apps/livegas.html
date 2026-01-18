@@ -20,12 +20,21 @@
         .col-notes textarea {
             min-height: 60px;
         }
+
+        .btnrow {
+            min-width: 270px;
+        }
+
+        td input,
+        td select {
+            margin-bottom: 0;
+        }
     </style>
 </head>
 
 <body>
     <header>
-        <h1>⛽ Gas Tracker (Finance)</h1>
+        <h1>⛽ Gas Tracker</h1>
 
         <section id="login-section">
             <form id="login-form">
@@ -541,7 +550,7 @@
         function gasFiltered() {
             let list = gasInYear(currentYear);
             if (currentVehicle) list = list.filter(t => (gasMetaFromTx(t).vehicle || "") === currentVehicle);
-            list.sort((a, b) => Number(a.date) - Number(b.date) || a.id.localeCompare(b.id));
+            list.sort((a, b) => Number(b.date) - Number(a.date) || b.id.localeCompare(a.id));
             return list;
         }
 
@@ -726,9 +735,9 @@
                 const tdUnit = document.createElement("td");
                 const selUnit = document.createElement("select");
                 selUnit.innerHTML = `
-          <option value="gal">Gallons</option>
-          <option value="L">Liters</option>
-        `;
+                <option value="gal">Gallons</option>
+                <option value="L">Liters</option>
+                `;
                 selUnit.value = (meta.volumeUnit === "L") ? "L" : "gal";
                 selUnit.addEventListener("change", async (e) => {
                     const nextMeta = { ...meta, volumeUnit: e.target.value };
@@ -769,22 +778,30 @@
                 });
                 tdLoc.appendChild(inpLoc);
 
-                // MPG
+                // MPG (works with newest-first list)
                 const tdMpg = document.createElement("td");
                 const vehKey = (meta.vehicle || "").trim();
                 let mpgText = "N/A";
-                if (vehKey && prevByVehicle.has(vehKey)) {
-                    const prev = prevByVehicle.get(vehKey);
-                    const odoCur = Number(meta.odometer);
-                    const odoPrev = Number(prev.odometer);
-                    const volCur = Number(meta.volume);
 
-                    if (Number.isFinite(odoCur) && Number.isFinite(odoPrev) && Number.isFinite(volCur) && volCur > 0) {
-                        const dist = Math.abs(odoCur - odoPrev);
-                        const mpg = dist / volCur;
-                        mpgText = (Number.isFinite(mpg) && mpg > 0 && mpg < 200) ? mpg.toFixed(2) : "N/A";
+                if (vehKey) {
+                    // find the next entry down the table for the same vehicle (older fill-up)
+                    for (let j = list.indexOf(t) + 1; j < list.length; j++) {
+                        const otherMeta = gasMetaFromTx(list[j]);
+                        if ((otherMeta.vehicle || "").trim() !== vehKey) continue;
+
+                        const odoCur = Number(meta.odometer);        // newer
+                        const odoPrev = Number(otherMeta.odometer);  // older
+                        const volCur = Number(meta.volume);          // gallons used since previous fill
+
+                        if (Number.isFinite(odoCur) && Number.isFinite(odoPrev) && Number.isFinite(volCur) && volCur > 0) {
+                            const dist = Math.abs(odoCur - odoPrev);
+                            const mpg = dist / volCur;
+                            mpgText = (Number.isFinite(mpg) && mpg > 0 && mpg < 200) ? mpg.toFixed(2) : "N/A";
+                        }
+                        break; // stop after first older match
                     }
                 }
+
                 tdMpg.textContent = mpgText;
                 if (vehKey) prevByVehicle.set(vehKey, meta);
 
