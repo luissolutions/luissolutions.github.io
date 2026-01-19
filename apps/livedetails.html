@@ -513,14 +513,19 @@
         const sanitize = str => (str || '').trim().replace(/\s+/g, '_');
         const normKey = s => (s || '').trim().toLowerCase();
 
-        // Choose best/freshest timestamp for a task
+        function getOneDriveBaseFolderName() {
+            const cust = (currentCustomerName || "").trim();
+            const proj = (currentProjectName || "").trim();
+            return sanitize(cust || proj || currentProject);
+        }
+
         function bestTime(task, id) {
             const candidates = [
                 Number(task.updatedAt) || 0,
                 Number(task.createdAt) || 0,
                 Number(task.startTime) || 0,
                 Number(task.timestamp) || 0,
-                Number(id) || 0, // many IDs are Date.now()
+                Number(id) || 0,
             ];
             return Math.max(...candidates);
         }
@@ -953,9 +958,10 @@
                 return;
             }
 
-            const paddedNum = String(num).padStart(2, '0');
-            const safeProjectName = sanitize(currentProjectName || currentProject);
-            const folderPath = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/sensors`;
+            const safeProjectName = sanitize(currentProjectName || currentProject); // keep firebase storage as-is
+            const oneDriveBaseName = getOneDriveBaseFolderName();                  // customerName if available
+            const firebaseFolder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${folderType}`;
+            const oneDriveFolder = `JobPhotos/${oneDriveBaseName}/${folderType}`;
 
             try {
                 const files = await listAll(storageRef(storage, folderPath));
