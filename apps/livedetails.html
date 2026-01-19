@@ -513,20 +513,14 @@
         const sanitize = str => (str || '').trim().replace(/\s+/g, '_');
         const normKey = s => (s || '').trim().toLowerCase();
 
-        // ✅ OneDrive base folder name: prefer customerName -> project -> task id
-        function getOneDriveBaseFolderName() {
-            const cust = (currentCustomerName || "").trim();
-            const proj = (currentProjectName || "").trim();
-            return sanitize(cust || proj || currentProject);
-        }
-
+        // Choose best/freshest timestamp for a task
         function bestTime(task, id) {
             const candidates = [
                 Number(task.updatedAt) || 0,
                 Number(task.createdAt) || 0,
                 Number(task.startTime) || 0,
                 Number(task.timestamp) || 0,
-                Number(id) || 0,
+                Number(id) || 0, // many IDs are Date.now()
             ];
             return Math.max(...candidates);
         }
@@ -547,7 +541,7 @@
 
             const tasks = snapshot.val();
 
-            // 1) exact numeric ID match
+            // ✅ 1) If they entered an exact numeric ID and it exists, use it
             if (/^\d+$/.test(input) && tasks[input]) {
                 const matchedID = input;
                 localStorage.setItem('lastProject', matchedID);
@@ -562,7 +556,7 @@
                 return;
             }
 
-            // 2) match by project code, pick newest
+            // ✅ 2) Otherwise match by project code, but pick the newest deterministically
             const matches = Object.entries(tasks)
                 .filter(([id, data]) => (data.project || '').trim().toLowerCase() === input);
 
@@ -592,6 +586,8 @@
             const newTimestamp = Date.now().toString();
             const taskRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${newTimestamp}`);
 
+            // NOTE: customerName is unknown at create-time here, so sensorCount defaults 0.
+            // Once customerName is set (in your task system), owner anchoring takes over.
             await update(taskRef, {
                 id: newTimestamp,
                 project: input,
@@ -603,7 +599,7 @@
             localStorage.setItem('lastProject', newTimestamp);
             validated = true;
 
-            alert("New project created. Please enter the total devices and save.");
+            alert("New project created. Please enter the total sensors and save.");
             document.getElementById('authScreen')?.remove();
             document.getElementById('mainApp')?.classList.remove('hidden');
 
@@ -692,7 +688,7 @@
             reader.readAsDataURL(blob);
         });
 
-        // resolve canonical owner task for (customer+project)
+        // ✅ NEW: resolve canonical owner task for (customer+project)
         async function resolveMetaOwnerTaskId() {
             metaOwnerTaskId = currentProject; // fallback
 
@@ -710,12 +706,12 @@
 
             if (!matches.length) return metaOwnerTaskId;
 
-            // oldest first -> anchor
-            matches.sort((a, b) => bestTime(a[1], a[0]) - bestTime(b[1], b[0]));
+            matches.sort((a, b) => bestTime(a[1], a[0]) - bestTime(b[1], b[0])); // oldest first
             metaOwnerTaskId = matches[0][0];
             return metaOwnerTaskId;
         }
 
+        // ✅ NEW: sensorMeta path anchored to metaOwnerTaskId
         function sensorMetaBasePath() {
             return `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}/sensorMeta`;
         }
@@ -731,10 +727,11 @@
             const tasks = snap.val();
 
             // Group by (project, customerName)
-            const groups = new Map();
+            const groups = new Map(); // key: `${projKey}||${custKey}` -> { id, task }
             for (const [id, task] of Object.entries(tasks)) {
                 const projectRaw = (task.project || '').trim();
                 const customerRaw = (task.customerName || '').trim();
+
                 if (!projectRaw && !customerRaw) continue;
 
                 const projKey = projectRaw.toLowerCase();
@@ -753,7 +750,8 @@
             for (const { id, task } of newestFirst) {
                 const customer = (task.customerName && task.customerName.trim()) ? task.customerName.trim() : '(No Customer)';
                 const project = (task.project && task.project.trim()) ? task.project.trim() : '(No Project)';
-                dropdown.appendChild(new Option(`${customer} — ${project}`, id));
+                const label = `${customer} — ${project}`;
+                dropdown.appendChild(new Option(label, id));
             }
         }
 
@@ -772,8 +770,10 @@
                 currentProjectName = data.project || '';
                 currentCustomerName = (data.customerName || '').trim();
 
+                // ✅ resolve owner FIRST
                 await resolveMetaOwnerTaskId();
 
+                // ✅ Always read sensorCount from the owner task so it doesn’t “reset to 0”
                 const ownerSnap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}`));
                 const owner = ownerSnap.exists() ? ownerSnap.val() : data;
 
@@ -810,19 +810,14 @@
             });
         }
 
+        const getFavorites = () => JSON.parse(localStorage.getItem('favorites') || '{}');
+
         async function updateGallery() {
             const safeProjectName = sanitize(currentProjectName || currentProject);
             const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
             const base = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${isSensor ? 'sensors' : 'deliverables'}`;
 
-            let snapshot;
-            try {
-                snapshot = await listAll(storageRef(storage, base));
-            } catch (e) {
-                console.warn('[gallery] list error:', e);
-                snapshot = { items: [] };
-            }
-
+            const snapshot = await listAll(storageRef(storage, base));
             const items = await Promise.all(snapshot.items.map(async item => {
                 const url = await getDownloadURL(item);
                 return { name: item.name, url, fullPath: item.fullPath };
@@ -936,7 +931,6 @@
             }
         }
 
-        // ✅ FIXED: Firebase-only sensor upload
         async function uploadSensor() {
             const uploadBtn = document.getElementById('uploadImage');
             uploadBtn.disabled = true;
@@ -959,23 +953,16 @@
                 return;
             }
 
-            const safeProjectName = sanitize(currentProjectName || currentProject);
             const paddedNum = String(num).padStart(2, '0');
+            const safeProjectName = sanitize(currentProjectName || currentProject);
             const folderPath = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/sensors`;
 
             try {
-                // Check if already has 2 uploads for this device
                 const files = await listAll(storageRef(storage, folderPath));
-
-                const safeCustomer = sanitize(currentCustomerName || '');
-                const expectedPrefix = safeCustomer
-                    ? `${safeCustomer}_${paddedNum}-`
-                    : `${paddedNum}-`;
-
-                const matchCount = files.items.filter(f => f.name.startsWith(expectedPrefix)).length;
+                const matchCount = files.items.filter(f => f.name.startsWith(`${safeProjectName}_${paddedNum}`)).length;
 
                 if (matchCount >= 2) {
-                    const proceed = confirm(`Device ${paddedNum} already has 2 uploads. Upload another?`);
+                    const proceed = confirm(`Sensor ${paddedNum} already has 2 uploads. Upload another?`);
                     if (!proceed) {
                         uploadBtn.disabled = false;
                         uploadBtn.textContent = 'Upload';
@@ -984,26 +971,25 @@
                 }
 
                 let blob = await resizeImage(file, 2048);
-
                 if (!skipMarkup) {
                     const labelBase = (currentCustomerName || currentProjectName || safeProjectName).trim();
                     blob = await addTextToImage(blob, `${labelBase} ${paddedNum} - ${serial}`);
                 }
 
-                const prefix = safeCustomer ? `${safeCustomer}_` : '';
-                const desired = `${prefix}${paddedNum}-${serial}.jpg`;
+                const safeCustomer = sanitize(currentCustomerName || '');
+                const prefix = safeCustomer ? `${safeCustomer}` : '';
+                const desired = `${prefix}_${paddedNum}-${serial}.jpg`;
                 const uniqueName = await getUniqueFilename(folderPath, desired);
 
                 await uploadBytes(storageRef(storage, `${folderPath}/${uniqueName}`), blob);
 
-                // remove placeholder if present
                 const placeholderRef = storageRef(storage, `${folderPath}/.init.txt`);
                 try { await deleteObject(placeholderRef); } catch (err) {
                     if (err.code !== 'storage/object-not-found') console.warn('Error deleting sensor placeholder:', err);
                 }
 
                 await updateGallery();
-                alert(`Device image saved as “${uniqueName}”!`);
+                alert(`Sensor image saved as “${uniqueName}”!`);
 
                 fileEl.value = '';
                 numEl.value = '';
@@ -1012,7 +998,7 @@
 
             } catch (err) {
                 console.error('Upload failed:', err);
-                alert('Device upload failed. See console for details.');
+                alert('Sensor upload failed. See console for details.');
             }
 
             uploadBtn.disabled = false;
