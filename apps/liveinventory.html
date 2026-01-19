@@ -115,8 +115,27 @@
             display: flex;
             flex-direction: column;
         }
-    </style>
 
+        .card,
+        .fields,
+        .field,
+        .value,
+        .edit {
+            min-width: 0;
+        }
+
+        .edit {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            max-width: 100%;
+        }
+
+        .edit {
+            max-height: 140px;
+            overflow: auto;
+        }
+    </style>
 </head>
 
 <body>
@@ -138,14 +157,12 @@
                     <label>&nbsp;</label>
                     <button class="btn" type="submit">Login</button>
                 </div>
-
             </form>
+
             <a href="livebudget.html"><button>Budget</button></a>
 
             <button id="logout" class="btn" style="display:none; margin-top:10px;">Logout</button>
-
         </section>
-
     </header>
 
     <main>
@@ -183,6 +200,7 @@
                 <label><input type="checkbox" data-field="sku" checked> SKU</label>
                 <label><input type="checkbox" data-field="price" checked> Price</label>
                 <label><input type="checkbox" data-field="altPrice" checked> Alt Price</label>
+                <label><input type="checkbox" data-field="desc" checked> Description</label>
                 <label><input type="checkbox" data-field="tags" checked> Tags</label>
                 <label><input type="checkbox" data-field="cat" checked> Category</label>
                 <label><input type="checkbox" data-field="link" checked> Link</label>
@@ -235,6 +253,11 @@
                 </div>
 
                 <div class="grow">
+                    <label>Description</label>
+                    <input id="addDesc" placeholder="Optional notes…" />
+                </div>
+
+                <div class="grow">
                     <label>Tags</label>
                     <input id="addTags" placeholder="inv, tools, etc" />
                 </div>
@@ -277,18 +300,10 @@
             return Number.isFinite(saved) ? saved : new Date().getUTCFullYear();
         })();
 
-        function txYearsRootPath() {
-            return `${DATABASE_BASE_PATH}/${TX_NODE}`;
-        }
-        function txYearPath(year) {
-            return `${txYearsRootPath()}/${year}`;
-        }
-        function txItemPath(year, id) {
-            return `${txYearPath(year)}/${id}`;
-        }
-        function imgBasePath() {
-            return `${DATABASE_BASE_PATH}/images`;
-        }
+        function txYearsRootPath() { return `${DATABASE_BASE_PATH}/${TX_NODE}`; }
+        function txYearPath(year) { return `${txYearsRootPath()}/${year}`; }
+        function txItemPath(year, id) { return `${txYearPath(year)}/${id}`; }
+        function imgBasePath() { return `${DATABASE_BASE_PATH}/images`; }
 
         /* =========================
            HELPERS
@@ -491,11 +506,9 @@
         let _uploadLocks = new Set(); // prevent double-open/double-upload
 
         async function uploadImage(item, kind, file = null) {
-            // stop double triggers per item
             const lockKey = `${kind}:${item.id}`;
             if (_uploadLocks.has(lockKey)) return;
 
-            // if no file passed in, open picker ONCE
             if (!file) {
                 const input = document.createElement('input');
                 input.type = 'file';
@@ -507,7 +520,7 @@
                     const f = input.files?.[0] || null;
                     input.remove();
                     if (!f) return;
-                    await uploadImage(item, kind, f); // recurse with file (no picker)
+                    await uploadImage(item, kind, f);
                 }, { once: true });
 
                 input.click();
@@ -516,7 +529,6 @@
 
             _uploadLocks.add(lockKey);
             try {
-                // ✅ resize to max width 2048 (use YOUR existing resize helper)
                 const resized = await fileToJpegMaxWidth(file, 2048, 0.9);
 
                 const namePart = slugifyFilename(item.name);
@@ -529,7 +541,6 @@
 
                 const sref = storageRef(storage, storagePath);
 
-                // ✅ delete old image first (so replace is always clean)
                 if (item.imgPath) {
                     try { await deleteObject(storageRef(storage, item.imgPath)); }
                     catch (e) { console.warn('Old image delete failed:', e); }
@@ -551,11 +562,10 @@
         /* =========================
            STATE + LISTENERS
         ========================== */
-        let _yearTx = [];         // ONLY tx for the selected year
-        let yearsUnsub = null;    // listener for years list
-        let yearUnsub = null;     // listener for selected year records
+        let _yearTx = [];
+        let yearsUnsub = null;
+        let yearUnsub = null;
         let uiBound = false;
-        const _selectedPriceByGroup = new Map(); // groupKey -> number(price)
 
         onAuthStateChanged(auth, (user) => {
             DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
@@ -575,6 +585,7 @@
             sku: true,
             price: true,
             altPrice: true,
+            desc: true,
             tags: true,
             cat: true,
             link: true,
@@ -607,7 +618,6 @@
             const wrap = document.getElementById('fieldToggles');
             if (!wrap) return;
 
-            // initialize checkbox states
             wrap.querySelectorAll('input[type="checkbox"][data-field]').forEach(cb => {
                 const k = cb.dataset.field;
                 cb.checked = isFieldOn(k);
@@ -615,7 +625,7 @@
                 cb.addEventListener('change', () => {
                     _fieldVis[k] = !!cb.checked;
                     saveFieldVis();
-                    renderAll(); // re-render cards with new visibility
+                    renderAll();
                 });
             });
         }
@@ -635,7 +645,6 @@
             $('q')?.addEventListener('input', renderAll);
             $('mode')?.addEventListener('change', renderAll);
 
-            // ✅ ADD THIS
             const addForm = document.getElementById('addForm');
             addForm?.addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -652,12 +661,12 @@
                 const amt = roundMoney(Math.abs(Number(amtRaw.replace(/[^0-9.\-]/g, '')) || 0));
                 const altAmt = roundMoney(Math.abs(Number(altRaw.replace(/[^0-9.\-]/g, '')) || 0));
 
-                // expenses stored negative, income positive (matches your render logic)
                 const signedAmt = (type === 'income') ? amt : -amt;
                 const signedAlt = (type === 'income') ? altAmt : -altAmt;
 
                 const sku = (document.getElementById('addSku').value || '').trim();
                 const cat = (document.getElementById('addCat').value || '').trim();
+                const desc = (document.getElementById('addDesc').value || '').trim();
                 const tags = parseTags(document.getElementById('addTags').value || '');
                 const link = safeURL(document.getElementById('addLink').value || '');
 
@@ -671,7 +680,7 @@
                     link,
                     img: '',
                     imgPath: '',
-                    desc: '',
+                    desc,
                     name,
                     tags,
                     type: (type === 'income') ? 'income' : 'expense',
@@ -686,10 +695,10 @@
                     document.getElementById('addAltAmt').value = '';
                     document.getElementById('addSku').value = '';
                     document.getElementById('addCat').value = '';
+                    document.getElementById('addDesc').value = '';
                     document.getElementById('addTags').value = '';
                     document.getElementById('addLink').value = '';
 
-                    // document.getElementById('q').value = '';
                 } catch (err) {
                     console.error('Add failed:', err);
                     alert('❌ Failed to add entry (see console).');
@@ -706,13 +715,12 @@
                     .filter(n => Number.isFinite(n))
                     .sort((a, b) => a - b);
 
-                // Ensure current year is present
                 if (!years.includes(currentYear)) years.push(currentYear);
 
-                // Populate dropdown without breaking selection
                 const sel = $('yearSelect');
                 const prev = parseInt(sel.value, 10) || currentYear;
                 sel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+
                 const saved = parseInt(localStorage.getItem(LAST_YEAR_KEY), 10);
                 const want = years.includes(saved) ? saved : (years.includes(prev) ? prev : currentYear);
 
@@ -803,17 +811,15 @@
            CARD UI (grouped)
         ========================== */
         function renderGroupCard(g) {
-            // Sort group's lines newest -> oldest (stable)
             const sorted = g.all.slice().sort((a, b) =>
                 (Number(b.date) - Number(a.date)) || String(b.id).localeCompare(String(a.id))
             );
 
-            const t = sorted[0]; // ✅ ALWAYS newest line is the main one
+            const t = sorted[0];
 
             const card = document.createElement('div');
             card.className = 'card';
 
-            // Header row
             const top = document.createElement('div');
             top.className = 'top';
 
@@ -827,7 +833,6 @@
             const qtyTxt = document.createElement('span');
             qtyTxt.textContent = `${g.qty} × • Total: ${fmtUSD(g.total)}`;
 
-            // Only show expand for groups with multiples
             let expandBtn = null;
             if (g.qty > 1) {
                 expandBtn = document.createElement('button');
@@ -842,10 +847,8 @@
 
             top.append(title, right);
 
-            // Main view (newest line)
             const mainLineCard = renderLineCard(t, g);
 
-            // Expand area (ONLY for qty > 1)
             if (g.qty > 1) {
                 const expandArea = document.createElement('div');
                 expandArea.className = 'expandArea';
@@ -855,7 +858,6 @@
                 expandHdr.textContent = `All lines (${sorted.length}) — newest first`;
                 expandArea.appendChild(expandHdr);
 
-                // Don't duplicate the newest line in expanded list
                 const expandedLines = sorted.slice(1);
 
                 for (const line of expandedLines) {
@@ -876,7 +878,6 @@
                 return card;
             }
 
-            // qty === 1
             card.append(top, mainLineCard);
             return card;
         }
@@ -884,7 +885,6 @@
         function renderLineCard(t, g, opts = {}) {
             const wrap = document.createElement('div');
 
-            // Image
             const img = document.createElement('img');
             img.className = 'thumb';
             img.alt = (t.name || t.sku || 'item');
@@ -896,7 +896,6 @@
                 window.open(t.img, '_blank', 'noopener,noreferrer');
             });
 
-            // Image controls (optional)
             const imgRow = document.createElement('div');
             imgRow.className = 'row';
 
@@ -913,13 +912,12 @@
                 const f = file.files?.[0];
                 file.value = '';
                 if (!f) return;
-                await uploadImage(t, 'inventory', f); // ✅ no popup (picker already happened)
+                await uploadImage(t, 'inventory', f);
             });
 
             if (isFieldOn('imgControls')) {
                 imgRow.append(file);
 
-                // only show delete image if something exists
                 if (t.img || t.imgPath) {
                     const delImgBtn = document.createElement('button');
                     delImgBtn.className = 'btn danger';
@@ -941,7 +939,6 @@
                 }
             }
 
-            // Editable fields (optional per toggle)
             const fields = document.createElement('div');
             fields.className = 'fields';
 
@@ -982,6 +979,12 @@
                 }));
             }
 
+            if (isFieldOn('desc')) {
+                fields.appendChild(fieldText('Description', t.desc, async (next) => {
+                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, desc: next }));
+                }));
+            }
+
             if (isFieldOn('tags')) {
                 fields.appendChild(fieldText('Tags', (t.tags || []).join(', '), async (next) => {
                     await writeTx(currentYear, t.id, stripTxForSave({ ...t, tags: parseTags(next) }));
@@ -998,12 +1001,10 @@
                 fields.appendChild(fieldLink(t));
             }
 
-            // Meta (ID only, optional)
             const meta = document.createElement('div');
             meta.className = 'small muted';
             if (isFieldOn('id')) meta.textContent = `ID: ${t.id}`;
 
-            // Delete THIS line (optional)
             const bottom = document.createElement('div');
             bottom.className = 'row';
 
@@ -1018,7 +1019,6 @@
                 bottom.append(delTxBtn);
             }
 
-            // Build
             wrap.append(img);
             if (isFieldOn('imgControls')) wrap.append(imgRow);
             wrap.append(fields);
@@ -1088,7 +1088,6 @@
             v.append(a, document.createElement('div'), inp);
             return w;
         }
-
     </script>
 
 </body>
