@@ -279,6 +279,11 @@
             return 0;
         }
 
+        function stripEmojiVS(s) {
+            // Removes U+FE0F (variation selector) so "⛽️" becomes "⛽"
+            return String(s || "").replace(/\uFE0F/g, "");
+        }
+
         /* =========================
            Paths
         ========================== */
@@ -298,7 +303,11 @@
             const type = String(v.type || "").toLowerCase();
             const normType = (type === "income") ? "income" : "expense";
 
-            const tags = Array.isArray(v.tags) ? v.tags.map(t => String(t).trim()).filter(Boolean) : [];
+            const tags = Array.isArray(v.tags)
+                ? v.tags
+                    .map(t => stripEmojiVS(String(t).trim()))
+                    .filter(Boolean)
+                : [];
 
             const img = (typeof v.img === "string") ? v.img : (v.img?.url || "");
             const imgPath = (typeof v.imgPath === "string") ? v.imgPath : (v.img?.path || "");
@@ -354,29 +363,27 @@
             const vehicle = String(meta.vehicle || "").trim();
             const name = vehicle ? `⛽ ${vehicle}` : "⛽ Gas";
 
+            const vol = Number(meta.volume);
+            const cpu = Number(meta.costPerUnit);
+            const canCalc = Number.isFinite(vol) && Number.isFinite(cpu) && vol > 0 && cpu > 0;
+
             return {
                 ...(prevTx || {}),
                 type: "expense",
                 date: dateTS,
 
-                // if vol/cpu are valid, use them; otherwise keep stored amt
-                amt: (() => {
-                    const vol = Number(meta.volume);
-                    const cpu = Number(meta.costPerUnit);
-                    if (Number.isFinite(vol) && Number.isFinite(cpu)) return vol * cpu;
-                    return Number(prevTx?.amt ?? 0) || 0;
-                })(),
+                amt: canCalc ? (vol * cpu) : Number(prevTx?.amt ?? 0),
 
-                // ✅ ONLY ONE TAG
                 tags: [GAS_TAG],
 
                 name,
                 desc: JSON.stringify({
                     vehicle,
-                    odometer: Number(meta.odometer || 0),
-                    volume: Number(meta.volume || 0),
+                    // ✅ preserve blank vs forcing 0
+                    odometer: Number.isFinite(Number(meta.odometer)) ? Number(meta.odometer) : null,
+                    volume: Number.isFinite(vol) ? vol : null,
                     volumeUnit: String(meta.volumeUnit || "gal"),
-                    costPerUnit: Number(meta.costPerUnit || 0),
+                    costPerUnit: Number.isFinite(cpu) ? cpu : null,
                     location: String(meta.location || ""),
                     notes: String(meta.notes || "")
                 })
