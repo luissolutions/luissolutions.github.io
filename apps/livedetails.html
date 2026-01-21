@@ -513,6 +513,13 @@
         const sanitize = str => (str || '').trim().replace(/\s+/g, '_');
         const normKey = s => (s || '').trim().toLowerCase();
 
+        function getStorageFolderKey() {
+            // Prefer customerName, fallback to projectName, then task id
+            const cust = sanitize(currentCustomerName || '');
+            const proj = sanitize(currentProjectName || '');
+            return cust || proj || sanitize(currentProject || '');
+        }
+
         // Choose best/freshest timestamp for a task
         function bestTime(task, id) {
             const candidates = [
@@ -813,11 +820,18 @@
         const getFavorites = () => JSON.parse(localStorage.getItem('favorites') || '{}');
 
         async function updateGallery() {
-            const safeProjectName = sanitize(currentProjectName || currentProject);
+            const folderKey = getStorageFolderKey(); // ✅ customerName (if available) else project
             const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
-            const base = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${isSensor ? 'sensors' : 'deliverables'}`;
+            const base = `${DATABASE_BASE_PATH}/tasks/images/${folderKey}/${isSensor ? 'sensors' : 'deliverables'}`;
 
-            const snapshot = await listAll(storageRef(storage, base));
+            let snapshot;
+            try {
+                snapshot = await listAll(storageRef(storage, base));
+            } catch (err) {
+                console.warn('[updateGallery] listAll failed for', base, err);
+                snapshot = { items: [] };
+            }
+
             const items = await Promise.all(snapshot.items.map(async item => {
                 const url = await getDownloadURL(item);
                 return { name: item.name, url, fullPath: item.fullPath };
@@ -954,12 +968,15 @@
             }
 
             const paddedNum = String(num).padStart(2, '0');
-            const safeProjectName = sanitize(currentProjectName || currentProject);
-            const folderPath = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/sensors`;
+
+            const folderKey = getStorageFolderKey();
+            const folderPath = `${DATABASE_BASE_PATH}/tasks/images/${folderKey}/sensors`;
 
             try {
                 const files = await listAll(storageRef(storage, folderPath));
-                const matchCount = files.items.filter(f => f.name.startsWith(`${safeProjectName}_${paddedNum}`)).length;
+                const safeCustomer = sanitize(currentCustomerName || '');
+                const matchPrefix = safeCustomer || folderKey; // customerName preferred
+                const matchCount = files.items.filter(f => f.name.startsWith(`${matchPrefix}_${paddedNum}-`)).length;
 
                 if (matchCount >= 2) {
                     const proceed = confirm(`Sensor ${paddedNum} already has 2 uploads. Upload another?`);
@@ -971,12 +988,12 @@
                 }
 
                 let blob = await resizeImage(file, 2048);
+
                 if (!skipMarkup) {
-                    const labelBase = (currentCustomerName || currentProjectName || safeProjectName).trim();
+                    const labelBase = (currentCustomerName || currentProjectName || folderKey).trim();
                     blob = await addTextToImage(blob, `${labelBase} ${paddedNum} - ${serial}`);
                 }
 
-                const safeCustomer = sanitize(currentCustomerName || '');
                 const prefix = safeCustomer ? `${safeCustomer}` : '';
                 const desired = `${prefix}_${paddedNum}-${serial}.jpg`;
                 const uniqueName = await getUniqueFilename(folderPath, desired);
@@ -1006,7 +1023,7 @@
         }
 
         async function uploadDeliverable() {
-            const safeProjectName = sanitize(currentProjectName || currentProject);
+            const folderKey = getStorageFolderKey(); // ✅ customerName (if available) else project
             const uploadBtn = document.getElementById('uploadDeliverableImage');
             uploadBtn.disabled = true;
             uploadBtn.textContent = 'Uploading...';
@@ -1034,9 +1051,11 @@
 
                 if (rawMarkup) blob = await addTextToImage(blob, rawMarkup);
 
-                const folder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/deliverables`;
+                const folder = `${DATABASE_BASE_PATH}/tasks/images/${folderKey}/deliverables`;
+
                 const safeCustomer = sanitize(currentCustomerName || '');
                 const prefix = safeCustomer ? `${safeCustomer}_` : '';
+
                 const desired = `${prefix}${baseName}.jpg`;
                 const uniqueName = await getUniqueFilename(folder, desired);
 
@@ -1135,7 +1154,6 @@
             currentProject = timestamp;
             currentProjectName = projectNameRaw;
 
-            // ✅ Re-resolve owner and ALSO persist count on owner task (so it sticks across tasks)
             await resolveMetaOwnerTaskId();
 
             const ownerRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}`);
@@ -1192,7 +1210,7 @@
         }
 
         document.getElementById('deleteButton').onclick = async () => {
-            const safeProjectName = sanitize(currentProjectName || currentProject);
+            const safeProjectName = getStorageFolderKey();
             const item = modalItems[modalIndex];
             if (!(await confirmWithPassword("deleting this image"))) {
                 alert("Incorrect password. Action cancelled.");
@@ -1320,10 +1338,10 @@
 
         async function updateSiteImages() {
             siteImages = [];
-            const safeProjectName = sanitize(currentProjectName || currentProject);
+            const folderKey = getStorageFolderKey(); // ✅ customerName (if available) else project
             if (!currentProject) return;
 
-            const base = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/siteImages`;
+            const base = `${DATABASE_BASE_PATH}/tasks/images/${folderKey}/siteImages`;
             const isImageName = (n) => /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(n);
 
             try {
@@ -1446,15 +1464,19 @@
         }
 
         async function uploadSiteImage() {
-            const safeProjectName = sanitize(currentProjectName || currentProject);
+            const folderKey = getStorageFolderKey(); // ✅ customerName (if available) else project
             if (!currentProject) return alert('Select a project first');
+
             const file = document.getElementById('siteImageUploader').files[0];
             if (!file) return alert('Pick an image!');
 
             const blob = await resizeImage(file, 2048);
-            const folder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/siteImages`;
+            const folder = `${DATABASE_BASE_PATH}/tasks/images/${folderKey}/siteImages`;
+
+            // ✅ filename prefix still customerName (optional)
             const safeCustomer = sanitize(currentCustomerName || '');
             const prefix = safeCustomer ? `${safeCustomer}_` : '';
+
             const uniqueName = await getUniqueFilename(folder, prefix + sanitize(file.name));
             const path = `${folder}/${uniqueName}`;
 
@@ -1512,7 +1534,7 @@
             const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
             const folderType = isSensor ? 'sensors' : 'deliverables';
 
-            const safeProjectName = sanitize(currentProjectName || currentProject);
+            const safeProjectName = getStorageFolderKey();
             const firebaseFolder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${folderType}`;
             const oneDriveFolder = `JobPhotos/${safeProjectName}/${folderType}`;
 
