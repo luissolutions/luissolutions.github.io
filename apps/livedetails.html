@@ -695,15 +695,12 @@
             reader.readAsDataURL(blob);
         });
 
-        // ✅ NEW: resolve canonical owner task for (customer+project)
         async function resolveMetaOwnerTaskId() {
-            metaOwnerTaskId = currentProject; // fallback
+            metaOwnerTaskId = currentProject;
 
             const projKey = normKey(currentProjectName);
             const custKey = normKey(currentCustomerName);
-
             if (!projKey && !custKey) return metaOwnerTaskId;
-
             const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
             if (!snap.exists()) return metaOwnerTaskId;
 
@@ -718,47 +715,63 @@
             return metaOwnerTaskId;
         }
 
-        // ✅ NEW: sensorMeta path anchored to metaOwnerTaskId
         function sensorMetaBasePath() {
             return `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}/sensorMeta`;
+        }
+
+        function commentsBasePath() {
+            return `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}/comments`;
         }
 
         async function populateProjects() {
             const dropdown = document.getElementById('projectList');
             dropdown.innerHTML = '';
-            dropdown.appendChild(new Option('-- Choose a project --', ''));
+            dropdown.appendChild(new Option('-- Choose a customer --', ''));
 
             const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
             if (!snap.exists()) return;
 
             const tasks = snap.val();
 
-            // Group by (project, customerName)
-            const groups = new Map(); // key: `${projKey}||${custKey}` -> { id, task }
+            const byCustomer = new Map();
+
             for (const [id, task] of Object.entries(tasks)) {
-                const projectRaw = (task.project || '').trim();
                 const customerRaw = (task.customerName || '').trim();
+                if (!customerRaw) continue;
 
-                if (!projectRaw && !customerRaw) continue;
-
-                const projKey = projectRaw.toLowerCase();
                 const custKey = customerRaw.toLowerCase();
-                const key = `${projKey}||${custKey}`;
+                const time = bestTime(task, id);
+                const entry = byCustomer.get(custKey);
 
-                const current = groups.get(key);
-                if (!current || bestTime(task, id) > bestTime(current.task, current.id)) {
-                    groups.set(key, { id, task });
+                if (!entry) {
+                    byCustomer.set(custKey, {
+                        ownerId: id,
+                        ownerTask: task,
+                        ownerTime: time,   // oldest
+                        newestTime: time   // newest
+                    });
+                } else {
+                    // track newest activity
+                    if (time > entry.newestTime) entry.newestTime = time;
+
+                    // track oldest (first project ever)
+                    if (time < entry.ownerTime) {
+                        entry.ownerTime = time;
+                        entry.ownerId = id;
+                        entry.ownerTask = task;
+                    }
                 }
             }
 
-            const newestFirst = [...groups.values()]
-                .sort((a, b) => bestTime(b.task, b.id) - bestTime(a.task, a.id));
+            const sorted = [...byCustomer.values()]
+                .sort((a, b) => b.newestTime - a.newestTime);
 
-            for (const { id, task } of newestFirst) {
-                const customer = (task.customerName && task.customerName.trim()) ? task.customerName.trim() : '(No Customer)';
-                const project = (task.project && task.project.trim()) ? task.project.trim() : '(No Project)';
-                const label = `${customer} — ${project}`;
-                dropdown.appendChild(new Option(label, id));
+            for (const entry of sorted) {
+                const customer = entry.ownerTask.customerName?.trim() || '(No Customer)';
+                const firstProject = entry.ownerTask.project?.trim() || '(No Project)';
+                const label = `${customer} — ${firstProject}`;
+
+                dropdown.appendChild(new Option(label, entry.ownerId));
             }
         }
 
@@ -1075,17 +1088,19 @@
             const text = document.getElementById('noteText').value.trim();
             if (!currentProject || !dateInput || !text) return;
 
+            // store notes on the OWNER task so they persist across duplicate/new task IDs
             const utcTimestamp = Date.now();
-            await update(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/comments`), {
+
+            await update(dbRef(database, commentsBasePath()), {
                 [utcTimestamp]: text
             });
 
-            loadNotes();
+            await loadNotes();
             alert('Note saved successfully!');
         }
 
         async function loadNotes() {
-            const snapshot = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/comments`));
+            const snapshot = await get(dbRef(database, commentsBasePath()));
             const list = document.getElementById('notesList');
             list.innerHTML = '';
 
@@ -1096,13 +1111,15 @@
                     .sort((a, b) => parseInt(b) - parseInt(a))
                     .forEach(timestamp => {
                         const dateStr = new Date(parseInt(timestamp)).toLocaleString();
-                        const formattedNote = notes[timestamp].replace(/\n/g, "<br>");
+                        const formattedNote = String(notes[timestamp]).replace(/\n/g, "<br>");
                         const div = document.createElement('div');
+
                         div.innerHTML = `
-          <strong>${dateStr}</strong><br>${formattedNote}
-          <button data-timestamp="${timestamp}" class="deleteNoteButton">🗑 Delete</button>
-          <hr>
-        `;
+                            <strong>${dateStr}</strong><br>${formattedNote}
+                            <button data-timestamp="${timestamp}" class="deleteNoteButton">🗑 Delete</button>
+                            <hr>
+                        `;
+
                         list.appendChild(div);
                     });
 
@@ -1111,8 +1128,8 @@
                         const timestamp = button.dataset.timestamp;
                         const confirmDelete = confirm(`Delete note from ${new Date(parseInt(timestamp)).toLocaleString()}?`);
                         if (confirmDelete) {
-                            await set(dbRef(database, `${DATABASE_BASE_PATH}/tasks/${currentProject}/comments/${timestamp}`), null);
-                            loadNotes();
+                            await set(dbRef(database, `${commentsBasePath()}/${timestamp}`), null);
+                            await loadNotes();
                         }
                     });
                 });
@@ -1142,7 +1159,6 @@
             currentProject = timestamp;
             currentProjectName = projectNameRaw;
 
-            // ✅ Re-resolve owner and ALSO persist count on owner task (so it sticks across tasks)
             await resolveMetaOwnerTaskId();
 
             const ownerRef = dbRef(database, `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}`);
@@ -1239,7 +1255,9 @@
         };
 
         // Event bindings
-        projectList.onchange = e => e.target.value && loadProject(e.target.value);
+        document.getElementById('projectList').addEventListener('change', (e) => {
+            if (e.target.value) loadProject(e.target.value);
+        });
         document.getElementById('saveProject').onclick = saveProject;
         document.getElementById('uploadImage').onclick = uploadSensor;
         document.getElementById('uploadDeliverableImage').onclick = uploadDeliverable;
@@ -1382,7 +1400,7 @@
             const src = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
 
             const pre = new Image();
-            let safetyTimer = setTimeout(() => { tryNextImage(); }, 2000);
+            let safetyTimer = setTimeout(() => { tryNextImage(); }, 4000);
 
             pre.onload = () => {
                 clearTimeout(safetyTimer);
