@@ -1281,7 +1281,6 @@
             }
         });
 
-        // ✅ READ meta using metaOwnerTaskId
         document.getElementById("sensorMetaNumberDropdown").addEventListener("change", async (e) => {
             const num = e.target.value;
             if (!num || !currentProject) return;
@@ -1339,6 +1338,7 @@
         function getSiteIndex() {
             return parseInt(localStorage.getItem(`${currentProject}_siteIdx`) || '0', 10);
         }
+
         function saveSiteIndex(idx) {
             localStorage.setItem(`${currentProject}_siteIdx`, idx);
         }
@@ -1369,72 +1369,6 @@
             renderSiteImage();
         }
 
-        function renderSiteImage() {
-            const img = document.getElementById('siteImageDisplay');
-            const wrapper = document.getElementById('siteImageWrapper');
-            const prevBtns = document.querySelectorAll('.prevSiteImage');
-            const nextBtns = document.querySelectorAll('.nextSiteImage');
-            const rotBtns = document.querySelectorAll('.rotateSiteImage');
-
-            if (!siteImages.length) {
-                wrapper.style.height = 'auto';
-                [...prevBtns, ...nextBtns, ...rotBtns].forEach(b => b.disabled = true);
-                img.src = '';
-                img.alt = '';
-                img.style.opacity = 1;
-                isSiteImageLoading = false;
-                return;
-            }
-
-            const multi = siteImages.length > 1;
-
-            [...prevBtns, ...nextBtns].forEach(b => b.disabled = true);
-            rotBtns.forEach(b => b.disabled = true);
-
-            const { url, name } = siteImages[currentSiteIndex];
-            img.alt = name;
-            siteImageRotation = 0;
-            img.style.transform = 'rotate(0deg)';
-            img.style.opacity = 0.01;
-
-            const src = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
-
-            const pre = new Image();
-            let safetyTimer = setTimeout(() => { tryNextImage(); }, 4000);
-
-            pre.onload = () => {
-                clearTimeout(safetyTimer);
-                img.src = src;
-                requestAnimationFrame(() => {
-                    wrapper.style.height = `${img.clientHeight}px`;
-                    [...prevBtns, ...nextBtns].forEach(b => b.disabled = !multi);
-                    rotBtns.forEach(b => b.disabled = false);
-                    img.style.opacity = 1;
-                    isSiteImageLoading = false;
-                });
-            };
-
-            pre.onerror = () => {
-                clearTimeout(safetyTimer);
-                tryNextImage();
-            };
-
-            pre.src = src;
-
-            function tryNextImage() {
-                if (siteImages.length <= 1) {
-                    rotBtns.forEach(b => b.disabled = false);
-                    isSiteImageLoading = false;
-                    img.style.opacity = 1;
-                    wrapper.style.height = 'auto';
-                    return;
-                }
-                currentSiteIndex = (currentSiteIndex + 1) % siteImages.length;
-                saveSiteIndex(currentSiteIndex);
-                renderSiteImage();
-            }
-        }
-
         function rotateSiteImage() {
             if (!siteImages.length) return;
 
@@ -1454,8 +1388,15 @@
             wrapper.style.height = `${newH}px`;
         }
 
+        // Add near your site image globals:
+        let pendingSiteNav = 0; // -1 prev, +1 next
+
         function nextSiteImage() {
-            if (!siteImages.length || isSiteImageLoading) return;
+            if (!siteImages.length) return;
+            if (isSiteImageLoading) {
+                pendingSiteNav = 1; // keep the latest intent
+                return;
+            }
             isSiteImageLoading = true;
             currentSiteIndex = (currentSiteIndex + 1) % siteImages.length;
             saveSiteIndex(currentSiteIndex);
@@ -1463,35 +1404,105 @@
         }
 
         function prevSiteImage() {
-            if (!siteImages.length || isSiteImageLoading) return;
+            if (!siteImages.length) return;
+            if (isSiteImageLoading) {
+                pendingSiteNav = -1; // keep the latest intent
+                return;
+            }
             isSiteImageLoading = true;
             currentSiteIndex = (currentSiteIndex - 1 + siteImages.length) % siteImages.length;
             saveSiteIndex(currentSiteIndex);
             renderSiteImage();
         }
 
-        async function uploadSiteImage() {
-            const safeProjectName = sanitize(currentProjectName || currentProject);
-            if (!currentProject) return alert('Select a project first');
-            const file = document.getElementById('siteImageUploader').files[0];
-            if (!file) return alert('Pick an image!');
+        function renderSiteImage() {
+            const img = document.getElementById('siteImageDisplay');
+            const wrapper = document.getElementById('siteImageWrapper');
+            const prevBtns = document.querySelectorAll('.prevSiteImage');
+            const nextBtns = document.querySelectorAll('.nextSiteImage');
+            const rotBtns = document.querySelectorAll('.rotateSiteImage');
 
-            const blob = await resizeImage(file, 2048);
-            const folder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/siteImages`;
-            const safeCustomer = sanitize(currentCustomerName || '');
-            const prefix = safeCustomer ? `${safeCustomer}_` : '';
-            const uniqueName = await getUniqueFilename(folder, prefix + sanitize(file.name));
-            const path = `${folder}/${uniqueName}`;
+            const setControls = ({ canNav, canRotate }) => {
+                [...prevBtns, ...nextBtns].forEach(b => b.disabled = !canNav);
+                rotBtns.forEach(b => b.disabled = !canRotate);
+            };
 
-            await uploadBytes(storageRef(storage, path), blob);
+            const runQueuedNavIfAny = () => {
+                if (!siteImages.length || siteImages.length <= 1) {
+                    pendingSiteNav = 0;
+                    return;
+                }
+                if (pendingSiteNav === 0) return;
 
-            const placeholderRef = storageRef(storage, `${folder}/.init.txt`);
-            try { await deleteObject(placeholderRef); } catch (err) {
-                if (err.code !== 'storage/object-not-found') console.warn('Error deleting placeholder:', err);
+                const delta = pendingSiteNav;
+                pendingSiteNav = 0;
+
+                isSiteImageLoading = true;
+                currentSiteIndex = (currentSiteIndex + delta + siteImages.length) % siteImages.length;
+                saveSiteIndex(currentSiteIndex);
+                renderSiteImage();
+            };
+
+            const finalize = () => {
+                const multi = siteImages.length > 1;
+                setControls({ canNav: multi, canRotate: siteImages.length > 0 });
+                isSiteImageLoading = false;
+                runQueuedNavIfAny();
+            };
+
+            if (!siteImages.length) {
+                wrapper.style.height = 'auto';
+                img.src = '';
+                img.alt = '';
+                img.style.opacity = 1;
+                setControls({ canNav: false, canRotate: false });
+                isSiteImageLoading = false;
+                pendingSiteNav = 0;
+                return;
             }
 
-            await updateSiteImages();
-            alert(`Uploaded as “${uniqueName}”`);
+            // Consistent: render implies "loading" until finalized.
+            isSiteImageLoading = true;
+
+            setControls({ canNav: false, canRotate: false });
+
+            const { url, name } = siteImages[currentSiteIndex];
+            img.alt = name;
+
+            siteImageRotation = 0;
+            img.style.transform = 'rotate(0deg)';
+            img.style.opacity = 0.01;
+
+            const src = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+            const pre = new Image();
+
+            const safetyTimer = setTimeout(() => {
+                console.warn('[siteImages] load timeout', name);
+                img.style.opacity = 1;
+                wrapper.style.height = 'auto';
+                finalize(); // no auto-advance
+            }, 4000);
+
+            pre.onload = () => {
+                clearTimeout(safetyTimer);
+                img.src = src;
+
+                requestAnimationFrame(() => {
+                    wrapper.style.height = `${img.clientHeight}px`;
+                    img.style.opacity = 1;
+                    finalize();
+                });
+            };
+
+            pre.onerror = () => {
+                clearTimeout(safetyTimer);
+                console.warn('[siteImages] load error', name);
+                img.style.opacity = 1;
+                wrapper.style.height = 'auto';
+                finalize(); // no auto-advance
+            };
+
+            pre.src = src;
         }
 
         document.getElementById('uploadSiteImage').onclick = uploadSiteImage;
