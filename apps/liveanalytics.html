@@ -72,20 +72,39 @@
             <p id="total-parts-used"></p>
         </div>
         <div class="analytics-section">
-            <h2>Total Inventory Items:</h2>
-            <p id="total-inventory-items"></p>
-        </div>
-        <div class="analytics-section">
-            <h2>Total Items in Stock:</h2>
-            <p id="total-items-in-stock"></p>
-        </div>
-        <div class="analytics-section">
             <h2>Gross Profit on Parts:</h2>
             <p id="total-parts-profit"></p>
         </div>
         <div class="analytics-section">
             <h2>Revenue from Parts Sales:</h2>
             <p id="total-parts-value"></p>
+        </div>
+
+        <hr>
+
+        <div class="analytics-section">
+            <h2>Inventory Analytics (Tagged: inv):</h2>
+            <div style="margin-bottom: 15px;">
+                <label for="ledger-year">Year:</label>
+                <select id="ledger-year"></select>
+            </div>
+        </div>
+
+        <div class="analytics-section">
+            <h2>Total Inventory Items:</h2>
+            <p id="ledger-total-count"></p>
+        </div>
+        <div class="analytics-section">
+            <h2>Total Inventory Cost:</h2>
+            <p id="ledger-total-expenses"></p>
+        </div>
+        <div class="analytics-section">
+            <h2>Inventory by Category:</h2>
+            <ul id="ledger-by-category"></ul>
+        </div>
+        <div class="analytics-section">
+            <h2>Top SKUs:</h2>
+            <ul id="ledger-top-skus"></ul>
         </div>
 
     </main>
@@ -102,33 +121,9 @@
 
         function setupRealTimeListeners() {
             analyzeInvoiceData();
-            analyzeInventoryData();
             populateCustomerDropdown();
-        }
-
-        function analyzeInventoryData() {
-            const inventoryRef = ref(database, `${DATABASE_BASE_PATH}/inventory`);
-            onValue(inventoryRef, (snapshot) => {
-                if (snapshot.exists()) {
-                    const inventory = snapshot.val();
-                    let totalInventoryItems = 0;
-                    let totalItemsInStock = 0;
-
-                    Object.values(inventory).forEach(category => {
-                        Object.values(category).forEach(item => {
-                            Object.values(item).forEach(detail => {
-                                totalInventoryItems++;
-                                totalItemsInStock += parseInt(detail.quantity, 10);
-                            });
-                        });
-                    });
-
-                    document.getElementById('total-inventory-items').textContent = totalInventoryItems;
-                    document.getElementById('total-items-in-stock').textContent = totalItemsInStock;
-                }
-            }, (error) => {
-                console.error('Error fetching inventory:', error);
-            });
+            attachLedgerYearListener();
+            analyzeLedgerData();
         }
 
         function analyzeInvoiceData() {
@@ -297,6 +292,113 @@
             const selectedCustomer = this.value;
             updateCustomerDetails(selectedCustomer);
         });
+
+        let currentLedgerYear = new Date().getUTCFullYear();
+
+        function attachLedgerYearListener() {
+            const ledgerYearSelect = document.getElementById('ledger-year');
+            const ledgerRootRef = ref(database, `${DATABASE_BASE_PATH}/ledgerTx`);
+            
+            onValue(ledgerRootRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    const years = Object.keys(snapshot.val() || {})
+                        .map(y => parseInt(y, 10))
+                        .filter(n => Number.isFinite(n))
+                        .sort((a, b) => b - a);
+                    
+                    if (!years.includes(currentLedgerYear)) {
+                        years.push(currentLedgerYear);
+                        years.sort((a, b) => b - a);
+                    }
+                    
+                    ledgerYearSelect.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+                    ledgerYearSelect.value = String(currentLedgerYear);
+                } else {
+                    ledgerYearSelect.innerHTML = `<option value="${currentLedgerYear}">${currentLedgerYear}</option>`;
+                }
+            }, (error) => {
+                console.error('Error fetching ledger years:', error);
+            });
+            
+            ledgerYearSelect.addEventListener('change', () => {
+                currentLedgerYear = parseInt(ledgerYearSelect.value, 10);
+                analyzeLedgerData();
+            });
+        }
+
+        function analyzeLedgerData() {
+            const ledgerRef = ref(database, `${DATABASE_BASE_PATH}/ledgerTx/${currentLedgerYear}`);
+            onValue(ledgerRef, (snapshot) => {
+                if (!snapshot.exists()) {
+                    document.getElementById('ledger-total-count').textContent = '0';
+                    document.getElementById('ledger-total-expenses').textContent = '$0.00';
+                    document.getElementById('ledger-by-category').innerHTML = '';
+                    document.getElementById('ledger-top-skus').innerHTML = '';
+                    return;
+                }
+
+                const ledger = snapshot.val();
+                let totalCost = 0;
+                let categoryMap = {};
+                let skuMap = {};
+                let txCount = 0;
+
+                for (const id in ledger) {
+                    const tx = ledger[id];
+                    if (!tx) continue;
+
+                    // Only include items tagged with "inv"
+                    const tags = Array.isArray(tx.tags) ? tx.tags : [];
+                    const hasInvTag = tags.some(t => String(t).toLowerCase() === 'inv');
+                    if (!hasInvTag) continue;
+
+                    txCount++;
+                    const amount = Math.abs(parseFloat(tx.amt) || 0);
+                    totalCost += amount;
+
+                    // By Category
+                    const cat = String(tx.cat || 'Uncategorized').trim();
+                    if (cat) {
+                        categoryMap[cat] = (categoryMap[cat] || 0) + amount;
+                    }
+
+                    // By SKU
+                    const sku = String(tx.sku || '').trim();
+                    if (sku) {
+                        skuMap[sku] = (skuMap[sku] || 0) + 1;
+                    }
+                }
+
+                document.getElementById('ledger-total-count').textContent = txCount;
+                document.getElementById('ledger-total-expenses').textContent = `$${totalCost.toFixed(2)}`;
+
+                // Render Categories
+                const categoryList = document.getElementById('ledger-by-category');
+                categoryList.innerHTML = '';
+                Object.entries(categoryMap)
+                    .sort((a, b) => b[1] - a[1])
+                    .forEach(([cat, total]) => {
+                        const li = document.createElement('li');
+                        li.textContent = `${cat}: $${total.toFixed(2)}`;
+                        categoryList.appendChild(li);
+                    });
+
+                // Render Top SKUs
+                const skuList = document.getElementById('ledger-top-skus');
+                skuList.innerHTML = '';
+                Object.entries(skuMap)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 20)
+                    .forEach(([sku, count]) => {
+                        const li = document.createElement('li');
+                        li.textContent = `${sku}: ${count} item(s)`;
+                        skuList.appendChild(li);
+                    });
+
+            }, (error) => {
+                console.error('Error fetching ledger data:', error);
+            });
+        }
 
         document.addEventListener('DOMContentLoaded', setupRealTimeListeners);
 
