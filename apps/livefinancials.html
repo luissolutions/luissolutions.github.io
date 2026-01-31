@@ -219,11 +219,22 @@
             oninput="filterGlobalEntries()" disabled title="Load ./assets/js/search.js to enable advanced search">
         </div>
 
+        <div id="column-toggles" class="tag-bar small">
+          <label><input type="checkbox" data-col="date" checked> Date</label>
+          <label><input type="checkbox" data-col="postedDate" checked> Posted Date</label>
+          <label><input type="checkbox" data-col="name" checked> Name</label>
+          <label><input type="checkbox" data-col="type" checked> Type</label>
+          <label><input type="checkbox" data-col="amount" checked> Amount</label>
+          <label><input type="checkbox" data-col="tags" checked> Tags</label>
+          <label><input type="checkbox" data-col="actions" checked> Actions</label>
+        </div>
+
         <div class="table">
           <table id="transactions-table">
             <thead>
               <tr>
                 <th id="tx-sort-date" style="cursor:pointer;">Date ▲▼</th>
+                <th>Posted Date</th>
                 <th>Name</th>
                 <th>Type</th>
                 <th>Amount</th>
@@ -552,8 +563,11 @@
       if (!v || typeof v !== 'object') return null;
 
       const dateTS = Number(v.date);
-      if (!Number.isFinite(dateTS)) return null;
-      const dt = new Date(dateTS);
+      const postedDateTS = Number(v.postedDate);
+      const validDate = Number.isFinite(dateTS) ? dateTS : null;
+      const validPosted = Number.isFinite(postedDateTS) ? postedDateTS : null;
+
+      const dt = new Date(validPosted ?? validDate);
       if (Number.isNaN(dt.getTime())) return null;
 
       const type = String(v.type || '').toLowerCase();
@@ -577,7 +591,8 @@
         name: String(v.name ?? ''),
         tags,
         type: normType,
-        date: dateTS,
+        date: validDate,
+        postedDate: validPosted,
         _dt: dt
       };
     }
@@ -595,7 +610,8 @@
         name: String(t.name ?? ''),
         tags: Array.isArray(t.tags) ? t.tags : [],
         type: (String(t.type || '').toLowerCase() === 'income') ? 'income' : 'expense',
-        date: Number(t.date ?? Date.now())
+        date: Number(t.date ?? Date.now()),
+        postedDate: Number(t.postedDate ?? 0)
       };
     }
 
@@ -1058,7 +1074,9 @@
 
     async function displayAllTransactions() {
       const tbody = document.querySelector('#transactions-table tbody');
-      if (!tbody) return;
+      const thead = document.querySelector('#transactions-table thead');
+      if (!tbody || !thead) return;
+
       tbody.innerHTML = '';
 
       const input = document.getElementById('global-search');
@@ -1070,21 +1088,16 @@
       updateFilteredTotal(filtered);
 
       filtered.sort((a, b) => {
-        const ad = Number(a.date) || 0;
-        const bd = Number(b.date) || 0;
-        if (_txSortAsc) {
-          if (ad !== bd) return ad - bd;
-        } else {
-          if (ad !== bd) return bd - ad;
-        }
-        return String(a.name || '').localeCompare(String(b.name || ''));
+        const ad = Number(a.postedDate ?? a.date) || 0;
+        const bd = Number(b.postedDate ?? b.date) || 0;
+        if (_txSortAsc) return ad - bd;
+        else return bd - ad;
       });
 
       // ✅ limit render
       const total = filtered.length;
       const slice = _showAllTx ? filtered : filtered.slice(0, TX_PAGE_SIZE);
 
-      // update UI labels
       const btn = document.getElementById('toggle-show-all');
       if (btn) btn.textContent = _showAllTx ? `Show first ${TX_PAGE_SIZE}` : 'Show all';
 
@@ -1093,6 +1106,15 @@
         shown.textContent = total <= TX_PAGE_SIZE
           ? `${total} shown`
           : (_showAllTx ? `${total} shown` : `${slice.length} of ${total} shown`);
+      }
+
+      // ✅ Update table header if missing Posted Date column
+      const headers = thead.querySelectorAll('th');
+      if (headers.length === 6) {
+        const postedHeader = document.createElement('th');
+        postedHeader.textContent = 'Posted Date';
+        postedHeader.style.cursor = 'default';
+        thead.querySelector('tr').insertBefore(postedHeader, headers[1]); // Insert after Date
       }
 
       for (const t of slice) {
@@ -1116,6 +1138,24 @@
           await upsertTx(t, { ...t, date: nextTS });
         });
         tdDate.appendChild(dateInput);
+
+        // ✅ Posted Date
+        const tdPostedDate = document.createElement('td');
+        const postedInput = document.createElement('input');
+        postedInput.type = 'date';
+        postedInput.value = ymdFromUtcTS(t.postedDate ?? t.date);
+        postedInput.style.minWidth = '130px';
+        postedInput.title = 'Posted Date (preferred display if set)';
+        postedInput.addEventListener('change', async (e) => {
+          const ymd = e.target.value;
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+            e.target.value = ymdFromUtcTS(t.postedDate ?? t.date);
+            return;
+          }
+          const ts = utcNoonTSFromYMD(ymd);
+          await upsertTx(t, { ...t, postedDate: ts });
+        });
+        tdPostedDate.appendChild(postedInput);
 
         // Name
         const tdName = document.createElement('td');
@@ -1181,7 +1221,6 @@
         imgBtn.addEventListener('click', () => uploadTxImage(t));
 
         let rmBtn = null;
-
         if (t.img || t.imgPath) {
           rmBtn = document.createElement('button');
           rmBtn.textContent = 'Del Img';
@@ -1211,11 +1250,16 @@
         if (rmBtn) btnRow.append(rmBtn);
         tdActions.appendChild(btnRow);
 
-        tr.append(tdDate, tdName, tdType, tdAmt, tdTags, tdActions);
+        // ✅ Append cells (with Posted Date)
+        tr.append(tdDate, tdPostedDate, tdName, tdType, tdAmt, tdTags, tdActions);
         tbody.appendChild(tr);
       }
 
       populateMonths(filtered);
+
+      // ✅ Apply column toggle logic
+      setupColumnToggleCheckboxes();
+      updateTableColumnVisibility();
     }
 
     /* =========================
@@ -1293,7 +1337,8 @@
         name,
         tags,
         type: (type === 'income') ? 'income' : 'expense',
-        date: dateTS
+        date: dateTS,
+        postedDate: dateTS,
       };
 
       await upsertTx(null, tx);
@@ -1343,7 +1388,7 @@
 
       const map = new Map();
       for (const t of txInCurrentYear()) {
-        const key = ymdFromUtcTS(t.date);
+        const key = ymdFromUtcTS(t.postedDate ?? t.date);
         if (!map.has(key)) map.set(key, []);
         map.get(key).push(t);
       }
@@ -1382,7 +1427,7 @@
     }
 
     function showDayModal(ymd) {
-      _openDayYMD = ymd;  // ✅ remember which date is open
+      _openDayYMD = ymd;
       const modal = document.getElementById('detailsModal');
       const content = document.getElementById('modalContent');
       content.innerHTML = '';
@@ -1392,7 +1437,7 @@
       const day = dt.getUTCDate();
       document.getElementById('date-selected').textContent = `${monthName} ${day}, ${currentYear} (UTC)`;
 
-      const items = txInCurrentYear().filter(t => ymdFromUtcTS(t.date) === ymd)
+      const items = txInCurrentYear().filter(t => ymdFromUtcTS(t.postedDate ?? t.date) === ymd)
         .sort((a, b) => Number(a.date) - Number(b.date) || a.id.localeCompare(b.id));
 
       if (items.length) {
@@ -1523,7 +1568,8 @@
         name,
         tags,
         type: (type === 'income') ? 'income' : 'expense',
-        date: dateTS
+        date: dateTS,
+        postedDate: dateTS
       };
 
       await upsertTx(null, tx);
@@ -2199,6 +2245,58 @@
         alert(`Imported ${added} new entr${added === 1 ? 'y' : 'ies'} (duplicates skipped by ${mode}).`);
         _importParsed = [];
         btnMerge.disabled = true;
+      });
+    }
+
+    const COLUMN_VISIBILITY_KEY = 'financeLedger.columnVisibility.v1';
+
+    function loadColumnVisibility() {
+      const raw = localStorage.getItem(COLUMN_VISIBILITY_KEY);
+      try {
+        return JSON.parse(raw) || {};
+      } catch {
+        return {};
+      }
+    }
+
+    function saveColumnVisibility(map) {
+      try {
+        localStorage.setItem(COLUMN_VISIBILITY_KEY, JSON.stringify(map));
+      } catch { }
+    }
+
+    function updateTableColumnVisibility() {
+      const colMap = loadColumnVisibility();
+      const table = document.getElementById('transactions-table');
+      if (!table) return;
+
+      const headers = table.querySelectorAll('thead th');
+      const rows = table.querySelectorAll('tbody tr');
+
+      const colNames = ['date', 'postedDate', 'name', 'type', 'amount', 'tags', 'actions'];
+      colNames.forEach((key, index) => {
+        const visible = colMap[key] !== false; // default to visible
+        if (headers[index]) headers[index].style.display = visible ? '' : 'none';
+        rows.forEach(r => {
+          const cells = r.children;
+          if (cells[index]) cells[index].style.display = visible ? '' : 'none';
+        });
+      });
+    }
+
+    function setupColumnToggleCheckboxes() {
+      const toggles = document.querySelectorAll('#column-toggles input[type="checkbox"]');
+      const colMap = loadColumnVisibility();
+
+      toggles.forEach(input => {
+        const col = input.dataset.col;
+        input.checked = colMap[col] !== false;
+
+        input.addEventListener('change', () => {
+          colMap[col] = input.checked;
+          saveColumnVisibility(colMap);
+          updateTableColumnVisibility();
+        });
       });
     }
 
