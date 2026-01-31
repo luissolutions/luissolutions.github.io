@@ -194,8 +194,7 @@
     </section>
 
     <nav id="tabs" class="tabs">
-      <button data-tab-target="transactions" class="active">Ledger</button>
-      <button data-tab-target="import">Import & Cleanup</button>
+      <a href=""><button data-tab-target="import">Import & Cleanup</button></a>
       <a href="livebudget.html"><button>Budget</button></a>
     </nav>
   </header>
@@ -354,8 +353,17 @@
         </div>
       </section>
 
+
+
+
       <section id="daily-tracker">
         <h2>Daily Activity</h2>
+        <div id="date-toggle" class="tag-bar small">
+          <label>
+            <input type="checkbox" id="use-posted-date">
+            Use Posted Date for Daily Activity
+          </label>
+        </div>
         <div id="year-grid" class="year-grid"></div>
       </section>
 
@@ -597,7 +605,7 @@
     }
 
     function stripTxForSave(t) {
-      return {
+      const obj = {
         amt: Number(t.amt ?? 0),
         cat: String(t.cat ?? ''),
         sub: String(t.sub ?? ''),
@@ -609,9 +617,15 @@
         name: String(t.name ?? ''),
         tags: Array.isArray(t.tags) ? t.tags : [],
         type: (String(t.type || '').toLowerCase() === 'income') ? 'income' : 'expense',
-        date: Number(t.date ?? Date.now()),
-        postedDate: Number(t.postedDate ?? 0)
+        date: Number(t.date ?? Date.now())
       };
+
+      // ✅ Only include postedDate if it's a valid number
+      if (Number.isFinite(t.postedDate)) {
+        obj.postedDate = Number(t.postedDate);
+      }
+
+      return obj;
     }
 
     /* =========================
@@ -925,6 +939,7 @@
 
 
       wireImportTab();
+      setupPostedDateToggle();
     }
 
     /* =========================
@@ -1087,8 +1102,8 @@
       updateFilteredTotal(filtered);
 
       filtered.sort((a, b) => {
-        const ad = Number(a.postedDate ?? a.date) || 0;
-        const bd = Number(b.postedDate ?? b.date) || 0;
+        const ad = Number(a.date) || 0;
+        const bd = Number(b.date) || 0;
         if (_txSortAsc) return ad - bd;
         else return bd - ad;
       });
@@ -1387,7 +1402,8 @@
 
       const map = new Map();
       for (const t of txInCurrentYear()) {
-        const key = ymdFromUtcTS(t.postedDate ?? t.date);
+        const usePosted = loadUsePostedDate();
+        const key = ymdFromUtcTS(usePosted ? (t.postedDate ?? t.date) : t.date);
         if (!map.has(key)) map.set(key, []);
         map.get(key).push(t);
       }
@@ -1434,10 +1450,12 @@
       const dt = new Date(utcNoonTSFromYMD(ymd));
       const monthName = MONTHS_ABBR[dt.getUTCMonth()];
       const day = dt.getUTCDate();
-      document.getElementById('date-selected').textContent = `${monthName} ${day}, ${currentYear} (UTC)`;
+      document.getElementById('date-selected').textContent = `${monthName} ${day}, ${currentYear}`;
 
-      const items = txInCurrentYear().filter(t => ymdFromUtcTS(t.postedDate ?? t.date) === ymd)
-        .sort((a, b) => Number(a.date) - Number(b.date) || a.id.localeCompare(b.id));
+      const usePosted = loadUsePostedDate();
+      const items = txInCurrentYear().filter(t =>
+        ymdFromUtcTS(usePosted ? (t.postedDate ?? t.date) : t.date) === ymd
+      );
 
       if (items.length) {
         const table = document.createElement('table');
@@ -2306,6 +2324,35 @@
           saveColumnVisibility(colMap);
           updateTableColumnVisibility();
         });
+      });
+    }
+
+    const USE_POSTED_DATE_KEY = 'financeLedger.usePostedDate.v1';
+
+    function saveUsePostedDate(v) {
+      localStorage.setItem(USE_POSTED_DATE_KEY, JSON.stringify(!!v));
+    }
+
+    function loadUsePostedDate() {
+      try {
+        return JSON.parse(localStorage.getItem(USE_POSTED_DATE_KEY)) === true;
+      } catch {
+        return false;
+      }
+    }
+
+    function setupPostedDateToggle() {
+      const checkbox = document.getElementById('use-posted-date');
+      if (!checkbox) return;
+
+      // Set initial checked state
+      checkbox.checked = loadUsePostedDate();
+
+      // React to toggle
+      checkbox.addEventListener('change', () => {
+        saveUsePostedDate(checkbox.checked);
+        generateYearGrid(); // rerender heatmap
+        refreshOpenDayModalIfNeeded(); // rerender modal if open
       });
     }
 
