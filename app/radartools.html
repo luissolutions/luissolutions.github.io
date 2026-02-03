@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Radar Job Tools</title>
+      <link rel="stylesheet" href="../assets/css/app-styles.css">
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 2em;
+        }
+        .filters {
+            margin-bottom: 1em;
+        }
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 1em;
+        }
+        .product {
+            border: 1px solid black;
+            padding: 1em;
+            text-align: center;
+        }
+        .product img {
+            max-width: 100%;
+            height: auto;
+            max-height: 200px;
+        }
+        .product h3 {
+            font-size: 1em;
+            margin: 0.5em 0;
+        }
+        .product a {
+            display: inline-block;
+            margin-top: 0.5em;
+            color: blue;
+        }
+    </style>
+</head>
+<body>
+    <h2>Radar Job Tools/Supplies</h2>
+<main>
+    <div class="filters">
+        <label>
+            Category:
+            <select id="categoryFilter"><option value="">All</option></select>
+        </label>
+        <label>
+            Component:
+            <select id="componentFilter"><option value="">All</option></select>
+        </label>
+        <input type="search" id="searchBox" placeholder="Search…" />
+        <button id="exportBtn">Export to CSV</button>
+    </div>
+
+    <div class="product-grid" id="productGrid"></div>
+</main>
+    <script type="module">
+        import {
+            app, auth, database,
+            ref, onValue, get
+        } from "../assets/js/firebase-init.js";
+
+        const BASE = "public";
+        const dbRef = (...p) => ref(database, p.join("/").replace(/\/+/g, "/"));
+
+        const grid = document.getElementById("productGrid");
+        const catSel = document.getElementById("categoryFilter");
+        const compSel = document.getElementById("componentFilter");
+        const searchBox = document.getElementById("searchBox");
+        const exportBtn = document.getElementById("exportBtn");
+
+        let allItems = [];
+        let affiliateTag = "";
+
+        // Load affiliate tag
+        get(dbRef(BASE, "settings/affiliateTag"))
+            .then(snap => { affiliateTag = snap.val() || ""; })
+            .catch(() => { affiliateTag = ""; });
+
+        // Load inventory
+        onValue(dbRef(BASE, "inventory"), (snap) => {
+            const data = snap.val() || {};
+            const { items, categories, components } = normalize(data);
+            allItems = items;
+            renderFilters(categories, components);
+            render();
+        });
+
+        function normalize(data) {
+            const items = [];
+            const catSet = new Set();
+            const compSet = new Set();
+
+            for (const category in data) {
+                for (const component in data[category]) {
+                    for (const partKey in data[category][component]) {
+                        const e = data[category][component][partKey] || {};
+                        const name = (e.part && e.part.trim()) || partKey;
+                        const imageUrl = e.imageUrl?.trim()
+                            || `assets/img/database/${encodeURIComponent(name)}.png`;
+
+                        items.push({
+                            name,
+                            category,
+                            component,
+                            affiliateUrl: e.affiliateUrl || "",
+                            imageUrl
+                        });
+
+                        catSet.add(category);
+                        compSet.add(component);
+                    }
+                }
+            }
+
+            return {
+                items,
+                categories: [...catSet].sort(),
+                components: [...compSet].sort()
+            };
+        }
+
+        function renderFilters(categories, components) {
+            catSel.innerHTML = '<option value="">All</option>' +
+                categories.map(c => `<option>${c}</option>`).join("");
+            compSel.innerHTML = '<option value="">All</option>' +
+                components.map(c => `<option>${c}</option>`).join("");
+        }
+
+        catSel.addEventListener("change", render);
+        compSel.addEventListener("change", render);
+        searchBox.addEventListener("input", render);
+
+        function getFilteredItems() {
+            const cat = catSel.value;
+            const comp = compSel.value;
+            const query = searchBox.value.trim().toLowerCase();
+
+            return allItems.filter(it => {
+                const matchesCat = !cat || it.category === cat;
+                const matchesComp = !comp || it.component === comp;
+                const matchesSearch = !query || it.name.toLowerCase().includes(query);
+                return matchesCat && matchesComp && matchesSearch;
+            });
+        }
+
+        function render() {
+            const filtered = getFilteredItems();
+            grid.innerHTML = "";
+
+            filtered.forEach(p => {
+                const link = p.affiliateUrl
+                    ? `<a href="${ensureAffiliateTag(p.affiliateUrl)}" target="_blank" rel="nofollow">View Product</a>`
+                    : `<span style="opacity:0.6;">No link available</span>`;
+
+                const el = document.createElement("div");
+                el.className = "product";
+                el.innerHTML = `
+                    <img src="${p.imageUrl}" alt="${p.name}" loading="lazy" />
+                    <h3>${p.name}</h3>
+                    ${link}
+                `;
+                grid.appendChild(el);
+            });
+        }
+
+        function ensureAffiliateTag(url) {
+            try {
+                const u = new URL(url, window.location.origin);
+                if (affiliateTag) u.searchParams.set("tag", affiliateTag);
+                return u.toString();
+            } catch {
+                return url;
+            }
+        }
+
+        exportBtn.addEventListener("click", () => {
+            const filtered = getFilteredItems();
+            const rows = [["Name", "Category", "Component", "Image URL", "Affiliate URL"]];
+            filtered.forEach(p => {
+                rows.push([
+                    p.name,
+                    p.category,
+                    p.component,
+                    p.imageUrl,
+                    ensureAffiliateTag(p.affiliateUrl || "")
+                ]);
+            });
+
+            const csv = rows.map(r => r.map(cell => `"${cell}"`).join(",")).join("\n");
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "radar-tools.csv";
+            link.click();
+            URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>
