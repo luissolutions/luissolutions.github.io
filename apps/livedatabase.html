@@ -343,21 +343,16 @@
         <section class="panel">
             <h2>Visit Timeline</h2>
             <div id="timeline-filters">
-                <label for="ipFilter">Filter by IP:</label>
-                <input type="text" id="ipFilter" placeholder="Enter IP to filter">
-
-                <label for="sortOrder">Sort by:</label>
+                <input type="text" id="ipFilter" placeholder="Filter by IP">
                 <select id="sortOrder">
-                    <option value="desc" selected>Newest First</option>
+                    <option value="desc">Newest First</option>
                     <option value="asc">Oldest First</option>
                 </select>
-
-                <button id="applyFiltersBtn" class="btn">Apply Filters</button>
+                <button id="applyFiltersBtn">Apply Filters</button>
             </div>
 
             <div id="visit-timeline">Loading visit timeline...</div>
         </section>
-
     </main>
 
     <script type="module">
@@ -913,12 +908,69 @@
             return pickNewestByProject(all, projectId);
         }
 
-        async function getDestinationTaskOrNull(dbPath, projectId) {
-            const all = await fetchAllTasks(dbPath);
-            for (const [k, v] of Object.entries(all)) {
-                if (v && typeof v === 'object' && v.project === projectId) return { key: k, data: v };
+        function applyTimelineFilters() {
+            const container = document.getElementById('visit-timeline');
+            const ipFilterValue = document.getElementById('ipFilter')?.value.trim().toLowerCase() || "";
+            const sortOrder = document.getElementById('sortOrder')?.value || "desc";
+
+            const filtered = (window._timelineData || []).filter(entry => {
+                return ipFilterValue === "" || entry.ip.toLowerCase().includes(ipFilterValue);
+            });
+
+            const sorted = filtered.sort((a, b) => {
+                const ta = new Date(a.timestamp).getTime();
+                const tb = new Date(b.timestamp).getTime();
+                return sortOrder === "asc" ? ta - tb : tb - ta;
+            });
+
+            if (!sorted.length) {
+                container.innerHTML = "<p style='opacity:0.6;'>No matching timeline entries.</p>";
+                return;
             }
-            return null;
+
+            container.innerHTML = `<ul class="visit-log">
+        ${sorted.map(entry => `
+                    <li>
+                        <strong>${new Date(entry.timestamp).toLocaleString()}</strong><br>
+                        <span style="opacity:0.8;">${entry.ip}</span><br>
+                        <small style="opacity:0.7;">${entry.url}</small>
+                    </li>
+                `).join('')}
+            </ul>`;
+        }
+
+        async function loadVisitTimeline() {
+            const container = document.getElementById('visit-timeline');
+            if (!container) return;
+
+            try {
+                const snap = await get(ref(getDatabase(), 'public/log/visits'));
+                const data = snap.val() || {};
+
+                const entries = [];
+
+                for (const [ipKey, record] of Object.entries(data)) {
+                    // Skip any keys that don't have a 'visits' array (like "visitCount")
+                    if (!record || !Array.isArray(record.visits)) continue;
+
+                    const ip = record.ip || ipKey;
+
+                    for (const visit of record.visits) {
+                        entries.push({
+                            ip,
+                            timestamp: visit.time || null,
+                            url: visit.url || '',
+                            userAgent: visit.userAgent || ''
+                        });
+                    }
+                }
+
+                window._timelineData = entries;
+                applyTimelineFilters(); // Call the function to filter and display the timeline
+            } catch (err) {
+                container.textContent = 'Failed to load visit timeline.';
+                console.error("Failed to load visit timeline:", err);
+            }
         }
 
         function buildMissingFieldsPatch(sourceData, destData) {
@@ -1168,9 +1220,9 @@
         document.addEventListener('DOMContentLoaded', () => {
             fromDropdown.addEventListener('change', () => displayTaskInfoForFolder(fromDropdown.value.trim(), 'folder-data-list-from'));
             toDropdown.addEventListener('change', () => displayTaskInfoForFolder(toDropdown.value.trim(), 'folder-data-list-to'));
-
-            document.getElementById('applyFiltersBtn').onclick = applyTimelineFilters;
-            document.getElementById('ipFilter').oninput = applyTimelineFilters;
+            document.getElementById('applyFiltersBtn')?.addEventListener('click', applyTimelineFilters);
+            document.getElementById('ipFilter')?.addEventListener('input', applyTimelineFilters);
+            document.getElementById('sortOrder')?.addEventListener('change', applyTimelineFilters);
 
             loadVisitTimeline();
         });
