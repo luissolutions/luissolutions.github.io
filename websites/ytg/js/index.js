@@ -1,166 +1,210 @@
+// js/index.js
+
 document.addEventListener('DOMContentLoaded', () => {
-    const headerContainer = document.getElementById('headerContainer');
-    const bodyContainer = document.getElementById('bodyContainer');
-    const footerContainer = document.getElementById('footerContainer');
+  const headerContainer = document.getElementById('headerContainer');
+  const bodyContainer = document.getElementById('bodyContainer');
+  const footerContainer = document.getElementById('footerContainer');
 
-    let loadedPages = [];  // Keep track of pages that have been loaded.
+  // Track one-time listeners / inits
+  const loaded = new Set();
 
-    async function loadContent(container, path) {
-        const response = await fetch(path);
-        if (!response.ok) {
-            throw new Error(`Error fetching ${path}: ${response.statusText}`);
-        }
-        const html = await response.text();
-        container.innerHTML = html;
-        attachEventListeners(path);
+  const PAGE_BASE = 'pages/';
 
-        if (path === 'pages/login.html') {
-            try {
-                const { attachFirebaseEventListeners } = await import('../js/firebaseHandler.js');
-                attachFirebaseEventListeners();
-            } catch (error) {
-                console.error('Failed to load and execute Firebase event listeners:', error);
-            }
-        }
+  // If a fetched file is a full HTML document, inject ONLY its <body> content
+  function normalizeFetchedHTML(htmlText) {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlText, 'text/html');
+
+      const bodyHTML = doc.body?.innerHTML?.trim();
+      if (!bodyHTML) return htmlText; // probably a fragment already
+
+      return bodyHTML;
+    } catch (e) {
+      console.warn('normalizeFetchedHTML failed, using raw HTML', e);
+      return htmlText;
+    }
+  }
+
+  // Only allow "simple" page keys like "connect", "login", "terms"
+  function normalizePageKey(raw) {
+    return (raw || '')
+      .trim()
+      .replace(/^.*[\\/]/, '')     // strip any path
+      .replace(/\.html$/i, '')     // strip extension
+      .replace(/[^a-z0-9_-]/gi, ''); // keep safe chars only
+  }
+
+  async function loadContent(container, path) {
+    const res = await fetch(path, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`Error fetching ${path}: ${res.status} ${res.statusText}`);
+
+    const raw = await res.text();
+    const html = normalizeFetchedHTML(raw);
+
+    container.innerHTML = html;
+    afterPageLoad(path);
+  }
+
+  async function loadPage(pageName, pushState = true) {
+    const key = normalizePageKey(pageName) || 'home';
+    const path = `${PAGE_BASE}${key}.html`;
+
+    await loadContent(bodyContainer, path);
+
+    if (pushState) {
+      history.pushState({ page: key }, '', `#${key}`);
+    }
+  }
+
+  function scrollToId(id) {
+    const el = document.getElementById(id);
+    if (!el) return false;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return true;
+  }
+
+  function afterPageLoad(path) {
+    // Contact page init (only once)
+    if (path.endsWith('/contact.html') && !loaded.has('contact')) {
+      attachContactFormListeners();
+      attachEmailCopyListener();
+      loaded.add('contact');
     }
 
-    function attachEventListeners(path) {
-        if (path === 'pages/contact.html' && !loadedPages.includes('contact')) {
-            attachContactFormListeners();
-            attachEmailCopyListener();
-            loadedPages.push('contact');
-        }
-
-        if (path === 'pages/login.html' && !loadedPages.includes('login')) {
-            import('../js/firebaseHandler.js').then(module => {
-                module.initializeFirebase();
-                module.attachFirebaseEventListeners();
-                loadedPages.push('login');
-            }).catch(err => {
-                console.error('Failed to load Firebase module:', err);
-            });
-        }
-
-        if (!loadedPages.includes('login-register-toggle')) {
-            document.addEventListener('click', function (event) {
-                if (event.target.matches('#toggle-register')) {
-                    event.preventDefault();
-                    document.querySelector('.login-container').style.display = 'none';
-                    document.querySelector('.register-container').style.display = 'block';
-                } else if (event.target.matches('#toggle-login')) {
-                    event.preventDefault();
-                    document.querySelector('.register-container').style.display = 'none';
-                    document.querySelector('.login-container').style.display = 'block';
-                }
-            });
-            loadedPages.push('login-register-toggle');  // Mark the login/register toggle as set
-        }
-
-        if (!loadedPages.includes('navigation')) {
-            document.addEventListener('click', function (event) {
-                let target = event.target;
-
-                // Traverse up the DOM tree to find an element with data-page or data-scroll-to
-                while (target && !target.matches('[data-scroll-to], [data-page]')) {
-                    target = target.parentElement;
-                }
-
-                // If a matching element is found
-                if (target && target.matches('[data-scroll-to], [data-page]')) {
-                    event.preventDefault();
-                    const sectionId = target.getAttribute('data-scroll-to') || target.getAttribute('data-page');
-
-                    const sectionElement = document.getElementById(sectionId);
-                    if (sectionElement) {
-                        // Scroll to the section smoothly
-                        sectionElement.scrollIntoView({ behavior: 'smooth' });
-                    } else {
-                        // Load the page dynamically
-                        loadPage(bodyContainer, `pages/${sectionId}.html`, false);
-                    }
-                }
-            });
-            loadedPages.push('navigation');
-            loadedPages.push('login-register');
-        }
+    // Login page init (only once)
+    if (path.endsWith('/login.html') && !loaded.has('login')) {
+      import('./firebaseHandler.js')
+        .then(m => {
+          m.initializeFirebase?.();
+          m.attachFirebaseEventListeners?.();
+          loaded.add('login');
+        })
+        .catch(err => console.error('Failed to load Firebase module:', err));
     }
 
-    function loadPage(container, path) {
-        loadContent(container, path);
-    }
+    // Connect page init example (optional hook)
+    // If you later move connect-specific JS into js/connect.js:
+    // if (path.endsWith('/connect.html') && !loaded.has('connect')) {
+    //   import('./connect.js').then(m => m.initConnect?.());
+    //   loaded.add('connect');
+    // }
+  }
 
-    function attachContactFormListeners() {
-        const form = document.querySelector('.form');
-        const nameInput = document.getElementById('name');
-        const emailInput = document.getElementById('email');
-        const phoneInput = document.getElementById('phone');
-        const messageInput = document.getElementById('message');
-        const submitButton = document.getElementById('submitBtn');
+  // ONE delegated click handler for nav + buttons/links
+  if (!loaded.has('nav')) {
+    document.addEventListener('click', async (event) => {
+      const target = event.target.closest('[data-scroll-to], [data-page]');
+      if (!target) return;
 
-        if (submitButton) {
-            submitButton.addEventListener('click', function (e) {
-                e.preventDefault();
+      event.preventDefault();
 
-                // Get form field values
-                const name = nameInput.value;
-                const email = emailInput.value;
-                const phone = phoneInput.value;
-                const message = messageInput.value;
+      const scrollId = target.getAttribute('data-scroll-to');
+      const page = target.getAttribute('data-page');
 
-                // Save form data in LocalStorage
-                const formData = {
-                    name,
-                    email,
-                    phone,
-                    message
-                };
-                localStorage.setItem('formData', JSON.stringify(formData));
-
-                // Create email body
-                const emailBody = `${message} %0D%0A %0D%0A ${name} %0D%0A ${phone} %0D%0A ${email}`;
-
-                // Create the subject line
-                const subject = `Contact Request from ${name}`;
-
-                // Use mailto to open the default email client with pre-filled information
-                window.location.href = `mailto:luis@smartelectronicssolutions.com?subject=${encodeURIComponent(subject)}&body=${emailBody}`;
-            });
+      // Scroll links
+      if (scrollId) {
+        // If we’re not currently on home (sections might not exist), load home then scroll
+        if (!document.getElementById(scrollId)) {
+          await loadPage('home', true);
         }
-    }
+        scrollToId(scrollId);
+        return;
+      }
 
-    function attachEmailCopyListener() {
-        const emailText = document.getElementById('email-text');
+      // Page links
+      if (page) {
+        await loadPage(page, true);
+      }
+    });
 
-        if (emailText) {
-            emailText.addEventListener('click', function () {
-                copyToClipboard(emailText.textContent);
+    loaded.add('nav');
+  }
 
-                emailText.textContent = 'Email Copied to Clipboard.';
-                emailText.style.color = 'green';
+  // Login/Register toggle (delegated; only once)
+  if (!loaded.has('login-toggle')) {
+    document.addEventListener('click', (event) => {
+      if (event.target.matches('#toggle-register')) {
+        event.preventDefault();
+        const login = document.querySelector('.login-container');
+        const reg = document.querySelector('.register-container');
+        if (login) login.style.display = 'none';
+        if (reg) reg.style.display = 'block';
+      }
 
-                setTimeout(() => {
-                    emailText.textContent = 'luis@smartelectronicssolutions.com';
-                    emailText.style.color = '';
-                }, 2000);
-            });
-        }
-    }
+      if (event.target.matches('#toggle-login')) {
+        event.preventDefault();
+        const login = document.querySelector('.login-container');
+        const reg = document.querySelector('.register-container');
+        if (reg) reg.style.display = 'none';
+        if (login) login.style.display = 'block';
+      }
+    });
 
-    function copyToClipboard(text) {
+    loaded.add('login-toggle');
+  }
+
+  function attachContactFormListeners() {
+    const submitButton = document.getElementById('submitBtn');
+    if (!submitButton) return;
+
+    submitButton.addEventListener('click', (e) => {
+      e.preventDefault();
+
+      const name = document.getElementById('name')?.value || '';
+      const email = document.getElementById('email')?.value || '';
+      const phone = document.getElementById('phone')?.value || '';
+      const message = document.getElementById('message')?.value || '';
+
+      localStorage.setItem('formData', JSON.stringify({ name, email, phone, message }));
+
+      const subject = `Contact Request from ${name}`;
+      const body = `${message}\n\n${name}\n${phone}\n${email}`;
+
+      window.location.href =
+        `mailto:luis@smartelectronicssolutions.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    });
+  }
+
+  function attachEmailCopyListener() {
+    const emailText = document.getElementById('email-text');
+    if (!emailText) return;
+
+    emailText.addEventListener('click', async () => {
+      const text = emailText.textContent || '';
+
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
         const textarea = document.createElement('textarea');
         textarea.value = text;
         document.body.appendChild(textarea);
         textarea.select();
         document.execCommand('copy');
         document.body.removeChild(textarea);
-    }
+      }
 
-    // Initial content loading
-    loadContent(headerContainer, 'header.html');
-    loadContent(bodyContainer, 'pages/home.html', true);
-    loadContent(footerContainer, 'footer.html');
-});
+      const original = text;
+      emailText.textContent = 'Email Copied to Clipboard.';
+      emailText.style.color = 'green';
 
-window.addEventListener('popstate', function (event) {
-    location.reload();
+      setTimeout(() => {
+        emailText.textContent = original;
+        emailText.style.color = '';
+      }, 2000);
+    });
+  }
+
+  // Initial load: header/footer + page based on hash
+  loadContent(headerContainer, 'header.html');
+  loadContent(footerContainer, 'footer.html');
+
+  const initial = (location.hash || '#home').replace('#', '');
+  loadPage(initial, false).catch(() => loadPage('home', false));
+
+  // Back/forward support (no reload flashing)
+  window.addEventListener('popstate', () => {
+    const page = (location.hash || '#home').replace('#', '');
+    loadPage(page, false).catch(() => loadPage('home', false));
+  });
 });
