@@ -365,6 +365,11 @@
             <label>Total Devices: <input type="number" id="sensorCount" min="1" /></label>
             <button id="saveProject" style="display: none;">Save New Project</button>
             <br /><br />
+            <label>
+                Search Projects:
+                <input type="text" id="projectSearch" placeholder="Type customer or project name…" />
+            </label>
+            <br>
             <label>Existing Projects:
                 <select id="projectList">
                     <option value="">-- Choose a project --</option>
@@ -1334,6 +1339,56 @@
         let currentSiteIndex = 0;
         let siteImageRotation = 0;
         let isSiteImageLoading = false;
+
+        async function uploadSiteImage() {
+            const uploadBtn = document.getElementById('uploadSiteImage');
+            const fileEl = document.getElementById('siteImageUploader');
+            const file = fileEl.files[0];
+
+            if (!currentProject || !file) {
+                alert("Select a project and choose an image first.");
+                return;
+            }
+
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = "Uploading...";
+
+            const safeProjectName = sanitize(currentProjectName || currentProject);
+            const folderPath = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/siteImages`;
+
+            try {
+                let blob = await resizeImage(file, 2048);
+
+                const timestamp = Date.now();
+                const safeCustomer = sanitize(currentCustomerName || '');
+                const prefix = safeCustomer ? `${safeCustomer}_` : '';
+                const desiredName = `${prefix}site_${timestamp}.jpg`;
+                const uniqueName = await getUniqueFilename(folderPath, desiredName);
+
+                await uploadBytes(
+                    storageRef(storage, `${folderPath}/${uniqueName}`),
+                    blob
+                );
+
+                // remove placeholder if present
+                try {
+                    await deleteObject(storageRef(storage, `${folderPath}/.init.txt`));
+                } catch (e) {
+                    if (e.code !== 'storage/object-not-found') console.warn(e);
+                }
+
+                fileEl.value = '';
+                await updateSiteImages();
+
+                alert(`Site image uploaded: ${uniqueName}`);
+            } catch (err) {
+                console.error("Site image upload failed:", err);
+                alert("Site image upload failed. See console.");
+            }
+
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = "Upload Site Image";
+        }
 
         function getSiteIndex() {
             return parseInt(localStorage.getItem(`${currentProject}_siteIdx`) || '0', 10);
