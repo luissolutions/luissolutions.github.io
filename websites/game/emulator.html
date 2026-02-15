@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>EmulatorJS</title>
+    <title>EmulatorJS + Cloud</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script type="module" src="../../apps/assets/js/login.js" defer></script>
     <link rel="stylesheet" href="../../assets/css/app-styles.css" id="stylesheet">
@@ -25,7 +25,8 @@
             align-items: center;
             justify-content: center;
             text-align: center;
-            cursor: pointer;
+            font-family: monospace;
+            font-weight: bold;
         }
 
         #box:hover {
@@ -74,9 +75,9 @@
         Drag ROM file or click here
     </main>
 
-    <!-- ========================= -->
-    <!-- 🔥 FIREBASE CLOUD SAVE -->
-    <!-- ========================= -->
+    <!-- ================================= -->
+    <!-- 🔥 FIREBASE CLOUD SYSTEM -->
+    <!-- ================================= -->
     <script type="module">
         import {
             auth,
@@ -88,42 +89,43 @@
             onAuthStateChanged
         } from "../../assets/js/firebase-init.js";
 
+        /* =========================
+           AUTH READY PROMISE
+        ========================= */
+        window.authReady = new Promise((resolve) => {
+            onAuthStateChanged(auth, async (user) => {
+                if (!user) {
+                    await signInAnonymously(auth);
+                }
+                resolve();
+            });
+        });
 
-        // ============================
-        // SRAM SAVE
-        // ============================
-
+        /* =========================
+           SRAM SAVE
+        ========================= */
         window.EJS_onSaveSave = async function (...args) {
             const user = auth.currentUser;
             if (!user) return;
 
-            let saveData;
-
-            if (args.length === 2) {
-                saveData = args[1];
-            } else {
-                saveData = args[0];
-            }
-
-            if (!saveData) return;
-            if (saveData?.data) saveData = saveData.data;
+            let data = args.length === 2 ? args[1] : args[0];
+            if (!data) return;
+            if (data?.data) data = data.data;
 
             const saveName = `${window.EJS_gameName}.srm`;
 
-            const fileRef = storageRef(
+            const ref = storageRef(
                 storage,
                 `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/${saveName}`
             );
 
-            await uploadBytes(fileRef, new Blob([saveData]));
+            await uploadBytes(ref, new Blob([data]));
             console.log("SRAM saved:", saveName);
         };
 
-
-        // ============================
-        // SRAM LOAD
-        // ============================
-
+        /* =========================
+           SRAM LOAD
+        ========================= */
         window.EJS_onLoadSave = async function () {
             const user = auth.currentUser;
             if (!user) return null;
@@ -131,60 +133,44 @@
             const saveName = `${window.EJS_gameName}.srm`;
 
             try {
-                const fileRef = storageRef(
+                const ref = storageRef(
                     storage,
                     `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/${saveName}`
                 );
 
-                const url = await getDownloadURL(fileRef);
-                const response = await fetch(url);
-                const buffer = await response.arrayBuffer();
-
-                console.log("SRAM loaded:", saveName);
-                return buffer;
+                const url = await getDownloadURL(ref);
+                const buffer = await (await fetch(url)).arrayBuffer();
+                return new Uint8Array(buffer);
             } catch {
-                console.log("No cloud SRAM found");
                 return null;
             }
         };
 
-
-        // ============================
-        // SAVE STATES
-        // ============================
-
+        /* =========================
+           SAVE STATE
+        ========================= */
         window.EJS_onSaveState = async function (...args) {
             const user = auth.currentUser;
             if (!user) return;
 
-            let stateName;
-            let stateData;
-
-            if (args.length === 2) {
-                stateName = args[0] || "state.auto";
-                stateData = args[1];
-            } else {
-                stateName = "state.auto";
-                stateData = args[0];
-            }
+            let stateName = args.length === 2 ? args[0] : "state.auto";
+            let stateData = args.length === 2 ? args[1] : args[0];
 
             if (!stateData) return;
             if (stateData?.data) stateData = stateData.data;
 
-            const fileRef = storageRef(
+            const ref = storageRef(
                 storage,
                 `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/states/${stateName}`
             );
 
-            await uploadBytes(fileRef, new Blob([stateData]));
+            await uploadBytes(ref, new Blob([stateData]));
             console.log("State saved:", stateName);
         };
 
-
-        // ============================
-        // LOAD STATES
-        // ============================
-
+        /* =========================
+           LOAD STATE
+        ========================= */
         window.EJS_onLoadState = async function (stateName) {
             const user = auth.currentUser;
             if (!user) return null;
@@ -192,29 +178,33 @@
             if (!stateName) stateName = "state.auto";
 
             try {
-                const fileRef = storageRef(
+                const ref = storageRef(
                     storage,
                     `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/states/${stateName}`
                 );
 
-                const url = await getDownloadURL(fileRef);
-                const response = await fetch(url);
-                return await response.arrayBuffer();
+                const url = await getDownloadURL(ref);
+                const buffer = await (await fetch(url)).arrayBuffer();
+                console.log("State loaded:", stateName);
+                return new Uint8Array(buffer);
             } catch {
                 console.log("No cloud state found");
                 return null;
             }
         };
-
     </script>
 
-    <!-- ========================= -->
-    <!-- 🎮 EMULATOR LOADER -->
-    <!-- ========================= -->
+    <!-- ================================= -->
+    <!-- 🎮 EMULATOR LOGIC -->
+    <!-- ================================= -->
     <script>
         const input = document.getElementById("input");
+        const box = document.getElementById("box");
 
         async function run(file) {
+
+            // WAIT FOR AUTH
+            await window.authReady;
 
             const parts = file.name.split(".");
             const ext = parts.pop().toLowerCase();
@@ -242,7 +232,7 @@
                 return;
             }
 
-            document.body.innerHTML = "<div id='display'><div id='game'></div></div>";
+            box.innerHTML = "<div id='display'><div id='game'></div></div>";
 
             window.EJS_player = "#game";
             window.EJS_gameName = gameName;
@@ -256,9 +246,7 @@
             document.body.appendChild(script);
         }
 
-        input.onchange = (e) => {
-            run(e.target.files[0]);
-        };
+        input.onchange = e => run(e.target.files[0]);
     </script>
 
 </body>
