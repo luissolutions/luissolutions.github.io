@@ -50,6 +50,7 @@
 </head>
 
 <body>
+
     <header>
         <h1>Emulator</h1>
 
@@ -67,7 +68,6 @@
         </section>
 
     </header>
-
 
     <main id="box">
         <input type="file" id="input">
@@ -88,90 +88,80 @@
             onAuthStateChanged
         } from "../../assets/js/firebase-init.js";
 
-        let CURRENT_USER = null;
-
-        // If you want automatic anonymous login:
-        onAuthStateChanged(auth, async (user) => {
-            if (!user) {
-                await signInAnonymously(auth);
-            } else {
-                CURRENT_USER = user;
-                console.log("Cloud Save UID:", user.uid);
-            }
-        });
-
 
         // ============================
-        // SRAM SAVE (compatible version)
+        // SRAM SAVE
         // ============================
 
         window.EJS_onSaveSave = async function (...args) {
-            if (!CURRENT_USER) return;
+            const user = auth.currentUser;
+            if (!user) return;
 
-            let saveName = "save.srm";
-            let saveData = null;
+            let saveData;
 
             if (args.length === 2) {
-                saveName = args[0] || "save.srm";
                 saveData = args[1];
-            } else if (args.length === 1) {
+            } else {
                 saveData = args[0];
             }
 
             if (!saveData) return;
+            if (saveData?.data) saveData = saveData.data;
 
-            if (saveData?.data) {
-                saveData = saveData.data;
-            }
+            const saveName = `${window.EJS_gameName}.srm`;
 
             const fileRef = storageRef(
                 storage,
-                `${CURRENT_USER.uid}/${window.EJS_core}/${window.EJS_gameName}/${saveName}`
+                `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/${saveName}`
             );
 
             await uploadBytes(fileRef, new Blob([saveData]));
+            console.log("SRAM saved:", saveName);
         };
+
 
         // ============================
         // SRAM LOAD
         // ============================
 
-        window.EJS_onLoadSave = async function (...args) {
-            if (!CURRENT_USER) return null;
+        window.EJS_onLoadSave = async function () {
+            const user = auth.currentUser;
+            if (!user) return null;
 
-            let saveName = "save.srm";
-
-            if (args.length === 1 && args[0]) {
-                saveName = args[0];
-            }
+            const saveName = `${window.EJS_gameName}.srm`;
 
             try {
                 const fileRef = storageRef(
                     storage,
-                    `${CURRENT_USER.uid}/${window.EJS_core}/${window.EJS_gameName}/${saveName}`
+                    `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/${saveName}`
                 );
 
                 const url = await getDownloadURL(fileRef);
                 const response = await fetch(url);
-                return await response.arrayBuffer();
+                const buffer = await response.arrayBuffer();
+
+                console.log("SRAM loaded:", saveName);
+                return buffer;
             } catch {
+                console.log("No cloud SRAM found");
                 return null;
             }
         };
+
 
         // ============================
         // SAVE STATES
         // ============================
 
         window.EJS_onSaveState = async function (...args) {
-            if (!CURRENT_USER) return;
+            const user = auth.currentUser;
+            if (!user) return;
 
             let stateName;
             let stateData;
 
-            // Handle both possible argument formats
             if (args.length === 2) {
-                stateName = args[0];
+                stateName = args[0] || "state.auto";
                 stateData = args[1];
             } else {
                 stateName = "state.auto";
@@ -179,44 +169,39 @@
             }
 
             if (!stateData) return;
-
-            // If emulator wrapped data inside object
-            if (stateData.data) {
-                stateData = stateData.data;
-            }
+            if (stateData?.data) stateData = stateData.data;
 
             const fileRef = storageRef(
                 storage,
-                `${CURRENT_USER.uid}/${window.EJS_core}/${window.EJS_gameName}/states/${stateName}`
+                `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/states/${stateName}`
             );
 
-            try {
-                await uploadBytes(fileRef, new Blob([stateData]));
-                console.log("State uploaded:", stateName);
-            } catch (e) {
-                console.error("State upload failed:", e);
-            }
+            await uploadBytes(fileRef, new Blob([stateData]));
+            console.log("State saved:", stateName);
         };
+
 
         // ============================
         // LOAD STATES
         // ============================
 
         window.EJS_onLoadState = async function (stateName) {
-            if (!CURRENT_USER) return null;
+            const user = auth.currentUser;
+            if (!user) return null;
 
             if (!stateName) stateName = "state.auto";
 
             try {
                 const fileRef = storageRef(
                     storage,
-                    `${CURRENT_USER.uid}/${window.EJS_core}/${window.EJS_gameName}/states/${stateName}`
+                    `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/states/${stateName}`
                 );
 
                 const url = await getDownloadURL(fileRef);
                 const response = await fetch(url);
                 return await response.arrayBuffer();
             } catch {
+                console.log("No cloud state found");
                 return null;
             }
         };
@@ -230,6 +215,7 @@
         const input = document.getElementById("input");
 
         async function run(file) {
+
             const parts = file.name.split(".");
             const ext = parts.pop().toLowerCase();
             const gameName = parts.join(".");
