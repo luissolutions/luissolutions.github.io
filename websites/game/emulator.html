@@ -1,290 +1,274 @@
 <!DOCTYPE html>
 <html>
-    <head>
-        <title>EmulatorJS</title>
-        <link rel = icon href = docs/favicon.ico sizes = "16x16 32x32 48x48 64x64" type = image/vnd.microsoft.icon>
-        <meta name = viewport content = "width = device-width, initial-scale = 1">
-        <style>
-             body, html {
-                height: 100%;
-                background-color: black;
-                color: white;
-            }
 
-            body {
-                margin: 0;
-                overflow: hidden;
-            }
+<head>
+    <title>EmulatorJS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script type="module" src="../../apps/assets/js/login.js" defer></script>
+    <link rel="stylesheet" href="../../assets/css/app-styles.css" id="stylesheet">
 
-            body, #box, #top {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                flex-direction: column;
-            }
+    <style>
+        body,
+        html {
+            height: 100%;
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            font-family: monospace;
+        }
 
-            #box {
-                color: #aaa;
-                height: 20em;
-                width: 30em;
-                max-width: 80%;
-                max-height: 80%;
-                background-color: #333;
-                border-radius: 0.4em;
-                border: 2px solid #555;
-                position: relative;
-                flex-direction: column;
-                transition-duration: 0.2s;
-                overflow: hidden;
-                font-family: monospace;
-                font-weight: bold;
-                font-size: 20px;
-                margin: 5px;
-                text-align: center;
-                padding: 10px;
-            }
+        #box {
+            color: #aaa;
+            height: 20em;
+            width: 30em;
+            max-width: 80%;
+            max-height: 80%;
+            background-color: #333;
+            border-radius: 0.4em;
+            border: 2px solid #555;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            cursor: pointer;
+        }
 
-            #box:hover, #box[drag] {
-                border-color: #1AAFFF;
-                color: #ddd
-            }
+        #box:hover {
+            border-color: #1AAFFF;
+            color: #ddd;
+        }
 
-            #input {
-                cursor: pointer;
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-                height: 100%;
-                opacity: 0;
-            }
+        #display {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
 
-            #display {
-                width: 100%;
-                height: 100%
-            }
+<body>
+    <header>
+        <h1>Emulator</h1>
 
-            select, button {
-                padding: 0.6em 0.4em;
-                margin: 0.5em;
-                width: 15em;
-                max-width: 100%;
-                font-family: monospace;
-                font-weight: bold;
-                font-size: 16px;
-                background-color: #444;
-                color: #aaa;
-                border-radius: 0.4em;
-                border: 1px solid #555;
-                cursor: pointer;
-                transition-duration: 0.2s
-            }
+        <section id="login-section">
+            <form id="login-form">
+                <label for="username">Email:</label>
+                <input type="email" id="username" required>
+                <br>
+                <label for="password">Password:</label>
+                <input type="password" id="password" required>
+                <br>
+                <button type="submit">Sign in</button>
+            </form>
+            <button id="logout" style="display:none;">Logout</button>
+        </section>
 
-            select:hover, button:hover {
-                background-color: #666;
-                color: #ddd
-            }
+    </header>
 
-            .logo {
-                width: 130px;
-                height: 130px;
-                filter: drop-shadow(0 0 8px white);
-            }
 
-            #top {
-                margin: 5px;
-            }
-        </style>
-    </head>
+    <div id="box">
+        <input type="file" id="input" style="opacity:0; position:absolute; width:100%; height:100%; cursor:pointer;">
+        Drag ROM file or click here
+    </div>
 
-    <body>
-        <div id="top">
-            <h1>EmulatorJS</h1>
-            <br>
-        </div>
-        <div id="box">
-            <input type="file" id ="input" title="Upload" />
-            Drag ROM file or click here
-        </div>
+    <!-- ========================= -->
+    <!-- 🔥 FIREBASE CLOUD SAVE -->
+    <!-- ========================= -->
+    <script type="module">
+        import {
+            auth,
+            storage,
+            storageRef,
+            uploadBytes,
+            getDownloadURL,
+            signInAnonymously,
+            onAuthStateChanged
+        } from "../../assets/js/firebase-init.js";
 
-        <script>
-            let enableDebug = false;
-            let enableThreads = false;
-            let browserMode;
-            const queryString = window.location.search;
-            const urlParams = new URLSearchParams(queryString);
-            if (parseInt(urlParams.get("debug")) === 1 || urlParams.get("debug") === "true") {
-                enableDebug = true;
-                console.log("Debug is enabled");
+        let CURRENT_USER = null;
+
+        // If you want automatic anonymous login:
+        onAuthStateChanged(auth, async (user) => {
+            if (!user) {
+                await signInAnonymously(auth);
             } else {
-                console.log("Debug is disabled");
+                CURRENT_USER = user;
+                console.log("Cloud Save UID:", user.uid);
             }
+        });
 
-            if (parseInt(urlParams.get("threads")) === 1 || urlParams.get("threads") === "true") {
-                if (window.SharedArrayBuffer) {
-                    enableThreads = true;
-                    console.log("Threads are enabled");
-                } else {
-                    console.warn("Threads are disabled as SharedArrayBuffer is not available. Threads requires two headers to be set when sending you html page. See https://stackoverflow.com/a/68630724");
-                    console.log("Threads are disabled");
-                }
+
+        // ============================
+        // SRAM SAVE (compatible version)
+        // ============================
+
+        window.EJS_onSaveSave = async function (...args) {
+            if (!CURRENT_USER) return;
+
+            let saveName;
+            let saveData;
+
+            if (args.length === 2) {
+                saveName = args[0];
+                saveData = args[1];
             } else {
-                console.log("Threads are disabled");
+                saveName = "save.srm";
+                saveData = args[0];
             }
 
-            if (urlParams.get("browserMode")) {
-                browserMode = urlParams.get("browserMode");
+            if (saveData?.data) {
+                saveData = saveData.data;
             }
 
-            if (urlParams.get("rom")) {
-                console.log(`Loading ROM from URL: roms/${urlParams.get("rom")}`);
-                run(false, urlParams.get("rom"));
+            const fileRef = storageRef(
+                storage,
+                `${CURRENT_USER.uid}/${window.EJS_core}/${window.EJS_gameName}/${saveName}`
+            );
+
+            await uploadBytes(fileRef, new Blob([saveData]));
+        };
+
+        // ============================
+        // SRAM LOAD
+        // ============================
+
+        window.EJS_onLoadSave = async function (saveName) {
+            if (!CURRENT_USER) return null;
+
+            try {
+                const fileRef = storageRef(
+                    storage,
+                    `${CURRENT_USER.uid}/${window.EJS_core}/${window.EJS_gameName}/${saveName}`
+                );
+
+                const url = await getDownloadURL(fileRef);
+                const response = await fetch(url);
+                return await response.arrayBuffer();
+            } catch {
+                return null;
+            }
+        };
+
+        // ============================
+        // SAVE STATES
+        // ============================
+
+        window.EJS_onSaveState = async function (...args) {
+            if (!CURRENT_USER) return;
+
+            let stateName;
+            let stateData;
+
+            // Handle both possible argument formats
+            if (args.length === 2) {
+                stateName = args[0];
+                stateData = args[1];
+            } else {
+                stateName = "state.auto";
+                stateData = args[0];
             }
 
-            async function run(upload, file) {
-                const url = upload ? input.files[0] : `roms/${file}`;
-                const parts = upload ? input.files[0].name.split(".") : file.split(".");
+            if (!stateData) return;
 
-                const core = await (async (ext) => {
-                    if (["fds", "nes", "unif", "unf"].includes(ext))
-                        return "nes"
+            // If emulator wrapped data inside object
+            if (stateData.data) {
+                stateData = stateData.data;
+            }
 
-                    if (["smc", "fig", "sfc", "gd3", "gd7", "dx2", "bsx", "swc"].includes(ext))
-                        return "snes"
+            const fileRef = storageRef(
+                storage,
+                `${CURRENT_USER.uid}/${window.EJS_core}/${window.EJS_gameName}/states/${stateName}`
+            );
 
-                    if (["z64", "n64"].includes(ext))
-                        return "n64"
+            try {
+                await uploadBytes(fileRef, new Blob([stateData]));
+                console.log("State uploaded:", stateName);
+            } catch (e) {
+                console.error("State upload failed:", e);
+            }
+        };
 
-                    if (["pce"].includes(ext))
-                        return "pce"
+        // ============================
+        // LOAD STATES
+        // ============================
 
-                    if (["ngp", "ngc"].includes(ext))
-                        return "ngp"
+        window.EJS_onLoadState = async function (stateName) {
+            if (!CURRENT_USER) return null;
 
-                    if (["ws", "wsc"].includes(ext))
-                        return "ws"
+            if (!stateName) stateName = "state.auto";
 
-                    if (["col", "cv"].includes(ext))
-                        return "coleco"
+            try {
+                const fileRef = storageRef(
+                    storage,
+                    `${CURRENT_USER.uid}/${window.EJS_core}/${window.EJS_gameName}/states/${stateName}`
+                );
 
-                    if (["d64"].includes(ext))
-                        return "vice_x64sc"
-                    
-                    if (["md", "sg", "smd", "gen"].includes(ext))
-                        return "segaMD"
+                const url = await getDownloadURL(fileRef);
+                const response = await fetch(url);
+                return await response.arrayBuffer();
+            } catch {
+                return null;
+            }
+        };
 
-                    if (["nds", "gba", "gb", "z64", "n64"].includes(ext))
-                        return ext
+    </script>
 
-                    return await new Promise(resolve => {
-                        var coreValues = {
-                            "Nintendo 64": "n64",
-                            "Nintendo Game Boy": "gb",
-                            "Nintendo Game Boy Advance": "gba",
-                            "Nintendo DS": "nds",
-                            "Nintendo Entertainment System": "nes",
-                            "Super Nintendo Entertainment System": "snes",
-                            "PlayStation": "psx",
-                            "Virtual Boy": "vb",
-                            "Sega Mega Drive": "segaMD",
-                            "Sega Master System": "segaMS",
-                            "Sega CD": "segaCD",
-                            "Atari Lynx": "lynx",
-                            "Sega 32X": "sega32x",
-                            "Atari Jaguar": "jaguar",
-                            "Sega Game Gear": "segaGG",
-                            "Sega Saturn": "segaSaturn",
-                            "Atari 7800": "atari7800",
-                            "Atari 2600": "atari2600",
-                            "Arcade": "arcade",
-                            "NEC TurboGrafx-16/SuperGrafx/PC Engine": "pce",
-                            "NEC PC-FX": "pcfx",
-                            "SNK NeoGeo Pocket (Color)": "ngp",
-                            "Bandai WonderSwan (Color)": "ws",
-                            "ColecoVision": "coleco",
-                            "Commodore 64": "vice_x64sc",
-                            "Commodore 128": "vice_x128",
-                            "Commodore VIC20": "vice_xvic",
-                            "Commodore Plus/4": "vice_xplus4",
-                            "Commodore PET": "vice_xpet",
-                        }
-                        
-                        if (enableThreads) {
-                            coreValues["DOSBOX-PURE"] = "dosbox_pure";
-                            coreValues["PlayStation Portable"] = "ppsspp";
-                        }
+    <!-- ========================= -->
+    <!-- 🎮 EMULATOR LOADER -->
+    <!-- ========================= -->
+    <script>
+        const input = document.getElementById("input");
 
-                        for (let core in coreValues) {
-                            if (core.toLowerCase() === ext) {
-                                resolve(core)
-                            }
-                        }
- 
-                        const cores = Object.keys(coreValues).sort().reduce(
-                            (obj, key) => { 
-                                obj[key] = coreValues[key]; 
-                                return obj;
-                            }, 
-                            {}
-                        );
+        async function run(file) {
+            const parts = file.name.split(".");
+            const ext = parts.pop().toLowerCase();
+            const gameName = parts.join(".");
 
-                        const button = document.createElement("button")
-                        const select = document.createElement("select")
+            const coreMap = {
+                nes: ["nes", "fds", "unif", "unf"],
+                snes: ["smc", "sfc"],
+                n64: ["z64", "n64"],
+                gba: ["gba"],
+                gb: ["gb"],
+                nds: ["nds"]
+            };
 
-                        for (const type in cores) {
-                            const option = document.createElement("option")
-
-                            option.value = cores[type]
-                            option.textContent = type
-                            select.appendChild(option)
-                        }
-
-                        button.onclick = () => resolve(select[select.selectedIndex].value)
-                        button.textContent = "Load game"
-                        box.innerHTML = ""
-
-                        box.appendChild(select)
-                        box.appendChild(button)
-                    })
-                })(parts.pop())
-
-                const div = document.createElement("div")
-                const sub = document.createElement("div")
-                const script = document.createElement("script")
-
-                sub.id = "game"
-                div.id = "display"
-
-                const top = document.getElementById("top");
-                top.remove();
-                box.remove()
-                div.appendChild(sub)
-                document.body.appendChild(div)
-
-                window.EJS_player = "#game";
-                window.EJS_gameName = parts.shift();
-                window.EJS_biosUrl = "";
-                window.EJS_gameUrl = url;
-                window.EJS_core = core;
-                window.EJS_pathtodata = "data/";
-                window.EJS_startOnLoaded = true;
-                window.EJS_DEBUG_XX = enableDebug;
-                window.EJS_disableDatabases = true;
-                window.EJS_threads = enableThreads;
-                if (browserMode) {
-                    window.EJS_browserMode = browserMode;
+            let core = null;
+            for (let c in coreMap) {
+                if (coreMap[c].includes(ext)) {
+                    core = c;
+                    break;
                 }
+            }
 
-                script.src = "data/loader.js";
-                document.body.appendChild(script);
+            if (!core) {
+                alert("Unsupported file type");
+                return;
             }
-            
-            input.onchange = async () => {
-                run(true);
-            }
-            
-            box.ondragover = () => box.setAttribute("drag", true);
-            box.ondragleave = () => box.removeAttribute("drag");
-        </script>
-    </body>
+
+            document.body.innerHTML = "<div id='display'><div id='game'></div></div>";
+
+            window.EJS_player = "#game";
+            window.EJS_gameName = gameName;
+            window.EJS_gameUrl = file;
+            window.EJS_core = core;
+            window.EJS_pathtodata = "data/";
+            window.EJS_startOnLoaded = true;
+
+            const script = document.createElement("script");
+            script.src = "data/loader.js";
+            document.body.appendChild(script);
+        }
+
+        input.onchange = (e) => {
+            run(e.target.files[0]);
+        };
+    </script>
+
+</body>
+
 </html>
