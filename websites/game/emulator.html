@@ -93,12 +93,29 @@
 
         let DATABASE_BASE_PATH = "public";
 
-        window.authReady = new Promise((resolve) => {
-            onAuthStateChanged(auth, (user) => {
+        window.authReady = new Promise(resolve => {
+            onAuthStateChanged(auth, user => {
                 DATABASE_BASE_PATH = user ? user.uid : "public";
                 resolve();
             });
         });
+
+        /* =========================
+           BATTERY EXTENSION MAP
+        ========================= */
+
+        function getBatteryExtension() {
+            const map = {
+                nes: "sav",
+                gb: "sav",
+                gba: "srm",
+                snes: "srm",
+                nds: "sav"
+                // n64 is special and depends on game
+            };
+
+            return map[window.EJS_core] || null;
+        }
 
         /* =========================
            SAVE STATE (CLOUD)
@@ -122,18 +139,12 @@
                 : new Uint8Array(state);
 
             try {
-                // Upload save state
                 await uploadBytes(stateRef(), new Blob([bytes]));
                 console.log("Cloud state saved.");
 
-                // Upload controls
                 await uploadControlsToCloud();
-
-                // Upload battery save
-                await uploadBatterySave();
-
             } catch (err) {
-                console.error("Cloud save failed:", err);
+                console.error("Cloud state save failed:", err);
             }
         };
 
@@ -148,7 +159,7 @@
                 window.EJS_emulator?.gameManager?.loadState(bytes);
                 console.log("Cloud state loaded.");
             } catch {
-                console.log("No cloud save found.");
+                console.log("No cloud state found.");
             }
         };
 
@@ -191,59 +202,38 @@
         };
 
         /* =========================
-           UNIVERSAL BATTERY SAVE
+           BATTERY SAVE (CORRECT WAY)
         ========================= */
 
-        async function uploadBatterySave() {
+        window.EJS_onSaveSave = async function (data) {
+            await window.authReady;
+
+            if (!data) return;
+
+            const bytes = data instanceof Uint8Array
+                ? data
+                : new Uint8Array(data);
+
+            const ext = getBatteryExtension();
+            if (!ext) return;
+
+            const fileName = `${window.EJS_gameName}.${ext}`;
+
             try {
-                const gm = window.EJS_emulator?.gameManager;
-                if (!gm) return;
+                await uploadBytes(
+                    storageRef(
+                        storage,
+                        `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/${fileName}`
+                    ),
+                    new Blob([bytes])
+                );
 
-                const ext = getBatteryExtension();
-                if (!ext) {
-                    console.log("Battery extension unknown for this core.");
-                    return;
-                }
-
-                // Force SRAM flush
-                if (gm.save) gm.save();
-
-                await new Promise(r => setTimeout(r, 500));
-
-                const request = indexedDB.open("EJS_DATABASE");
-
-                request.onsuccess = function (event) {
-                    const db = event.target.result;
-                    const tx = db.transaction("files", "readonly");
-                    const store = tx.objectStore("files");
-
-                    const key = `${window.EJS_gameName}.${ext}`;
-
-                    const getReq = store.get(key);
-
-                    getReq.onsuccess = async function () {
-                        const data = getReq.result;
-                        if (!data) {
-                            console.log("No battery file found:", key);
-                            return;
-                        }
-
-                        await uploadBytes(
-                            storageRef(
-                                storage,
-                                `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/${key}`
-                            ),
-                            new Blob([data])
-                        );
-
-                        console.log("Battery uploaded:", key);
-                    };
-                };
-
+                console.log("Battery save uploaded.");
             } catch (err) {
                 console.error("Battery upload failed:", err);
             }
-        }
+        };
+
         /* =========================
            RESTORE BATTERY SAVE
         ========================= */
@@ -262,27 +252,15 @@
                 const buffer = await (await fetch(url)).arrayBuffer();
                 const bytes = new Uint8Array(buffer);
 
-                // Inject before boot
+                // This tells EmulatorJS to load battery save
+                window.EJS_loadStateURL = null;
                 window.EJS_loadState = bytes;
 
-                console.log("Battery restored:", ext);
-
+                console.log("Battery restored from cloud.");
             } catch {
-                console.log("No battery save found in cloud.");
+                console.log("No cloud battery save found.");
             }
         };
-        function getBatteryExtension() {
-            const map = {
-                nes: "sav",
-                gb: "sav",
-                gba: "srm",
-                snes: "srm",
-                nds: "sav"
-            };
-
-            return map[window.EJS_core] || null;
-        }
-
     </script>
 
     <!-- ================================= -->
@@ -334,6 +312,7 @@
             window.EJS_disableHotkeys = true;
 
             const script = document.createElement("script");
+
             script.src = "data/loader.js";
             document.body.appendChild(script);
         }
