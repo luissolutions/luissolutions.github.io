@@ -77,9 +77,6 @@
         </section>
     </main>
 
-    <!-- ================================= -->
-    <!-- 🔥 FIREBASE CLOUD SYSTEM -->
-    <!-- ================================= -->
     <script type="module">
         import {
             auth,
@@ -126,17 +123,10 @@
 
             try {
                 // Upload save state
-                await uploadBytes(
-                    storageRef(
-                        storage,
-                        `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/states/state.auto`
-                    ),
-                    new Blob([bytes])
-                );
-
+                await uploadBytes(stateRef(), new Blob([bytes]));
                 console.log("Cloud state saved.");
 
-                // Upload controller settings
+                // Upload controls
                 await uploadControlsToCloud();
 
                 // Upload battery save
@@ -189,7 +179,7 @@
             console.log("Controls synced.");
         }
 
-        async function downloadControlsFromCloud() {
+        window.downloadControlsFromCloud = async function () {
             try {
                 const url = await getDownloadURL(controlsRef());
                 const text = await (await fetch(url)).text();
@@ -198,55 +188,101 @@
             } catch {
                 console.log("No cloud controls found.");
             }
-        }
-
-        window.downloadControlsFromCloud = downloadControlsFromCloud;
+        };
 
         /* =========================
-           BATTERY SAVE (.sav)
+           UNIVERSAL BATTERY SAVE
         ========================= */
 
         async function uploadBatterySave() {
-            const gm = window.EJS_emulator?.gameManager;
-            if (!gm?.getSave) return;
+            try {
+                const gm = window.EJS_emulator?.gameManager;
+                if (!gm) return;
 
-            const save = gm.getSave();
-            if (!save) return;
+                const ext = getBatteryExtension();
+                if (!ext) {
+                    console.log("Battery extension unknown for this core.");
+                    return;
+                }
 
-            const bytes = save instanceof Uint8Array
-                ? save
-                : new Uint8Array(save);
+                // Force SRAM flush
+                if (gm.save) gm.save();
 
-            await uploadBytes(
-                storageRef(
-                    storage,
-                    `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/battery.sav`
-                ),
-                new Blob([bytes])
-            );
+                await new Promise(r => setTimeout(r, 500));
 
-            console.log("Battery save uploaded.");
+                const request = indexedDB.open("EJS_DATABASE");
+
+                request.onsuccess = function (event) {
+                    const db = event.target.result;
+                    const tx = db.transaction("files", "readonly");
+                    const store = tx.objectStore("files");
+
+                    const key = `${window.EJS_gameName}.${ext}`;
+
+                    const getReq = store.get(key);
+
+                    getReq.onsuccess = async function () {
+                        const data = getReq.result;
+                        if (!data) {
+                            console.log("No battery file found:", key);
+                            return;
+                        }
+
+                        await uploadBytes(
+                            storageRef(
+                                storage,
+                                `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/${key}`
+                            ),
+                            new Blob([data])
+                        );
+
+                        console.log("Battery uploaded:", key);
+                    };
+                };
+
+            } catch (err) {
+                console.error("Battery upload failed:", err);
+            }
         }
+        /* =========================
+           RESTORE BATTERY SAVE
+        ========================= */
 
         window.downloadBatterySave = async function () {
             try {
+                const ext = getBatteryExtension();
+                if (!ext) return;
+
                 const ref = storageRef(
                     storage,
-                    `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/battery.sav`
+                    `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/${window.EJS_gameName}.${ext}`
                 );
 
                 const url = await getDownloadURL(ref);
                 const buffer = await (await fetch(url)).arrayBuffer();
                 const bytes = new Uint8Array(buffer);
 
-                // Inject before emulator boots
+                // Inject before boot
                 window.EJS_loadState = bytes;
 
-                console.log("Battery save restored.");
+                console.log("Battery restored:", ext);
+
             } catch {
-                console.log("No battery save found.");
+                console.log("No battery save found in cloud.");
             }
         };
+        function getBatteryExtension() {
+            const map = {
+                nes: "sav",
+                gb: "sav",
+                gba: "srm",
+                snes: "srm",
+                nds: "sav"
+            };
+
+            return map[window.EJS_core] || null;
+        }
+
     </script>
 
     <!-- ================================= -->
