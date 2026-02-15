@@ -53,7 +53,7 @@
 <body>
 
     <header>
-        <h1>Emulator w/Sav</h1>
+        <h1>Emulator w/ Cloud</h1>
 
         <section id="login-section">
             <form id="login-form">
@@ -94,119 +94,114 @@
         ========================= */
         window.authReady = new Promise((resolve) => {
             onAuthStateChanged(auth, async (user) => {
-                if (!user) {
-                    await signInAnonymously(auth);
-                }
+                if (!user) await signInAnonymously(auth);
                 resolve();
             });
         });
 
-        /* =========================
-           SRAM SAVE
-        ========================= */
-        window.EJS_onSaveSave = async function (...args) {
-            const user = auth.currentUser;
-            if (!user) return;
+        function normalizeStatePayload(e) {
+            // EmulatorJS doc says array [screenshot, state] :contentReference[oaicite:2]{index=2}
+            // Some integrations use object { screenshot, state } :contentReference[oaicite:3]{index=3}
+            if (!e) return { screenshot: null, state: null };
 
-            let data = args.length === 2 ? args[1] : args[0];
-            if (!data) return;
-            if (data?.data) data = data.data;
-
-            const saveName = `${window.EJS_gameName}.srm`;
-
-            const ref = storageRef(
-                storage,
-                `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/${saveName}`
-            );
-
-            await uploadBytes(ref, new Blob([data]));
-            console.log("SRAM saved:", saveName);
-        };
-
-        /* =========================
-           SRAM LOAD
-        ========================= */
-        window.EJS_onLoadSave = async function () {
-            const user = auth.currentUser;
-            if (!user) return null;
-
-            const saveName = `${window.EJS_gameName}.srm`;
-
-            try {
-                const ref = storageRef(
-                    storage,
-                    `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/${saveName}`
-                );
-
-                const url = await getDownloadURL(ref);
-                const buffer = await (await fetch(url)).arrayBuffer();
-                return buffer;
-            } catch {
-                return null;
-            }
-        };
-
-        /* =========================
-           SAVE STATE
-        ========================= */
-        window.EJS_onSaveState = async function (...args) {
-            const user = auth.currentUser;
-            if (!user) return;
-
-            let stateName = "state.auto";
-            let stateData;
-
-            // If emulator sends (name, data)
-            if (args.length === 2) {
-                stateName = args[0] || "state.auto";
-                stateData = args[1];
-            }
-            // If emulator sends just (data)
-            else {
-                stateData = args[0];
+            if (Array.isArray(e)) {
+                const screenshot = e[0] ?? null;
+                const state = e[1] ?? null;
+                return { screenshot, state };
             }
 
-            if (!stateData) return;
-            if (stateData?.data) stateData = stateData.data;
+            if (typeof e === "object") {
+                return {
+                    screenshot: e.screenshot ?? null,
+                    state: e.state ?? e.save ?? e.data ?? null
+                };
+            }
 
-            const ref = storageRef(
+            return { screenshot: null, state: null };
+        }
+
+        function toUint8Array(data) {
+            if (!data) return null;
+            if (data instanceof Uint8Array) return data;
+            if (data instanceof ArrayBuffer) return new Uint8Array(data);
+            if (data?.buffer instanceof ArrayBuffer) return new Uint8Array(data.buffer);
+            if (data?.data) return toUint8Array(data.data); // some wrappers
+            return null;
+        }
+
+        function stateRef(user, stateName = "state.auto") {
+            return storageRef(
                 storage,
                 `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/states/${stateName}`
             );
+        }
 
-            await uploadBytes(ref, new Blob([stateData]));
+        /* =========================
+           SAVE STATE (cloud)
+        ========================= */
+        window.EJS_onSaveState = async function (e) {
+            await window.authReady;
 
-            console.log("State saved:", stateName, "Size:", stateData.byteLength);
+            const user = auth.currentUser;
+            if (!user) return;
+
+            const { screenshot, state } = normalizeStatePayload(e);
+            const bytes = toUint8Array(state);
+            if (!bytes?.byteLength) {
+                console.warn("EJS_onSaveState: no state bytes received", e);
+                return;
+            }
+
+            // Keep it simple: always overwrite "state.auto"
+            const ref = stateRef(user, "state.auto");
+            await uploadBytes(ref, new Blob([bytes]));
+
+            // Optional: store screenshot too (handy for UI lists)
+            // screenshot is often a base64 image string or binary depending on build.
+            // Uncomment if you want it:
+            // if (screenshot) {
+            //   const sref = storageRef(
+            //     storage,
+            //     `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/states/state.auto.png`
+            //   );
+            //   const blob = typeof screenshot === "string"
+            //     ? await (await fetch(screenshot)).blob()
+            //     : new Blob([toUint8Array(screenshot)]);
+            //   await uploadBytes(sref, blob);
+            // }
+
+            console.log("Cloud state saved: state.auto", bytes.byteLength);
         };
 
         /* =========================
-           LOAD STATE
+           LOAD STATE (cloud + apply)
         ========================= */
-        window.EJS_onLoadState = async function (stateName) {
-            const user = auth.currentUser;
-            if (!user) return null;
+        window.EJS_onLoadState = async function () {
+            await window.authReady;
 
-            if (!stateName) stateName = "state.auto";
+            const user = auth.currentUser;
+            if (!user) return;
 
             try {
-                const ref = storageRef(
-                    storage,
-                    `${user.uid}/${window.EJS_core}/${window.EJS_gameName}/states/${stateName}`
-                );
-
+                const ref = stateRef(user, "state.auto");
                 const url = await getDownloadURL(ref);
                 const buffer = await (await fetch(url)).arrayBuffer();
+                const bytes = new Uint8Array(buffer);
 
-                console.log("State loaded:", stateName, "Size:", buffer.byteLength);
+                // IMPORTANT: EmulatorJS generally expects you to APPLY it yourself on load-button press.
+                // Many integrations do: window.EJS_emulator.gameManager.loadState(e) :contentReference[oaicite:4]{index=4}
+                const gm = window.EJS_emulator?.gameManager;
+                if (!gm?.loadState) {
+                    console.warn("EJS_emulator.gameManager.loadState not ready yet");
+                    return;
+                }
 
-                return buffer;
-
-            } catch {
-                console.log("No cloud state found");
-                return null;
+                gm.loadState(bytes);
+                console.log("Cloud state loaded & applied: state.auto", bytes.byteLength);
+            } catch (err) {
+                console.log("No cloud state found (state.auto)", err);
             }
         };
-
     </script>
 
     <!-- ================================= -->
