@@ -34,11 +34,6 @@
             color: #ddd;
         }
 
-        #display {
-            width: 100%;
-            height: 100%;
-        }
-
         #input {
             position: absolute;
             width: 30em;
@@ -48,7 +43,6 @@
             cursor: pointer;
         }
     </style>
-
 </head>
 
 <body>
@@ -58,17 +52,16 @@
 
         <section id="login-section">
             <form id="login-form">
-                <label for="username">Email:</label>
+                <label>Email:</label>
                 <input type="email" id="username" required>
                 <br>
-                <label for="password">Password:</label>
+                <label>Password:</label>
                 <input type="password" id="password" required>
                 <br>
                 <button type="submit">Sign in</button>
             </form>
             <button id="logout" style="display:none;">Logout</button>
         </section>
-
     </header>
 
     <main>
@@ -79,7 +72,6 @@
         </section>
 
         <section id="box">
-
             <input type="file" id="input">
             Drag ROM file or click here
         </section>
@@ -91,9 +83,7 @@
     <script type="module">
         import {
             auth,
-            getAuth,
             storage,
-            getBlob,
             storageRef,
             uploadBytes,
             getDownloadURL,
@@ -146,14 +136,16 @@
 
                 console.log("Cloud state saved.");
 
-                // 🔹 Upload controller settings at same time
+                // Upload controller settings
                 await uploadControlsToCloud();
+
+                // Upload battery save
+                await uploadBatterySave();
 
             } catch (err) {
                 console.error("Cloud save failed:", err);
             }
         };
-
 
         window.EJS_onLoadState = async function () {
             await window.authReady;
@@ -186,38 +178,23 @@
         }
 
         async function uploadControlsToCloud() {
-            await window.authReady;
-
-            const controlKey = `ejs-1-${window.EJS_core}-${window.EJS_gameName}-settings`;
-
-            const config = localStorage.getItem(controlKey);
+            const config = localStorage.getItem(getControlKey());
             if (!config) return;
 
-            try {
-                await uploadBytes(
-                    storageRef(
-                        storage,
-                        `${DATABASE_BASE_PATH}/controls/${window.EJS_core}/${window.EJS_gameName}.json`
-                    ),
-                    new Blob([config], { type: "application/json" })
-                );
+            await uploadBytes(
+                controlsRef(),
+                new Blob([config], { type: "application/json" })
+            );
 
-                console.log("Controls synced to cloud (on save state).");
-
-            } catch (err) {
-                console.error("Control upload failed:", err);
-            }
+            console.log("Controls synced.");
         }
 
         async function downloadControlsFromCloud() {
-            await window.authReady;
-
             try {
                 const url = await getDownloadURL(controlsRef());
                 const text = await (await fetch(url)).text();
-
                 localStorage.setItem(getControlKey(), text);
-                console.log("Controls restored from cloud.");
+                console.log("Controls restored.");
             } catch {
                 console.log("No cloud controls found.");
             }
@@ -225,7 +202,51 @@
 
         window.downloadControlsFromCloud = downloadControlsFromCloud;
 
+        /* =========================
+           BATTERY SAVE (.sav)
+        ========================= */
 
+        async function uploadBatterySave() {
+            const gm = window.EJS_emulator?.gameManager;
+            if (!gm?.getSave) return;
+
+            const save = gm.getSave();
+            if (!save) return;
+
+            const bytes = save instanceof Uint8Array
+                ? save
+                : new Uint8Array(save);
+
+            await uploadBytes(
+                storageRef(
+                    storage,
+                    `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/battery.sav`
+                ),
+                new Blob([bytes])
+            );
+
+            console.log("Battery save uploaded.");
+        }
+
+        window.downloadBatterySave = async function () {
+            try {
+                const ref = storageRef(
+                    storage,
+                    `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/battery.sav`
+                );
+
+                const url = await getDownloadURL(ref);
+                const buffer = await (await fetch(url)).arrayBuffer();
+                const bytes = new Uint8Array(buffer);
+
+                // Inject before emulator boots
+                window.EJS_loadState = bytes;
+
+                console.log("Battery save restored.");
+            } catch {
+                console.log("No battery save found.");
+            }
+        };
     </script>
 
     <!-- ================================= -->
@@ -260,15 +281,13 @@
                 }
             }
 
-            if (!core) {
-                alert("Unsupported file type");
-                return;
-            }
+            if (!core) return alert("Unsupported file type");
 
             window.EJS_core = core;
             window.EJS_gameName = gameName;
 
             await window.downloadControlsFromCloud();
+            await window.downloadBatterySave();
 
             box.innerHTML = "<div id='game'></div>";
 
