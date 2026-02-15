@@ -6,16 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script type="module" src="../../apps/assets/js/login.js" defer></script>
     <link rel="stylesheet" href="../../assets/css/app-styles.css" id="stylesheet">
-
     <style>
         body {
-            background: #333;
+            background: var(--backgroundColor);
         }
 
         #box {
+            margin: 0 auto;
             color: #aaa;
-            height: 20em;
-            width: 30em;
+            height: 30em;
+            width: 40em;
             max-width: 80%;
             max-height: 80%;
             background-color: #333;
@@ -48,6 +48,7 @@
             cursor: pointer;
         }
     </style>
+
 </head>
 
 <body>
@@ -70,9 +71,18 @@
 
     </header>
 
-    <main id="box">
-        <input type="file" id="input">
-        Drag ROM file or click here
+    <main>
+        <section style="margin-top:10px;">
+            <button id="download-save">Download Save</button>
+            <button id="upload-save">Load Save</button>
+            <input type="file" id="upload-input" accept=".sav,.state" style="display:none;">
+        </section>
+
+        <section id="box">
+
+            <input type="file" id="input">
+            Drag ROM file or click here
+        </section>
     </main>
 
     <!-- ================================= -->
@@ -85,120 +95,139 @@
             storageRef,
             uploadBytes,
             getDownloadURL,
-            signInAnonymously,
             onAuthStateChanged
         } from "../../assets/js/firebase-init.js";
 
         /* =========================
-           AUTH READY PROMISE
+           AUTH READY
         ========================= */
+
         let DATABASE_BASE_PATH = "public";
 
         window.authReady = new Promise((resolve) => {
             onAuthStateChanged(auth, (user) => {
-                DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
+                DATABASE_BASE_PATH = user ? user.uid : "public";
                 resolve();
             });
         });
 
-        window.getBasePath = () => DATABASE_BASE_PATH;
-
         /* =========================
-           HELPERS
+           SAVE STATE (CLOUD)
         ========================= */
 
-        function normalizeStatePayload(e) {
-            if (!e) return { screenshot: null, state: null };
-
-            if (Array.isArray(e)) {
-                return {
-                    screenshot: e[0] ?? null,
-                    state: e[1] ?? null
-                };
-            }
-
-            if (typeof e === "object") {
-                return {
-                    screenshot: e.screenshot ?? null,
-                    state: e.state ?? e.save ?? e.data ?? null
-                };
-            }
-
-            return { screenshot: null, state: null };
-        }
-
-        function toUint8Array(data) {
-            if (!data) return null;
-            if (data instanceof Uint8Array) return data;
-            if (data instanceof ArrayBuffer) return new Uint8Array(data);
-            if (data?.buffer instanceof ArrayBuffer) return new Uint8Array(data.buffer);
-            if (data?.data) return toUint8Array(data.data);
-            return null;
-        }
-
-        function stateRef(stateName = "state.auto") {
+        function stateRef() {
             return storageRef(
                 storage,
-                `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/states/${stateName}`
+                `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/states/state.auto`
             );
         }
-
-        /* =========================
-           SAVE STATE (Cloud)
-        ========================= */
 
         window.EJS_onSaveState = async function (e) {
             await window.authReady;
 
-            const { state } = normalizeStatePayload(e);
-            const bytes = toUint8Array(state);
+            const state = Array.isArray(e) ? e[1] : e?.state;
+            if (!state) return;
 
-            if (!bytes?.byteLength) {
-                console.warn("No state bytes received", e);
-                return;
-            }
+            const bytes = state instanceof Uint8Array
+                ? state
+                : new Uint8Array(state);
 
             try {
-                const ref = stateRef("state.auto");
-                await uploadBytes(ref, new Blob([bytes]));
-                console.log("Cloud state saved:", DATABASE_BASE_PATH, bytes.byteLength, "bytes");
+                // Upload save state
+                await uploadBytes(
+                    storageRef(
+                        storage,
+                        `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/states/state.auto`
+                    ),
+                    new Blob([bytes])
+                );
+
+                console.log("Cloud state saved.");
+
+                // 🔹 Upload controller settings at same time
+                await uploadControlsToCloud();
+
             } catch (err) {
                 console.error("Cloud save failed:", err);
             }
         };
 
-        /* =========================
-           LOAD STATE (Cloud)
-        ========================= */
 
         window.EJS_onLoadState = async function () {
             await window.authReady;
 
             try {
-                const ref = stateRef("state.auto");
-                const url = await getDownloadURL(ref);
+                const url = await getDownloadURL(stateRef());
                 const buffer = await (await fetch(url)).arrayBuffer();
                 const bytes = new Uint8Array(buffer);
 
-                const gm = window.EJS_emulator?.gameManager;
-
-                if (!gm?.loadState) {
-                    console.warn("Emulator not ready yet.");
-                    return;
-                }
-
-                gm.loadState(bytes);
-                console.log("Cloud state loaded from:", DATABASE_BASE_PATH);
-
-            } catch (err) {
-                console.log("No cloud state found.");
+                window.EJS_emulator?.gameManager?.loadState(bytes);
+                console.log("Cloud state loaded.");
+            } catch {
+                console.log("No cloud save found.");
             }
         };
+
+        /* =========================
+           CONTROLLER SYNC
+        ========================= */
+
+        function getControlKey() {
+            return `ejs-1-${window.EJS_core}-${window.EJS_gameName}-settings`;
+        }
+
+        function controlsRef() {
+            return storageRef(
+                storage,
+                `${DATABASE_BASE_PATH}/controls/${window.EJS_core}/${window.EJS_gameName}.json`
+            );
+        }
+
+        async function uploadControlsToCloud() {
+            await window.authReady;
+
+            const controlKey = `ejs-1-${window.EJS_core}-${window.EJS_gameName}-settings`;
+
+            const config = localStorage.getItem(controlKey);
+            if (!config) return;
+
+            try {
+                await uploadBytes(
+                    storageRef(
+                        storage,
+                        `${DATABASE_BASE_PATH}/controls/${window.EJS_core}/${window.EJS_gameName}.json`
+                    ),
+                    new Blob([config], { type: "application/json" })
+                );
+
+                console.log("Controls synced to cloud (on save state).");
+
+            } catch (err) {
+                console.error("Control upload failed:", err);
+            }
+        }
+
+        async function downloadControlsFromCloud() {
+            await window.authReady;
+
+            try {
+                const url = await getDownloadURL(controlsRef());
+                const text = await (await fetch(url)).text();
+
+                localStorage.setItem(getControlKey(), text);
+                console.log("Controls restored from cloud.");
+            } catch {
+                console.log("No cloud controls found.");
+            }
+        }
+
+        window.downloadControlsFromCloud = downloadControlsFromCloud;
+
 
     </script>
 
     <!-- ================================= -->
-    <!-- 🎮 EMULATOR LOGIC -->
+    <!-- 🎮 EMULATOR + LOCAL SAVE -->
     <!-- ================================= -->
     <script>
         const input = document.getElementById("input");
@@ -206,7 +235,6 @@
 
         async function run(file) {
 
-            // WAIT FOR AUTH
             await window.authReady;
 
             const parts = file.name.split(".");
@@ -235,12 +263,15 @@
                 return;
             }
 
-            box.innerHTML = "<div id='display'><div id='game'></div></div>";
+            window.EJS_core = core;
+            window.EJS_gameName = gameName;
+
+            await window.downloadControlsFromCloud();
+
+            box.innerHTML = "<div id='game'></div>";
 
             window.EJS_player = "#game";
-            window.EJS_gameName = gameName;
             window.EJS_gameUrl = file;
-            window.EJS_core = core;
             window.EJS_pathtodata = "data/";
             window.EJS_startOnLoaded = true;
 
@@ -250,6 +281,41 @@
         }
 
         input.onchange = e => run(e.target.files[0]);
+
+        /* =========================
+           LOCAL SAVE EXPORT
+        ========================= */
+
+        const downloadBtn = document.getElementById("download-save");
+        const uploadBtn = document.getElementById("upload-save");
+        const uploadInput = document.getElementById("upload-input");
+
+        downloadBtn.onclick = () => {
+            const gm = window.EJS_emulator?.gameManager;
+            const state = gm?.getState?.() || gm?.saveState?.();
+            if (!state) return alert("No save available.");
+
+            const blob = new Blob([new Uint8Array(state)]);
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${window.EJS_gameName || "save"}.state`;
+            a.click();
+
+            URL.revokeObjectURL(url);
+        };
+
+        uploadBtn.onclick = () => uploadInput.click();
+
+        uploadInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const buffer = await file.arrayBuffer();
+            window.EJS_emulator?.gameManager?.loadState(new Uint8Array(buffer));
+            alert("Local save loaded!");
+        };
     </script>
 
 </body>
