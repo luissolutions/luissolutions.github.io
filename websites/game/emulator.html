@@ -37,7 +37,6 @@
             opacity: 0;
             cursor: pointer;
         }
-
     </style>
 </head>
 
@@ -90,12 +89,13 @@
         /* ================= AUTH ================= */
 
         let DATABASE_BASE_PATH = "public";
+        let CLOUD_BATTERY = null;
 
         onAuthStateChanged(auth, user => {
             DATABASE_BASE_PATH = user ? user.uid : "public";
         });
 
-        /* ================= UTILITIES ================= */
+        /* ================= PATH HELPERS ================= */
 
         function getBatteryExtension() {
             const map = {
@@ -111,11 +111,26 @@
         function getBatteryPath() {
             const ext = getBatteryExtension();
             if (!ext) return null;
-            return `${DATABASE_BASE_PATH}/battery/${window.EJS_core}/${window.EJS_gameName}.${ext}`;
+            return `${DATABASE_BASE_PATH}/emu/battery/${window.EJS_core}/${window.EJS_gameName}.${ext}`;
         }
 
         function getStatePath() {
-            return `${DATABASE_BASE_PATH}/states/${window.EJS_core}/${window.EJS_gameName}.state`;
+            return `${DATABASE_BASE_PATH}/emu/states/${window.EJS_core}/${window.EJS_gameName}.state`;
+        }
+
+        /* ================= DOWNLOAD BATTERY BEFORE START ================= */
+
+        async function fetchCloudBattery() {
+            try {
+                const bytes = await getBytes(
+                    storageRef(storage, getBatteryPath())
+                );
+                CLOUD_BATTERY = new Uint8Array(bytes);
+                console.log("Cloud battery downloaded.");
+            } catch {
+                CLOUD_BATTERY = null;
+                console.log("No cloud battery found.");
+            }
         }
 
         /* ================= EMULATOR START ================= */
@@ -153,6 +168,9 @@
             window.EJS_core = core;
             window.EJS_gameName = gameName;
 
+            // Fetch cloud battery before boot
+            await fetchCloudBattery();
+
             box.innerHTML = "<div id='game'></div>";
 
             window.EJS_player = "#game";
@@ -163,49 +181,33 @@
             const script = document.createElement("script");
             script.src = "data/loader.js";
             document.body.appendChild(script);
-
-            /* ===== AUTO LOAD BATTERY WHEN READY ===== */
-
-            window.EJS_ready = async () => {
-                try {
-                    const bytes = await getBytes(
-                        storageRef(storage, getBatteryPath())
-                    );
-
-                    window.EJS_emulator?.gameManager?.loadSaveData(
-                        new Uint8Array(bytes)
-                    );
-
-                    console.log("Cloud battery auto-loaded.");
-                } catch {
-                    console.log("No cloud battery found.");
-                }
-            };
         }
 
-        /* ================= MANUAL BATTERY UPLOAD ================= */
+        /* ================= INJECT BATTERY ================= */
 
-        document.getElementById("upload-battery").onclick = async () => {
+        window.EJS_onLoadSave = function () {
+            return CLOUD_BATTERY || null;
+        };
 
-            if (!window.EJS_core) return alert("Load a game first.");
+        /* ================= AUTO UPLOAD BATTERY ================= */
 
-            const gm = window.EJS_emulator?.gameManager;
-            const save = gm?.getSaveData?.();
+        window.EJS_onSaveSave = async function (data) {
 
-            if (!save) return alert("No battery data available.");
+            if (!data || data.byteLength === 0) return;
 
             try {
                 await uploadBytes(
                     storageRef(storage, getBatteryPath()),
-                    new Blob([new Uint8Array(save)])
+                    new Blob([data])
                 );
-                alert("Battery uploaded.");
-            } catch {
-                alert("Battery upload failed.");
+
+                console.log("Battery auto-synced to cloud.");
+            } catch (err) {
+                console.error("Battery upload failed:", err);
             }
         };
 
-        /* ================= CLOUD STATE APPLY ================= */
+        /* ================= LOAD CLOUD STATE BUTTON ================= */
 
         document.getElementById("download-state").onclick = async () => {
 
@@ -237,15 +239,6 @@
 
             try {
 
-                // Upload battery
-                const save = gm?.getSaveData?.();
-                if (save) {
-                    await uploadBytes(
-                        storageRef(storage, getBatteryPath()),
-                        new Blob([new Uint8Array(save)])
-                    );
-                }
-
                 // Upload save state
                 const state = gm?.getState?.();
                 if (state) {
@@ -261,10 +254,8 @@
                 alert("Cloud sync failed.");
             }
 
-            // Destroy emulator
             window.EJS_emulator?.destroy?.();
 
-            // Reset UI
             box.innerHTML = `
         <input type="file" id="input">
         Drag ROM file or click here
