@@ -67,11 +67,11 @@
 
     <main>
 
-        <section>
-            <button id="download-state">Download Local State</button>
-            <button id="upload-state">Load Local State</button>
-            <button id="download-battery">Download Cloud Battery</button>
-            <input type="file" id="upload-input" accept=".sav,.state" hidden>
+        <section class="controls">
+            <button id="upload-battery">Upload Battery</button>
+            <button id="download-battery">Download Battery</button>
+            <button id="upload-state">Upload Save State</button>
+            <button id="download-state">Download Save State</button>
         </section>
 
         <section id="box">
@@ -82,69 +82,25 @@
     </main>
 
     <script type="module">
+
         import {
             auth,
-            getBytes,
             storage,
             storageRef,
             uploadBytes,
+            getBytes,
             onAuthStateChanged
         } from "../../assets/js/firebase-init.js";
 
-        /* =========================
-           AUTH
-        ========================= */
+        /* ================= AUTH ================= */
 
         let DATABASE_BASE_PATH = "public";
 
-        window.authReady = new Promise(resolve => {
-            onAuthStateChanged(auth, user => {
-                DATABASE_BASE_PATH = user ? user.uid : "public";
-                resolve();
-            });
+        onAuthStateChanged(auth, user => {
+            DATABASE_BASE_PATH = user ? user.uid : "public";
         });
 
-        /* =========================
-           CONTROL SYNC
-        ========================= */
-
-        function getControlKey() {
-            return `ejs-1-${window.EJS_core}-${window.EJS_gameName}-settings`;
-        }
-
-        window.EJS_onSaveUpdate = async () => {
-            const config = localStorage.getItem(getControlKey());
-            if (!config) return;
-
-            const path =
-                `${DATABASE_BASE_PATH}/controls/${window.EJS_core}/${window.EJS_gameName}.json`;
-
-            await uploadBytes(
-                storageRef(storage, path),
-                new Blob([config], { type: "application/json" })
-            );
-
-            console.log("Controls synced.");
-        };
-
-        window.downloadControlsFromCloud = async () => {
-            try {
-                const path =
-                    `${DATABASE_BASE_PATH}/controls/${window.EJS_core}/${window.EJS_gameName}.json`;
-
-                const bytes = await getBytes(storageRef(storage, path));
-                const text = new TextDecoder().decode(bytes);
-
-                localStorage.setItem(getControlKey(), text);
-                console.log("Controls restored.");
-            } catch {
-                console.log("No cloud controls found.");
-            }
-        };
-
-        /* =========================
-           BATTERY
-        ========================= */
+        /* ================= UTILITIES ================= */
 
         function getBatteryExtension() {
             const map = {
@@ -157,55 +113,24 @@
             return map[window.EJS_core] || null;
         }
 
-        let CLOUD_BATTERY = null;
-
-        window.downloadBatterySave = async () => {
-            try {
-                const ext = getBatteryExtension();
-                if (!ext) return;
-
-                const path =
-                    `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/${window.EJS_gameName}.${ext}`;
-
-                const bytes = await getBytes(storageRef(storage, path));
-                CLOUD_BATTERY = new Uint8Array(bytes);
-
-                console.log("Battery downloaded.");
-            } catch {
-                CLOUD_BATTERY = null;
-                console.log("No battery save found.");
-            }
-        };
-
-        window.EJS_onLoadSave = () => {
-            return CLOUD_BATTERY || null;
-        };
-
-        window.EJS_onSaveSave = async (data) => {
-            if (!data) return;
-
-            await window.authReady;
-
+        function getBatteryPath() {
             const ext = getBatteryExtension();
-            if (!ext) return;
+            if (!ext) return null;
+            return `${DATABASE_BASE_PATH}/battery/${window.EJS_core}/${window.EJS_gameName}.${ext}`;
+        }
 
-            const path =
-                `${DATABASE_BASE_PATH}/${window.EJS_core}/${window.EJS_gameName}/${window.EJS_gameName}.${ext}`;
+        function getStatePath() {
+            return `${DATABASE_BASE_PATH}/states/${window.EJS_core}/${window.EJS_gameName}.state`;
+        }
 
-            await uploadBytes(storageRef(storage, path), new Blob([data]));
-            console.log("Battery uploaded.");
-        };
-
-        /* =========================
-           RUN GAME
-        ========================= */
+        /* ================= EMULATOR START ================= */
 
         const input = document.getElementById("input");
         const box = document.getElementById("box");
 
-        async function run(file) {
+        input.onchange = e => run(e.target.files[0]);
 
-            await window.authReady;
+        async function run(file) {
 
             const parts = file.name.split(".");
             const ext = parts.pop().toLowerCase();
@@ -233,10 +158,6 @@
             window.EJS_core = core;
             window.EJS_gameName = gameName;
 
-            // 🔥 DO NOT BLOCK GAME LOAD
-            window.downloadControlsFromCloud().catch(() => { });
-            window.downloadBatterySave().catch(() => { });
-
             box.innerHTML = "<div id='game'></div>";
 
             window.EJS_player = "#game";
@@ -249,53 +170,88 @@
             document.body.appendChild(script);
         }
 
-        input.onchange = e => run(e.target.files[0]);
+        /* ================= MANUAL BATTERY ================= */
 
-        /* =========================
-           LOCAL STATE BUTTONS
-        ========================= */
+        document.getElementById("upload-battery").onclick = async () => {
 
-        document.getElementById("download-state").onclick = () => {
+            if (!window.EJS_core) return alert("Load a game first.");
+
             const gm = window.EJS_emulator?.gameManager;
-            const state = gm?.getState?.();
-            if (!state) return alert("No save available.");
+            const save = gm?.getSaveData?.();
 
-            const blob = new Blob([new Uint8Array(state)]);
-            const url = URL.createObjectURL(blob);
+            if (!save) return alert("No battery data available.");
 
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${window.EJS_gameName || "save"}.state`;
-            a.click();
-
-            URL.revokeObjectURL(url);
-        };
-
-        document.getElementById("upload-state").onclick = () =>
-            document.getElementById("upload-input").click();
-
-        document.getElementById("upload-input").onchange = async e => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const buffer = await file.arrayBuffer();
-            window.EJS_emulator?.gameManager?.loadState(new Uint8Array(buffer));
-            alert("State loaded!");
+            try {
+                await uploadBytes(
+                    storageRef(storage, getBatteryPath()),
+                    new Blob([new Uint8Array(save)])
+                );
+                alert("Battery uploaded.");
+            } catch {
+                alert("Battery upload failed.");
+            }
         };
 
         document.getElementById("download-battery").onclick = async () => {
-            await window.downloadBatterySave();
-            if (!CLOUD_BATTERY) return alert("No cloud battery found.");
 
-            const blob = new Blob([CLOUD_BATTERY]);
-            const url = URL.createObjectURL(blob);
+            if (!window.EJS_core) return alert("Load a game first.");
 
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${window.EJS_gameName}.${getBatteryExtension()}`;
-            a.click();
+            try {
+                const bytes = await getBytes(
+                    storageRef(storage, getBatteryPath())
+                );
 
-            URL.revokeObjectURL(url);
+                window.EJS_emulator?.gameManager?.loadSaveData?.(
+                    new Uint8Array(bytes)
+                );
+
+                alert("Battery loaded into emulator.");
+
+            } catch {
+                alert("No battery found in cloud.");
+            }
+        };
+
+        /* ================= MANUAL SAVE STATE ================= */
+
+        document.getElementById("upload-state").onclick = async () => {
+
+            if (!window.EJS_core) return alert("Load a game first.");
+
+            const gm = window.EJS_emulator?.gameManager;
+            const state = gm?.getState?.();
+
+            if (!state) return alert("No save state available.");
+
+            try {
+                await uploadBytes(
+                    storageRef(storage, getStatePath()),
+                    new Blob([new Uint8Array(state)])
+                );
+                alert("Save state uploaded.");
+            } catch {
+                alert("Upload failed.");
+            }
+        };
+
+        document.getElementById("download-state").onclick = async () => {
+
+            if (!window.EJS_core) return alert("Load a game first.");
+
+            try {
+                const bytes = await getBytes(
+                    storageRef(storage, getStatePath())
+                );
+
+                window.EJS_emulator?.gameManager?.loadState(
+                    new Uint8Array(bytes)
+                );
+
+                alert("Save state loaded.");
+
+            } catch {
+                alert("No cloud save state found.");
+            }
         };
 
     </script>
