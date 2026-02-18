@@ -4,7 +4,7 @@
 <head>
     <title>EmulatorJS + Cloud Sync</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
     <script type="module" src="../../apps/assets/js/login.js" defer></script>
     <link rel="stylesheet" href="../../assets/css/app-styles.css">
 
@@ -89,11 +89,20 @@
         /* ================= AUTH ================= */
 
         let DATABASE_BASE_PATH = "public";
-        let CLOUD_BATTERY = null;
+        let authResolved = false;
 
-        onAuthStateChanged(auth, user => {
-            DATABASE_BASE_PATH = user ? user.uid : "public";
-        });
+        function waitForAuth() {
+            return new Promise(resolve => {
+                if (authResolved) return resolve();
+
+                const unsub = onAuthStateChanged(auth, user => {
+                    DATABASE_BASE_PATH = user ? user.uid : "public";
+                    authResolved = true;
+                    unsub();
+                    resolve();
+                });
+            });
+        }
 
         /* ================= PATH HELPERS ================= */
 
@@ -110,21 +119,28 @@
 
         function getBatteryPath() {
             const ext = getBatteryExtension();
-            if (!ext) return null;
+            if (!ext || !window.EJS_gameName) return null;
             return `${DATABASE_BASE_PATH}/emu/battery/${window.EJS_core}/${window.EJS_gameName}.${ext}`;
         }
 
         function getStatePath() {
+            if (!window.EJS_core || !window.EJS_gameName) return null;
             return `${DATABASE_BASE_PATH}/emu/states/${window.EJS_core}/${window.EJS_gameName}.state`;
         }
 
-        /* ================= DOWNLOAD BATTERY BEFORE START ================= */
+        /* ================= CLOUD BATTERY ================= */
+
+        let CLOUD_BATTERY = null;
 
         async function fetchCloudBattery() {
+            const path = getBatteryPath();
+            if (!path) {
+                CLOUD_BATTERY = null;
+                return;
+            }
+
             try {
-                const bytes = await getBytes(
-                    storageRef(storage, getBatteryPath())
-                );
+                const bytes = await getBytes(storageRef(storage, path));
                 CLOUD_BATTERY = new Uint8Array(bytes);
                 console.log("Cloud battery downloaded.");
             } catch {
@@ -133,14 +149,18 @@
             }
         }
 
-        /* ================= EMULATOR START ================= */
+        /* ================= EMULATOR BOOT ================= */
 
         const input = document.getElementById("input");
         const box = document.getElementById("box");
 
-        input.onchange = e => run(e.target.files[0]);
+        input.onchange = e => {
+            if (e.target.files?.[0]) run(e.target.files[0]);
+        };
 
         async function run(file) {
+
+            await waitForAuth(); // ensure correct user path
 
             const parts = file.name.split(".");
             const ext = parts.pop().toLowerCase();
@@ -163,12 +183,14 @@
                 }
             }
 
-            if (!core) return alert("Unsupported file type");
+            if (!core) {
+                alert("Unsupported file type");
+                return;
+            }
 
             window.EJS_core = core;
             window.EJS_gameName = gameName;
 
-            // Fetch cloud battery before boot
             await fetchCloudBattery();
 
             box.innerHTML = "<div id='game'></div>";
@@ -189,40 +211,57 @@
             return CLOUD_BATTERY || null;
         };
 
-        /* ================= AUTO UPLOAD BATTERY ================= */
+        /* ================= DEBOUNCED BATTERY AUTO-SYNC ================= */
 
-        window.EJS_onSaveSave = async function (data) {
+        let saveTimeout = null;
+
+        window.EJS_onSaveSave = function (data) {
 
             if (!data || data.byteLength === 0) return;
 
-            try {
-                await uploadBytes(
-                    storageRef(storage, getBatteryPath()),
-                    new Blob([data])
-                );
+            const path = getBatteryPath();
+            if (!path) return;
 
-                console.log("Battery auto-synced to cloud.");
-            } catch (err) {
-                console.error("Battery upload failed:", err);
-            }
+            clearTimeout(saveTimeout);
+
+            saveTimeout = setTimeout(async () => {
+                try {
+                    await uploadBytes(
+                        storageRef(storage, path),
+                        new Blob([data]),
+                        { contentType: "application/octet-stream" }
+                    );
+                    console.log("Battery auto-synced.");
+                } catch (err) {
+                    console.error("Battery upload failed:", err);
+                }
+            }, 1000);
         };
 
-        /* ================= LOAD CLOUD STATE BUTTON ================= */
+        /* ================= LOAD CLOUD STATE ================= */
 
         document.getElementById("download-state").onclick = async () => {
 
-            if (!window.EJS_core) return alert("Load a game first.");
+            if (!window.EJS_core) {
+                alert("Load a game first.");
+                return;
+            }
+
+            const path = getStatePath();
+            if (!path) return;
 
             try {
-                const bytes = await getBytes(
-                    storageRef(storage, getStatePath())
-                );
+                const bytes = await getBytes(storageRef(storage, path));
 
-                window.EJS_emulator?.gameManager?.loadState(
-                    new Uint8Array(bytes)
-                );
-
-                alert("Cloud save state loaded.");
+                try {
+                    window.EJS_emulator?.gameManager?.loadState(
+                        new Uint8Array(bytes)
+                    );
+                    alert("Cloud save state loaded.");
+                } catch (err) {
+                    console.error(err);
+                    alert("State file corrupted.");
+                }
 
             } catch {
                 alert("No cloud save state found.");
@@ -233,39 +272,45 @@
 
         document.getElementById("save-quit").onclick = async () => {
 
-            if (!window.EJS_core) return alert("No game loaded.");
+            if (!window.EJS_core) {
+                alert("No game loaded.");
+                return;
+            }
 
             const gm = window.EJS_emulator?.gameManager;
+            const path = getStatePath();
 
             try {
 
-                // Upload save state
-                const state = gm?.getState?.();
-                if (state) {
-                    await uploadBytes(
-                        storageRef(storage, getStatePath()),
-                        new Blob([new Uint8Array(state)])
-                    );
+                if (gm?.getState && path) {
+                    const state = gm.getState();
+                    if (state) {
+                        await uploadBytes(
+                            storageRef(storage, path),
+                            new Blob([new Uint8Array(state)]),
+                            { contentType: "application/octet-stream" }
+                        );
+                    }
                 }
 
                 alert("Game synced to cloud.");
 
-            } catch {
+            } catch (err) {
+                console.error(err);
                 alert("Cloud sync failed.");
             }
 
+            // Clean shutdown
             window.EJS_emulator?.destroy?.();
 
-            box.innerHTML = `
-        <input type="file" id="input">
-        Drag ROM file or click here
-    `;
-
-            document.getElementById("input").onchange =
-                e => run(e.target.files[0]);
-
+            // Reset UI safely
+            CLOUD_BATTERY = null;
             window.EJS_core = null;
             window.EJS_gameName = null;
+
+            box.innerHTML = "Drag ROM file or click here";
+            box.appendChild(input);
+            input.value = "";
         };
 
     </script>
