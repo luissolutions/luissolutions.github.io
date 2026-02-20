@@ -650,6 +650,9 @@
         const applyMarkupButton = document.createElement("button");
         applyMarkupButton.textContent = "Apply Markup";
         document.getElementById("modalContent").append(editMarkupInput, applyMarkupButton);
+        const removeMarkupButton = document.createElement("button");
+        removeMarkupButton.textContent = "Remove Markup";
+        document.getElementById("modalContent").append(removeMarkupButton);
 
         applyMarkupButton.onclick = async () => {
             const text = editMarkupInput.value.trim();
@@ -668,6 +671,75 @@
             }
         };
 
+        removeMarkupButton.onclick = async () => {
+
+            if (!modal.dataset.fullPath) {
+                alert("No image selected.");
+                return;
+            }
+
+            if (!confirm("Remove markup from this image?")) return;
+
+            showLoading("Removing markup...");
+
+            try {
+                const imageRef = storageRef(storage, modal.dataset.fullPath);
+                const blob = await getBlob(imageRef);
+
+                const reader = new FileReader();
+                reader.onload = async () => {
+                    const img = new Image();
+                    img.src = reader.result;
+
+                    img.onload = async () => {
+
+                        // 🔥 SAME FORMULA used in markup
+                        const barHeight = Math.floor(img.width * 0.12);
+
+                        // Safety check
+                        if (img.height <= barHeight) {
+                            alert("Image too small to remove markup.");
+                            hideLoading();
+                            return;
+                        }
+
+                        const canvas = document.createElement("canvas");
+                        canvas.width = img.width;
+                        canvas.height = img.height - barHeight;
+
+                        const ctx = canvas.getContext("2d");
+
+                        // Crop bottom portion off
+                        ctx.drawImage(
+                            img,
+                            0,
+                            0,
+                            img.width,
+                            img.height - barHeight,
+                            0,
+                            0,
+                            img.width,
+                            img.height - barHeight
+                        );
+
+                        canvas.toBlob(async (croppedBlob) => {
+                            await uploadBytes(imageRef, croppedBlob);
+
+                            modal.style.display = "none";
+                            await loadImages(folderDropdown.value);
+                            hideLoading();
+                        }, "image/jpeg", 0.95);
+                    };
+                };
+
+                reader.readAsDataURL(blob);
+
+            } catch (err) {
+                console.error("Remove markup failed:", err);
+                alert("Failed to remove markup.");
+                hideLoading();
+            }
+        };
     </script>
 </body>
 
