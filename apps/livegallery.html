@@ -370,27 +370,38 @@
                 reader.onload = () => {
                     const img = new Image();
                     img.src = reader.result;
+
                     img.onload = () => {
-                        const canvas = document.createElement('canvas');
-                        const ctx = canvas.getContext('2d');
 
+                        const barHeight = Math.floor(img.width * 0.12);
+                        const fontSize = Math.floor(img.width / 18);
+
+                        const canvas = document.createElement("canvas");
                         canvas.width = img.width;
-                        canvas.height = img.height;
+                        canvas.height = img.height + barHeight;
 
+                        const ctx = canvas.getContext("2d");
+
+                        // Draw original image
                         ctx.drawImage(img, 0, 0);
 
-                        const fontSize = Math.floor(img.width / 15);
-                        const padding = 40;
+                        // Black bar below image
+                        ctx.fillStyle = "black";
+                        ctx.fillRect(0, img.height, img.width, barHeight);
 
-                        ctx.fillStyle = "rgba(0,0,0,0.6)";
-                        ctx.fillRect(0, img.height - fontSize - padding, img.width, fontSize + padding);
-
+                        // White centered text
                         ctx.fillStyle = "white";
                         ctx.font = `${fontSize}px Arial`;
                         ctx.textAlign = "center";
-                        ctx.fillText(text, img.width / 2, img.height - 20);
+                        ctx.textBaseline = "middle";
 
-                        canvas.toBlob(resolve, "image/jpeg", 0.9);
+                        ctx.fillText(
+                            text,
+                            img.width / 2,
+                            img.height + barHeight / 2
+                        );
+
+                        canvas.toBlob(resolve, "image/jpeg", 0.95);
                     };
                 };
                 reader.readAsDataURL(blob);
@@ -400,22 +411,34 @@
         /* ===============================
            UPLOAD IMAGE
         ================================ */
-        uploadButton.addEventListener('click', async () => {
+        uploadButton.addEventListener("click", async () => {
+
             const files = fileUploader.files;
             if (!files.length) return alert("Select an image.");
 
             showLoading("Uploading image...");
+
             try {
                 const file = files[0];
-                const folder = sanitizeInput(imageLabel.value) || "default";
-                let imageName = sanitizeInput(imageNameInput.value) || file.name.split('.').slice(0, -1).join('_');
+
+                // 🔥 PRIORITY LOGIC
+                const typedFolder = sanitizeInput(imageLabel.value);
+                const selectedFolder = folderDropdown.value;
+
+                const folder = typedFolder || selectedFolder || "default";
+
+                let imageName = sanitizeInput(imageNameInput.value) ||
+                    file.name.split('.').slice(0, -1).join('_');
+
                 const markupText = markupTextInput.value.trim();
                 const fileExtension = file.name.split('.').pop();
 
                 let finalFileName = `${imageName}.${fileExtension}`;
                 const folderPath = `${DATABASE_BASE_PATH}/tasks/images/${folder}`;
+
                 const existingFiles = await listAll(storageRef(storage, folderPath));
                 const existingNames = new Set(existingFiles.items.map(i => i.name));
+
                 let counter = 1;
                 while (existingNames.has(finalFileName)) {
                     finalFileName = `${imageName}_${counter++}.${fileExtension}`;
@@ -424,10 +447,19 @@
                 let blob = await resizeImage(file, 2048);
                 if (markupText) blob = await addTextToImage(blob, markupText);
 
-                await uploadBytes(storageRef(storage, `${folderPath}/${finalFileName}`), blob);
+                await uploadBytes(
+                    storageRef(storage, `${folderPath}/${finalFileName}`),
+                    blob
+                );
 
-                alert("Uploaded successfully!");
-                loadFolderOptions();
+                alert(`Uploaded to folder: ${folder}`);
+
+                // 🔥 AUTO NAVIGATE TO THAT FOLDER
+                await loadFolderOptions();
+
+                folderDropdown.value = folder;
+                await loadImages(folder);
+
             } catch (err) {
                 console.error(err);
                 alert("Upload failed.");
@@ -436,6 +468,7 @@
                 fileUploader.value = "";
                 imageNameInput.value = "";
                 markupTextInput.value = "";
+                imageLabel.value = "";
             }
         });
 
@@ -470,14 +503,22 @@
         /* ===============================
            LOAD IMAGES
         ================================ */
-        folderDropdown.addEventListener('change', async () => {
-            if (!folderDropdown.value) return;
+        folderDropdown.addEventListener("change", async () => {
+            const selected = folderDropdown.value;
+            if (!selected) return;
+
             showLoading("Loading images...");
-            await loadImages(folderDropdown.value);
+
+            // Make sure dropdown truly holds value
+            folderDropdown.value = selected;
+
+            await loadImages(selected);
+
             hideLoading();
         });
 
         async function loadImages(folder) {
+            folderDropdown.value = folder;
             gallery.innerHTML = '';
             currentImages = [];
 
