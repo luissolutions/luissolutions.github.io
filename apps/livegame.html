@@ -34,7 +34,7 @@
 
         </section>
     </header>
-
+    <br>
     <div class="panel">
         <span class="hint" id="authHint"></span>
         Coins: <span id="coins">0</span> |
@@ -87,19 +87,14 @@
     <div id="shop" class="panel mode">
         <h3>Shop (Inventory Driven)</h3>
         <div id="shopPanel"></div>
-        <div class="hint">
-            Shop pulls from <span class="mono">ledgerTx</span> under your base path and filters:
-            <span class="mono">type="expense"</span> and tag <span class="mono">"inv"</span>.
-        </div>
     </div>
 
     <script type="module">
         import {
-            auth, onAuthStateChanged,
-            database, ref, onValue, set,
-            storage, storageRef, uploadBytes, getDownloadURL, deleteObject,
-            remove,
+            auth, onAuthStateChanged, database, ref, onValue, set,
+            storage, storageRef, uploadBytes, getDownloadURL, deleteObject, remove,
         } from '../assets/js/firebase-init.js';
+        import { createQuizModule } from './assets/js/livegame.js';
 
         /* ================= BASE ================= */
 
@@ -110,7 +105,7 @@
             xp: 0,
             level: 1,
             roomItems: {},
-            player: { x: 5, y: 5, dir: 'down' }
+            player: { x: 7, y: 10, dir: 'down' }
         };
 
         const TILE = 32;
@@ -205,7 +200,7 @@
                     {
                         id: 'quizPortal',
                         type: 'quiz',
-                        x: 2,
+                        x: 6,
                         y: 2,
                         solid: true,
                         draggable: true,
@@ -224,8 +219,8 @@
                     {
                         id: 'npc1',
                         type: 'npc',
-                        x: 6,
-                        y: 4,
+                        x: 8,
+                        y: 2,
                         solid: true,
                         draggable: true,
                         img: './assets/img/quiz-block2.png',
@@ -238,8 +233,8 @@
                     {
                         id: 'shopBlock',
                         type: 'shop',
-                        x: 10,
-                        y: 3,
+                        x: 8,
+                        y: 4,
                         solid: true,
                         draggable: true,
                         img: './assets/img/shop-block.png'
@@ -513,39 +508,6 @@
                 )
             });
         }
-
-        /* ================= FIREBASE QUIZ PROGRESS ================= */
-
-        function loadQuizProgress() {
-            onValue(ref(database, progressPath()), (snap) => {
-                const data = snap.val();
-                if (!data) return;
-
-                answeredQuestions = data.answeredQuestions || {};
-                correctAnswersCount = Number(data.correctAnswersCount || 0);
-                wrongAnswersCount = Number(data.wrongAnswersCount || 0);
-            }, { onlyOnce: true });
-        }
-
-        function saveQuizProgress() {
-            return set(ref(database, progressPath()), {
-                answeredQuestions,
-                correctAnswersCount,
-                wrongAnswersCount
-            });
-        }
-
-        async function resetQuizProgress() {
-            await remove(ref(database, progressPath()));
-            answeredQuestions = {};
-            correctAnswersCount = 0;
-            wrongAnswersCount = 0;
-            alert('Quiz progress reset.');
-            // reload question view
-            displayQuestion();
-        }
-
-        resetProgressBtn.onclick = resetQuizProgress;
 
         /* ================= SHOP LOAD ================= */
 
@@ -1030,152 +992,21 @@
             requestAnimationFrame(loop);
         }
 
-        /* ================= QUIZ: LOAD FROM FIREBASE ================= */
-
-        function fetchQuestions() {
-            const questionsRef = ref(database, 'share/questions');
-
-            onValue(questionsRef, (snapshot) => {
-                const data = snapshot.val();
-
-                allQuestions = [];
-                if (data) {
-                    for (const [description, questionGroup] of Object.entries(data)) {
-                        for (const [id, value] of Object.entries(questionGroup || {})) {
-                            if (!value) continue;
-                            allQuestions.push({ id, description, ...value });
-                        }
-                    }
-                }
-
-                questions = shuffleArray([...allQuestions]);
-                currentQuestionIndex = 0;
-
-                displayQuestion();
-            }, { onlyOnce: true });
-        }
-
-        reloadQuizBtn.onclick = () => {
-            fetchQuestions();
-        };
-
-        function displayQuestion() {
-            const wrap = document.getElementById('quizSection');
-
-            if (!questions.length) {
-                wrap.innerHTML = `<p class="muted">No questions available in share/questions.</p>`;
-                return;
-            }
-
-            // Skip questions already answered unless you want them again
-            // (If you want wrong ones to repeat, you can change this logic)
-            let safety = 0;
-            while (safety < questions.length) {
-                const q = questions[currentQuestionIndex];
-                const status = answeredQuestions[q.id];
-                // skip answered (and also skip incorrect) by default
-                if (!status) break;
-
-                currentQuestionIndex++;
-                if (currentQuestionIndex >= questions.length) currentQuestionIndex = 0;
-                safety++;
-            }
-
-            const q = questions[currentQuestionIndex];
-
-            wrap.innerHTML = `
-                <div class="small muted">Question ${currentQuestionIndex + 1} / ${questions.length}</div>
-                <p><strong>${escapeHTML(q.description || '')}</strong></p>
-                <p>${escapeHTML(q.question || '')}</p>
-                <div id="options" class="quizOptions"></div>
-                <button id="submitAnswerBtn">Submit</button>
-                <div class="hint">Correct: +10 coins, +5 XP • Wrong: -2 coins</div>
-                <div class="hint">Progress: ✅ ${correctAnswersCount} | ❌ ${wrongAnswersCount}</div>
-            `;
-
-            const optionsContainer = document.getElementById('options');
-
-            if (q.options && Array.isArray(q.options) && q.options.length) {
-                q.options.forEach(option => {
-                    const opt = escapeHTML(option);
-                    optionsContainer.innerHTML += `
-            <label>
-              <input type="radio" name="quizOption" value="${opt}">
-              ${opt}
-            </label>
-          `;
-                });
-            } else {
-                // fallback
-                optionsContainer.innerHTML = `<div class="muted">No options found for this question.</div>`;
-            }
-
-            document.getElementById('submitAnswerBtn').addEventListener('click', submitAnswer);
-        }
-
-        function submitAnswer() {
-            const q = questions[currentQuestionIndex];
-            const selected = document.querySelector('input[name="quizOption"]:checked');
-
-            if (!selected) {
-                alert("Choose an answer.");
-                return;
-            }
-
-            const userAnswer = selected.value;
-            const correctAnswer = q.correctAnswer;
-
-            let isCorrect = false;
-
-            if (Array.isArray(correctAnswer)) {
-                isCorrect = correctAnswer.length === 1 && correctAnswer.includes(userAnswer);
-            } else {
-                isCorrect = userAnswer === String(correctAnswer ?? '');
-            }
-
-            if (isCorrect) {
-                correctAnswersCount++;
-                answeredQuestions[q.id] = 'answered';
-
-                rewardCorrect(q.description || '');
-                renderHUD();
-                persistPlayer();
-
-                alert("Correct!");
-            } else {
-                wrongAnswersCount++;
-                answeredQuestions[q.id] = 'incorrect';
-
-                punishWrong(q.description || '');
-                renderHUD();
-                persistPlayer();
-
-                alert(`Incorrect. Correct answer: ${Array.isArray(correctAnswer) ? correctAnswer.join(', ') : correctAnswer}`);
-            }
-
-            saveQuizProgress();
-            nextQuestion();
-        }
-
-        function nextQuestion() {
-            currentQuestionIndex++;
-
-            if (currentQuestionIndex >= questions.length) {
-                currentQuestionIndex = 0;
-            }
-
-            displayQuestion();
-        }
-
-        function shuffleArray(array) {
-            for (let i = array.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [array[i], array[j]] = [array[j], array[i]];
-            }
-            return array;
-        }
-
         /* ================= AUTH ================= */
+
+        const quiz = createQuizModule({
+            database,
+            ref,
+            onValue,
+            set,
+            remove,
+            state,
+            rewardCorrect,
+            punishWrong,
+            renderHUD,
+            persistPlayer,
+            basePathGetter: () => DATABASE_BASE_PATH
+        });
 
         onAuthStateChanged(auth, (user) => {
             DATABASE_BASE_PATH = user ? user.uid : 'public';
@@ -1184,8 +1015,8 @@
             loadPlayer();
             loadShop();
 
-            loadQuizProgress();
-            fetchQuestions();
+            quiz.loadQuizProgress();
+            quiz.fetchQuestions();
         });
 
         renderHUD();
