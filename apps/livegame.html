@@ -79,7 +79,7 @@
                 </div>
 
                 <div id="inventoryPanel" class="panel"></div>
-                                <p class="hint">
+                <p class="hint">
                     Move: WASD / Arrows • Inspect: E • Drag item: mouse • Triple-click item: delete
                 </p>
 
@@ -121,12 +121,33 @@
         const TILE = 32;
         const GRID = 16;
 
-        const quizPortal = {
-            x: 2,
-            y: 2,
-            draggable: true,
-            solid: true
-        }; let shopItems = [];
+        const interactables = [
+            {
+                id: 'quizPortal',
+                type: 'quiz',
+                x: 2,
+                y: 2,
+                solid: true,
+                draggable: true,
+                img: './assets/img/quiz-block.png'
+            },
+            {
+                id: 'npc1',
+                type: 'npc',
+                x: 6,
+                y: 4,
+                solid: true,
+                draggable: true,
+                img: './assets/img/quiz-block2.png',
+                dialogue: [
+                    "Welcome to the Knowledge Room.",
+                    "Answer questions to gain XP.",
+                    "Come back when you reach Level 3."
+                ]
+            }
+        ];
+
+        let shopItems = [];
         let drag = null, hover = null;
         let clickCount = 0, lastClick = 0;
 
@@ -144,7 +165,7 @@
 
         // 🔥 QUIZ BLOCK IMAGE
         const quizPortalImg = new Image();
-        quizPortalImg.src = './assets/img/quiz-block.png';
+        quizPortalImg.src = './assets/img/quiz-block2.png';
         let quizPortalLoaded = false;
 
         quizPortalImg.onload = () => {
@@ -268,13 +289,18 @@
                 state.xp = Number(data.xp || 0);
                 state.level = Number(data.level || 1);
 
-                // 🔥 Restore quiz portal position if saved
-                if (data.quizPortal && typeof data.quizPortal === 'object') {
-                    quizPortal.x = Number.isFinite(+data.quizPortal.x) ? +data.quizPortal.x : quizPortal.x;
-                    quizPortal.y = Number.isFinite(+data.quizPortal.y) ? +data.quizPortal.y : quizPortal.y;
+                // ✅ RESTORE INTERACTABLE POSITIONS
+                if (Array.isArray(data.interactables)) {
+                    data.interactables.forEach(saved => {
+                        const existing = interactables.find(i => i.id === saved.id);
+                        if (existing) {
+                            existing.x = saved.x;
+                            existing.y = saved.y;
+                        }
+                    });
                 }
 
-                // normalize inventory
+                // inventory restore
                 state.inventory = {};
                 const rawInv = data.inventory || {};
 
@@ -302,7 +328,7 @@
         function persistPlayer() {
             return set(ref(database, playerPath()), {
                 ...state,
-                quizPortal
+                interactables
             });
         }
 
@@ -468,15 +494,17 @@
 
         function isSolidTile(x, y) {
 
-            // Room bounds
             if (x < 0 || x >= GRID || y < 0 || y >= GRID) return true;
 
-            // Block inventory objects
             if (occupied(x, y)) return true;
 
-            // 🔥 Block portal tile
-            if (quizPortal.solid && x === quizPortal.x && y === quizPortal.y) return true;
-            return false;
+            for (const obj of interactables) {
+                if (obj.solid && obj.x === x && obj.y === y) {
+                    return true;
+                }
+            }
+
+            return false; // 👈 VERY IMPORTANT
         }
 
         function drawGrid() {
@@ -488,30 +516,24 @@
             }
         }
 
-        function drawQuizPortal() {
-            const px = quizPortal.x * TILE;
-            const py = quizPortal.y * TILE;
+        function drawInteractables() {
+            interactables.forEach(obj => {
 
-            ctx.save();
+                const px = obj.x * TILE;
+                const py = obj.y * TILE;
 
-            if (quizPortalLoaded && quizPortalImg.complete && quizPortalImg.naturalWidth > 0) {
-                ctx.drawImage(
-                    quizPortalImg,
-                    px,
-                    py,
-                    TILE,
-                    TILE
-                );
-            } else {
-                // fallback if image missing
+                if (obj.img) {
+                    const img = getCachedImage(obj.img);
+
+                    if (img && img.complete && img.naturalWidth > 0) {
+                        ctx.drawImage(img, px, py, TILE, TILE);
+                        return;
+                    }
+                }
+
                 ctx.fillStyle = '#ff3cff';
                 ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
-
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(px + 12, py + 12, 8, 8);
-            }
-
-            ctx.restore();
+            });
         }
 
         function drawItems() {
@@ -589,7 +611,7 @@
                 drawGrid();
             }
 
-            drawQuizPortal();
+            drawInteractables();
             drawItems();
             drawPlayer();
         }
@@ -665,11 +687,13 @@
             const { x, y } = tile(e);
             const item = getItem(x, y);
 
-            // 🔥 Check if clicking quiz portal
-            if (x === quizPortal.x && y === quizPortal.y) {
-                drag = { type: 'portal' };
+            const interactable = interactables.find(o => o.x === x && o.y === y);
+
+            if (interactable && interactable.draggable) {
+                drag = { type: 'interactable', obj: interactable };
                 return;
             }
+
             if (!item) return;
 
             if (clickCount === 3) {
@@ -690,16 +714,18 @@
         canvas.onmousemove = (e) => hover = tile(e);
 
         canvas.onmouseup = () => {
-            if (drag && drag.type === 'portal' && hover) {
+            if (drag && drag.type === 'interactable' && hover) {
 
                 if (!isSolidTile(hover.x, hover.y)) {
-                    quizPortal.x = hover.x;
-                    quizPortal.y = hover.y;
+                    drag.obj.x = hover.x;
+                    drag.obj.y = hover.y;
+                    persistPlayer();
                 }
 
                 drag = null;
                 return;
             }
+
             if (!drag || !hover) return;
 
             if (!occupied(hover.x, hover.y) && !(hover.x === state.player.x && hover.y === state.player.y)) {
@@ -729,9 +755,10 @@
 
             if (k === 'e') {
 
-                // Check portal first
-                if (isPlayerFacingPortal()) {
-                    setMode('quiz');
+                const obj = getInteractableInFront();
+
+                if (obj) {
+                    handleInteraction(obj);
                     return;
                 }
 
@@ -743,8 +770,36 @@
         window.addEventListener('keyup', (e) => {
             keys[e.key.toLowerCase()] = false;
         });
+        let dialogueIndex = 0;
 
-        function isPlayerFacingPortal() {
+        function handleInteraction(obj) {
+
+            if (obj.type === 'quiz') {
+                setMode('quiz');
+                return;
+            }
+
+            if (obj.type === 'npc') {
+                const text = obj.dialogue[dialogueIndex];
+
+                infoPanel.innerHTML = `
+            <div class="panel">
+                ${text}
+                <div class="hint">(Press E to continue)</div>
+            </div>
+        `;
+
+                dialogueIndex++;
+
+                if (dialogueIndex >= obj.dialogue.length) {
+                    dialogueIndex = 0;
+                }
+
+                return;
+            }
+        }
+
+        function getInteractableInFront() {
             let { x, y } = state.player;
 
             if (state.player.dir === 'up') y--;
@@ -752,7 +807,7 @@
             if (state.player.dir === 'left') x--;
             if (state.player.dir === 'right') x++;
 
-            return x === quizPortal.x && y === quizPortal.y;
+            return interactables.find(obj => obj.x === x && obj.y === y);
         }
 
         function updatePlayer() {
