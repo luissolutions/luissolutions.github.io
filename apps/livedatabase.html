@@ -548,6 +548,21 @@
             return best ? { key: best.key, data: best.data } : null;
         }
 
+        function getParentPaths(path) {
+            const parts = path.split('/').filter(Boolean);
+            const parents = [];
+            for (let i = 1; i < parts.length; i++) {
+                parents.push(parts.slice(0, i).join('/'));
+            }
+            return parents;
+        }
+
+        function resolveFolderSelection(selected, other) {
+            if (selected !== '__PARENT__') return selected;
+            if (!other) return '';
+            return other.split('/').slice(0, -1).join('/');
+        }
+
         // -------------------------------------------------------------------
         // Explorer rendering
         // -------------------------------------------------------------------
@@ -823,7 +838,32 @@
             const startRef = storageRef(storage, DATABASE_BASE_PATH);
 
             try {
-                const folders = await getAllFolders(startRef);
+                const leafFolders = await getAllFolders(startRef);
+
+                // Collect parents + leaves
+                const folderSet = new Set();
+
+                leafFolders.forEach(f => {
+                    folderSet.add(f);                    // original folder
+                    getParentPaths(f).forEach(p => {
+                        if (p.startsWith(DATABASE_BASE_PATH)) {
+                            folderSet.add(p);                // parent folders
+                        }
+                    });
+                });
+
+                const folders = Array.from(folderSet)
+                    .sort((a, b) => a.localeCompare(b))
+                    .map(f => ({
+                        value: f,
+                        label: f
+                    }));
+
+                // Add explicit parent option
+                folders.unshift({
+                    value: '__PARENT__',
+                    label: '⬆ Parent folder'
+                });
 
                 // same “startTime label” logic you had
                 const folderData = await Promise.all(
@@ -854,9 +894,8 @@
 
                 [fromDropdown, toDropdown].forEach(dropdown => {
                     dropdown.innerHTML = '<option value="">-- Select a folder --</option>';
-                    folderData.forEach(({ folder, startTime }) => {
-                        const label = startTime ? `${new Date(startTime).toLocaleDateString()} - ${folder}` : folder;
-                        dropdown.appendChild(new Option(label, folder));
+                    folders.forEach(({ value, label }) => {
+                        dropdown.appendChild(new Option(label, value));
                     });
                 });
             } catch (err) {
@@ -1091,8 +1130,8 @@
         }
 
         async function refreshPreviews() {
-            const fromFolder = fromDropdown.value.trim();
-            const toFolder = toDropdown.value.trim();
+            let fromFolder = resolveFolderSelection(fromDropdown.value.trim(), toDropdown.value.trim());
+            let toFolder = resolveFolderSelection(toDropdown.value.trim(), fromDropdown.value.trim());
 
             setMoveButtonsState();
 
@@ -1108,6 +1147,14 @@
                 toPreview.textContent = 'Loading…';
                 const [sum, task] = await Promise.all([summarizeFolder(toFolder), getTaskPreview(toFolder)]);
                 renderFolderPreview(toPreview, toSummary, toFolder, sum, task);
+
+            }
+
+            if (fromFolder && toFolder) {
+                moveButton.textContent =
+                    dryRunCheckbox.checked
+                        ? `Preview ${fromSummary.textContent}`
+                        : `${getMoveMode() === 'copy' ? 'Copy' : 'Move'} ${fromSummary.textContent}`;
             } else {
                 renderFolderPreview(toPreview, toSummary, '', { fileCount: 0, previewFiles: [] }, null);
             }
@@ -1177,12 +1224,19 @@
                 return;
             }
 
-            // Dry run just prints summary
-            if (dryRun) {
-                const total = await countFilesRecursively(storageRef(storage, fromFolder));
-                alert(`Dry run:\n${mode.toUpperCase()} ${total} files\nFrom: ${fromFolder}\nTo: ${toFolder}\n\n(No changes made)`);
-                return;
-            }
+            const total = await countFilesRecursively(storageRef(storage, fromFolder));
+
+            const ok = confirm(
+                `${dryRun ? 'PREVIEW' : mode.toUpperCase()}\n\n` +
+                `Files: ${total}\n` +
+                `From: ${fromFolder}\n` +
+                `To: ${toFolder}\n\n` +
+                (dryRun ? 'No changes will be made.' : 'This cannot be undone.')
+            );
+
+            if (!ok) return;
+
+            if (dryRun) return;
 
             progressContainer.style.display = 'block';
             progressBar.value = 0;
@@ -1232,6 +1286,7 @@
             refreshPreviews();
         });
 
+        
     </script>
 
 </body>
