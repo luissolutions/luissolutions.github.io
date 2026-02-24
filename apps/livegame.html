@@ -114,38 +114,13 @@
             coins: 0,
             xp: 0,
             level: 1,
-            inventory: {},
+            roomItems: {},
             player: { x: 5, y: 5, dir: 'down' }
         };
 
         const TILE = 32;
         const GRID = 16;
 
-        const interactables = [
-            {
-                id: 'quizPortal',
-                type: 'quiz',
-                x: 2,
-                y: 2,
-                solid: true,
-                draggable: true,
-                img: './assets/img/quiz-block.png'
-            },
-            {
-                id: 'npc1',
-                type: 'npc',
-                x: 6,
-                y: 4,
-                solid: true,
-                draggable: true,
-                img: './assets/img/quiz-block2.png',
-                dialogue: [
-                    "Welcome to the Knowledge Room.",
-                    "Answer questions to gain XP.",
-                    "Come back when you reach Level 3."
-                ]
-            }
-        ];
 
         let shopItems = [];
         let drag = null, hover = null;
@@ -196,6 +171,15 @@
         let correctAnswersCount = 0;
         let wrongAnswersCount = 0;
 
+        function getCurrentRoomItems() {
+
+            if (!state.roomItems[currentRoom]) {
+                state.roomItems[currentRoom] = {};
+            }
+
+            return state.roomItems[currentRoom];
+        }
+
         function focusCanvas() { canvas?.focus?.(); }
 
         function safeKey(str) {
@@ -211,6 +195,192 @@
             return String(s ?? '').replace(/[&<>"']/g, c => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
             }[c]));
+        }
+
+        /* ================= ROOM SYSTEM ================= */
+
+        let currentRoom = "room1";
+
+        const rooms = {
+
+            room1: {
+                bg: './assets/img/room-bg.png',
+
+                interactables: [
+                    {
+                        id: 'quizPortal',
+                        type: 'quiz',
+                        x: 2,
+                        y: 2,
+                        solid: true,
+                        draggable: true,
+                        img: './assets/img/quiz-block.png'
+                    },
+                    {
+                        id: 'doorToRoom2',
+                        type: 'door',
+                        target: 'room2',
+                        x: 7,
+                        y: 14,
+                        solid: true,
+                        draggable: false,
+                        img: './assets/img/door.png'
+                    },
+                    {
+                        id: 'npc1',
+                        type: 'npc',
+                        x: 6,
+                        y: 4,
+                        solid: true,
+                        draggable: true,
+                        img: './assets/img/quiz-block2.png',
+                        dialogue: [
+                            "Welcome to the Knowledge Room.",
+                            "Answer questions to gain XP.",
+                            "Come back when you reach Level 3."
+                        ]
+                    }
+
+                ],
+
+                walls: [
+                    { x: 0, y: 0 },
+                    { x: 0, y: 1 },
+                    { x: 0, y: 2 }
+                ]
+            },
+
+            room2: {
+                bg: './assets/img/room2-bg.webp',
+
+                interactables: [
+                    {
+                        id: 'doorBack',
+                        type: 'door',
+                        target: 'room1',
+                        x: 1,
+                        y: 7,
+                        solid: true,
+                        draggable: false,
+                        img: './assets/img/door.png'
+                    }
+                ],
+
+                walls: [
+                    { x: 8, y: 8 },
+                    { x: 8, y: 9 },
+                    { x: 8, y: 10 }
+                ]
+            }
+        };
+
+
+        /* ================= ROOM CHANGE ================= */
+
+        function changeRoom(roomName) {
+
+            if (!rooms[roomName]) return;
+
+            currentRoom = roomName;
+
+            bgImage.src = rooms[currentRoom].bg;
+
+            // reset player position (optional)
+            state.player.x = 5;
+            state.player.y = 5;
+        }
+
+
+        /* ================= COLLISION ================= */
+
+        function isSolidTile(x, y) {
+
+            if (x < 0 || x >= GRID || y < 0 || y >= GRID) return true;
+
+            if (getItem(x, y)) return true;
+
+            // invisible walls
+            for (const wall of rooms[currentRoom].walls) {
+                if (wall.x === x && wall.y === y) return true;
+            }
+
+            // interactables
+            for (const obj of rooms[currentRoom].interactables) {
+                if (obj.solid && obj.x === x && obj.y === y) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+
+        /* ================= DRAW INTERACTABLES ================= */
+
+        function drawInteractables() {
+
+            rooms[currentRoom].interactables.forEach(obj => {
+
+                const px = obj.x * TILE;
+                const py = obj.y * TILE;
+
+                if (obj.img) {
+                    const img = getCachedImage(obj.img);
+
+                    if (img && img.complete && img.naturalWidth > 0) {
+                        ctx.drawImage(img, px, py, TILE, TILE);
+                        return;
+                    }
+                }
+
+                ctx.fillStyle = '#ff3cff';
+                ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
+            });
+        }
+
+
+        /* ================= INTERACTION ================= */
+
+        function getInteractableInFront() {
+
+            let { x, y } = state.player;
+
+            if (state.player.dir === 'up') y--;
+            if (state.player.dir === 'down') y++;
+            if (state.player.dir === 'left') x--;
+            if (state.player.dir === 'right') x++;
+
+            return rooms[currentRoom].interactables.find(obj => obj.x === x && obj.y === y);
+        }
+
+        function handleInteraction(obj) {
+
+            if (!obj) return;
+
+            if (obj.type === 'quiz') {
+                setMode('quiz');
+                return;
+            }
+
+            if (obj.type === 'door') {
+                changeRoom(obj.target);
+                return;
+            }
+
+            if (obj.type === 'npc') {
+
+                const text = obj.dialogue[dialogueIndex];
+
+                infoPanel.innerHTML = `
+            <div class="panel">
+                ${text}
+                <div class="hint">(Press E to continue)</div>
+            </div>
+        `;
+
+                dialogueIndex++;
+                if (dialogueIndex >= obj.dialogue.length) dialogueIndex = 0;
+            }
         }
 
         /* ================= MODE ================= */
@@ -289,36 +459,35 @@
                 state.xp = Number(data.xp || 0);
                 state.level = Number(data.level || 1);
 
-                // ✅ RESTORE INTERACTABLE POSITIONS
-                if (Array.isArray(data.interactables)) {
-                    data.interactables.forEach(saved => {
-                        const existing = interactables.find(i => i.id === saved.id);
-                        if (existing) {
-                            existing.x = saved.x;
-                            existing.y = saved.y;
+                // restore room
+                if (data.room && rooms[data.room]) {
+                    currentRoom = data.room;
+                    bgImage.src = rooms[currentRoom].bg;
+                }
+
+                // restore room layouts
+                if (data.roomLayouts) {
+
+                    Object.entries(data.roomLayouts).forEach(([roomName, savedRoom]) => {
+
+                        if (!rooms[roomName]) return;
+
+                        if (Array.isArray(savedRoom.interactables)) {
+
+                            savedRoom.interactables.forEach(saved => {
+
+                                const existing = rooms[roomName].interactables.find(i => i.id === saved.id);
+
+                                if (existing) {
+                                    existing.x = saved.x;
+                                    existing.y = saved.y;
+                                }
+                            });
                         }
                     });
                 }
-
                 // inventory restore
-                state.inventory = {};
-                const rawInv = data.inventory || {};
-
-                Object.entries(rawInv).forEach(([key, value]) => {
-                    if (Array.isArray(value)) {
-                        state.inventory[key] = value.map(o => ({
-                            x: Number(o?.x ?? 0),
-                            y: Number(o?.y ?? 0),
-                            name: o?.name || key,
-                            sku: o?.sku || key,
-                            img: o?.img || '',
-                            desc: o?.desc || ''
-                        }));
-                    } else if (typeof value === 'number') {
-                        state.inventory[key] = [];
-                        for (let i = 0; i < value; i++) state.inventory[key].push({ x: 0, y: 0 });
-                    }
-                });
+                state.roomItems = data.roomItems || {};
 
                 renderHUD();
                 renderInventory();
@@ -326,9 +495,18 @@
         }
 
         function persistPlayer() {
+
             return set(ref(database, playerPath()), {
                 ...state,
-                interactables
+                room: currentRoom,
+                roomLayouts: Object.fromEntries(
+                    Object.entries(rooms).map(([name, room]) => [
+                        name,
+                        {
+                            interactables: room.interactables
+                        }
+                    ])
+                )
             });
         }
 
@@ -380,15 +558,19 @@
                         if (v.type !== 'expense') return;
 
                         const tags = Array.isArray(v.tags) ? v.tags : [];
+
                         const hasInv = tags.some(t => String(t).toLowerCase() === 'inv');
                         if (!hasInv) return;
+
+                        const isXL = tags.some(t => String(t).toLowerCase() === 'xl');
 
                         list.push({
                             sku: v.sku || v.name,
                             name: v.name || v.sku || 'Item',
                             price: Math.abs(Number(v.amt || 0)),
                             img: v.img || '',
-                            desc: v.desc || ''
+                            desc: v.desc || '',
+                            size: isXL ? 2 : 1   // 🔥 HERE
                         });
                     });
                 });
@@ -423,15 +605,18 @@
 
                     state.coins -= Math.round(item.price * 100); const key = safeKey(item.sku);
 
-                    if (!state.inventory[key]) state.inventory[key] = [];
+                    const roomInventory = getCurrentRoomItems();
 
-                    state.inventory[key].push({
+                    if (!roomInventory[key]) roomInventory[key] = [];
+
+                    roomInventory[key].push({
                         x: 0,
                         y: 0,
                         name: item.name,
                         sku: item.sku,
                         img: item.img || '',
-                        desc: item.desc || ''
+                        desc: item.desc || '',
+                        size: item.size || 1
                     });
                     renderHUD();
                     renderInventory();
@@ -445,11 +630,15 @@
         /* ================= INVENTORY PANEL ================= */
 
         function renderInventory() {
+
             inventoryPanel.innerHTML = '<h3>Inventory</h3>';
 
-            const entries = Object.entries(state.inventory).filter(([, v]) => Array.isArray(v));
+            const roomInventory = getCurrentRoomItems();
+
+            const entries = Object.entries(roomInventory).filter(([, v]) => Array.isArray(v));
+
             if (!entries.length) {
-                inventoryPanel.innerHTML += '<div class="hint">No items yet. Buy something in the Shop.</div>';
+                inventoryPanel.innerHTML += '<div class="hint">No items yet in this room.</div>';
                 return;
             }
 
@@ -478,104 +667,74 @@
             };
         }
 
-        function getItem(x, y) {
-            for (const [key, list] of Object.entries(state.inventory)) {
+        function drawItems() {
+
+            const roomInventory = getCurrentRoomItems();
+
+            for (const list of Object.values(roomInventory)) {
+
                 if (!Array.isArray(list)) continue;
-                for (const obj of list) {
-                    if (obj.x === x && obj.y === y) return { key, obj };
+
+                list.forEach(obj => {
+
+                    if (drag && drag.obj === obj) return;
+
+                    if (obj.img) {
+                        const img = getCachedImage(obj.img);
+
+                        if (img && img.complete && img.naturalWidth > 0) {
+                            const size = obj.size || 1;
+
+                            ctx.drawImage(
+                                img,
+                                obj.x * TILE,
+                                obj.y * TILE,
+                                TILE * size,
+                                TILE * size
+                            );
+                            return;
+                        }
+                    }
+
+                    ctx.fillStyle = "#999";
+                    const size = obj.size || 1;
+
+                    ctx.fillRect(
+                        obj.x * TILE + 5,
+                        obj.y * TILE + 5,
+                        TILE * size - 10,
+                        TILE * size - 10
+                    );
+                });
+            }
+
+            if (drag && hover) {
+                ctx.globalAlpha = 0.5;
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(hover.x * TILE + 5, hover.y * TILE + 5, TILE - 10, TILE - 10);
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        function isAreaFree(x, y, size = 1) {
+
+            for (let dy = 0; dy < size; dy++) {
+                for (let dx = 0; dx < size; dx++) {
+
+                    if (x + dx >= GRID || y + dy >= GRID) return false;
+
+                    if (getItem(x + dx, y + dy)) return false;
                 }
             }
-            return null;
+
+            return true;
         }
-
-        function occupied(x, y) {
-            return getItem(x, y) !== null;
-        }
-
-        function isSolidTile(x, y) {
-
-            if (x < 0 || x >= GRID || y < 0 || y >= GRID) return true;
-
-            if (occupied(x, y)) return true;
-
-            for (const obj of interactables) {
-                if (obj.solid && obj.x === x && obj.y === y) {
-                    return true;
-                }
-            }
-
-            return false; // 👈 VERY IMPORTANT
-        }
-
         function drawGrid() {
             for (let y = 0; y < GRID; y++) {
                 for (let x = 0; x < GRID; x++) {
                     ctx.fillStyle = (x + y) % 2 ? '#141a33' : '#18203b';
                     ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
                 }
-            }
-        }
-
-        function drawInteractables() {
-            interactables.forEach(obj => {
-
-                const px = obj.x * TILE;
-                const py = obj.y * TILE;
-
-                if (obj.img) {
-                    const img = getCachedImage(obj.img);
-
-                    if (img && img.complete && img.naturalWidth > 0) {
-                        ctx.drawImage(img, px, py, TILE, TILE);
-                        return;
-                    }
-                }
-
-                ctx.fillStyle = '#ff3cff';
-                ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
-            });
-        }
-
-        function drawItems() {
-            for (const list of Object.values(state.inventory)) {
-                if (!Array.isArray(list)) continue;
-
-                list.forEach(obj => {
-                    if (drag && drag.obj === obj) return;
-
-                    // draw item image if it exists + is loaded
-                    if (obj.img) {
-                        const img = getCachedImage(obj.img);
-
-                        if (img && img.complete && img.naturalWidth > 0) {
-                            ctx.drawImage(
-                                img,
-                                obj.x * TILE,
-                                obj.y * TILE,
-                                TILE,
-                                TILE
-                            );
-                            return;
-                        }
-                    }
-
-                    // fallback square if no image (or not loaded yet)
-                    const k = safeKey(obj.sku || obj.name || '');
-                    ctx.fillStyle = k.includes('desk') ? '#6b4f2a'
-                        : k.includes('shelf') ? '#8a6b3b'
-                            : k.includes('server') ? '#5b5b5b'
-                                : '#999';
-
-                    ctx.fillRect(obj.x * TILE + 5, obj.y * TILE + 5, TILE - 10, TILE - 10);
-                });
-            }
-
-            // drag preview
-            if (drag && hover) {
-                ctx.globalAlpha = 0.5;
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(hover.x * TILE + 5, hover.y * TILE + 5, TILE - 10, TILE - 10);
-                ctx.globalAlpha = 1;
             }
         }
 
@@ -617,6 +776,31 @@
         }
 
         /* ================= INSPECT ================= */
+        function getItem(x, y) {
+
+            const roomInventory = getCurrentRoomItems();
+
+            for (const [key, list] of Object.entries(roomInventory)) {
+
+                if (!Array.isArray(list)) continue;
+
+                for (const obj of list) {
+
+                    const size = obj.size || 1;
+
+                    for (let dy = 0; dy < size; dy++) {
+                        for (let dx = 0; dx < size; dx++) {
+
+                            if (obj.x + dx === x && obj.y + dy === y) {
+                                return { key, obj };
+                            }
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
 
         function getItemInFront() {
             let { x, y } = state.player;
@@ -687,7 +871,7 @@
             const { x, y } = tile(e);
             const item = getItem(x, y);
 
-            const interactable = interactables.find(o => o.x === x && o.y === y);
+            const interactable = rooms[currentRoom].interactables.find(o => o.x === x && o.y === y);
 
             if (interactable && interactable.draggable) {
                 drag = { type: 'interactable', obj: interactable };
@@ -697,7 +881,8 @@
             if (!item) return;
 
             if (clickCount === 3) {
-                const arr = state.inventory[item.key];
+                const roomInventory = getCurrentRoomItems();
+                const arr = roomInventory[item.key];
                 const idx = arr.indexOf(item.obj);
                 if (idx >= 0) arr.splice(idx, 1);
 
@@ -714,7 +899,14 @@
         canvas.onmousemove = (e) => hover = tile(e);
 
         canvas.onmouseup = () => {
-            if (drag && drag.type === 'interactable' && hover) {
+
+            if (!drag || !hover) {
+                drag = null;
+                return;
+            }
+
+            // === INTERACTABLE DRAG ===
+            if (drag.type === 'interactable') {
 
                 if (!isSolidTile(hover.x, hover.y)) {
                     drag.obj.x = hover.x;
@@ -726,11 +918,14 @@
                 return;
             }
 
-            if (!drag || !hover) return;
+            // === ROOM ITEM DRAG ===
+            const size = drag.obj.size || 1;
 
-            if (!occupied(hover.x, hover.y) && !(hover.x === state.player.x && hover.y === state.player.y)) {
+            if (isAreaFree(hover.x, hover.y, size)) {
+
                 drag.obj.x = hover.x;
                 drag.obj.y = hover.y;
+
                 persistPlayer();
             }
 
@@ -771,44 +966,6 @@
             keys[e.key.toLowerCase()] = false;
         });
         let dialogueIndex = 0;
-
-        function handleInteraction(obj) {
-
-            if (obj.type === 'quiz') {
-                setMode('quiz');
-                return;
-            }
-
-            if (obj.type === 'npc') {
-                const text = obj.dialogue[dialogueIndex];
-
-                infoPanel.innerHTML = `
-            <div class="panel">
-                ${text}
-                <div class="hint">(Press E to continue)</div>
-            </div>
-        `;
-
-                dialogueIndex++;
-
-                if (dialogueIndex >= obj.dialogue.length) {
-                    dialogueIndex = 0;
-                }
-
-                return;
-            }
-        }
-
-        function getInteractableInFront() {
-            let { x, y } = state.player;
-
-            if (state.player.dir === 'up') y--;
-            if (state.player.dir === 'down') y++;
-            if (state.player.dir === 'left') x--;
-            if (state.player.dir === 'right') x++;
-
-            return interactables.find(obj => obj.x === x && obj.y === y);
-        }
 
         function updatePlayer() {
 
