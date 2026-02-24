@@ -42,7 +42,6 @@
     </div>
 
     <div class="panel row">
-        <button id="quizBtn">⚔ Quiz</button>
         <button id="roomBtn">🏠 Room</button>
         <button id="shopBtn">🛒 Shop</button>
         <span class="hint" id="authHint"></span>
@@ -71,9 +70,6 @@
             <!-- LEFT COLUMN -->
             <div class="leftColumn">
                 <canvas id="canvas" width="512" height="512" tabindex="0"></canvas>
-                <p class="hint">
-                    Move: WASD / Arrows • Inspect: E • Drag item: mouse • Triple-click item: delete
-                </p>
             </div>
 
             <!-- RIGHT COLUMN -->
@@ -83,6 +79,10 @@
                 </div>
 
                 <div id="inventoryPanel" class="panel"></div>
+                                <p class="hint">
+                    Move: WASD / Arrows • Inspect: E • Drag item: mouse • Triple-click item: delete
+                </p>
+
             </div>
 
         </div>
@@ -121,7 +121,12 @@
         const TILE = 32;
         const GRID = 16;
 
-        let shopItems = [];
+        const quizPortal = {
+            x: 2,
+            y: 2,
+            draggable: true,
+            solid: true
+        }; let shopItems = [];
         let drag = null, hover = null;
         let clickCount = 0, lastClick = 0;
 
@@ -129,11 +134,21 @@
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         const bgImage = new Image();
+
         bgImage.src = './assets/img/room-bg.png';
         let bgLoaded = false;
 
         bgImage.onload = () => {
             bgLoaded = true;
+        };
+
+        // 🔥 QUIZ BLOCK IMAGE
+        const quizPortalImg = new Image();
+        quizPortalImg.src = './assets/img/quiz-block.png';
+        let quizPortalLoaded = false;
+
+        quizPortalImg.onload = () => {
+            quizPortalLoaded = true;
         };
 
         const FRAME_WIDTH = 32;
@@ -197,10 +212,12 @@
             if (mode === 'room') focusCanvas();
         }
 
-        quizBtn.onclick = () => setMode('quiz');
         roomBtn.onclick = () => setMode('room');
         shopBtn.onclick = () => setMode('shop');
-        setMode('quiz');
+
+        // 🔥 Start in room instead of quiz
+        setMode('room');
+        focusCanvas();
 
         /* ================= HUD ================= */
 
@@ -251,10 +268,10 @@
                 state.xp = Number(data.xp || 0);
                 state.level = Number(data.level || 1);
 
-                if (data.player && typeof data.player === 'object') {
-                    state.player.x = Number.isFinite(+data.player.x) ? +data.player.x : state.player.x;
-                    state.player.y = Number.isFinite(+data.player.y) ? +data.player.y : state.player.y;
-                    state.player.dir = data.player.dir || state.player.dir;
+                // 🔥 Restore quiz portal position if saved
+                if (data.quizPortal && typeof data.quizPortal === 'object') {
+                    quizPortal.x = Number.isFinite(+data.quizPortal.x) ? +data.quizPortal.x : quizPortal.x;
+                    quizPortal.y = Number.isFinite(+data.quizPortal.y) ? +data.quizPortal.y : quizPortal.y;
                 }
 
                 // normalize inventory
@@ -283,7 +300,10 @@
         }
 
         function persistPlayer() {
-            return set(ref(database, playerPath()), state);
+            return set(ref(database, playerPath()), {
+                ...state,
+                quizPortal
+            });
         }
 
         /* ================= FIREBASE QUIZ PROGRESS ================= */
@@ -446,6 +466,19 @@
             return getItem(x, y) !== null;
         }
 
+        function isSolidTile(x, y) {
+
+            // Room bounds
+            if (x < 0 || x >= GRID || y < 0 || y >= GRID) return true;
+
+            // Block inventory objects
+            if (occupied(x, y)) return true;
+
+            // 🔥 Block portal tile
+            if (quizPortal.solid && x === quizPortal.x && y === quizPortal.y) return true;
+            return false;
+        }
+
         function drawGrid() {
             for (let y = 0; y < GRID; y++) {
                 for (let x = 0; x < GRID; x++) {
@@ -453,6 +486,32 @@
                     ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
                 }
             }
+        }
+
+        function drawQuizPortal() {
+            const px = quizPortal.x * TILE;
+            const py = quizPortal.y * TILE;
+
+            ctx.save();
+
+            if (quizPortalLoaded && quizPortalImg.complete && quizPortalImg.naturalWidth > 0) {
+                ctx.drawImage(
+                    quizPortalImg,
+                    px,
+                    py,
+                    TILE,
+                    TILE
+                );
+            } else {
+                // fallback if image missing
+                ctx.fillStyle = '#ff3cff';
+                ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
+
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(px + 12, py + 12, 8, 8);
+            }
+
+            ctx.restore();
         }
 
         function drawItems() {
@@ -528,7 +587,10 @@
                 ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
             } else {
                 drawGrid();
-            } drawItems();
+            }
+
+            drawQuizPortal();
+            drawItems();
             drawPlayer();
         }
 
@@ -596,11 +658,18 @@
 
         canvas.onmousedown = (e) => {
             const now = Date.now();
+
             clickCount = (now - lastClick < 400) ? clickCount + 1 : 1;
             lastClick = now;
 
             const { x, y } = tile(e);
             const item = getItem(x, y);
+
+            // 🔥 Check if clicking quiz portal
+            if (x === quizPortal.x && y === quizPortal.y) {
+                drag = { type: 'portal' };
+                return;
+            }
             if (!item) return;
 
             if (clickCount === 3) {
@@ -621,6 +690,16 @@
         canvas.onmousemove = (e) => hover = tile(e);
 
         canvas.onmouseup = () => {
+            if (drag && drag.type === 'portal' && hover) {
+
+                if (!isSolidTile(hover.x, hover.y)) {
+                    quizPortal.x = hover.x;
+                    quizPortal.y = hover.y;
+                }
+
+                drag = null;
+                return;
+            }
             if (!drag || !hover) return;
 
             if (!occupied(hover.x, hover.y) && !(hover.x === state.player.x && hover.y === state.player.y)) {
@@ -642,7 +721,20 @@
             const k = e.key.toLowerCase();
             keys[k] = true;
 
+            if (e.key === 'Escape') {
+                setMode('room');
+                focusCanvas();
+                return;
+            }
+
             if (k === 'e') {
+
+                // Check portal first
+                if (isPlayerFacingPortal()) {
+                    setMode('quiz');
+                    return;
+                }
+
                 const item = getItemInFront();
                 inspectItem(item);
             }
@@ -651,6 +743,17 @@
         window.addEventListener('keyup', (e) => {
             keys[e.key.toLowerCase()] = false;
         });
+
+        function isPlayerFacingPortal() {
+            let { x, y } = state.player;
+
+            if (state.player.dir === 'up') y--;
+            if (state.player.dir === 'down') y++;
+            if (state.player.dir === 'left') x--;
+            if (state.player.dir === 'right') x++;
+
+            return x === quizPortal.x && y === quizPortal.y;
+        }
 
         function updatePlayer() {
 
@@ -689,7 +792,7 @@
                 return;
             }
 
-            if (!occupied(newX, newY)) {
+            if (!isSolidTile(newX, newY)) {
                 state.player.x = newX;
                 state.player.y = newY;
                 persistPlayer();
