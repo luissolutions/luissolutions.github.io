@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Knowledge RPG - Firebase</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
+    <style>
+        canvas {
+            image-rendering: pixelated;
+        }
+
+        body {
+            background: #141a33;
+            color: white;
+            font-family: 'Press Start 2P', monospace;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .panel {
+            border: 2px solid #d4af37;
+            padding: 15px;
+            margin-bottom: 20px;
+            background: #1b2247;
+            border-radius: 8px;
+        }
+
+        button {
+            background: #1f2852;
+            color: white;
+            border: 2px solid #d4af37;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-family: inherit;
+            margin: 4px 0;
+        }
+
+        button:hover {
+            background: #283478;
+        }
+
+        canvas {
+            border: 2px solid #d4af37;
+            background: #10142a;
+            image-rendering: pixelated;
+            outline: none;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 520px 1fr;
+            gap: 20px;
+        }
+
+        .mode {
+            display: none;
+        }
+
+        .inventory-line {
+            padding: 6px 0;
+            border-bottom: 1px dashed rgba(255, 255, 255, .15);
+        }
+
+        #infoPanel {
+            min-height: 90px;
+            line-height: 1.6;
+        }
+
+        .hint {
+            opacity: .8;
+            font-size: 11px;
+            margin-top: 8px;
+            line-height: 1.5;
+        }
+
+        /* quiz */
+        .quizCard p {
+            line-height: 1.6;
+        }
+
+        .quizOptions label {
+            display: block;
+            margin: 8px 0;
+            line-height: 1.4;
+            cursor: pointer;
+        }
+
+        .muted {
+            opacity: .8;
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .small {
+            font-size: 11px;
+        }
+
+        #infoPanel img {
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Knowledge RPG</h1>
+
+    <div class="panel">
+        Coins: <span id="coins">0</span> |
+        XP: <span id="xp">0</span> |
+        Level: <span id="level">1</span>
+    </div>
+
+    <div class="panel row">
+        <button id="quizBtn">⚔ Quiz</button>
+        <button id="roomBtn">🏠 Room</button>
+        <button id="shopBtn">🛒 Shop</button>
+        <span class="hint" id="authHint"></span>
+    </div>
+
+    <!-- QUIZ -->
+    <div id="quiz" class="panel mode">
+        <div class="row">
+            <button id="reloadQuizBtn">Reload Questions</button>
+            <button id="resetProgressBtn">Reset Quiz Progress</button>
+        </div>
+
+        <div id="quizSection" class="panel quizCard"></div>
+
+        <div class="hint">
+            Quiz pulls from <span class="mono">share/questions</span> and saves progress to
+            <span class="mono">/quizData/progress</span>.
+        </div>
+    </div>
+
+    <!-- ROOM -->
+    <div id="room" class="panel mode">
+        <div id="infoPanel" class="panel">Walk up to an item and press <b>E</b> — or click an item.</div>
+
+        <div class="layout">
+            <div>
+                <canvas id="canvas" width="512" height="512" tabindex="0"></canvas>
+                <p class="hint">Move: WASD / Arrows • Inspect: E • Drag item: mouse • Triple-click item: delete</p>
+            </div>
+
+            <div>
+                <div id="inventoryPanel" class="panel"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SHOP -->
+    <div id="shop" class="panel mode">
+        <h3>Shop (Inventory Driven)</h3>
+        <div id="shopPanel"></div>
+        <div class="hint">
+            Shop pulls from <span class="mono">ledgerTx</span> under your base path and filters:
+            <span class="mono">type="expense"</span> and tag <span class="mono">"inv"</span>.
+        </div>
+    </div>
+
+    <script type="module">
+        import {
+            auth, onAuthStateChanged,
+            database, ref, onValue, set,
+            storage, storageRef, uploadBytes, getDownloadURL, deleteObject,
+            remove,
+        } from '../assets/js/firebase-init.js';
+
+        /* ================= BASE ================= */
+
+        let DATABASE_BASE_PATH = 'public';
+
+        const state = {
+            coins: 0,
+            xp: 0,
+            level: 1,
+            inventory: {},
+            player: { x: 5, y: 5, dir: 'down' }
+        };
+
+        const TILE = 32;
+        const GRID = 16;
+
+        let shopItems = [];
+        let drag = null, hover = null;
+        let clickCount = 0, lastClick = 0;
+
+        const itemImageCache = new Map(); // url -> HTMLImageElement
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const bgImage = new Image();
+        bgImage.src = './assets/img/room-bg.png';
+        let bgLoaded = false;
+
+        bgImage.onload = () => {
+            bgLoaded = true;
+        };
+
+        const FRAME_WIDTH = 32;
+        const FRAME_HEIGHT = 32;
+        const FRAMES_PER_ROW = 3;
+
+        let animationFrame = 0;
+        let lastFrameTime = 0;
+        const FRAME_SPEED = 150; // ms
+        const playerSprite = new Image();
+        playerSprite.src = './assets/img/player.png';
+        let spriteLoaded = false;
+
+        playerSprite.onload = () => {
+            spriteLoaded = true;
+        };
+
+        // Quiz memory
+        let allQuestions = [];
+        let questions = [];
+        let currentQuestionIndex = 0;
+
+        let answeredQuestions = {}; // { [id]: 'answered' | 'incorrect' }
+        let correctAnswersCount = 0;
+        let wrongAnswersCount = 0;
+
+        function focusCanvas() { canvas?.focus?.(); }
+
+        function safeKey(str) {
+            return String(str)
+                .toLowerCase()
+                .replace(/\./g, '')
+                .replace(/[#$\/\[\]]/g, '')
+                .replace(/\s+/g, '_')
+                .replace(/[^a-z0-9_-]/g, '');
+        }
+
+        function escapeHTML(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+            }[c]));
+        }
+
+        /* ================= MODE ================= */
+        function getCachedImage(url) {
+            if (!url) return null;
+
+            if (itemImageCache.has(url)) return itemImageCache.get(url);
+
+            const img = new Image();
+            img.crossOrigin = "anonymous"; // safe for most firebase urls
+            img.src = url;
+
+            itemImageCache.set(url, img);
+            return img;
+        }
+
+        function setMode(mode) {
+            document.querySelectorAll('.mode').forEach(m => m.style.display = 'none');
+            document.getElementById(mode).style.display = 'block';
+            if (mode === 'room') focusCanvas();
+        }
+
+        quizBtn.onclick = () => setMode('quiz');
+        roomBtn.onclick = () => setMode('room');
+        shopBtn.onclick = () => setMode('shop');
+        setMode('quiz');
+
+        /* ================= HUD ================= */
+
+        function renderHUD() {
+            coins.textContent = state.coins;
+            xp.textContent = state.xp;
+            level.textContent = state.level;
+        }
+
+        function levelFromXP(xp) {
+            if (xp < 100) return 1;
+            if (xp < 300) return 2;
+            if (xp < 600) return 3;
+            if (xp < 1000) return 4;
+            return 5;
+        }
+
+        function rewardCorrect(topic = '') {
+            state.coins += 10;
+            state.xp += 5;
+            state.level = levelFromXP(state.xp);
+        }
+
+        function punishWrong(topic = '') {
+            state.coins = Math.max(0, state.coins - 2);
+            state.level = levelFromXP(state.xp);
+        }
+
+        /* ================= FIREBASE PLAYER SAVE/LOAD ================= */
+
+        function playerPath() {
+            return `${DATABASE_BASE_PATH}/quizData/player`;
+        }
+
+        function progressPath() {
+            return `${DATABASE_BASE_PATH}/quizData/progress`;
+        }
+
+        function loadPlayer() {
+            onValue(ref(database, playerPath()), (snap) => {
+                const data = snap.val();
+                if (!data) {
+                    renderHUD();
+                    renderInventory();
+                    return;
+                }
+
+                state.coins = Number(data.coins || 0);
+                state.xp = Number(data.xp || 0);
+                state.level = Number(data.level || 1);
+
+                if (data.player && typeof data.player === 'object') {
+                    state.player.x = Number.isFinite(+data.player.x) ? +data.player.x : state.player.x;
+                    state.player.y = Number.isFinite(+data.player.y) ? +data.player.y : state.player.y;
+                    state.player.dir = data.player.dir || state.player.dir;
+                }
+
+                // normalize inventory
+                state.inventory = {};
+                const rawInv = data.inventory || {};
+
+                Object.entries(rawInv).forEach(([key, value]) => {
+                    if (Array.isArray(value)) {
+                        state.inventory[key] = value.map(o => ({
+                            x: Number(o?.x ?? 0),
+                            y: Number(o?.y ?? 0),
+                            name: o?.name || key,
+                            sku: o?.sku || key,
+                            img: o?.img || '',
+                            desc: o?.desc || ''
+                        }));
+                    } else if (typeof value === 'number') {
+                        state.inventory[key] = [];
+                        for (let i = 0; i < value; i++) state.inventory[key].push({ x: 0, y: 0 });
+                    }
+                });
+
+                renderHUD();
+                renderInventory();
+            });
+        }
+
+        function persistPlayer() {
+            return set(ref(database, playerPath()), state);
+        }
+
+        /* ================= FIREBASE QUIZ PROGRESS ================= */
+
+        function loadQuizProgress() {
+            onValue(ref(database, progressPath()), (snap) => {
+                const data = snap.val();
+                if (!data) return;
+
+                answeredQuestions = data.answeredQuestions || {};
+                correctAnswersCount = Number(data.correctAnswersCount || 0);
+                wrongAnswersCount = Number(data.wrongAnswersCount || 0);
+            }, { onlyOnce: true });
+        }
+
+        function saveQuizProgress() {
+            return set(ref(database, progressPath()), {
+                answeredQuestions,
+                correctAnswersCount,
+                wrongAnswersCount
+            });
+        }
+
+        async function resetQuizProgress() {
+            await remove(ref(database, progressPath()));
+            answeredQuestions = {};
+            correctAnswersCount = 0;
+            wrongAnswersCount = 0;
+            alert('Quiz progress reset.');
+            // reload question view
+            displayQuestion();
+        }
+
+        resetProgressBtn.onclick = resetQuizProgress;
+
+        /* ================= SHOP LOAD ================= */
+
+        function loadShop() {
+            const path = `${DATABASE_BASE_PATH}/ledgerTx`;
+
+            onValue(ref(database, path), (snap) => {
+                const raw = snap.val() || {};
+                const list = [];
+
+                Object.values(raw).forEach(year => {
+                    Object.values(year || {}).forEach(v => {
+                        if (!v) return;
+                        if (v.type !== 'expense') return;
+
+                        const tags = Array.isArray(v.tags) ? v.tags : [];
+                        const hasInv = tags.some(t => String(t).toLowerCase() === 'inv');
+                        if (!hasInv) return;
+
+                        list.push({
+                            sku: v.sku || v.name,
+                            name: v.name || v.sku || 'Item',
+                            price: Math.abs(Number(v.amt || 0)),
+                            img: v.img || '',
+                            desc: v.desc || ''
+                        });
+                    });
+                });
+
+                const grouped = {};
+                list.forEach(i => {
+                    const k = safeKey(i.sku);
+                    if (!grouped[k]) grouped[k] = i;
+                });
+
+                shopItems = Object.values(grouped);
+                renderShop();
+            });
+        }
+
+        // Buy adds the item at (0,0) like your original.
+        // (You can swap this to "place mode" later if you want.)
+        function renderShop() {
+            shopPanel.innerHTML = '';
+
+            if (!shopItems.length) {
+                shopPanel.innerHTML = '<div class="hint">No inv-tagged inventory items found in ledgerTx.</div>';
+                return;
+            }
+
+            shopItems.forEach(item => {
+                const btn = document.createElement('button');
+                btn.textContent = `Buy ${item.name} (${item.price})`;
+
+                btn.onclick = () => {
+                    if (state.coins < item.price) return alert('Not enough coins.');
+
+                    state.coins -= item.price;
+                    const key = safeKey(item.sku);
+
+                    if (!state.inventory[key]) state.inventory[key] = [];
+
+                    state.inventory[key].push({
+                        x: 0,
+                        y: 0,
+                        name: item.name,
+                        sku: item.sku,
+                        img: item.img || '',
+                        desc: item.desc || ''
+                    });
+                    renderHUD();
+                    renderInventory();
+                    persistPlayer();
+                };
+
+                shopPanel.appendChild(btn);
+            });
+        }
+
+        /* ================= INVENTORY PANEL ================= */
+
+        function renderInventory() {
+            inventoryPanel.innerHTML = '<h3>Inventory</h3>';
+
+            const entries = Object.entries(state.inventory).filter(([, v]) => Array.isArray(v));
+            if (!entries.length) {
+                inventoryPanel.innerHTML += '<div class="hint">No items yet. Buy something in the Shop.</div>';
+                return;
+            }
+
+            for (const [key, list] of entries) {
+                const div = document.createElement('div');
+                div.className = 'inventory-line';
+                div.textContent = `${list[0]?.name || key} x ${list.length}`;
+                inventoryPanel.appendChild(div);
+            }
+        }
+
+        /* ================= ROOM ================= */
+
+        function tile(e) {
+            const r = canvas.getBoundingClientRect();
+            return {
+                x: Math.floor((e.clientX - r.left) / TILE),
+                y: Math.floor((e.clientY - r.top) / TILE)
+            };
+        }
+
+        function getItem(x, y) {
+            for (const [key, list] of Object.entries(state.inventory)) {
+                if (!Array.isArray(list)) continue;
+                for (const obj of list) {
+                    if (obj.x === x && obj.y === y) return { key, obj };
+                }
+            }
+            return null;
+        }
+
+        function occupied(x, y) {
+            return getItem(x, y) !== null;
+        }
+
+        function drawGrid() {
+            for (let y = 0; y < GRID; y++) {
+                for (let x = 0; x < GRID; x++) {
+                    ctx.fillStyle = (x + y) % 2 ? '#141a33' : '#18203b';
+                    ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+                }
+            }
+        }
+
+        function drawItems() {
+            for (const list of Object.values(state.inventory)) {
+                if (!Array.isArray(list)) continue;
+
+                list.forEach(obj => {
+                    if (drag && drag.obj === obj) return;
+
+                    // draw item image if it exists + is loaded
+                    if (obj.img) {
+                        const img = getCachedImage(obj.img);
+
+                        if (img && img.complete && img.naturalWidth > 0) {
+                            ctx.drawImage(
+                                img,
+                                obj.x * TILE,
+                                obj.y * TILE,
+                                TILE,
+                                TILE
+                            );
+                            return;
+                        }
+                    }
+
+                    // fallback square if no image (or not loaded yet)
+                    const k = safeKey(obj.sku || obj.name || '');
+                    ctx.fillStyle = k.includes('desk') ? '#6b4f2a'
+                        : k.includes('shelf') ? '#8a6b3b'
+                            : k.includes('server') ? '#5b5b5b'
+                                : '#999';
+
+                    ctx.fillRect(obj.x * TILE + 5, obj.y * TILE + 5, TILE - 10, TILE - 10);
+                });
+            }
+
+            // drag preview
+            if (drag && hover) {
+                ctx.globalAlpha = 0.5;
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(hover.x * TILE + 5, hover.y * TILE + 5, TILE - 10, TILE - 10);
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        function drawPlayer() {
+            if (!spriteLoaded) return;
+
+            let row = 0;
+
+            if (state.player.dir === 'down') row = 0;
+            if (state.player.dir === 'left') row = 1;
+            if (state.player.dir === 'right') row = 2;
+            if (state.player.dir === 'up') row = 3;
+
+            const sx = animationFrame * FRAME_WIDTH;
+            const sy = row * FRAME_HEIGHT;
+
+            ctx.drawImage(
+                playerSprite,
+                sx, sy,
+                FRAME_WIDTH, FRAME_HEIGHT,
+                state.player.x * TILE,
+                state.player.y * TILE,
+                TILE,
+                TILE
+            );
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, 512, 512);
+            if (bgLoaded) {
+                ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
+            } else {
+                drawGrid();
+            } drawItems();
+            drawPlayer();
+        }
+
+        /* ================= INSPECT ================= */
+
+        function getItemInFront() {
+            let { x, y } = state.player;
+            if (state.player.dir === 'up') y--;
+            if (state.player.dir === 'down') y++;
+            if (state.player.dir === 'left') x--;
+            if (state.player.dir === 'right') x++;
+            return getItem(x, y);
+        }
+
+        function inspectItem(item) {
+            if (!item) {
+                infoPanel.innerHTML = "Nothing here.";
+                return;
+            }
+
+            const obj = item.obj;
+
+            const imageHTML = obj.img
+                ? `<img src="${obj.img}" 
+                    style="
+                        width:140px;
+                        image-rendering:pixelated;
+                        display:block;
+                        margin-bottom:12px;
+                        border:3px solid #d4af37;
+                        box-shadow:0 0 10px rgba(212,175,55,.6);
+                    ">`
+                : '';
+
+            const descHTML = obj.desc
+                ? `<div class="hint" style="margin-top:10px;">${escapeHTML(obj.desc)}</div>`
+                : '';
+
+            infoPanel.innerHTML = `
+            <div style="display:flex; gap:15px; align-items:flex-start;">
+            <div>
+                ${imageHTML}
+            </div>
+            <div>
+                <div style="font-size:14px; margin-bottom:8px;">
+                <strong>${escapeHTML(obj.name || 'Item')}</strong>
+                </div>
+                <div class="small">SKU: ${escapeHTML(obj.sku || '(none)')}</div>
+                <div class="small">Tile: (${obj.x}, ${obj.y})</div>
+                ${descHTML}
+            </div>
+            </div>
+            <div class="hint">Triple-click to delete • Drag to move</div>
+        `;
+        }
+
+        // click to inspect
+        canvas.addEventListener('click', (e) => {
+            const { x, y } = tile(e);
+            const item = getItem(x, y);
+            if (item) inspectItem(item);
+        });
+
+        /* ================= DRAG + DELETE ================= */
+
+        canvas.onmousedown = (e) => {
+            const now = Date.now();
+            clickCount = (now - lastClick < 400) ? clickCount + 1 : 1;
+            lastClick = now;
+
+            const { x, y } = tile(e);
+            const item = getItem(x, y);
+            if (!item) return;
+
+            if (clickCount === 3) {
+                const arr = state.inventory[item.key];
+                const idx = arr.indexOf(item.obj);
+                if (idx >= 0) arr.splice(idx, 1);
+
+                clickCount = 0;
+                renderInventory();
+                persistPlayer();
+                infoPanel.innerHTML = 'Item deleted.';
+                return;
+            }
+
+            drag = item;
+        };
+
+        canvas.onmousemove = (e) => hover = tile(e);
+
+        canvas.onmouseup = () => {
+            if (!drag || !hover) return;
+
+            if (!occupied(hover.x, hover.y) && !(hover.x === state.player.x && hover.y === state.player.y)) {
+                drag.obj.x = hover.x;
+                drag.obj.y = hover.y;
+                persistPlayer();
+            }
+
+            drag = null;
+        };
+
+        /* ================= PLAYER MOVEMENT (pokemon-ish step rate) ================= */
+
+        const keys = {};
+        let lastStepAt = 0;
+        const STEP_MS = 140;
+
+        window.addEventListener('keydown', (e) => {
+            const k = e.key.toLowerCase();
+            keys[k] = true;
+
+            if (k === 'e') {
+                const item = getItemInFront();
+                inspectItem(item);
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        function updatePlayer() {
+
+            const now = performance.now();
+            if (now - lastStepAt < STEP_MS) return;
+
+            let newX = state.player.x;
+            let newY = state.player.y;
+            let moved = false;
+
+            if (keys['arrowup'] || keys['w']) {
+                newY--;
+                state.player.dir = 'up';
+                moved = true;
+            } else if (keys['arrowdown'] || keys['s']) {
+                newY++;
+                state.player.dir = 'down';
+                moved = true;
+            } else if (keys['arrowleft'] || keys['a']) {
+                newX--;
+                state.player.dir = 'left';
+                moved = true;
+            } else if (keys['arrowright'] || keys['d']) {
+                newX++;
+                state.player.dir = 'right';
+                moved = true;
+            }
+
+            if (!moved) {
+                animationFrame = 1; // idle frame
+                return;
+            }
+
+            if (newX < 0 || newX >= GRID || newY < 0 || newY >= GRID) {
+                lastStepAt = now;
+                return;
+            }
+
+            if (!occupied(newX, newY)) {
+                state.player.x = newX;
+                state.player.y = newY;
+                persistPlayer();
+            }
+
+            // Animate if moving
+            const now2 = performance.now();
+            if (now2 - lastFrameTime > FRAME_SPEED) {
+                animationFrame = (animationFrame + 1) % FRAMES_PER_ROW;
+                lastFrameTime = now2;
+            }
+
+            lastStepAt = now;
+        }
+
+        function loop() {
+            updatePlayer();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        /* ================= QUIZ: LOAD FROM FIREBASE ================= */
+
+        function fetchQuestions() {
+            const questionsRef = ref(database, 'share/questions');
+
+            onValue(questionsRef, (snapshot) => {
+                const data = snapshot.val();
+
+                allQuestions = [];
+                if (data) {
+                    for (const [description, questionGroup] of Object.entries(data)) {
+                        for (const [id, value] of Object.entries(questionGroup || {})) {
+                            if (!value) continue;
+                            allQuestions.push({ id, description, ...value });
+                        }
+                    }
+                }
+
+                questions = shuffleArray([...allQuestions]);
+                currentQuestionIndex = 0;
+
+                displayQuestion();
+            }, { onlyOnce: true });
+        }
+
+        reloadQuizBtn.onclick = () => {
+            fetchQuestions();
+        };
+
+        function displayQuestion() {
+            const wrap = document.getElementById('quizSection');
+
+            if (!questions.length) {
+                wrap.innerHTML = `<p class="muted">No questions available in share/questions.</p>`;
+                return;
+            }
+
+            // Skip questions already answered unless you want them again
+            // (If you want wrong ones to repeat, you can change this logic)
+            let safety = 0;
+            while (safety < questions.length) {
+                const q = questions[currentQuestionIndex];
+                const status = answeredQuestions[q.id];
+                // skip answered (and also skip incorrect) by default
+                if (!status) break;
+
+                currentQuestionIndex++;
+                if (currentQuestionIndex >= questions.length) currentQuestionIndex = 0;
+                safety++;
+            }
+
+            const q = questions[currentQuestionIndex];
+
+            wrap.innerHTML = `
+                <div class="small muted">Question ${currentQuestionIndex + 1} / ${questions.length}</div>
+                <p><strong>${escapeHTML(q.description || '')}</strong></p>
+                <p>${escapeHTML(q.question || '')}</p>
+                <div id="options" class="quizOptions"></div>
+                <button id="submitAnswerBtn">Submit</button>
+                <div class="hint">Correct: +10 coins, +5 XP • Wrong: -2 coins</div>
+                <div class="hint">Progress: ✅ ${correctAnswersCount} | ❌ ${wrongAnswersCount}</div>
+            `;
+
+            const optionsContainer = document.getElementById('options');
+
+            if (q.options && Array.isArray(q.options) && q.options.length) {
+                q.options.forEach(option => {
+                    const opt = escapeHTML(option);
+                    optionsContainer.innerHTML += `
+            <label>
+              <input type="radio" name="quizOption" value="${opt}">
+              ${opt}
+            </label>
+          `;
+                });
+            } else {
+                // fallback
+                optionsContainer.innerHTML = `<div class="muted">No options found for this question.</div>`;
+            }
+
+            document.getElementById('submitAnswerBtn').addEventListener('click', submitAnswer);
+        }
+
+        function submitAnswer() {
+            const q = questions[currentQuestionIndex];
+            const selected = document.querySelector('input[name="quizOption"]:checked');
+
+            if (!selected) {
+                alert("Choose an answer.");
+                return;
+            }
+
+            const userAnswer = selected.value;
+            const correctAnswer = q.correctAnswer;
+
+            let isCorrect = false;
+
+            if (Array.isArray(correctAnswer)) {
+                isCorrect = correctAnswer.length === 1 && correctAnswer.includes(userAnswer);
+            } else {
+                isCorrect = userAnswer === String(correctAnswer ?? '');
+            }
+
+            if (isCorrect) {
+                correctAnswersCount++;
+                answeredQuestions[q.id] = 'answered';
+
+                rewardCorrect(q.description || '');
+                renderHUD();
+                persistPlayer();
+
+                alert("Correct!");
+            } else {
+                wrongAnswersCount++;
+                answeredQuestions[q.id] = 'incorrect';
+
+                punishWrong(q.description || '');
+                renderHUD();
+                persistPlayer();
+
+                alert(`Incorrect. Correct answer: ${Array.isArray(correctAnswer) ? correctAnswer.join(', ') : correctAnswer}`);
+            }
+
+            saveQuizProgress();
+            nextQuestion();
+        }
+
+        function nextQuestion() {
+            currentQuestionIndex++;
+
+            if (currentQuestionIndex >= questions.length) {
+                currentQuestionIndex = 0;
+            }
+
+            displayQuestion();
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        /* ================= AUTH ================= */
+
+        onAuthStateChanged(auth, (user) => {
+            DATABASE_BASE_PATH = user ? user.uid : 'public';
+            authHint.textContent = user ? `Logged in: ${user.email || user.uid}` : 'Guest mode (public)';
+
+            loadPlayer();
+            loadShop();
+
+            loadQuizProgress();
+            fetchQuestions();
+        });
+
+        renderHUD();
+        renderInventory();
+        loop();
+    </script>
+</body>
+
+</html>
