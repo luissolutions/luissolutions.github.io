@@ -13,9 +13,8 @@ export function createQuizModule({
 }) {
 
     let questions = [];
-    let allQuestions = [];
     let currentQuestionIndex = 0;
-    let answeredQuestions = {}; 
+    let answeredQuestions = {};
     let currentCategory = null;
 
     const quizSection = document.getElementById('quizSection');
@@ -23,14 +22,13 @@ export function createQuizModule({
     /* ================= PATHS ================= */
 
     function progressPath() {
-        return `${basePathGetter()}/quizData/answeredQuestions`;
+        return `${basePathGetter()}/quizData/progress`;
     }
 
     /* ================= LOAD PROGRESS ================= */
 
     function loadQuizProgress() {
-        const path = progressPath();
-        onValue(ref(database, path), snap => {
+        onValue(ref(database, progressPath()), snap => {
             answeredQuestions = snap.val() || {};
         });
     }
@@ -39,38 +37,62 @@ export function createQuizModule({
         return set(ref(database, progressPath()), answeredQuestions);
     }
 
-    /* ================= CATEGORY INDEX ================= */
+    /* ================= RESET ================= */
+
+    function resetQuizProgress() {
+
+        if (!confirm("Reset ALL quiz progress?")) return;
+
+        answeredQuestions = {};
+
+        set(ref(database, progressPath()), {})
+            .then(() => {
+                alert("Quiz progress reset.");
+
+                if (currentCategory) {
+                    loadCategory(currentCategory);
+                }
+
+                renderRecoveryShop();
+            });
+    }
+
+    /* ================= DROPDOWN ================= */
 
     function populateQuizIndex() {
 
-        const container = document.getElementById('quizIndex');
-        if (!container) return;
+        const select = document.getElementById('quizTopicSelect');
+        if (!select) return;
 
-        container.innerHTML = "<strong>Select Topic:</strong><br>";
+        select.innerHTML = `<option value="">-- Choose Topic --</option>`;
 
-        const questionsRef = ref(database, 'share/questions');
-
-        onValue(questionsRef, snapshot => {
+        onValue(ref(database, 'share/questions'), snapshot => {
 
             const data = snapshot.val();
-            if (!data) {
-                container.innerHTML += "<div>No topics available.</div>";
-                return;
-            }
+            if (!data) return;
 
             Object.keys(data).forEach(description => {
 
-                const btn = document.createElement('button');
-                btn.textContent = description;
+                const option = document.createElement('option');
+                option.value = description;
+                option.textContent = description;
 
-                btn.onclick = () => {
-                    loadCategory(description);
-                };
-
-                container.appendChild(btn);
+                select.appendChild(option);
             });
 
         }, { onlyOnce: true });
+
+        select.onchange = (e) => {
+            const topic = e.target.value;
+            if (!topic) return;
+            loadCategory(topic);
+        };
+
+        /* Wire reset button */
+        const resetBtn = document.getElementById('resetProgressBtn');
+        if (resetBtn) {
+            resetBtn.onclick = resetQuizProgress;
+        }
     }
 
     /* ================= LOAD CATEGORY ================= */
@@ -79,31 +101,28 @@ export function createQuizModule({
 
         currentCategory = description;
 
-        const questionsRef = ref(database, `share/questions/${description}`);
-
-        onValue(questionsRef, snapshot => {
+        onValue(ref(database, `share/questions/${description}`), snapshot => {
 
             const data = snapshot.val();
             if (!data) return;
 
             questions = [];
+            const allTopicQuestions = [];
 
             Object.entries(data).forEach(([id, value]) => {
 
-                // Skip permanently answered
-                if (answeredQuestions[id]?.status === 'answered') return;
+                const full = { id, description, ...value };
+                allTopicQuestions.push(full);
 
-                // Skip incorrect unless recovered
+                if (answeredQuestions[id]?.status === 'answered') return;
                 if (answeredQuestions[id]?.status === 'incorrect') return;
 
-                questions.push({
-                    id,
-                    description,
-                    ...value
-                });
+                questions.push(full);
             });
 
             currentQuestionIndex = 0;
+
+            renderTopicStats(allTopicQuestions);
 
             if (questions.length > 0) {
                 renderQuestion();
@@ -114,6 +133,36 @@ export function createQuizModule({
             renderRecoveryShop();
 
         }, { onlyOnce: true });
+    }
+
+    /* ================= STATS ================= */
+
+    function renderTopicStats(allTopicQuestions) {
+
+        const statsEl = document.getElementById('quizStats');
+        if (!statsEl) return;
+
+        const total = allTopicQuestions.length;
+
+        const correct = allTopicQuestions.filter(q =>
+            answeredQuestions[q.id]?.status === 'answered'
+        ).length;
+
+        const incorrect = allTopicQuestions.filter(q =>
+            answeredQuestions[q.id]?.status === 'incorrect'
+        ).length;
+
+        const remaining = total - correct - incorrect;
+
+        const percent = total > 0
+            ? Math.round((correct / total) * 100)
+            : 0;
+
+        statsEl.innerHTML = `
+            Remaining: ${remaining} |
+            Incorrect: ${incorrect} |
+            Completed: ${percent}%
+        `;
     }
 
     /* ================= RENDER QUESTION ================= */
@@ -144,10 +193,10 @@ export function createQuizModule({
             });
         }
 
-        const submitBtn = document.createElement('button');
-        submitBtn.textContent = "Submit Answer";
-        submitBtn.onclick = submitAnswer;
-        quizSection.appendChild(submitBtn);
+        const btn = document.createElement('button');
+        btn.textContent = "Submit Answer";
+        btn.onclick = submitAnswer;
+        quizSection.appendChild(btn);
     }
 
     /* ================= SUBMIT ================= */
@@ -164,6 +213,7 @@ export function createQuizModule({
         }
 
         const userAnswer = selected.value;
+
         const correct = Array.isArray(q.correctAnswer)
             ? q.correctAnswer.includes(userAnswer)
             : userAnswer === q.correctAnswer;
@@ -176,7 +226,6 @@ export function createQuizModule({
             };
 
             rewardCorrect(q.description);
-
             alert("Correct!");
 
         } else {
@@ -187,24 +236,14 @@ export function createQuizModule({
             };
 
             punishWrong(q.description);
-
-            alert("Incorrect.");
+            alert("Incorrect!");
         }
 
         saveProgress();
         renderHUD();
         persistPlayer();
 
-        questions.splice(currentQuestionIndex, 1);
-
-        if (questions.length > 0) {
-            currentQuestionIndex = 0;
-            renderQuestion();
-        } else {
-            quizSection.innerHTML = "<p>No more questions in this topic.</p>";
-        }
-
-        renderRecoveryShop();
+        loadCategory(currentCategory);
     }
 
     /* ================= RECOVERY SHOP ================= */
@@ -212,23 +251,25 @@ export function createQuizModule({
     function renderRecoveryShop() {
 
         const container = document.getElementById('recoveryShop');
-        if (!container) return;
+        if (!container || !currentCategory) return;
 
         container.innerHTML = "<h3>Recover Incorrect Questions</h3>";
 
         const incorrect = Object.entries(answeredQuestions)
-            .filter(([_, data]) => data.status === 'incorrect'
-                && data.description === currentCategory);
+            .filter(([_, data]) =>
+                data.status === 'incorrect' &&
+                data.description === currentCategory
+            );
 
         if (!incorrect.length) {
             container.innerHTML += "<div class='hint'>No incorrect questions.</div>";
             return;
         }
 
-        incorrect.forEach(([id, data]) => {
+        incorrect.forEach(([id]) => {
 
             const btn = document.createElement('button');
-            btn.textContent = `Recover ${id} (Cost: 500 coins)`;
+            btn.textContent = `Recover Question (Cost: 500 coins)`;
 
             btn.onclick = () => recoverQuestion(id);
 
@@ -260,6 +301,7 @@ export function createQuizModule({
 
     return {
         loadQuizProgress,
-        populateQuizIndex
+        populateQuizIndex,
+        resetQuizProgress
     };
 }
