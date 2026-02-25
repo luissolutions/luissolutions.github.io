@@ -49,12 +49,9 @@
             <button id="resetProgressBtn">Reset Quiz Progress</button>
         </div>
 
+        <div id="quizIndex" class="panel"></div>
         <div id="quizSection" class="panel quizCard"></div>
-
-        <div class="hint">
-            Quiz pulls from <span class="mono">share/questions</span> and saves progress to
-            <span class="mono">/quizData/progress</span>.
-        </div>
+        <div id="recoveryShop" class="panel"></div>
     </div>
 
     <!-- ROOM -->
@@ -87,6 +84,13 @@
     <div id="shop" class="panel mode">
         <h3>Shop (Inventory Driven)</h3>
         <div id="shopPanel"></div>
+    </div>
+
+    <!-- APP MODE -->
+    <div id="app" class="panel mode">
+        <h3>External App</h3>
+        <iframe id="appFrame" src="" style="width:100%; height:500px; border:none;">
+        </iframe>
     </div>
 
     <script type="module">
@@ -148,6 +152,9 @@
         const playerSprite = new Image();
         playerSprite.src = './assets/img/player.png';
         let spriteLoaded = false;
+
+        let activeInteraction = null;
+        let dialogueIndex = 0;
 
         playerSprite.onload = () => {
             spriteLoaded = true;
@@ -238,7 +245,26 @@
                         y: 4,
                         solid: true,
                         draggable: true,
-                        img: './assets/img/shop-block.png'
+                        img: './assets/img/shop-block.png',
+                        dialogue: [
+                            "Welcome to my shop.",
+                            "I sell items tagged 'inv'.",
+                            "Press E again to browse."
+                        ]
+                    },
+                    {
+                        id: 'appBlock',
+                        type: 'app',
+                        x: 10,
+                        y: 5,
+                        solid: true,
+                        draggable: true,
+                        img: './assets/img/app-block.png',
+                        appUrl: 'livenotes.html',
+                        dialogue: [
+                            "This portal connects to an external system.",
+                            "Press E again to open it."
+                        ]
                     },
                 ],
 
@@ -273,7 +299,6 @@
             }
         };
 
-
         /* ================= ROOM CHANGE ================= */
 
         function changeRoom(roomName) {
@@ -288,7 +313,6 @@
             state.player.x = 5;
             state.player.y = 5;
         }
-
 
         /* ================= COLLISION ================= */
 
@@ -313,7 +337,6 @@
             return false;
         }
 
-
         /* ================= DRAW INTERACTABLES ================= */
 
         function drawInteractables() {
@@ -337,7 +360,6 @@
             });
         }
 
-
         /* ================= INTERACTION ================= */
 
         function getInteractableInFront() {
@@ -353,38 +375,50 @@
         }
 
         function handleInteraction(obj) {
-
             if (!obj) return;
 
-            if (obj.type === 'quiz') {
-                setMode('quiz');
-                return;
-            }
+            // If object has dialogue
+            if (obj.dialogue && obj.dialogue.length) {
 
-            if (obj.type === 'shop') {
-                setMode('shop');
-                return;
-            }
-
-            if (obj.type === 'door') {
-                changeRoom(obj.target);
-                return;
-            }
-
-            if (obj.type === 'npc') {
+                // If starting new interaction
+                if (activeInteraction !== obj) {
+                    activeInteraction = obj;
+                    dialogueIndex = 0;
+                }
 
                 const text = obj.dialogue[dialogueIndex];
 
                 infoPanel.innerHTML = `
-            <div class="panel">
-                ${text}
-                <div class="hint">(Press E to continue)</div>
-            </div>
-        `;
+                    <div class="panel">
+                        ${text}
+                        <div class="hint">(Press E to continue)</div>
+                    </div>
+                `;
 
                 dialogueIndex++;
-                if (dialogueIndex >= obj.dialogue.length) dialogueIndex = 0;
+
+                // If dialogue finished
+                if (dialogueIndex >= obj.dialogue.length) {
+
+                    dialogueIndex = 0;
+                    activeInteraction = null;
+
+                    // AFTER dialogue, open element
+                    if (obj.type === 'quiz') setMode('quiz');
+                    if (obj.type === 'shop') setMode('shop');
+                    if (obj.type === 'door') changeRoom(obj.target);
+                    if (obj.type === 'app') {
+                        document.getElementById('appFrame').src = obj.appUrl;
+                        setMode('app');
+                    }
+                }
+
+                return;
             }
+
+            if (obj.type === 'quiz') setMode('quiz');
+            if (obj.type === 'shop') setMode('shop');
+            if (obj.type === 'door') changeRoom(obj.target);
         }
 
         /* ================= MODE ================= */
@@ -394,7 +428,7 @@
             if (itemImageCache.has(url)) return itemImageCache.get(url);
 
             const img = new Image();
-            img.crossOrigin = "anonymous"; // safe for most firebase urls
+            img.crossOrigin = "anonymous";
             img.src = url;
 
             itemImageCache.set(url, img);
@@ -960,7 +994,6 @@
         window.addEventListener('keyup', (e) => {
             keys[e.key.toLowerCase()] = false;
         });
-        let dialogueIndex = 0;
 
         function updatePlayer() {
 
@@ -1045,7 +1078,7 @@
             loadShop();
 
             quiz.loadQuizProgress();
-            quiz.fetchQuestions();
+            quiz.populateQuizIndex();
         });
 
         renderHUD();

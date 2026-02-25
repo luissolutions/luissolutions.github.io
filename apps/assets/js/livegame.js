@@ -12,179 +12,254 @@ export function createQuizModule({
     basePathGetter
 }) {
 
-    let allQuestions = [];
     let questions = [];
+    let allQuestions = [];
     let currentQuestionIndex = 0;
+    let answeredQuestions = {}; 
+    let currentCategory = null;
 
-    let answeredQuestions = {};
-    let correctAnswersCount = 0;
-    let wrongAnswersCount = 0;
+    const quizSection = document.getElementById('quizSection');
+
+    /* ================= PATHS ================= */
 
     function progressPath() {
-        return `${basePathGetter()}/quizData/progress`;
+        return `${basePathGetter()}/quizData/answeredQuestions`;
     }
 
-    function shuffleArray(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
-        }
-        return array;
-    }
+    /* ================= LOAD PROGRESS ================= */
 
     function loadQuizProgress() {
-        onValue(ref(database, progressPath()), (snap) => {
-            const data = snap.val();
-            if (!data) return;
-
-            answeredQuestions = data.answeredQuestions || {};
-            correctAnswersCount = Number(data.correctAnswersCount || 0);
-            wrongAnswersCount = Number(data.wrongAnswersCount || 0);
-        }, { onlyOnce: true });
-    }
-
-    function saveQuizProgress() {
-        return set(ref(database, progressPath()), {
-            answeredQuestions,
-            correctAnswersCount,
-            wrongAnswersCount
+        const path = progressPath();
+        onValue(ref(database, path), snap => {
+            answeredQuestions = snap.val() || {};
         });
     }
 
-    async function resetQuizProgress() {
-        await remove(ref(database, progressPath()));
-        answeredQuestions = {};
-        correctAnswersCount = 0;
-        wrongAnswersCount = 0;
-        alert('Quiz progress reset.');
-        displayQuestion();
+    function saveProgress() {
+        return set(ref(database, progressPath()), answeredQuestions);
     }
 
-    function fetchQuestions() {
+    /* ================= CATEGORY INDEX ================= */
+
+    function populateQuizIndex() {
+
+        const container = document.getElementById('quizIndex');
+        if (!container) return;
+
+        container.innerHTML = "<strong>Select Topic:</strong><br>";
+
         const questionsRef = ref(database, 'share/questions');
 
-        onValue(questionsRef, (snapshot) => {
-            const data = snapshot.val();
+        onValue(questionsRef, snapshot => {
 
-            allQuestions = [];
-            if (data) {
-                for (const [description, questionGroup] of Object.entries(data)) {
-                    for (const [id, value] of Object.entries(questionGroup || {})) {
-                        if (!value) continue;
-                        allQuestions.push({ id, description, ...value });
-                    }
-                }
+            const data = snapshot.val();
+            if (!data) {
+                container.innerHTML += "<div>No topics available.</div>";
+                return;
             }
 
-            questions = shuffleArray([...allQuestions]);
-            currentQuestionIndex = 0;
+            Object.keys(data).forEach(description => {
 
-            displayQuestion();
+                const btn = document.createElement('button');
+                btn.textContent = description;
+
+                btn.onclick = () => {
+                    loadCategory(description);
+                };
+
+                container.appendChild(btn);
+            });
+
         }, { onlyOnce: true });
     }
 
-    function displayQuestion() {
-        const wrap = document.getElementById('quizSection');
+    /* ================= LOAD CATEGORY ================= */
 
-        if (!questions.length) {
-            wrap.innerHTML = `<p class="muted">No questions available.</p>`;
+    function loadCategory(description) {
+
+        currentCategory = description;
+
+        const questionsRef = ref(database, `share/questions/${description}`);
+
+        onValue(questionsRef, snapshot => {
+
+            const data = snapshot.val();
+            if (!data) return;
+
+            questions = [];
+
+            Object.entries(data).forEach(([id, value]) => {
+
+                // Skip permanently answered
+                if (answeredQuestions[id]?.status === 'answered') return;
+
+                // Skip incorrect unless recovered
+                if (answeredQuestions[id]?.status === 'incorrect') return;
+
+                questions.push({
+                    id,
+                    description,
+                    ...value
+                });
+            });
+
+            currentQuestionIndex = 0;
+
+            if (questions.length > 0) {
+                renderQuestion();
+            } else {
+                quizSection.innerHTML = "<p>No available questions in this topic.</p>";
+            }
+
+            renderRecoveryShop();
+
+        }, { onlyOnce: true });
+    }
+
+    /* ================= RENDER QUESTION ================= */
+
+    function renderQuestion() {
+
+        const q = questions[currentQuestionIndex];
+        if (!q) {
+            quizSection.innerHTML = "<p>No more questions.</p>";
             return;
         }
 
-        let safety = 0;
-        while (safety < questions.length) {
-            const q = questions[currentQuestionIndex];
-            const status = answeredQuestions[q.id];
-            if (!status) break;
-
-            currentQuestionIndex++;
-            if (currentQuestionIndex >= questions.length) currentQuestionIndex = 0;
-            safety++;
-        }
-
-        const q = questions[currentQuestionIndex];
-
-        wrap.innerHTML = `
-            <p><strong>${q.description || ''}</strong></p>
-            <p>${q.question || ''}</p>
-            <div id="options"></div>
-            <button id="submitAnswerBtn">Submit</button>
-            <div>Progress: ✅ ${correctAnswersCount} | ❌ ${wrongAnswersCount}</div>
+        quizSection.innerHTML = `
+            <p><strong>${q.description}</strong></p>
+            <p>${q.question}</p>
         `;
 
-        const optionsContainer = document.getElementById('options');
-
-        if (Array.isArray(q.options)) {
+        if (q.options) {
             q.options.forEach(option => {
-                optionsContainer.innerHTML += `
-                    <label>
-                        <input type="radio" name="quizOption" value="${option}">
-                        ${option}
-                    </label>
+
+                const label = document.createElement('label');
+                label.innerHTML = `
+                    <input type="radio" name="answer" value="${option}">
+                    ${option}
                 `;
+                quizSection.appendChild(label);
+                quizSection.appendChild(document.createElement('br'));
             });
         }
 
-        document
-            .getElementById('submitAnswerBtn')
-            .addEventListener('click', submitAnswer);
+        const submitBtn = document.createElement('button');
+        submitBtn.textContent = "Submit Answer";
+        submitBtn.onclick = submitAnswer;
+        quizSection.appendChild(submitBtn);
     }
 
-    function submitAnswer() {
-        const q = questions[currentQuestionIndex];
-        const selected = document.querySelector('input[name="quizOption"]:checked');
+    /* ================= SUBMIT ================= */
 
+    function submitAnswer() {
+
+        const q = questions[currentQuestionIndex];
+        if (!q) return;
+
+        const selected = document.querySelector('input[name="answer"]:checked');
         if (!selected) {
-            alert("Choose an answer.");
+            alert("Select an answer.");
             return;
         }
 
         const userAnswer = selected.value;
-        const correctAnswer = q.correctAnswer;
+        const correct = Array.isArray(q.correctAnswer)
+            ? q.correctAnswer.includes(userAnswer)
+            : userAnswer === q.correctAnswer;
 
-        let isCorrect = false;
+        if (correct) {
 
-        if (Array.isArray(correctAnswer)) {
-            isCorrect = correctAnswer.length === 1 && correctAnswer.includes(userAnswer);
-        } else {
-            isCorrect = userAnswer === String(correctAnswer ?? '');
-        }
+            answeredQuestions[q.id] = {
+                status: 'answered',
+                description: q.description
+            };
 
-        if (isCorrect) {
-            correctAnswersCount++;
-            answeredQuestions[q.id] = 'answered';
-
-            rewardCorrect();
-            renderHUD();
-            persistPlayer();
+            rewardCorrect(q.description);
 
             alert("Correct!");
+
         } else {
-            wrongAnswersCount++;
-            answeredQuestions[q.id] = 'incorrect';
 
-            punishWrong();
-            renderHUD();
-            persistPlayer();
+            answeredQuestions[q.id] = {
+                status: 'incorrect',
+                description: q.description
+            };
 
-            alert(`Incorrect. Correct answer: ${correctAnswer}`);
+            punishWrong(q.description);
+
+            alert("Incorrect.");
         }
 
-        saveQuizProgress();
-        nextQuestion();
-    }
+        saveProgress();
+        renderHUD();
+        persistPlayer();
 
-    function nextQuestion() {
-        currentQuestionIndex++;
-        if (currentQuestionIndex >= questions.length) {
+        questions.splice(currentQuestionIndex, 1);
+
+        if (questions.length > 0) {
             currentQuestionIndex = 0;
+            renderQuestion();
+        } else {
+            quizSection.innerHTML = "<p>No more questions in this topic.</p>";
         }
-        displayQuestion();
+
+        renderRecoveryShop();
     }
+
+    /* ================= RECOVERY SHOP ================= */
+
+    function renderRecoveryShop() {
+
+        const container = document.getElementById('recoveryShop');
+        if (!container) return;
+
+        container.innerHTML = "<h3>Recover Incorrect Questions</h3>";
+
+        const incorrect = Object.entries(answeredQuestions)
+            .filter(([_, data]) => data.status === 'incorrect'
+                && data.description === currentCategory);
+
+        if (!incorrect.length) {
+            container.innerHTML += "<div class='hint'>No incorrect questions.</div>";
+            return;
+        }
+
+        incorrect.forEach(([id, data]) => {
+
+            const btn = document.createElement('button');
+            btn.textContent = `Recover ${id} (Cost: 500 coins)`;
+
+            btn.onclick = () => recoverQuestion(id);
+
+            container.appendChild(btn);
+        });
+    }
+
+    function recoverQuestion(id) {
+
+        const COST = 500;
+
+        if (state.coins < COST) {
+            alert("Not enough coins.");
+            return;
+        }
+
+        state.coins -= COST;
+
+        delete answeredQuestions[id];
+
+        saveProgress();
+        renderHUD();
+        persistPlayer();
+
+        loadCategory(currentCategory);
+    }
+
+    /* ================= PUBLIC API ================= */
 
     return {
-        fetchQuestions,
         loadQuizProgress,
-        resetQuizProgress
+        populateQuizIndex
     };
 }
