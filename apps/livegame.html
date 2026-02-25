@@ -86,7 +86,14 @@
                 <p class="hint">
                     Move: WASD / Arrows • Inspect: E • Drag item: mouse • Triple-click item: delete
                 </p>
-
+                <input type="file" id="bgUpload">
+                <select id="blockTypeSelect">
+                    <option value="npc">NPC</option>
+                    <option value="quiz">Quiz Block</option>
+                    <option value="shop">Shop Block</option>
+                    <option value="door">Door</option>
+                </select>
+                <input type="file" id="blockImageUpload" accept="image/*">
             </div>
 
         </div>
@@ -107,7 +114,7 @@
 
     <script type="module">
         import {
-            auth, onAuthStateChanged, database, ref, onValue, set,
+            auth, onAuthStateChanged, database, ref, onValue, set, update,
             storage, storageRef, uploadBytes, getDownloadURL, deleteObject, remove,
         } from '../assets/js/firebase-init.js';
         import { createQuizModule } from './assets/js/livegame.js';
@@ -208,108 +215,75 @@
         }
 
         /* ================= ROOM SYSTEM ================= */
+        let gameStarted = false;
+
+        function startGame() {
+            if (gameStarted) return;
+            gameStarted = true;
+            loop();
+        }
 
         let currentRoom = "room1";
 
-        const rooms = {
+        let rooms = {};
 
-            room1: {
-                bg: './assets/img/room-bg.png',
+        function loadRooms() {
+            const path = `${DATABASE_BASE_PATH}/gameData/rooms`;
 
-                interactables: [
-                    {
-                        id: 'quizPortal',
-                        type: 'quiz',
+            onValue(ref(database, path), async (snap) => {
+
+                // 🔥 Safe existence check
+                if (!snap.exists()) {
+                    console.log("No rooms found. Creating default room...");
+                    await createDefaultRoom();
+                    return;
+                }
+
+                const data = snap.val();
+                rooms = data;
+
+                if (!rooms[currentRoom]) {
+                    currentRoom = Object.keys(rooms)[0];
+                }
+
+                if (rooms[currentRoom]?.bg) {
+                    bgLoaded = false;
+                    bgImage.src = rooms[currentRoom].bg;
+                }
+
+                startGame();
+            });
+        }
+
+        async function createDefaultRoom() {
+
+            const defaultRoom = {
+                bg: "",
+                walls: [],
+                interactables: {
+                    default_npc: {
+                        id: "default_npc",
+                        type: "npc",
                         x: 6,
-                        y: 2,
+                        y: 6,
                         solid: true,
                         draggable: true,
-                        img: './assets/img/quiz-block.png'
-                    },
-                    {
-                        id: 'doorToRoom2',
-                        type: 'door',
-                        target: 'room2',
-                        x: 7,
-                        y: 15,
-                        solid: true,
-                        draggable: true,
-                        img: './assets/img/door.png'
-                    },
-                    {
-                        id: 'npc1',
-                        type: 'npc',
-                        x: 8,
-                        y: 2,
-                        solid: true,
-                        draggable: true,
-                        img: './assets/img/quiz-block2.png',
+                        img: "",
                         dialogue: [
-                            "Welcome to the Knowledge Room.",
-                            "Answer questions to gain XP.",
-                            "Come back when you reach Level 3."
+                            "Welcome to Knowledge RPG.",
+                            "This room was auto-generated.",
+                            "Start building your world!"
                         ]
-                    },
-                    {
-                        id: 'shopBlock',
-                        type: 'shop',
-                        x: 8,
-                        y: 4,
-                        solid: true,
-                        draggable: true,
-                        img: './assets/img/shop-block.png',
-                        dialogue: [
-                            "Welcome to my shop.",
-                            "I sell items tagged 'inv'.",
-                            "Press E again to browse."
-                        ]
-                    },
-                    {
-                        id: 'appBlock',
-                        type: 'app',
-                        x: 10,
-                        y: 5,
-                        solid: true,
-                        draggable: true,
-                        img: './assets/img/app-block.png',
-                        appUrl: 'livenotes.html',
-                        dialogue: [
-                            "This portal connects to an external system.",
-                            "Press E again to open it."
-                        ]
-                    },
-                ],
-
-                walls: [
-                    { x: 0, y: 0 },
-                    { x: 0, y: 1 },
-                    { x: 0, y: 2 }
-                ]
-            },
-
-            room2: {
-                bg: './assets/img/room2-bg.webp',
-
-                interactables: [
-                    {
-                        id: 'doorBack',
-                        type: 'door',
-                        target: 'room1',
-                        x: 0,
-                        y: 7,
-                        solid: true,
-                        draggable: true,
-                        img: './assets/img/door.png'
                     }
-                ],
+                }
+            };
 
-                walls: [
-                    { x: 14, y: 14 },
-                    { x: 14, y: 13 },
-                    { x: 14, y: 12 }
-                ]
-            }
-        };
+            // 🔥 Only create room1 node, do NOT overwrite rooms
+            await update(
+                ref(database, `${DATABASE_BASE_PATH}/gameData/rooms`),
+                { room1: defaultRoom }
+            );
+        }
 
         /* ================= ROOM CHANGE ================= */
 
@@ -319,11 +293,54 @@
 
             currentRoom = roomName;
 
-            bgImage.src = rooms[currentRoom].bg;
-
+            if (rooms[currentRoom].bg) {
+                bgLoaded = false;
+                bgImage.src = rooms[currentRoom].bg;
+            }
             // reset player position (optional)
             state.player.x = 5;
             state.player.y = 5;
+        }
+
+        function createRoom(roomId, returnRoom = null) {
+
+            const newRoom = {
+                bg: "",
+                walls: [],
+                interactables: {}
+            };
+
+            if (returnRoom) {
+                newRoom.interactables["return_door"] = {
+                    id: "return_door",
+                    type: "door",
+                    x: 5,
+                    y: 5,
+                    solid: true,
+                    draggable: true,
+                    target: returnRoom
+                };
+            }
+
+            // 🔥 Only update this room key
+            return update(
+                ref(database, `${DATABASE_BASE_PATH}/gameData/rooms`),
+                { [roomId]: newRoom }
+            );
+        }
+
+        function addBlockToRoom(roomId, blockData) {
+            const id = safeKey(blockData.type + "_" + Date.now());
+
+            set(
+                ref(database,
+                    `${DATABASE_BASE_PATH}/gameData/rooms/${roomId}/interactables/${id}`
+                ),
+                {
+                    ...blockData,
+                    id
+                }
+            );
         }
 
         /* ================= COLLISION ================= */
@@ -334,13 +351,16 @@
 
             if (getItem(x, y)) return true;
 
-            // invisible walls
-            for (const wall of rooms[currentRoom].walls) {
+            const room = rooms[currentRoom];
+            if (!room) return true;
+
+            // walls
+            for (const wall of room.walls || []) {
                 if (wall.x === x && wall.y === y) return true;
             }
 
             // interactables
-            for (const obj of rooms[currentRoom].interactables) {
+            for (const obj of Object.values(room.interactables || {})) {
                 if (obj.solid && obj.x === x && obj.y === y) {
                     return true;
                 }
@@ -353,7 +373,12 @@
 
         function drawInteractables() {
 
-            rooms[currentRoom].interactables.forEach(obj => {
+            const room = rooms[currentRoom];
+            if (!room) return;
+
+            const interactables = room.interactables || {};
+
+            Object.values(interactables).forEach(obj => {
 
                 const px = obj.x * TILE;
                 const py = obj.y * TILE;
@@ -383,10 +408,11 @@
             if (state.player.dir === 'left') x--;
             if (state.player.dir === 'right') x++;
 
-            return rooms[currentRoom].interactables.find(obj => obj.x === x && obj.y === y);
+            return Object.values(rooms[currentRoom]?.interactables || {})
+                .find(obj => obj.x === x && obj.y === y);
         }
 
-        function handleInteraction(obj) {
+        async function handleInteraction(obj) {
             if (!obj) return;
 
             // If object has dialogue
@@ -430,7 +456,14 @@
 
             if (obj.type === 'quiz') setMode('quiz');
             if (obj.type === 'shop') setMode('shop');
-            if (obj.type === 'door') changeRoom(obj.target);
+            if (obj.type === 'door') {
+
+                if (!rooms[obj.target]) {
+                    await createRoom(obj.target);
+                }
+
+                changeRoom(obj.target);
+            }
         }
 
         /* ================= MODE ================= */
@@ -492,11 +525,11 @@
         /* ================= FIREBASE PLAYER SAVE/LOAD ================= */
 
         function playerPath() {
-            return `${DATABASE_BASE_PATH}/quizData/player`;
+            return `${DATABASE_BASE_PATH}/gameData/player`;
         }
 
         function progressPath() {
-            return `${DATABASE_BASE_PATH}/quizData/progress`;
+            return `${DATABASE_BASE_PATH}/gameData/progress`;
         }
 
         function loadPlayer() {
@@ -513,31 +546,9 @@
                 state.level = Number(data.level || 1);
 
                 // restore room
-                if (data.room && rooms[data.room]) {
-                    currentRoom = data.room;
+                if (rooms[currentRoom].bg) {
+                    bgLoaded = false;
                     bgImage.src = rooms[currentRoom].bg;
-                }
-
-                // restore room layouts
-                if (data.roomLayouts) {
-
-                    Object.entries(data.roomLayouts).forEach(([roomName, savedRoom]) => {
-
-                        if (!rooms[roomName]) return;
-
-                        if (Array.isArray(savedRoom.interactables)) {
-
-                            savedRoom.interactables.forEach(saved => {
-
-                                const existing = rooms[roomName].interactables.find(i => i.id === saved.id);
-
-                                if (existing) {
-                                    existing.x = saved.x;
-                                    existing.y = saved.y;
-                                }
-                            });
-                        }
-                    });
                 }
                 // inventory restore
                 state.roomItems = data.roomItems || {};
@@ -550,16 +561,12 @@
         function persistPlayer() {
 
             return set(ref(database, playerPath()), {
-                ...state,
+                coins: state.coins,
+                xp: state.xp,
+                level: state.level,
                 room: currentRoom,
-                roomLayouts: Object.fromEntries(
-                    Object.entries(rooms).map(([name, room]) => [
-                        name,
-                        {
-                            interactables: room.interactables
-                        }
-                    ])
-                )
+                roomItems: state.roomItems,
+                player: state.player
             });
         }
 
@@ -784,7 +791,8 @@
 
         function draw() {
             ctx.clearRect(0, 0, 512, 512);
-            if (bgLoaded) {
+
+            if (bgImage.complete && bgImage.naturalWidth > 0) {
                 ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
             } else {
                 drawGrid();
@@ -796,6 +804,7 @@
         }
 
         /* ================= INSPECT ================= */
+
         function getItem(x, y) {
 
             const roomInventory = getCurrentRoomItems();
@@ -910,7 +919,7 @@
             // If mouse moved to different tile → start drag
             if (hover.x !== mouseDownPos.x || hover.y !== mouseDownPos.y) {
 
-                const interactable = rooms[currentRoom].interactables
+                const interactable = Object.values(rooms[currentRoom]?.interactables || {})
                     .find(o => o.x === mouseDownPos.x && o.y === mouseDownPos.y);
 
                 if (interactable && interactable.draggable) {
@@ -925,13 +934,13 @@
             }
         };
 
-        canvas.onmouseup = (e) => {
+        canvas.onmouseup = async (e) => {
             const { x, y } = tile(e);
 
             // If mouse didn’t move → treat as click
             if (mouseDownPos && mouseDownPos.x === x && mouseDownPos.y === y) {
 
-                const interactable = rooms[currentRoom].interactables
+                const interactable = Object.values(rooms[currentRoom]?.interactables || {})
                     .find(o => o.x === x && o.y === y);
 
                 if (interactable) {
@@ -958,11 +967,25 @@
 
             // Interactable drag
             if (drag.type === 'interactable') {
+
                 if (!isSolidTile(hover.x, hover.y)) {
+
                     drag.obj.x = hover.x;
                     drag.obj.y = hover.y;
-                    persistPlayer();
+
+                    await set(
+                        ref(database,
+                            `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}/interactables/${drag.obj.id}/x`),
+                        hover.x
+                    );
+
+                    await set(
+                        ref(database,
+                            `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}/interactables/${drag.obj.id}/y`),
+                        hover.y
+                    );
                 }
+
                 drag = null;
                 mouseDownPos = null;
                 return;
@@ -1095,6 +1118,7 @@
                 focusCanvas();
             });
 
+
         onAuthStateChanged(auth, (user) => {
             DATABASE_BASE_PATH = user ? user.uid : 'public';
             const authHintEl = document.getElementById('authHint');
@@ -1105,20 +1129,94 @@
             }
 
             loadPlayer();
+            loadRooms();
             loadShop();
 
             quiz.loadQuizProgress();
             quiz.populateQuizIndex();
         });
 
-        document.getElementById('resetProgressBtn')
-            .addEventListener('click', () => {
-                quiz.resetQuizProgress();
-            });
-
         renderHUD();
         renderInventory();
-        loop();
+
+        document.getElementById('bgUpload')
+            ?.addEventListener('change', async (e) => {
+
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const ROOT_PATH = auth.currentUser?.uid || "public";
+                const cleanName = file.name.replace(/\s+/g, '_').toLowerCase();
+
+                const path =
+                    `${ROOT_PATH}/gameData/roomAssets/${currentRoom}/bg_${Date.now()}_${cleanName}`;
+
+                const fileRef = storageRef(storage, path);
+
+                await uploadBytes(fileRef, file);
+                const url = await getDownloadURL(fileRef);
+
+                // 🔥 SAFE UPDATE — does not overwrite walls/interactables
+                await update(
+                    ref(database, `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}`),
+                    { bg: url }
+                );
+
+                bgLoaded = false;
+                bgImage.src = url;
+
+                console.log("Background uploaded safely:", url);
+            });
+
+        document.getElementById('blockImageUpload')
+            ?.addEventListener('change', async (e) => {
+
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const uid = auth.currentUser?.uid || "public";
+                const cleanName = file.name.replace(/\s+/g, '_').toLowerCase();
+                const ROOT_PATH = auth.currentUser?.uid || "public";
+
+                const path =
+                    `${ROOT_PATH}/gameData/blockAssets/${Date.now()}_${cleanName}`;
+
+                const fileRef = storageRef(storage, path);
+                await uploadBytes(fileRef, file);
+                const url = await getDownloadURL(fileRef);
+
+                const type = document.getElementById("blockTypeSelect").value;
+
+                const baseBlock = {
+                    type,
+                    x: state.player.x + 1,
+                    y: state.player.y,
+                    solid: true,
+                    draggable: true,
+                    img: url
+                };
+
+                // Add special properties depending on type
+                if (type === "npc") {
+                    baseBlock.dialogue = [
+                        "Hello!",
+                        "I was created dynamically."
+                    ];
+                }
+
+                if (type === "door") {
+
+                    const newRoomId = `room_${Date.now()}`;
+
+                    baseBlock.target = newRoomId;
+
+                    // Auto-create new room
+                    await createRoom(newRoomId, currentRoom);
+                }
+
+                addBlockToRoom(currentRoom, baseBlock);
+            });
+
     </script>
 </body>
 
