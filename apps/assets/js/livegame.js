@@ -5,6 +5,7 @@ export function createQuizModule({
     set,
     remove,
     state,
+    update,
     rewardCorrect,
     punishWrong,
     renderHUD,
@@ -22,7 +23,7 @@ export function createQuizModule({
     /* ================= PATHS ================= */
 
     function progressPath() {
-        return `${basePathGetter()}/quizData/progress`;
+        return `${basePathGetter()}/gameData/progress`;
     }
 
     /* ================= LOAD PROGRESS ================= */
@@ -33,9 +34,9 @@ export function createQuizModule({
         });
     }
 
-    function saveProgress() {
-        return set(ref(database, progressPath()), answeredQuestions);
-    }
+function saveProgress() {
+    return set(ref(database, progressPath()), answeredQuestions);
+}
 
     /* ================= RESET ================= */
 
