@@ -1,98 +1,979 @@
-// assets/js/livelearn.js
+import { getDatabase, database, ref, onValue, push, get, child, set, remove, auth, onAuthStateChanged } from '../assets/js/firebase-init.js';
 
-export function createLiveLearn({
+let DATABASE_BASE_PATH = 'public';
+let currentQuestionIndex = 0;
+let correctAnswersCount = 0;
+let wrongAnswersCount = 0;
+let questions = [];
+let allQuestions = [];
+let answeredQuestions = {};
+let currentQuestionId = null;
+let currentDescription = '';
+let timerInterval;
+let timeElapsed = 0;
+let timerRunning = false;
+let timerStartTime = null;
+
+onAuthStateChanged(auth, (user) => {
+    DATABASE_BASE_PATH = user ? user.uid : 'public';
+    initializeApp();
+});
+
+function initializeApp() {
+    loadFromFirebase('highScores', [], (highScores) => {
+        displayHighScores(highScores);
+    });
+
+    loadSavedData().then(() => {
+        registerEventListeners();
+        fetchQuestions(true);
+    });
+}
+
+function saveToFirebase(path, value) {
+    if (!DATABASE_BASE_PATH) {
+        console.error("Database path is not set.");
+        return;
+    }
+
+    const dataRef = ref(database, `${DATABASE_BASE_PATH}/quizData/${path}`);
+    set(dataRef, value)
+        .then(() => console.log("Data saved successfully"))
+        .catch((error) => console.error("Error saving data:", error));
+}
+
+function loadFromFirebase(path, defaultValue, callback) {
+    if (!DATABASE_BASE_PATH) {
+        console.error("DATABASE_BASE_PATH is not set.");
+        return;
+    }
+
+    const dataRef = ref(database, `${DATABASE_BASE_PATH}/quizData/${path}`);
+    onValue(dataRef, (snapshot) => {
+        const data = snapshot.val();
+        callback(data !== null ? data : defaultValue);
+    });
+}
+
+function startTimer() {
+    if (!timerRunning) {
+        timerStartTime = Date.now() - timeElapsed * 1000;
+        timerRunning = true;
+        runTimer();
+    }
+
+    document.getElementById('timer').title = timerRunning
+        ? 'Click to pause timer. Double-click to reset.'
+        : 'Click to start timer. Double-click to reset.';
+
+}
+
+function stopTimer() {
+    timerRunning = false;
+    clearInterval(timerInterval);
+
+    document.getElementById('timer').title = timerRunning
+        ? 'Click to pause timer. Double-click to reset.'
+        : 'Click to start timer. Double-click to reset.';
+
+}
+
+function runTimer() {
+    clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+        if (!timerRunning || !timerStartTime) return;
+
+        const currentTime = Date.now();
+        timeElapsed = Math.floor((currentTime - timerStartTime) / 1000);
+        document.getElementById('timer-value').textContent = formatTime(timeElapsed);
+    }, 1000);
+}
+
+function resetTimer() {
+    stopTimer();
+    timeElapsed = 0;
+    document.getElementById('timer-value').textContent = formatTime(0);
+    timerStartTime = null;
+}
+
+let clickCount = 0;
+let clickTimer = null;
+
+document.getElementById('timer').addEventListener('click', () => {
+    clickCount++;
+
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => {
+        if (clickCount === 1) {
+            if (timerRunning) {
+                stopTimer();
+            } else {
+                startTimer();
+            }
+        } else if (clickCount === 2) {
+            resetTimer();
+        }
+        clickCount = 0;
+    }, 300);
+});
+
+function formatTime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+}
+
+function updateHighScore() {
+    const highScoresPath = 'highScores';
+    const highScores = loadFromLocalStorage('highScores', '[]');
+
+    const totalQuestions = correctAnswersCount + wrongAnswersCount;
+    const percentage = Math.round((correctAnswersCount / totalQuestions) * 100);
+    const timeTaken = formatTime(timeElapsed);
+
+    let playerName = prompt("New high score! Enter your name:");
+    if (!playerName) {
+        return;
+    }
+
+    highScores.push({
+        name: playerName,
+        correctAnswers: correctAnswersCount,
+        totalQuestions: totalQuestions,
+        percentage: percentage,
+        time: timeTaken
+    });
+
+    saveToFirebase(highScoresPath, highScores);
+    saveToLocalStorage('highScores', highScores);
+
+    displayHighScores(highScores);
+}
+
+function displayHighScores(highScores) {
+    const highScoreElement = document.getElementById('highScore');
+    highScoreElement.innerHTML = 'High Scores:<br>';
+
+    highScores.forEach((scoreEntry) => {
+        highScoreElement.innerHTML += `${scoreEntry.name}:  ${scoreEntry.percentage}% (${scoreEntry.correctAnswers} out of ${scoreEntry.totalQuestions}) ${scoreEntry.time}<br>`;
+    });
+}
+
+function saveToLocalStorage(key, value) {
+    localStorage.setItem(key, JSON.stringify(value));
+}
+
+function loadFromLocalStorage(key, defaultValue) {
+    return JSON.parse(localStorage.getItem(key) || defaultValue);
+}
+
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
+function isShuffleEnabled() {
+    return document.getElementById('shuffleToggle')?.checked === true;
+}
+
+function updateScoreDisplay() {
+    const totalAnswers = correctAnswersCount + wrongAnswersCount;
+    const scorePercentage = totalAnswers === 0 ? 0 : Math.round((correctAnswersCount / totalAnswers) * 100);
+    document.getElementById('scoreDisplay').textContent = `Learned: ${scorePercentage}% (${correctAnswersCount} correct / ${wrongAnswersCount} wrong)`;
+    saveToLocalStorage('correctAnswersCount', correctAnswersCount);
+    saveToLocalStorage('wrongAnswersCount', wrongAnswersCount);
+}
+
+function registerEventListeners() {
+    document.getElementById('submitAnswer').addEventListener('click', submitAnswer);
+    document.getElementById('previousQuestion').addEventListener('click', displayPreviousQuestion);
+    document.getElementById('nextQuestion').addEventListener('click', displayNextQuestion);
+    document.getElementById('filterButton').addEventListener('click', filterQuestions);
+    document.getElementById('showAnswerButton').addEventListener('click', showAnswer);
+    document.getElementById('addNewQuestionButton').addEventListener('click', showAddQuestionForm);
+    document.getElementById('editQuestionButton').addEventListener('click', editCurrentQuestion);
+    document.getElementById('addQuestionButton').addEventListener('click', handleAddOrUpdateQuestion);
+    document.getElementById('downloadData').addEventListener('click', downloadQuestions);
+    document.getElementById('deleteQuestionButton').addEventListener('click', deleteCurrentQuestion);
+    document.getElementById('saveQuestionCheckbox').addEventListener('change', () => {
+        handleSaveQuestion(questions[currentQuestionIndex]);
+    });
+    document.getElementById('loadSavedQuestionsButton').addEventListener('click', loadSavedQuestions);
+    document.getElementById('loadIncorrectQuestionsButton').addEventListener('click', loadIncorrectQuestions);
+    document.getElementById('showIncorrect').addEventListener('change', toggleShowIncorrect);
+    document.querySelectorAll('input[name="questionType"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            if (questions.length > 0) displayQuestion(questions[currentQuestionIndex]);
+        });
+    });
+}
+
+function fetchQuestions(applyFilter = false) {
+    const showIncorrect = document.getElementById('showIncorrect').checked;
+    const filterText = document.getElementById('filterInput').value.toLowerCase();
+    const shuffleEnabled = document.getElementById('shuffleToggle').checked;
+    const questionsRef = ref(database, 'share/questions');
+
+    onValue(questionsRef, snapshot => {
+        allQuestions = [];
+        const data = snapshot.val();
+
+        if (data) {
+            for (const [description, questionsData] of Object.entries(data)) {
+                for (const [key, value] of Object.entries(questionsData)) {
+                    allQuestions.push({ id: key, description, ...value });
+                }
+            }
+        }
+
+        let filteredQuestions = filterQuestionsList(allQuestions, showIncorrect);
+
+        if (applyFilter) {
+            filteredQuestions = filteredQuestions.filter(q =>
+                q.description.toLowerCase().includes(filterText)
+            );
+        }
+
+        if (shuffleEnabled) {
+            filteredQuestions = shuffleArray(filteredQuestions);
+        }
+
+        questions = [...filteredQuestions];
+        currentQuestionIndex = 0;
+
+        if (questions.length > 0) {
+            displayQuestion(questions[currentQuestionIndex]);
+        } else {
+            displayQuestion(null);
+        }
+
+        updateQuestionCounter();
+        toggleNavigationButtons();
+    });
+}
+
+function displayQuestion(question) {
+    const quizSection = document.getElementById('quizSection');
+    if (!question) {
+        quizSection.innerHTML = '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
+        document.getElementById('resetQuiz').addEventListener('click', resetQuiz);
+        return;
+    }
+
+    currentQuestionId = question.id;
+    currentDescription = question.description;
+
+    quizSection.innerHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>`;
+
+    const questionType = document.querySelector('input[name="questionType"]:checked').value;
+
+    if (questionType === 'textInput') {
+        quizSection.innerHTML += `<input type="text" id="textInputAnswer" placeholder="Type your answer">`;
+    } else if (questionType === 'multipleChoice' && question.options) {
+        let options = shuffleArray([...question.options]);
+        quizSection.innerHTML += generateOptionsHTML(options, question.correctAnswer);
+    } else if (questionType === 'flashcard') {
+        const revealButton = document.createElement('button');
+        revealButton.textContent = 'Show Answer';
+        revealButton.id = 'revealAnswer';
+        revealButton.addEventListener('click', () => revealFlashcardAnswer(question));
+        quizSection.appendChild(revealButton);
+    }
+
+    document.getElementById('saveQuestionCheckbox').checked = checkIfQuestionSaved(question.id);
+
+    const addQuestionSection = document.getElementById('addQuestion');
+    if (addQuestionSection.style.display === 'block') {
+        populateEditForm(question);
+    }
+}
+
+function populateEditForm(question) {
+    document.getElementById('newDescription').value = question.description;
+    document.getElementById('newQuestion').value = question.question;
+    document.getElementById('options').value = question.options.join(', ');
+    document.getElementById('correctAnswer').value = Array.isArray(question.correctAnswer)
+        ? question.correctAnswer.join(', ')
+        : question.correctAnswer;
+    document.getElementById('explanation').value = question.explanation || '';
+
+    document.getElementById('formTitle').textContent = `Edit ${question.id || 'Question'}`;
+    document.getElementById('addQuestionButton').textContent = 'Update Question';
+}
+
+function displayNextQuestion() {
+    const total = questions.length;
+
+    for (let i = currentQuestionIndex + 1; i < total; i++) {
+        if (answeredQuestions[questions[i].id] !== 'answered') {
+            currentQuestionIndex = i;
+            displayQuestion(questions[currentQuestionIndex]);
+            toggleNavigationButtons();
+            updateQuestionCounter();
+            return;
+        }
+    }
+
+    for (let i = 0; i <= currentQuestionIndex; i++) {
+        if (answeredQuestions[questions[i].id] !== 'answered') {
+            currentQuestionIndex = i;
+            displayQuestion(questions[currentQuestionIndex]);
+            toggleNavigationButtons();
+            updateQuestionCounter();
+            return;
+        }
+    }
+
+    document.getElementById('quizSection').innerHTML = '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
+    document.getElementById('resetQuiz').addEventListener('click', resetQuiz);
+    toggleNavigationButtons();
+    updateQuestionCounter();
+}
+
+function displayPreviousQuestion() {
+    if (currentQuestionIndex > 0) {
+        currentQuestionIndex--;
+        displayQuestion(questions[currentQuestionIndex]);
+        localStorage.setItem('currentQuestionIndex', currentQuestionIndex);
+    } else {
+        alert('This is the first question.');
+    }
+
+    toggleNavigationButtons();
+    updateQuestionCounter();
+}
+
+function showAnswer() {
+    const currentQuestion = questions[currentQuestionIndex];
+    const answerText = Array.isArray(currentQuestion.correctAnswer)
+        ? `Correct Answers: ${currentQuestion.correctAnswer.join(', ')}`
+        : `Correct Answer: ${currentQuestion.correctAnswer}`;
+    alert(answerText);
+}
+
+function editCurrentQuestion() {
+    const addQuestionSection = document.getElementById('addQuestion');
+
+    if (addQuestionSection.style.display === 'block') {
+        addQuestionSection.style.display = 'none';
+    } else {
+        const currentQuestion = questions[currentQuestionIndex];
+        if (currentQuestion) {
+            document.getElementById('newDescription').value = currentQuestion.description;
+            document.getElementById('newQuestion').value = currentQuestion.question;
+            document.getElementById('options').value = currentQuestion.options.join(', ');
+            document.getElementById('correctAnswer').value = Array.isArray(currentQuestion.correctAnswer)
+                ? currentQuestion.correctAnswer.join(', ')
+                : currentQuestion.correctAnswer;
+            document.getElementById('explanation').value = currentQuestion.explanation || '';
+
+            const formTitle = document.getElementById('formTitle');
+            formTitle.textContent = `Edit ${currentQuestion.id || 'Question'}`;
+
+            document.getElementById('addQuestionButton').textContent = 'Update Question';
+            addQuestionSection.style.display = 'block';
+        }
+    }
+}
+
+function filterQuestions() {
+    const filterText = document.getElementById('filterInput').value.toLowerCase();
+    const showIncorrect = document.getElementById('showIncorrect').checked;
+    const shuffleEnabled = document.getElementById('shuffleToggle').checked;
+
+    questions = filterQuestionsList(allQuestions, showIncorrect)
+        .filter(q => q.description.toLowerCase().includes(filterText));
+
+    if (shuffleEnabled) {
+        questions = shuffleArray(questions);
+    }
+
+    updateQuestionCounter();
+    currentQuestionIndex = 0;
+    displayQuestion(questions[currentQuestionIndex]);
+    toggleNavigationButtons();
+}
+
+function filterQuestionsList(questionList, showIncorrect) {
+    return questionList.filter(q => {
+        const status = answeredQuestions[q.id];
+        if (status === 'answered') return false;
+        if (!showIncorrect && status === 'incorrect') return false;
+        return true;
+    });
+}
+
+function generateOptionsHTML(options, correctAnswer) {
+    return options.map(option => {
+        const inputType = Array.isArray(correctAnswer) ? 'checkbox' : 'radio';
+        return `<label><input type="${inputType}" name="question" value="${option}">${option}</label>`;
+    }).join('<br>');
+}
+
+function revealFlashcardAnswer(question) {
+    const quizSection = document.getElementById('quizSection');
+    const optionsHTML = question.options.map(option => {
+        const isCorrect = Array.isArray(question.correctAnswer) ? question.correctAnswer.includes(option) : question.correctAnswer === option;
+        return isCorrect ? `<strong>${option}</strong>` : option;
+    }).join('<br>');
+
+    quizSection.innerHTML += `<div>${optionsHTML}</div>`;
+}
+
+function submitAnswer() {
+    const questionType = document.querySelector('input[name="questionType"]:checked').value;
+    const currentQuestion = questions[currentQuestionIndex];
+    let isCorrect = false;
+
+    if (questionType === 'textInput') {
+        const userAnswer = document.getElementById('textInputAnswer').value.trim().toLowerCase();
+        isCorrect = userAnswer === currentQuestion.correctAnswer.toLowerCase();
+    } else {
+        isCorrect = checkAnswer(questionType, currentQuestion);
+    }
+
+    if (isCorrect) {
+        if (answeredQuestions[currentQuestion.id] === 'incorrect') {
+            wrongAnswersCount = Math.max(0, wrongAnswersCount - 1);
+        }
+        answeredQuestions[currentQuestion.id] = 'answered';
+        correctAnswersCount++;
+
+        saveToFirebase('answeredQuestions', answeredQuestions);
+        saveToFirebase('correctAnswersCount', correctAnswersCount);
+        saveToFirebase('wrongAnswersCount', wrongAnswersCount);
+
+        const explanationText = currentQuestion.explanation ? `\nExplanation: ${currentQuestion.explanation}` : '';
+        alert(`Correct!${explanationText}`);
+    } else {
+        const continueToNext = confirm("Incorrect! Continue to the next question?");
+        if (!continueToNext) {
+            displayQuestion(currentQuestion);
+            updateScoreDisplay();
+            updateQuestionCounter();
+            return;
+        }
+
+        if (answeredQuestions[currentQuestion.id] !== 'answered') {
+            answeredQuestions[currentQuestion.id] = 'incorrect';
+            wrongAnswersCount++;
+        }
+
+        saveToFirebase('answeredQuestions', answeredQuestions);
+        saveToFirebase('correctAnswersCount', correctAnswersCount);
+        saveToFirebase('wrongAnswersCount', wrongAnswersCount);
+
+        const showIncorrect = document.getElementById('showIncorrect').checked;
+        if (!showIncorrect) {
+            questions.splice(currentQuestionIndex, 1);
+            displayQuestion(questions[currentQuestionIndex] || null);
+            updateScoreDisplay();
+            updateQuestionCounter();
+            return;
+        }
+    }
+
+    updateScoreDisplay();
+    updateQuestionCounter();
+
+    if (isCorrect || document.getElementById('showIncorrect').checked) {
+        displayNextQuestion();
+    }
+}
+
+function checkAnswer(questionType, currentQuestion) {
+    if (questionType === 'multipleChoice') {
+        const correctAnswer = currentQuestion.correctAnswer;
+
+        if (Array.isArray(correctAnswer)) {
+            const selectedOptions = Array.from(document.querySelectorAll('input[name="question"]:checked')).map(input => input.value);
+            return checkAnswers(selectedOptions, correctAnswer);
+        } else {
+            const selectedOption = document.querySelector('input[name="question"]:checked');
+            const userAnswer = selectedOption ? selectedOption.value : null;
+            return userAnswer === correctAnswer;
+        }
+    } else if (questionType === 'textInput') {
+        const userAnswer = document.getElementById('textInputAnswer').value.trim().toLowerCase();
+        return userAnswer === currentQuestion.correctAnswer.toLowerCase();
+    } else if (questionType === 'flashcard') {
+        return true;
+    }
+    return false;
+}
+
+function checkAnswers(userAnswers, correctAnswers) {
+    return userAnswers.length === correctAnswers.length && userAnswers.every(val => correctAnswers.includes(val));
+}
+
+function handleAddOrUpdateQuestion(event) {
+    event.preventDefault();
+
+    const newQuestion = document.getElementById('newQuestion').value;
+    const newDescription = document.getElementById('newDescription').value;
+    const options = document.getElementById('options').value.split(',').map(option => option.trim());
+    const correctAnswer = document.getElementById('correctAnswer').value.includes(',')
+        ? document.getElementById('correctAnswer').value.split(',').map(answer => answer.trim())
+        : document.getElementById('correctAnswer').value.trim();
+    const explanation = document.getElementById('explanation').value.trim();
+
+    if (newQuestion && newDescription && options.every(option => option) && correctAnswer) {
+        if (document.getElementById('addQuestionButton').textContent === 'Update Question') {
+            updateQuestionInFirebase(currentQuestionId, newQuestion, newDescription, options, correctAnswer, explanation);
+        } else {
+            addQuestionToFirebase(newQuestion, newDescription, options, correctAnswer, explanation);
+        }
+    } else {
+        alert('Please fill in all fields.');
+    }
+}
+
+function addQuestionToFirebase(question, description, options, correctAnswer, explanation) {
+    const questionsRef = ref(database, `share/questions/${description}`);
+    const newQuestionRef = push(questionsRef);
+
+    set(newQuestionRef, { question, options, correctAnswer, explanation })
+        .then(() => {
+            alert('Question added to the database.');
+            resetAddQuestionForm();
+            fetchQuestions(true);
+        });
+}
+
+function updateQuestionInFirebase(questionId, newQuestion, newDescription, options, correctAnswer, explanation) {
+    const questionRef = ref(database, `share/questions/${currentDescription}/${questionId}`);
+
+    set(questionRef, {
+        question: newQuestion,
+        options: options,
+        correctAnswer: correctAnswer,
+        explanation: explanation
+    })
+        .then(() => {
+            alert('Question updated successfully.');
+            resetAddQuestionForm();
+            fetchQuestions(true);
+        })
+        .catch((error) => {
+            alert('Error updating question: ' + error.message);
+        });
+}
+
+function handleSaveQuestion(question) {
+    const isChecked = document.getElementById('saveQuestionCheckbox').checked;
+
+    if (!DATABASE_BASE_PATH) {
+        console.error("DATABASE_BASE_PATH is not set.");
+        return;
+    }
+
+    const path = `${DATABASE_BASE_PATH}/quizData/savedQuestions/${question.id}`;
+
+    if (isChecked) {
+        saveToFirebase(`savedQuestions/${question.id}`, question);
+    } else {
+        const questionRef = ref(database, path);
+        remove(questionRef)
+            .then(() => {
+                console.log(`Saved question: ${question.id} has been removed.`);
+            })
+            .catch((error) => {
+                console.error(`Error removing question: ${error.message}`);
+            });
+    }
+}
+
+function checkIfQuestionSaved(questionId) {
+    const savedQuestions = loadFromLocalStorage('savedQuestions', '[]');
+    return savedQuestions.some(q => q.id === questionId);
+}
+
+function loadSavedQuestions() {
+    loadFromFirebase('savedQuestions', [], (data) => {
+        if (data && Object.keys(data).length) {
+            const savedQuestions = Object.values(data);
+            const filtered = savedQuestions.filter(q => answeredQuestions[q.id] !== 'answered');
+            questions = document.getElementById('shuffleToggle').checked ? shuffleArray(filtered) : filtered;
+            currentQuestionIndex = 0;
+            displayQuestion(questions[currentQuestionIndex]);
+            updateQuestionCounter();
+        } else {
+            alert('No saved questions found.');
+        }
+    });
+}
+
+function showAddQuestionForm() {
+    const addQuestionSection = document.getElementById('addQuestion');
+
+    if (addQuestionSection.style.display === 'block') {
+        addQuestionSection.style.display = 'none';
+    } else {
+        addQuestionSection.style.display = 'block';
+        resetAddQuestionForm();
+
+        document.getElementById('formTitle').textContent = 'Add Question';
+        document.getElementById('addQuestionButton').textContent = 'Add Question';
+    }
+}
+
+function resetAddQuestionForm() {
+    document.getElementById('newDescription').value = '';
+    document.getElementById('newQuestion').value = '';
+    document.getElementById('options').value = '';
+    document.getElementById('correctAnswer').value = '';
+    document.getElementById('formTitle').textContent = 'Add Question';
+    document.getElementById('explanation').value = '';
+    document.getElementById('addQuestionButton').textContent = 'Add Question';
+}
+
+function updateQuestionCounter() {
+    const remaining = questions.filter(q =>
+        answeredQuestions[q.id] !== 'answered'
+    ).length;
+    document.getElementById('questionCounter').textContent = `Questions Remaining: ${remaining}`;
+}
+
+function resetQuiz() {
+    stopTimer();
+
+    correctAnswersCount = 0;
+    wrongAnswersCount = 0;
+    currentQuestionIndex = 0;
+    answeredQuestions = {};
+    timeElapsed = 0;
+
+    if (!DATABASE_BASE_PATH) {
+        console.error("DATABASE_BASE_PATH is not set.");
+        return;
+    }
+
+    saveToFirebase('startTime', null);
+    saveToFirebase('correctAnswersCount', correctAnswersCount);
+    saveToFirebase('wrongAnswersCount', wrongAnswersCount);
+    saveToFirebase('answeredQuestions', answeredQuestions);
+
+    localStorage.removeItem("correctAnswersCount");
+    localStorage.removeItem("wrongAnswersCount");
+    localStorage.removeItem("answeredQuestions");
+    localStorage.removeItem("savedQuestions");
+    localStorage.removeItem("currentQuestionIndex");
+
+    fetchQuestions();
+    updateQuestionCounter();
+    updateScoreDisplay();
+    startTimer();
+    location.reload();
+}
+
+
+function downloadQuestions() {
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(questions));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute('href', dataStr);
+    downloadAnchorNode.setAttribute('download', 'questions.json');
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+}
+
+function deleteCurrentQuestion() {
+    if (!currentQuestionId) return;
+
+    if (confirm("Are you sure you want to delete this question?")) {
+        const questionRef = ref(database, `share/questions/${currentDescription}/${currentQuestionId}`);
+        remove(questionRef).then(() => {
+            alert('Question deleted successfully.');
+        }).catch((error) => {
+            alert('Error deleting the question: ' + error.message);
+        });
+    } else {
+        alert('Deletion cancelled.');
+    }
+}
+
+function toggleShowIncorrect() {
+    fetchQuestions(true);
+}
+
+function loadSavedData() {
+    return Promise.all([
+        new Promise(resolve =>
+            loadFromFirebase('answeredQuestions', {}, data => {
+                answeredQuestions = data;
+                resolve();
+            })
+        ),
+        new Promise(resolve =>
+            loadFromFirebase('correctAnswersCount', 0, data => {
+                correctAnswersCount = data;
+                resolve();
+            })
+        ),
+        new Promise(resolve =>
+            loadFromFirebase('wrongAnswersCount', 0, data => {
+                wrongAnswersCount = data;
+                resolve();
+            })
+        )
+    ]).then(() => {
+        updateScoreDisplay();
+    });
+}
+
+const sidebar = document.getElementById('sidebar');
+const toggleSidebarBtn = document.getElementById('toggleSidebar');
+const hideSidebarBtn = document.getElementById('hideSidebarBtn');
+
+toggleSidebarBtn.addEventListener('click', () => {
+    sidebar.classList.remove('hidden');
+    toggleSidebarBtn.style.display = 'none';
+});
+
+hideSidebarBtn.addEventListener('click', () => {
+    sidebar.classList.add('hidden');
+    toggleSidebarBtn.style.display = 'inline';
+});
+
+document.addEventListener('click', (event) => {
+    if (!sidebar.contains(event.target) && event.target !== toggleSidebarBtn) {
+        sidebar.classList.add('hidden');
+        toggleSidebarBtn.style.display = 'inline';
+    }
+});
+
+function populateIndexKey() {
+    const indexKeyElement = document.getElementById('indexKey');
+    indexKeyElement.innerHTML = 'Loading...';
+
+    const questionsRef = ref(database, 'share/questions');
+    onValue(questionsRef, snapshot => {
+        const data = snapshot.val();
+        if (!data) {
+            indexKeyElement.innerHTML = 'No topics available';
+            return;
+        }
+
+        indexKeyElement.innerHTML = '';
+
+        const descriptions = new Set();
+        for (const description in data) {
+            descriptions.add(description);
+        }
+
+        descriptions.forEach(description => {
+            const descriptionButton = document.createElement('button');
+            descriptionButton.textContent = description;
+            descriptionButton.classList.add('description-btn');
+
+            descriptionButton.addEventListener('click', () => {
+                document.getElementById('filterInput').value = description;
+                filterQuestions();
+            });
+
+            indexKeyElement.appendChild(descriptionButton);
+        });
+    }, {
+        onlyOnce: true
+    });
+}
+
+function loadIncorrectQuestions() {
+    const incorrectQuestions = allQuestions.filter(
+        question => answeredQuestions[question.id] === 'incorrect'
+    );
+
+    if (incorrectQuestions.length === 0) {
+        alert('No incorrectly answered questions found.');
+        return;
+    }
+
+    const shuffleEnabled = document.getElementById('shuffleToggle').checked;
+
+    questions = shuffleEnabled ? shuffleArray(incorrectQuestions) : incorrectQuestions;
+    currentQuestionIndex = 0;
+
+    displayQuestion(questions[currentQuestionIndex]);
+    updateQuestionCounter();
+    toggleNavigationButtons();
+}
+
+document.getElementById('shuffleToggle').addEventListener('change', () => {
+    const shuffleEnabled = document.getElementById('shuffleToggle').checked;
+    localStorage.setItem('shuffleEnabled', shuffleEnabled);
+    fetchQuestions(true);
+    toggleNavigationButtons();
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    populateIndexKey();
+    toggleNavigationButtons();
+
+    const savedShuffleState = localStorage.getItem('shuffleEnabled') === 'true';
+    document.getElementById('shuffleToggle').checked = savedShuffleState;
+});
+
+function toggleNavigationButtons() {
+    document.getElementById('previousQuestion').disabled = currentQuestionIndex === 0;
+    document.getElementById('nextQuestion').disabled = currentQuestionIndex === questions.length - 1;
+}
+
+document.addEventListener('keydown', (event) => {
+    if (event.shiftKey && event.key === 'ArrowLeft') {
+        displayPreviousQuestion();
+    } else if (event.shiftKey && event.key === 'ArrowRight') {
+        displayNextQuestion();
+    }
+});
+
+
+
+
+
+
+
+export function createQuizModule({
     database,
     ref,
     onValue,
     set,
     remove,
-    basePathGetter,
-
-    onCorrect = () => {},
-    onWrong = () => {},
-    onQuizComplete = () => {}
+    state,
+    rewardCorrect,
+    punishWrong,
+    renderHUD,
+    persistPlayer,
+    basePathGetter
 }) {
 
+    /* ================= STATE ================= */
+
+    let allQuestions = [];
     let questions = [];
     let currentQuestionIndex = 0;
-
     let answeredQuestions = {};
     let correctAnswersCount = 0;
     let wrongAnswersCount = 0;
 
-    function progressPath() {
+    const quizContainer = document.getElementById('quiz');
+
+    /* ================= HELPERS ================= */
+
+    function $(id) {
+        return quizContainer.querySelector(`#${id}`);
+    }
+
+    function getBasePath() {
         return `${basePathGetter()}/quizData`;
     }
 
-    function shuffleArray(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
-        }
-        return array;
-    }
+    /* ================= LOAD QUESTIONS ================= */
 
-    function fetchQuestions(callback) {
+    function loadQuestions() {
         const questionsRef = ref(database, 'share/questions');
 
-        onValue(questionsRef, (snapshot) => {
+        onValue(questionsRef, snapshot => {
             const data = snapshot.val();
-            questions = [];
+            allQuestions = [];
 
             if (data) {
-                for (const [description, group] of Object.entries(data)) {
-                    for (const [id, value] of Object.entries(group)) {
-                        questions.push({ id, description, ...value });
+                for (const [description, questionsData] of Object.entries(data)) {
+                    for (const [key, value] of Object.entries(questionsData)) {
+                        allQuestions.push({ id: key, description, ...value });
                     }
                 }
             }
 
-            questions = shuffleArray(questions);
-            currentQuestionIndex = 0;
-
-            if (callback) callback(getCurrentQuestion());
+            populateQuizIndex();
         }, { onlyOnce: true });
     }
 
-    function getCurrentQuestion() {
-        return questions[currentQuestionIndex] || null;
+    /* ================= INDEX ================= */
+
+    function populateQuizIndex() {
+        const select = $('quizTopicSelect');
+        if (!select) return;
+
+        select.innerHTML = '<option value="">-- Choose Topic --</option>';
+
+        const topics = [...new Set(allQuestions.map(q => q.description))];
+
+        topics.forEach(topic => {
+            const opt = document.createElement('option');
+            opt.value = topic;
+            opt.textContent = topic;
+            select.appendChild(opt);
+        });
     }
 
-    function checkAnswer(userAnswer) {
-        const q = getCurrentQuestion();
-        if (!q) return false;
+    /* ================= START QUIZ ================= */
 
-        if (Array.isArray(q.correctAnswer)) {
-            return (
-                q.correctAnswer.length === userAnswer.length &&
-                q.correctAnswer.every(a => userAnswer.includes(a))
-            );
+    function startQuiz(topic) {
+        questions = allQuestions.filter(q => q.description === topic);
+        currentQuestionIndex = 0;
+        correctAnswersCount = 0;
+        wrongAnswersCount = 0;
+        answeredQuestions = {};
+
+        displayQuestion();
+        updateScoreDisplay();
+    }
+
+    /* ================= DISPLAY ================= */
+
+    function displayQuestion() {
+        const quizSection = $('quizSection');
+        if (!quizSection) return;
+
+        if (!questions.length) {
+            quizSection.innerHTML = 'No questions available.';
+            return;
         }
 
-        return String(userAnswer).trim() === String(q.correctAnswer).trim();
+        const q = questions[currentQuestionIndex];
+
+        quizSection.innerHTML = `
+            <p><strong>${q.description}</strong></p>
+            <p>${q.question}</p>
+        `;
+
+        if (q.options) {
+            q.options.forEach(opt => {
+                quizSection.innerHTML += `
+                    <label>
+                        <input type="radio" name="answer" value="${opt}">
+                        ${opt}
+                    </label><br>
+                `;
+            });
+        }
     }
 
-    function submitAnswer(userAnswer, callback) {
+    /* ================= SUBMIT ================= */
 
-        const q = getCurrentQuestion();
-        if (!q) return;
+    function submitAnswer() {
+        const selected = quizContainer.querySelector('input[name="answer"]:checked');
+        if (!selected) return;
 
-        const isCorrect = checkAnswer(userAnswer);
+        const current = questions[currentQuestionIndex];
+        const isCorrect = selected.value === current.correctAnswer;
 
         if (isCorrect) {
             correctAnswersCount++;
-            answeredQuestions[q.id] = 'answered';
-            onCorrect(q);
+            rewardCorrect(current.description);
         } else {
             wrongAnswersCount++;
-            answeredQuestions[q.id] = 'incorrect';
-            onWrong(q);
+            punishWrong(current.description);
         }
 
-        saveProgress();
+        renderHUD();
+        persistPlayer();
 
-        if (callback) callback(isCorrect, q);
-
+        updateScoreDisplay();
         nextQuestion();
     }
 
@@ -100,56 +981,46 @@ export function createLiveLearn({
         currentQuestionIndex++;
 
         if (currentQuestionIndex >= questions.length) {
-            onQuizComplete();
+            $('quizSection').innerHTML = '<strong>Quiz Complete!</strong>';
+            return;
         }
+
+        displayQuestion();
     }
 
-    function saveProgress() {
-        return set(ref(database, `${progressPath()}/progress`), {
-            answeredQuestions,
-            correctAnswersCount,
-            wrongAnswersCount
+    function updateScoreDisplay() {
+        const total = correctAnswersCount + wrongAnswersCount;
+        const percent = total ? Math.round((correctAnswersCount / total) * 100) : 0;
+
+        $('scoreDisplay').textContent =
+            `Learned: ${percent}% (${correctAnswersCount} correct / ${wrongAnswersCount} wrong)`;
+    }
+
+    /* ================= EVENTS ================= */
+
+    function init() {
+
+        loadQuestions();
+
+        $('quizTopicSelect')?.addEventListener('change', e => {
+            if (e.target.value) startQuiz(e.target.value);
         });
-    }
 
-    function loadProgress(callback) {
-        onValue(ref(database, `${progressPath()}/progress`), (snap) => {
-            const data = snap.val();
-            if (!data) return;
+        $('submitAnswer')?.addEventListener('click', submitAnswer);
 
-            answeredQuestions = data.answeredQuestions || {};
-            correctAnswersCount = data.correctAnswersCount || 0;
-            wrongAnswersCount = data.wrongAnswersCount || 0;
-
-            if (callback) callback();
-        }, { onlyOnce: true });
-    }
-
-    function resetProgress(callback) {
-        remove(ref(database, `${progressPath()}/progress`)).then(() => {
-            answeredQuestions = {};
+        $('resetProgressBtn')?.addEventListener('click', () => {
             correctAnswersCount = 0;
             wrongAnswersCount = 0;
-            currentQuestionIndex = 0;
-            if (callback) callback();
+            answeredQuestions = {};
+            updateScoreDisplay();
+            displayQuestion();
         });
     }
 
-    function getStats() {
-        return {
-            correct: correctAnswersCount,
-            wrong: wrongAnswersCount,
-            total: correctAnswersCount + wrongAnswersCount
-        };
-    }
+    init();
 
     return {
-        fetchQuestions,
-        getCurrentQuestion,
-        submitAnswer,
-        nextQuestion,
-        loadProgress,
-        resetProgress,
-        getStats
+        loadQuizProgress: () => {},
+        populateQuizIndex
     };
 }
