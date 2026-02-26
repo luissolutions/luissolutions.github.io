@@ -19,6 +19,7 @@ export function createQuizModule({
     let currentCategory = null;
 
     const quizSection = document.getElementById('quizSection');
+    const LAST_TOPIC_KEY = "knowledgeRpg_lastTopic";
 
     /* ================= PATHS ================= */
 
@@ -34,9 +35,9 @@ export function createQuizModule({
         });
     }
 
-function saveProgress() {
-    return set(ref(database, progressPath()), answeredQuestions);
-}
+    function saveProgress() {
+        return set(ref(database, progressPath()), answeredQuestions);
+    }
 
     /* ================= RESET ================= */
 
@@ -81,11 +82,20 @@ function saveProgress() {
                 select.appendChild(option);
             });
 
+            const savedTopic = localStorage.getItem(LAST_TOPIC_KEY);
+
+            if (savedTopic && data[savedTopic]) {
+                select.value = savedTopic;
+                loadCategory(savedTopic);
+            }
+
         }, { onlyOnce: true });
 
         select.onchange = (e) => {
             const topic = e.target.value;
             if (!topic) return;
+
+            localStorage.setItem(LAST_TOPIC_KEY, topic);
             loadCategory(topic);
         };
 
@@ -177,18 +187,18 @@ function saveProgress() {
         }
 
         quizSection.innerHTML = `
-            <p><strong>${q.description}</strong></p>
-            <p>${q.question}</p>
-        `;
+        <p><strong>${q.description}</strong></p>
+        <p>${q.question}</p>
+    `;
 
         if (q.options) {
             q.options.forEach(option => {
 
                 const label = document.createElement('label');
                 label.innerHTML = `
-                    <input type="radio" name="answer" value="${option}">
-                    ${option}
-                `;
+                <input type="checkbox" name="answer" value="${option}">
+                ${option}
+            `;
                 quizSection.appendChild(label);
                 quizSection.appendChild(document.createElement('br'));
             });
@@ -207,19 +217,23 @@ function saveProgress() {
         const q = questions[currentQuestionIndex];
         if (!q) return;
 
-        const selected = document.querySelector('input[name="answer"]:checked');
-        if (!selected) {
-            alert("Select an answer.");
+        const selected = [...document.querySelectorAll('input[name="answer"]:checked')]
+            .map(el => el.value);
+
+        if (!selected.length) {
+            alert("Select at least one answer.");
             return;
         }
 
-        const userAnswer = selected.value;
+        const correctAnswers = Array.isArray(q.correctAnswer)
+            ? q.correctAnswer
+            : [q.correctAnswer];
 
-        const correct = Array.isArray(q.correctAnswer)
-            ? q.correctAnswer.includes(userAnswer)
-            : userAnswer === q.correctAnswer;
+        const isCorrect =
+            selected.length === correctAnswers.length &&
+            selected.every(val => correctAnswers.includes(val));
 
-        if (correct) {
+        if (isCorrect) {
 
             answeredQuestions[q.id] = {
                 status: 'answered',
@@ -270,7 +284,7 @@ function saveProgress() {
         incorrect.forEach(([id]) => {
 
             const btn = document.createElement('button');
-            btn.textContent = `Recover Question (Cost: 500 coins)`;
+            btn.textContent = `Recover Question (Cost: 50 coins)`;
 
             btn.onclick = () => recoverQuestion(id);
 
@@ -280,7 +294,7 @@ function saveProgress() {
 
     function recoverQuestion(id) {
 
-        const COST = 500;
+        const COST = 5000;
 
         if (state.coins < COST) {
             alert("Not enough coins.");
