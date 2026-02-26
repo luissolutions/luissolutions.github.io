@@ -186,6 +186,9 @@
         let drag = null, hover = null;
         let clickCount = 0, lastClick = 0;
         let mouseDownPos = null;
+        let selectedInteractable = null;
+        let lastClickTime = 0;
+        const DOUBLE_CLICK_MS = 300;
 
         const itemImageCache = new Map(); // url -> HTMLImageElement
         const canvas = document.getElementById('canvas');
@@ -581,6 +584,8 @@
             if (!room) return;
 
             const interactables = room.interactables || {};
+
+
 
             Object.values(interactables).forEach(obj => {
 
@@ -1181,37 +1186,95 @@
         };
 
         canvas.onmouseup = async (e) => {
+
             const { x, y } = tile(e);
 
-            // If mouse didn’t move → treat as click
+            const now = Date.now();
+            const isDoubleClick = (now - lastClickTime) < DOUBLE_CLICK_MS;
+            lastClickTime = now;
+
+            /* ================= CLICK (no movement) ================= */
             if (mouseDownPos && mouseDownPos.x === x && mouseDownPos.y === y) {
 
-                const interactable = Object.values(rooms[currentRoom]?.interactables || {})
-                    .find(o => o.x === x && o.y === y);
+                const interactable = Object.values(
+                    rooms[currentRoom]?.interactables || {}
+                ).find(o => o.x === x && o.y === y);
 
+                /* ---------- INTERACTABLE CLICK ---------- */
                 if (interactable) {
-                    handleInteraction(interactable);
+
+                    if (isDoubleClick) {
+                        // 🛠 EDIT MODE
+                        selectedInteractable = interactable;
+
+                        infoPanel.innerHTML = `
+                    <div class="panel">
+                        <strong>Editing:</strong> ${interactable.id}
+                        <br><br>
+                        <label class="fileBtn">
+                            Upload / Replace Image
+                            <input type="file" id="replaceBlockImageInput" style="display:none;">
+                        </label>
+                        <br><br>
+                        <button id="deleteBlockBtn">Delete Block</button>
+                        <div class="hint">
+                            Drag to move • Double-click to edit
+                        </div>
+                    </div>
+                `;
+
+                        document
+                            .getElementById("replaceBlockImageInput")
+                            ?.addEventListener("change", handleReplaceBlockImage);
+
+                        document
+                            .getElementById("deleteBlockBtn")
+                            ?.addEventListener("click", async () => {
+
+                                await remove(
+                                    ref(database,
+                                        `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}/interactables/${interactable.id}`
+                                    )
+                                );
+
+                                selectedInteractable = null;
+                                infoPanel.innerHTML = "Block deleted.";
+                            });
+
+                    } else {
+                        // 🎮 NORMAL INTERACTION
+                        handleInteraction(interactable);
+                    }
+
                     drag = null;
                     mouseDownPos = null;
                     return;
                 }
 
+                /* ---------- ITEM CLICK ---------- */
                 const item = getItem(x, y);
-                if (item) inspectItem(item);
+
+                if (item) {
+                    inspectItem(item);
+                } else {
+                    infoPanel.innerHTML = "Nothing here.";
+                    selectedInteractable = null;
+                }
 
                 drag = null;
                 mouseDownPos = null;
                 return;
             }
 
-            // Otherwise it was a drag
+            /* ================= DRAG ================= */
+
             if (!drag || !hover) {
                 drag = null;
                 mouseDownPos = null;
                 return;
             }
 
-            // Interactable drag
+            /* ---------- DRAG INTERACTABLE ---------- */
             if (drag.type === 'interactable') {
 
                 if (!isSolidTile(hover.x, hover.y)) {
@@ -1219,16 +1282,14 @@
                     drag.obj.x = hover.x;
                     drag.obj.y = hover.y;
 
-                    await set(
+                    await update(
                         ref(database,
-                            `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}/interactables/${drag.obj.id}/x`),
-                        hover.x
-                    );
-
-                    await set(
-                        ref(database,
-                            `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}/interactables/${drag.obj.id}/y`),
-                        hover.y
+                            `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}/interactables/${drag.obj.id}`
+                        ),
+                        {
+                            x: hover.x,
+                            y: hover.y
+                        }
                     );
                 }
 
@@ -1237,11 +1298,15 @@
                 return;
             }
 
-            // Room item drag
+            /* ---------- DRAG INVENTORY ITEM ---------- */
+
             const size = drag.obj.size || 1;
+
             if (isAreaFree(hover.x, hover.y, size)) {
+
                 drag.obj.x = hover.x;
                 drag.obj.y = hover.y;
+
                 persistPlayer();
             }
 
@@ -1436,6 +1501,43 @@
             }
 
             addBlockToRoom(currentRoom, baseBlock);
+        }
+
+        async function handleReplaceBlockImage(e) {
+
+            if (!selectedInteractable) return;
+
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const uid = auth.currentUser?.uid || "public";
+            const cleanName = file.name.replace(/\s+/g, '_').toLowerCase();
+
+            const path =
+                `${uid}/gameData/blockAssets/${selectedInteractable.id}_${Date.now()}_${cleanName}`;
+
+            const fileRef = storageRef(storage, path);
+
+            await uploadBytes(fileRef, file);
+            const url = await getDownloadURL(fileRef);
+
+            // Save URL to block in database
+            await update(
+                ref(database,
+                    `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}/interactables/${selectedInteractable.id}`
+                ),
+                { img: url }
+            );
+
+            selectedInteractable.img = url;
+
+            infoPanel.innerHTML = `
+        <div class="panel">
+            Image updated successfully.
+        </div>
+    `;
+
+            selectedInteractable = null;
         }
 
         function initEventListeners() {
