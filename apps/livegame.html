@@ -66,6 +66,30 @@
 
     </div>
 
+    <!-- MATH -->
+    <div id="math" class="panel mode">
+
+        <div class="row">
+            <h3 style="margin:0;">Math Challenge</h3>
+            <button id="closeMathBtn">✖ Close</button>
+        </div>
+
+        <div id="mathGame" class="panel">
+
+            <table id="mathTable"></table>
+
+            <div id="mathPrompt"></div>
+
+            <input type="number" id="mathAnswerInput">
+            <button id="mathSubmitBtn">Submit</button>
+            <button id="mathResetBtn">Reset</button>
+
+            <div id="mathStats" class="hint"></div>
+
+        </div>
+
+    </div>
+
     <!-- ROOM -->
     <div id="room" class="panel mode">
 
@@ -92,6 +116,7 @@
                     <select id="blockTypeSelect">
                         <option value="npc">NPC</option>
                         <option value="quiz">Quiz</option>
+                        <option value="math">Math</option>
                         <option value="shop">Shop</option>
                         <option value="door">Door</option>
                         <option value="app">App</option>
@@ -217,6 +242,162 @@
             }
 
             return state.roomItems[currentRoom];
+        }
+
+        /* ================= MATH GAME ================= */
+
+        let mathNum1 = 0;
+        let mathNum2 = 0;
+        let mathScore = 0;
+        let answeredSet = new Set();
+
+        const CORRECT_REWARD = 500;
+        const WRONG_COST = 200;
+
+        function generateMathTable() {
+
+            const table = document.getElementById('mathTable');
+            table.innerHTML = '';
+
+            for (let i = 0; i <= 9; i++) {
+
+                const row = table.insertRow();
+
+                for (let j = 0; j <= 9; j++) {
+
+                    const cell = row.insertCell();
+                    cell.style.width = '32px';
+                    cell.style.height = '32px';
+                    cell.style.textAlign = 'center';
+                    cell.style.border = '1px solid #444';
+
+                    if (i === 0 && j > 0) {
+                        cell.textContent = j;
+                    } else if (j === 0 && i > 0) {
+                        cell.textContent = i;
+                    } else if (i > 0 && j > 0) {
+                        const key = `${i}_${j}`;
+                        if (answeredSet.has(key)) {
+                            cell.textContent = i * j;
+                        } else {
+                            cell.textContent = '';
+                        }
+                    }
+                }
+            }
+        }
+
+        function generateMathQuestion() {
+
+            if (answeredSet.size >= 81) {
+                endMathGame();
+                return;
+            }
+
+            do {
+                mathNum1 = Math.floor(Math.random() * 9) + 1;
+                mathNum2 = Math.floor(Math.random() * 9) + 1;
+            } while (answeredSet.has(`${mathNum1}_${mathNum2}`));
+
+            document.getElementById('mathPrompt').innerHTML =
+                `What is <strong>${mathNum1} × ${mathNum2}</strong>?`;
+
+            document.getElementById('mathAnswerInput').value = '';
+        }
+
+        function updateMathStats() {
+            document.getElementById('mathStats').innerHTML =
+                `Solved: ${answeredSet.size} / 81`;
+        }
+
+        function submitMathAnswer() {
+
+            const input = document.getElementById('mathAnswerInput');
+            const answer = parseInt(input.value);
+
+            if (isNaN(answer)) return;
+
+            const correct = answer === mathNum1 * mathNum2;
+
+            if (correct) {
+
+                answeredSet.add(`${mathNum1}_${mathNum2}`);
+                mathScore++;
+
+                state.coins += CORRECT_REWARD;
+                state.xp += 3;
+
+            } else {
+
+                state.coins = Math.max(0, state.coins - WRONG_COST);
+            }
+
+            state.level = levelFromXP(state.xp);
+
+            renderHUD();
+            persistPlayer();
+
+            generateMathTable();
+            updateMathStats();
+            generateMathQuestion();
+            persistMath();
+        }
+
+        function startMathGame() {
+            loadMathProgress();
+        }
+
+        function resetMathGame() {
+            answeredSet.clear();
+            mathScore = 0;
+
+            set(ref(database, mathPath()), null);
+
+            generateMathTable();
+            updateMathStats();
+            generateMathQuestion();
+        }
+
+        function endMathGame() {
+
+            document.getElementById('mathPrompt').innerHTML =
+                `All problems solved! Final Score: ${mathScore}`;
+
+            document.getElementById('mathStats').innerHTML = '';
+
+            setTimeout(() => {
+                setMode('room');
+                focusCanvas();
+            }, 2500);
+        }
+
+        function mathPath() {
+            return `${DATABASE_BASE_PATH}/gameData/mathProgress`;
+        }
+
+        function persistMath() {
+            return set(ref(database, mathPath()), {
+                answered: Array.from(answeredSet),
+                score: mathScore
+            });
+        }
+
+        function loadMathProgress() {
+            onValue(ref(database, mathPath()), (snap) => {
+                const data = snap.val();
+
+                if (!data) {
+                    answeredSet = new Set();
+                    mathScore = 0;
+                } else {
+                    answeredSet = new Set(data.answered || []);
+                    mathScore = data.score || 0;
+                }
+
+                generateMathTable();
+                updateMathStats();
+                generateMathQuestion();
+            });
         }
 
         function focusCanvas() { canvas?.focus?.(); }
@@ -465,7 +646,10 @@
 
                     // AFTER dialogue, open element
                     if (obj.type === 'quiz') setMode('quiz');
-                    if (obj.type === 'shop') setMode('shop');
+                    if (obj.type === 'math') {
+                        setMode('math');
+                        startMathGame();
+                    } if (obj.type === 'shop') setMode('shop');
                     if (obj.type === 'door') changeRoom(obj.target);
                     if (obj.type === 'app') {
                         if (!obj.appUrl) {
@@ -1224,6 +1408,23 @@
         renderHUD();
         renderInventory();
 
+        document.getElementById('mathSubmitBtn')
+            ?.addEventListener('click', submitMathAnswer);
+
+        document.getElementById('mathResetBtn')
+            ?.addEventListener('click', resetMathGame);
+
+        document.getElementById('mathAnswerInput')
+            ?.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') submitMathAnswer();
+            });
+
+        document.getElementById('closeMathBtn')
+            ?.addEventListener('click', () => {
+                setMode('room');
+                focusCanvas();
+            });
+
         document.getElementById('bgUpload')
             ?.addEventListener('change', async (e) => {
 
@@ -1286,6 +1487,13 @@
                     baseBlock.dialogue = [
                         "Hello!",
                         "I was created dynamically."
+                    ];
+                }
+
+                if (type === "math") {
+                    baseBlock.dialogue = [
+                        "This portal tests your multiplication skills.",
+                        "Solve problems to earn coins!"
                     ];
                 }
 
