@@ -31,9 +31,9 @@
                 <button id="logoutButton">Logout of Microsoft</button>
                 <p id="loginStatus">Checking login status...</p>
             </div>
-
         </section>
     </header>
+
     <br>
 
     <div class="panel">
@@ -41,6 +41,51 @@
         Coins: <span id="coins">0</span> |
         XP: <span id="xp">0</span> |
         Level: <span id="level">1</span>
+    </div>
+
+    <!-- ROOM -->
+    <div id="room" class="panel mode">
+
+        <div class="layout">
+
+            <!-- LEFT COLUMN -->
+            <div class="leftColumn">
+                <canvas id="canvas" width="512" height="512" tabindex="0"></canvas>
+            </div>
+
+            <!-- RIGHT COLUMN -->
+            <div class="rightColumn">
+                <div id="infoPanel" class="panel">
+                    Walk up to an item and press <b>E</b> — or click an item.
+                </div>
+
+                <div id="inventoryPanel" class="panel"></div>
+
+                <div class="panel">
+                    <label for="bgUpload" class="fileBtn">Upload Background</label>
+                    <input type="file" id="bgUpload" style="display:none;">
+                    <span id="bgFileName" class="hint"></span> <br>
+
+                    <select id="blockTypeSelect">
+                        <option value="npc">NPC</option>
+                        <option value="quiz">Quiz</option>
+                        <option value="math">Math</option>
+                        <option value="shop">Shop</option>
+                        <option value="door">Door</option>
+                        <option value="app">App</option>
+                    </select>
+                    <br>
+                    <input type="text" id="appUrlInput" placeholder="App URL (e.g. livenotes.html)">
+                    <br>
+                    <input type="file" id="blockImageUpload" accept="image/*">
+                </div>
+
+                <p class="hint">
+                    Move: WASD / Arrows • Inspect: E • Drag item: mouse • Triple-click item: delete
+                </p>
+            </div>
+
+        </div>
     </div>
 
     <!-- QUIZ -->
@@ -90,56 +135,11 @@
 
     </div>
 
-    <!-- ROOM -->
-    <div id="room" class="panel mode">
-
-        <div class="layout">
-
-            <!-- LEFT COLUMN -->
-            <div class="leftColumn">
-                <canvas id="canvas" width="512" height="512" tabindex="0"></canvas>
-            </div>
-
-            <!-- RIGHT COLUMN -->
-            <div class="rightColumn">
-                <div id="infoPanel" class="panel">
-                    Walk up to an item and press <b>E</b> — or click an item.
-                </div>
-
-                <div id="inventoryPanel" class="panel"></div>
-
-                <div class="panel">
-                    <label for="bgUpload" class="fileBtn">Upload Background</label>
-                    <input type="file" id="bgUpload" style="display:none;">
-                    <span id="bgFileName" class="hint"></span> <br>
-
-                    <select id="blockTypeSelect">
-                        <option value="npc">NPC</option>
-                        <option value="quiz">Quiz</option>
-                        <option value="math">Math</option>
-                        <option value="shop">Shop</option>
-                        <option value="door">Door</option>
-                        <option value="app">App</option>
-                    </select>
-                    <br>
-                    <input type="text" id="appUrlInput" placeholder="App URL (e.g. livenotes.html)">
-                    <br>
-                    <input type="file" id="blockImageUpload" accept="image/*">
-                </div>
-
-                <p class="hint">
-                    Move: WASD / Arrows • Inspect: E • Drag item: mouse • Triple-click item: delete
-                </p>
-            </div>
-
-        </div>
-    </div>
-
     <!-- SHOP -->
     <div id="shop" class="panel mode">
 
         <div class="row">
-            <h3 style="margin:0;">Shop (Inventory Driven)</h3>
+            <h3>Shop</h3>
             <button id="closeShopBtn">✖ Close</button>
         </div>
 
@@ -150,7 +150,7 @@
     <div id="app" class="panel mode">
 
         <div class="row">
-            <h3 style="margin:0;">External App</h3>
+            <h3>External App</h3>
             <button id="closeAppBtn">✖ Close</button>
         </div>
 
@@ -382,22 +382,23 @@
             });
         }
 
-        function loadMathProgress() {
-            onValue(ref(database, mathPath()), (snap) => {
-                const data = snap.val();
+        import { get } from '../assets/js/firebase-init.js';
 
-                if (!data) {
-                    answeredSet = new Set();
-                    mathScore = 0;
-                } else {
-                    answeredSet = new Set(data.answered || []);
-                    mathScore = data.score || 0;
-                }
+        async function loadMathProgress() {
+            const snap = await get(ref(database, mathPath()));
+            const data = snap.val();
 
-                generateMathTable();
-                updateMathStats();
-                generateMathQuestion();
-            });
+            if (!data) {
+                answeredSet = new Set();
+                mathScore = 0;
+            } else {
+                answeredSet = new Set(data.answered || []);
+                mathScore = data.score || 0;
+            }
+
+            generateMathTable();
+            updateMathStats();
+            generateMathQuestion();
         }
 
         function focusCanvas() { canvas?.focus?.(); }
@@ -1254,40 +1255,6 @@
         let lastStepAt = 0;
         const STEP_MS = 140;
 
-        window.addEventListener('keydown', (e) => {
-            const k = e.key.toLowerCase();
-            keys[k] = true;
-
-            if (e.key === 'Escape') {
-
-                const currentAppFrame = document.getElementById('appFrame');
-                if (currentAppFrame && currentAppFrame.src) {
-                    currentAppFrame.src = '';
-                }
-
-                setMode('room');
-                focusCanvas();
-                return;
-            }
-
-            if (k === 'e') {
-
-                const obj = getInteractableInFront();
-
-                if (obj) {
-                    handleInteraction(obj);
-                    return;
-                }
-
-                const item = getItemInFront();
-                inspectItem(item);
-            }
-        });
-
-        window.addEventListener('keyup', (e) => {
-            keys[e.key.toLowerCase()] = false;
-        });
-
         function updatePlayer() {
 
             const now = performance.now();
@@ -1362,31 +1329,6 @@
             persistPlayer,
             basePathGetter: () => DATABASE_BASE_PATH
         });
-        document.getElementById('closeQuizBtn')
-            ?.addEventListener('click', () => {
-                setMode('room');
-                focusCanvas();
-            });
-
-        // Close Shop
-        document.getElementById('closeShopBtn')
-            ?.addEventListener('click', () => {
-                setMode('room');
-                focusCanvas();
-            });
-
-        // Close App
-        document.getElementById('closeAppBtn')
-            ?.addEventListener('click', () => {
-
-                // 🔥 Clear iframe so app stops running
-                const frame = document.getElementById('appFrame');
-                if (frame) frame.src = '';
-
-                setMode('room');
-                focusCanvas();
-            });
-
 
         onAuthStateChanged(auth, (user) => {
             DATABASE_BASE_PATH = user ? user.uid : 'public';
@@ -1405,127 +1347,147 @@
             quiz.populateQuizIndex();
         });
 
-        renderHUD();
-        renderInventory();
+        async function handleBackgroundUpload(e) {
 
-        document.getElementById('mathSubmitBtn')
-            ?.addEventListener('click', submitMathAnswer);
+            const file = e.target.files[0];
+            if (!file) return;
 
-        document.getElementById('mathResetBtn')
-            ?.addEventListener('click', resetMathGame);
+            const ROOT_PATH = auth.currentUser?.uid || "public";
+            const cleanName = file.name.replace(/\s+/g, '_').toLowerCase();
 
-        document.getElementById('mathAnswerInput')
-            ?.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') submitMathAnswer();
-            });
+            const path =
+                `${ROOT_PATH}/gameData/roomAssets/${currentRoom}/bg_${Date.now()}_${cleanName}`;
 
-        document.getElementById('closeMathBtn')
-            ?.addEventListener('click', () => {
+            const fileRef = storageRef(storage, path);
+
+            await uploadBytes(fileRef, file);
+            const url = await getDownloadURL(fileRef);
+
+            await update(
+                ref(database, `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}`),
+                { bg: url }
+            );
+
+            bgLoaded = false;
+            bgImage.src = url;
+        }
+
+        function handleKeyDown(e) {
+
+            const k = e.key.toLowerCase();
+            keys[k] = true;
+
+            if (e.key === 'Escape') {
                 setMode('room');
                 focusCanvas();
+                return;
+            }
+
+            if (k === 'e') {
+                const obj = getInteractableInFront();
+                if (obj) {
+                    handleInteraction(obj);
+                    return;
+                }
+
+                const item = getItemInFront();
+                inspectItem(item);
+            }
+        }
+
+        function handleKeyUp(e) {
+            keys[e.key.toLowerCase()] = false;
+        }
+
+        async function handleBlockUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const uid = auth.currentUser?.uid || "public";
+            const cleanName = file.name.replace(/\s+/g, '_').toLowerCase();
+
+            const path =
+                `${uid}/gameData/blockAssets/${Date.now()}_${cleanName}`;
+
+            const fileRef = storageRef(storage, path);
+            await uploadBytes(fileRef, file);
+            const url = await getDownloadURL(fileRef);
+
+            const type = document.getElementById("blockTypeSelect").value;
+
+            const baseBlock = {
+                type,
+                x: state.player.x + 1,
+                y: state.player.y,
+                solid: true,
+                draggable: true,
+                img: url
+            };
+
+            if (type === "app") {
+                const appUrl = document.getElementById("appUrlInput").value.trim();
+                if (!appUrl) return alert("Enter an app URL first.");
+
+                baseBlock.appUrl = appUrl;
+                baseBlock.dialogue = [
+                    "This portal connects to an external system.",
+                    "Press E again to open it."
+                ];
+            }
+
+            addBlockToRoom(currentRoom, baseBlock);
+        }
+
+        function initEventListeners() {
+
+            // MODE CLOSE BUTTONS
+            const closeButtons = {
+                closeQuizBtn: () => setMode('room'),
+                closeShopBtn: () => setMode('room'),
+                closeMathBtn: () => setMode('room'),
+                closeAppBtn: () => {
+                    const frame = document.getElementById('appFrame');
+                    if (frame) frame.src = '';
+                    setMode('room');
+                }
+            };
+
+            Object.entries(closeButtons).forEach(([id, handler]) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener('click', () => {
+                    handler();
+                    focusCanvas();
+                });
             });
 
-        document.getElementById('bgUpload')
-            ?.addEventListener('change', async (e) => {
+            // MATH
+            document.getElementById('mathSubmitBtn')
+                ?.addEventListener('click', submitMathAnswer);
 
-                const file = e.target.files[0];
-                if (!file) return;
+            document.getElementById('mathResetBtn')
+                ?.addEventListener('click', resetMathGame);
 
-                const ROOT_PATH = auth.currentUser?.uid || "public";
-                const cleanName = file.name.replace(/\s+/g, '_').toLowerCase();
+            document.getElementById('mathAnswerInput')
+                ?.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') submitMathAnswer();
+                });
 
-                const path =
-                    `${ROOT_PATH}/gameData/roomAssets/${currentRoom}/bg_${Date.now()}_${cleanName}`;
+            // UPLOADS
+            document.getElementById('bgUpload')
+                ?.addEventListener('change', handleBackgroundUpload);
 
-                const fileRef = storageRef(storage, path);
+            document.getElementById('blockImageUpload')
+                ?.addEventListener('change', handleBlockUpload);
 
-                await uploadBytes(fileRef, file);
-                const url = await getDownloadURL(fileRef);
+            // GLOBAL KEYS
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('keyup', handleKeyUp);
+        }
 
-                // 🔥 SAFE UPDATE — does not overwrite walls/interactables
-                await update(
-                    ref(database, `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}`),
-                    { bg: url }
-                );
-
-                bgLoaded = false;
-                bgImage.src = url;
-
-                console.log("Background uploaded safely:", url);
-            });
-
-        document.getElementById('blockImageUpload')
-            ?.addEventListener('change', async (e) => {
-
-                const file = e.target.files[0];
-                if (!file) return;
-
-                const uid = auth.currentUser?.uid || "public";
-                const cleanName = file.name.replace(/\s+/g, '_').toLowerCase();
-                const ROOT_PATH = auth.currentUser?.uid || "public";
-
-                const path =
-                    `${ROOT_PATH}/gameData/blockAssets/${Date.now()}_${cleanName}`;
-
-                const fileRef = storageRef(storage, path);
-                await uploadBytes(fileRef, file);
-                const url = await getDownloadURL(fileRef);
-
-                const type = document.getElementById("blockTypeSelect").value;
-
-                const baseBlock = {
-                    type,
-                    x: state.player.x + 1,
-                    y: state.player.y,
-                    solid: true,
-                    draggable: true,
-                    img: url
-                };
-
-                // Add special properties depending on type
-                if (type === "npc") {
-                    baseBlock.dialogue = [
-                        "Hello!",
-                        "I was created dynamically."
-                    ];
-                }
-
-                if (type === "math") {
-                    baseBlock.dialogue = [
-                        "This portal tests your multiplication skills.",
-                        "Solve problems to earn coins!"
-                    ];
-                }
-
-                if (type === "app") {
-
-                    const appUrl = document.getElementById("appUrlInput").value.trim();
-
-                    if (!appUrl) {
-                        alert("Enter an app URL first.");
-                        return;
-                    }
-
-                    baseBlock.appUrl = appUrl;
-
-                    baseBlock.dialogue = [
-                        "This portal connects to an external system.",
-                        "Press E again to open it."
-                    ];
-                }
-
-                if (type === "door") {
-
-                    const newRoomId = `room_${Date.now()}`;
-
-                    baseBlock.target = newRoomId;
-
-                    // 🔥 Pass the uploaded image to return door
-                    await createRoom(newRoomId, currentRoom, url);
-                }
-
-                addBlockToRoom(currentRoom, baseBlock);
-            });
+        renderHUD();
+        renderInventory();
+        initEventListeners();
 
     </script>
 </body>
