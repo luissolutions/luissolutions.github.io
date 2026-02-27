@@ -274,6 +274,8 @@
         let mathNum2 = 0;
         let mathScore = 0;
         let answeredSet = new Set();
+        let mathStartTime = null;
+        let mathEndTime = null;
 
         const CORRECT_REWARD = 500;
         const WRONG_COST = 200;
@@ -345,6 +347,11 @@
 
             if (correct) {
 
+                if (!mathStartTime) {
+                    mathStartTime = Date.now();
+                    console.log("Math started:", mathStartTime);
+                }
+
                 answeredSet.add(`${mathNum1}_${mathNum2}`);
                 mathScore++;
 
@@ -375,6 +382,9 @@
             answeredSet.clear();
             mathScore = 0;
 
+            mathStartTime = null;
+            mathEndTime = null;
+
             set(ref(database, mathPath()), null);
 
             generateMathTable();
@@ -384,12 +394,33 @@
 
         function endMathGame() {
 
+            if (!mathStartTime) {
+                document.getElementById('mathPrompt').innerHTML =
+                    `All problems solved!<br>
+             Final Score: ${mathScore}`;
+                return;
+            }
+
+            mathEndTime = Date.now();
+
+            const totalMs = mathEndTime - mathStartTime;
+
+            const totalSeconds = Math.floor(totalMs / 1000);
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+
             document.getElementById('mathPrompt').innerHTML =
-                `All problems solved! Final Score: ${mathScore}`;
+                `All problems solved!<br>
+                Final Score: ${mathScore}<br>
+                Time: ${minutes}m ${seconds}s`;
 
             document.getElementById('mathStats').innerHTML = '';
-            mathNum1 = null;
-            mathNum2 = null;
+
+            update(ref(database, mathPath()), {
+                startTime: mathStartTime,
+                endTime: mathEndTime,
+                durationMs: totalMs
+            });
         }
 
         function mathPath() {
