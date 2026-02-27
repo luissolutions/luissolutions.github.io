@@ -209,6 +209,11 @@
         const ctx = canvas.getContext('2d');
         const bgImage = new Image();
 
+        const DEFAULT_SPRITE_URL = './assets/img/default.png';
+
+        const defaultSprite = new Image();
+        defaultSprite.src = DEFAULT_SPRITE_URL;
+
         bgImage.src = './assets/img/room-bg.png';
         let bgLoaded = false;
 
@@ -615,27 +620,25 @@
                 const px = obj.x * TILE;
                 const py = obj.y * TILE;
 
-                const locked = obj.levelRequirement &&
+                const w = obj.w || 1;
+                const h = obj.h || 1;
+
+                const locked =
+                    obj.levelRequirement &&
                     state.level < obj.levelRequirement;
 
                 if (locked) ctx.globalAlpha = 0.5;
 
-                if (obj.img) {
-                    const img = getCachedImage(obj.img);
+                // 🔹 Use cached image (auto-fallback handled inside getCachedImage)
+                const img = getCachedImage(obj.img);
 
-                    if (img && img.complete && img.naturalWidth > 0) {
-                        const w = obj.w || 1;
-                        const h = obj.h || 1;
-
-                        ctx.drawImage(img, px, py, TILE * w, TILE * h);
-
-                        if (locked) ctx.globalAlpha = 1;
-                        return;
-                    }
+                if (img && img.complete && img.naturalWidth > 0) {
+                    ctx.drawImage(img, px, py, TILE * w, TILE * h);
+                } else {
+                    // fallback block
+                    ctx.fillStyle = locked ? '#880000' : '#ff3cff';
+                    ctx.fillRect(px + 4, py + 4, TILE * w - 8, TILE * h - 8);
                 }
-
-                ctx.fillStyle = locked ? '#880000' : '#ff3cff';
-                ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
 
                 if (locked) ctx.globalAlpha = 1;
             });
@@ -663,6 +666,56 @@
                         You must be level ${obj.levelRequirement} to access this.
                     </div>
                 `;
+                return;
+            }
+
+            // ================= SIMPLE ITEM PICKUP =================
+            if (obj.item) {
+
+                const item = obj.item;
+                const roomInventory = getCurrentRoomItems();
+
+                if (!roomInventory[item.sku]) {
+                    roomInventory[item.sku] = [];
+                }
+
+                let spawnX = state.player.x;
+                let spawnY = state.player.y;
+
+                if (state.player.dir === 'up') spawnY--;
+                if (state.player.dir === 'down') spawnY++;
+                if (state.player.dir === 'left') spawnX--;
+                if (state.player.dir === 'right') spawnX++;
+
+                if (!isAreaFree(spawnX, spawnY, item.size || 1, item.size || 1)) {
+                    spawnX = state.player.x;
+                    spawnY = state.player.y;
+                }
+
+                roomInventory[item.sku].push({
+                    x: spawnX,
+                    y: spawnY,
+                    name: item.name,
+                    sku: item.sku,
+                    img: item.img || '',
+                    size: item.size || 1
+                });
+
+                await remove(
+                    ref(database,
+                        `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}/interactables/${obj.id}/item`
+                    )
+                );
+
+                renderInventory();
+                persistPlayer();
+
+                infoPanel.innerHTML = `
+                    <div class="panel">
+                        🎁 You obtained: <strong>${item.name}</strong>
+                    </div>
+                `;
+
                 return;
             }
 
@@ -749,15 +802,25 @@
         /* ================= MODE ================= */
 
         function getCachedImage(url) {
-            if (!url) return null;
 
-            if (itemImageCache.has(url)) return itemImageCache.get(url);
+            if (!url) return defaultSprite;
+
+            if (itemImageCache.has(url)) {
+                return itemImageCache.get(url);
+            }
 
             const img = new Image();
             img.crossOrigin = "anonymous";
+
+            img.onerror = () => {
+                console.warn("Image failed, using default:", url);
+                itemImageCache.set(url, defaultSprite);
+            };
+
             img.src = url;
 
             itemImageCache.set(url, img);
+
             return img;
         }
 
@@ -905,8 +968,7 @@
             });
         }
 
-        // Buy adds the item at (0,0) like your original.
-        // (You can swap this to "place mode" later if you want.)
+        // Buy adds the item at (0,0).
         function renderShop() {
             shopPanel.innerHTML = '';
 
@@ -990,6 +1052,8 @@
             };
         }
 
+        /* ================= DRAW ITEMS ================= */
+
         function drawItems() {
 
             const roomInventory = getCurrentRoomItems();
@@ -1000,56 +1064,45 @@
 
                 list.forEach(obj => {
 
+                    // Skip drawing if this item is currently being dragged
                     if (drag && drag.obj === obj) return;
 
-                    if (obj.img) {
-                        const img = getCachedImage(obj.img);
-
-                        if (img && img.complete && img.naturalWidth > 0) {
-
-                            const w = obj.w || obj.size || 1;
-                            const h = obj.h || obj.size || 1;
-
-                            ctx.drawImage(
-                                img,
-                                obj.x * TILE,
-                                obj.y * TILE,
-                                TILE * w,
-                                TILE * h
-                            ); return;
-                        }
-                    }
-
-                    ctx.fillStyle = "#999";
                     const w = obj.w || obj.size || 1;
                     const h = obj.h || obj.size || 1;
 
-                    ctx.fillRect(
-                        obj.x * TILE + 5,
-                        obj.y * TILE + 5,
-                        TILE * w - 10,
-                        TILE * h - 10
+                    const px = obj.x * TILE;
+                    const py = obj.y * TILE;
+
+                    // 🔹 Use cached image (auto-fallback to default.png)
+                    const img = getCachedImage(obj.img);
+
+                    ctx.drawImage(
+                        img,
+                        px,
+                        py,
+                        TILE * w,
+                        TILE * h
                     );
                 });
             }
 
-            if (drag && hover) {
-                ctx.globalAlpha = 0.5;
-                ctx.fillStyle = '#fff';
-                if (drag && hover) {
-                    const w = drag.obj.w || drag.obj.size || 1;
-                    const h = drag.obj.h || drag.obj.size || 1;
+            /* ================= DRAG PREVIEW ================= */
 
-                    ctx.globalAlpha = 0.4;
-                    ctx.fillStyle = '#fff';
-                    ctx.fillRect(
-                        hover.x * TILE,
-                        hover.y * TILE,
-                        TILE * w,
-                        TILE * h
-                    );
-                    ctx.globalAlpha = 1;
-                }
+            if (drag && hover) {
+
+                const w = drag.obj.w || drag.obj.size || 1;
+                const h = drag.obj.h || drag.obj.size || 1;
+
+                ctx.globalAlpha = 0.4;
+                ctx.fillStyle = '#ffffff';
+
+                ctx.fillRect(
+                    hover.x * TILE,
+                    hover.y * TILE,
+                    TILE * w,
+                    TILE * h
+                );
+
                 ctx.globalAlpha = 1;
             }
         }
@@ -1091,7 +1144,16 @@
         }
 
         function drawPlayer() {
-            if (!spriteLoaded) return;
+            if (!spriteLoaded || playerSprite.naturalWidth === 0) {
+                ctx.drawImage(
+                    defaultSprite,
+                    state.player.x * TILE,
+                    state.player.y * TILE,
+                    TILE,
+                    TILE
+                );
+                return;
+            }
 
             let row = 0;
 
@@ -1236,22 +1298,38 @@
 
         canvas.onmousedown = (e) => {
             const { x, y } = tile(e);
-
             mouseDownPos = { x, y };
 
             const item = getItem(x, y);
 
+            const now = Date.now();
+
+            // If within 400ms → count as multi-click
+            if (now - lastClick < 400) {
+                clickCount++;
+            } else {
+                clickCount = 1;
+            }
+
+            lastClick = now;
+
             // Triple click delete (items only)
             if (item && clickCount === 3) {
+
                 const roomInventory = getCurrentRoomItems();
                 const arr = roomInventory[item.key];
                 const idx = arr.indexOf(item.obj);
-                if (idx >= 0) arr.splice(idx, 1);
+
+                if (idx >= 0) {
+                    arr.splice(idx, 1);
+                }
 
                 clickCount = 0;
+
                 renderInventory();
                 persistPlayer();
-                infoPanel.innerHTML = 'Item deleted.';
+                infoPanel.innerHTML = "Item deleted.";
+
                 return;
             }
         };
@@ -1328,6 +1406,14 @@
 
                                 <br><br>
 
+                                <label>
+                                    <input type="checkbox" id="draggableInput"
+                                        ${interactable.draggable !== false ? "checked" : ""}>
+                                    Draggable
+                                </label>
+
+                                <br>
+
                                 <button id="deleteBlockBtn">Delete Block</button>
 
                                 <div class="hint">
@@ -1391,6 +1477,22 @@
 
                                 interactable.levelRequirement = level;
                                 infoPanel.innerHTML = "Level requirement updated.";
+                            });
+
+                        document.getElementById("draggableInput")
+                            ?.addEventListener("change", async (e) => {
+
+                                const draggable = e.target.checked;
+
+                                await update(
+                                    ref(database,
+                                        `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}/interactables/${interactable.id}`
+                                    ),
+                                    { draggable }
+                                );
+
+                                interactable.draggable = draggable;
+
                             });
 
                     } else {
