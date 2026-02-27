@@ -207,6 +207,7 @@
         const itemImageCache = new Map();
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
         const bgImage = new Image();
 
         const DEFAULT_SPRITE_URL = './assets/img/default.png';
@@ -511,7 +512,15 @@
 
         function changeRoom(roomName) {
 
-            if (!rooms[roomName]) return;
+            if (!roomName) {
+                console.warn("Attempted to change to undefined room.");
+                return;
+            }
+
+            if (!rooms[roomName]) {
+                console.warn("Room does not exist:", roomName);
+                return;
+            }
 
             currentRoom = roomName;
 
@@ -913,13 +922,15 @@
 
         function persistPlayer() {
 
+            const safeRoom = currentRoom || "room1";
+
             return set(ref(database, playerPath()), {
-                coins: state.coins,
-                xp: state.xp,
-                level: state.level,
-                room: currentRoom,
-                roomItems: state.roomItems,
-                player: state.player
+                coins: state.coins ?? 0,
+                xp: state.xp ?? 0,
+                level: state.level ?? 1,
+                room: safeRoom,
+                roomItems: state.roomItems ?? {},
+                player: state.player ?? { x: 0, y: 0, dir: 'down' }
             });
         }
 
@@ -1751,6 +1762,14 @@
                 img: url
             };
 
+            if (type === "door") {
+
+                const newRoomId = `room_${Date.now()}`;
+
+                baseBlock.target = newRoomId;
+
+                await createRoom(newRoomId, currentRoom, url);
+            }
             if (type === "app") {
                 const appUrl = document.getElementById("appUrlInput").value.trim();
                 if (!appUrl) return alert("Enter an app URL first.");
