@@ -392,17 +392,20 @@
             generateMathQuestion();
         }
 
-        function endMathGame() {
+        async function endMathGame() {
 
-            if (!mathStartTime) {
-                document.getElementById('mathPrompt').innerHTML =
-                    `All problems solved!<br>
-             Final Score: ${mathScore}`;
+            if (!mathStartTime) return;
+
+            const snap = await get(ref(database, mathPath()));
+            const existing = snap.val();
+
+            // 🚫 If duration already exists, do nothing
+            if (existing?.durationMs) {
+                console.log("Time already recorded. Not overwriting.");
                 return;
             }
 
             mathEndTime = Date.now();
-
             const totalMs = mathEndTime - mathStartTime;
 
             const totalSeconds = Math.floor(totalMs / 1000);
@@ -411,16 +414,18 @@
 
             document.getElementById('mathPrompt').innerHTML =
                 `All problems solved!<br>
-                Final Score: ${mathScore}<br>
-                Time: ${minutes}m ${seconds}s`;
+         Final Score: ${mathScore}<br>
+         Time: ${minutes}m ${seconds}s`;
 
             document.getElementById('mathStats').innerHTML = '';
 
-            update(ref(database, mathPath()), {
+            await update(ref(database, mathPath()), {
                 startTime: mathStartTime,
                 endTime: mathEndTime,
                 durationMs: totalMs
             });
+
+            console.log("Time locked in:", totalMs);
         }
 
         function mathPath() {
@@ -446,6 +451,21 @@
             } else {
                 answeredSet = new Set(data.answered || []);
                 mathScore = data.score || 0;
+            }
+
+            if (data?.durationMs) {
+
+                const totalSeconds = Math.floor(data.durationMs / 1000);
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = totalSeconds % 60;
+
+                document.getElementById('mathPrompt').innerHTML =
+                    `All problems solved!<br>
+                    Final Score: ${data.score}<br>
+                    Time: ${minutes}m ${seconds}s`;
+
+                document.getElementById('mathStats').innerHTML = '';
+                return;
             }
 
             generateMathTable();
