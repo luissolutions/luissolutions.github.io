@@ -203,6 +203,7 @@
         let selectedInteractable = null;
         let lastClickTime = 0;
         const DOUBLE_CLICK_MS = 300;
+        let currentMode = 'room';
 
         const itemImageCache = new Map();
         const canvas = document.getElementById('canvas');
@@ -774,6 +775,10 @@
 
                         setMode('app');
                     }
+                    if (obj.type === 'editor') {
+                        setMode('editor');
+                        roomEditor.open(currentRoom, rooms, DATABASE_BASE_PATH);
+                    }
                 }
 
                 return;
@@ -834,6 +839,8 @@
         }
 
         function setMode(mode) {
+            currentMode = mode;
+
             document.querySelectorAll('.mode')
                 .forEach(m => m.style.display = 'none');
 
@@ -1708,13 +1715,30 @@
         function handleKeyDown(e) {
 
             const k = e.key.toLowerCase();
-            keys[k] = true;
 
-            if (e.key === 'Escape') {
+            const active = document.activeElement;
+
+            const typing =
+                active &&
+                (
+                    active.tagName === "INPUT" ||
+                    active.tagName === "TEXTAREA" ||
+                    active.isContentEditable
+                );
+
+            // ✅ ESCAPE should always work (even when typing or not in room)
+            if (k === 'escape') {
                 setMode('room');
                 focusCanvas();
                 return;
             }
+
+            // 🔒 Block movement if typing OR not in room mode
+            if (typing || currentMode !== 'room') {
+                return;
+            }
+
+            keys[k] = true;
 
             if (k === 'e') {
                 const obj = getInteractableInFront();
@@ -1729,6 +1753,9 @@
         }
 
         function handleKeyUp(e) {
+
+            if (currentMode !== 'room') return;
+
             keys[e.key.toLowerCase()] = false;
         }
 
