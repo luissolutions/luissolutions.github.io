@@ -71,6 +71,7 @@
                         <option value="shop">Shop</option>
                         <option value="door">Door</option>
                         <option value="app">App</option>
+                        <option value="editor">Editor</option>
                     </select>
                     <br>
                     <input type="text" id="appUrlInput" placeholder="App URL (e.g. livenotes.html)">
@@ -113,7 +114,7 @@
     <!-- MATH -->
     <div id="math" class="panel mode">
         <div class="row">
-            <h3 style="margin:0;">Math Challenge</h3>
+            <h3>Math Challenge</h3>
             <button id="closeMathBtn">✖ Close</button>
         </div>
         <div id="mathGame" class="panel">
@@ -145,8 +146,23 @@
             <h3>External App</h3>
             <button id="closeAppBtn">✖ Close</button>
         </div>
-        <iframe id="appFrame" src="" style="width:100%; height:800px; border:none;">
+        <iframe id="appFrame" src="" style="width:100%; height:800px;">
         </iframe>
+    </div>
+
+    <!-- EDITOR -->
+    <div id="editor" class="panel mode">
+        <div class="row">
+            <h3>Room Editor</h3>
+            <button id="closeEditorBtn">✖ Close</button>
+            <button id="saveEditorBtn">💾 Save</button>
+        </div>
+
+        <canvas id="editorCanvas" width="512" height="512"></canvas>
+
+        <div class="hint">
+            Wheel = zoom • Drag = move • Left click = wall • Right click = erase
+        </div>
     </div>
 
     <script type="module">
@@ -155,6 +171,7 @@
             storage, storageRef, uploadBytes, getDownloadURL, deleteObject, remove,
         } from '../assets/js/firebase-init.js';
         import { createQuizModule } from './assets/js/livegame.js';
+        import { createRoomEditor } from './assets/js/livegameEditor.js';
 
         /* ================= BASE ================= */
 
@@ -171,6 +188,13 @@
         const TILE = 32;
         const GRID = 16;
 
+        const roomEditor = createRoomEditor({
+            database,
+            ref,
+            update,
+            TILE,
+            GRID
+        });
 
         let shopItems = [];
         let drag = null, hover = null;
@@ -586,12 +610,15 @@
 
             const interactables = room.interactables || {};
 
-
-
             Object.values(interactables).forEach(obj => {
 
                 const px = obj.x * TILE;
                 const py = obj.y * TILE;
+
+                const locked = obj.levelRequirement &&
+                    state.level < obj.levelRequirement;
+
+                if (locked) ctx.globalAlpha = 0.5;
 
                 if (obj.img) {
                     const img = getCachedImage(obj.img);
@@ -601,12 +628,16 @@
                         const h = obj.h || 1;
 
                         ctx.drawImage(img, px, py, TILE * w, TILE * h);
+
+                        if (locked) ctx.globalAlpha = 1;
                         return;
                     }
                 }
 
-                ctx.fillStyle = '#ff3cff';
+                ctx.fillStyle = locked ? '#880000' : '#ff3cff';
                 ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
+
+                if (locked) ctx.globalAlpha = 1;
             });
         }
 
@@ -626,6 +657,15 @@
         }
 
         async function handleInteraction(obj) {
+            if (obj.levelRequirement && state.level < obj.levelRequirement) {
+                infoPanel.innerHTML = `
+                    <div class="panel">
+                        You must be level ${obj.levelRequirement} to access this.
+                    </div>
+                `;
+                return;
+            }
+
             if (!obj) return;
 
             // If object has dialogue
@@ -682,9 +722,19 @@
             if (obj.type === 'math') {
                 setMode('math');
                 startMathGame();
-            }
+            };
 
             if (obj.type === 'shop') setMode('shop');
+
+            if (obj.type === 'editor') {
+                setMode('editor');
+
+                roomEditor.open(
+                    currentRoom,
+                    rooms,
+                    DATABASE_BASE_PATH
+                );
+            }
 
             if (obj.type === 'door') {
 
@@ -712,9 +762,17 @@
         }
 
         function setMode(mode) {
-            document.querySelectorAll('.mode').forEach(m => m.style.display = 'none');
+            document.querySelectorAll('.mode')
+                .forEach(m => m.style.display = 'none');
+
             document.getElementById(mode).style.display = 'block';
-            if (mode === 'room') focusCanvas();
+
+            if (mode === 'room') {
+                canvas.style.pointerEvents = 'auto';
+                focusCanvas();
+            } else {
+                canvas.style.pointerEvents = 'none';
+            }
         }
 
         setMode('room');
@@ -1181,10 +1239,6 @@
 
             mouseDownPos = { x, y };
 
-            const now = Date.now();
-            clickCount = (now - lastClick < 400) ? clickCount + 1 : 1;
-            lastClick = now;
-
             const item = getItem(x, y);
 
             // Triple click delete (items only)
@@ -1231,8 +1285,8 @@
             const { x, y } = tile(e);
 
             const now = Date.now();
-            const isDoubleClick = (now - lastClickTime) < DOUBLE_CLICK_MS;
-            lastClickTime = now;
+            if (e.shiftKey)
+                lastClickTime = now;
 
             /* ================= CLICK (no movement) ================= */
             if (mouseDownPos && mouseDownPos.x === x && mouseDownPos.y === y) {
@@ -1244,21 +1298,40 @@
                 /* ---------- INTERACTABLE CLICK ---------- */
                 if (interactable) {
 
-                    if (isDoubleClick) {
+                    // SHIFT + CLICK = EDIT MODE
+                    if (e.shiftKey) {
+
                         selectedInteractable = interactable;
 
                         infoPanel.innerHTML = `
                             <div class="panel">
                                 <strong>Editing:</strong> ${interactable.id}
                                 <br><br>
+
                                 <label class="fileBtn">
                                     Upload / Replace Image
                                     <input type="file" id="replaceBlockImageInput" style="display:none;">
                                 </label>
+
                                 <br><br>
+
+                                <label>Dialogue (one line per row):</label><br>
+                                <textarea id="dialogueInput" rows="5" style="width:100%;">${(interactable.dialogue || []).join("\n")}</textarea>
+                                <button id="saveDialogueBtn">Save Dialogue</button>
+
+                                <br><br>
+
+                                <label>Required Level:</label>
+                                <input type="number" id="levelReqInput" min="0"
+                                    value="${interactable.levelRequirement || 0}">
+                                <button id="saveLevelReqBtn">Save Level</button>
+
+                                <br><br>
+
                                 <button id="deleteBlockBtn">Delete Block</button>
+
                                 <div class="hint">
-                                    Drag to move • Double-click to edit
+                                    Shift+Click to edit • Drag to move
                                 </div>
                             </div>
                         `;
@@ -1279,6 +1352,45 @@
 
                                 selectedInteractable = null;
                                 infoPanel.innerHTML = "Block deleted.";
+                            });
+
+                        document.getElementById("saveDialogueBtn")
+                            ?.addEventListener("click", async () => {
+
+                                const raw = document.getElementById("dialogueInput").value;
+
+                                const dialogue = raw
+                                    .split("\n")
+                                    .map(line => line.trim())
+                                    .filter(Boolean);
+
+                                await update(
+                                    ref(database,
+                                        `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}/interactables/${interactable.id}`
+                                    ),
+                                    { dialogue }
+                                );
+
+                                interactable.dialogue = dialogue;
+                                infoPanel.innerHTML = "Dialogue updated.";
+                            });
+
+                        document.getElementById("saveLevelReqBtn")
+                            ?.addEventListener("click", async () => {
+
+                                const level = parseInt(
+                                    document.getElementById("levelReqInput").value
+                                ) || 0;
+
+                                await update(
+                                    ref(database,
+                                        `${DATABASE_BASE_PATH}/gameData/rooms/${currentRoom}/interactables/${interactable.id}`
+                                    ),
+                                    { levelRequirement: level }
+                                );
+
+                                interactable.levelRequirement = level;
+                                infoPanel.innerHTML = "Level requirement updated.";
                             });
 
                     } else {
@@ -1596,7 +1708,8 @@
                     const frame = document.getElementById('appFrame');
                     if (frame) frame.src = '';
                     setMode('room');
-                }
+                },
+                closeEditorBtn: () => setMode('room')
             };
 
             Object.entries(closeButtons).forEach(([id, handler]) => {
@@ -1607,6 +1720,15 @@
                     focusCanvas();
                 });
             });
+
+            // 🔥 Editor Save
+            document.getElementById('saveEditorBtn')
+                ?.addEventListener('click', async () => {
+                    if (!roomEditor) return;
+                    await roomEditor.save();
+                    setMode('room');
+                    focusCanvas();
+                });
 
             // MATH
             document.getElementById('mathSubmitBtn')
