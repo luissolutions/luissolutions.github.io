@@ -237,7 +237,8 @@ export function createQuizModule({
 
             answeredQuestions[q.id] = {
                 status: 'answered',
-                description: q.description
+                description: q.description,
+                question: q.question
             };
 
             rewardCorrect(q.description);
@@ -247,7 +248,8 @@ export function createQuizModule({
 
             answeredQuestions[q.id] = {
                 status: 'incorrect',
-                description: q.description
+                description: q.description,
+                question: q.question
             };
 
             punishWrong(q.description);
@@ -281,14 +283,23 @@ export function createQuizModule({
             return;
         }
 
-        incorrect.forEach(([id]) => {
+        incorrect.forEach(([id, data]) => {
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'panel';
+            wrapper.style.marginBottom = '8px';
+
+            const title = document.createElement('div');
+            title.innerHTML = `<strong>${data.question || id}</strong>`;
 
             const btn = document.createElement('button');
-            btn.textContent = `Recover Question (Cost: 50 coins)`;
-
+            btn.textContent = `Recover (Cost: 50 coins)`;
             btn.onclick = () => recoverQuestion(id);
 
-            container.appendChild(btn);
+            wrapper.appendChild(title);
+            wrapper.appendChild(btn);
+
+            container.appendChild(wrapper);
         });
     }
 
