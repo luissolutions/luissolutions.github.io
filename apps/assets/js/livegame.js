@@ -1,5 +1,5 @@
 export function createQuizModule({
-    database,
+        database,
     ref,
     onValue,
     set,
@@ -11,8 +11,9 @@ export function createQuizModule({
     renderHUD,
     persistPlayer,
     basePathGetter
-}) {
+}) 
 
+{
     let questions = [];
     let currentQuestionIndex = 0;
     let answeredQuestions = {};
