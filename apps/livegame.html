@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <meta charset="UTF-8">
+    <meta name="viewport" charset="UTF-8" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Knowledge RPG - Firebase</title>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <script type="module" src="./assets/js/login.js"></script>
@@ -374,22 +374,54 @@
             persistMath();
         }
 
-        function startMathGame() {
-            loadMathProgress();
+        async function startMathGame() {
+
+            await loadMathProgress();
+
+            const snap = await get(ref(database, mathPath()));
+            const data = snap.val();
+
+            if (data?.bestDurationMs) {
+                const bestSeconds = Math.floor(data.bestDurationMs / 1000);
+                const bestMin = Math.floor(bestSeconds / 60);
+                const bestSec = bestSeconds % 60;
+
+                document.getElementById('mathStats').innerHTML =
+                    `🏆 Top Time: ${bestMin}m ${bestSec}s`;
+            }
         }
 
-        function resetMathGame() {
+        async function resetMathGame() {
+
+            const snap = await get(ref(database, mathPath()));
+            const existing = snap.val() || {};
+
+            const best = existing.bestDurationMs || null;
+
             answeredSet.clear();
             mathScore = 0;
-
             mathStartTime = null;
             mathEndTime = null;
 
-            set(ref(database, mathPath()), null);
+            // Only reset current run data — preserve bestDurationMs
+            await set(ref(database, mathPath()), {
+                answered: [],
+                score: 0,
+                bestDurationMs: best
+            });
 
             generateMathTable();
             updateMathStats();
             generateMathQuestion();
+
+            if (best) {
+                const bestSeconds = Math.floor(best / 1000);
+                const bestMin = Math.floor(bestSeconds / 60);
+                const bestSec = bestSeconds % 60;
+
+                document.getElementById('mathStats').innerHTML =
+                    `🏆 Top Time: ${bestMin}m ${bestSec}s`;
+            }
         }
 
         async function endMathGame() {
@@ -397,13 +429,7 @@
             if (!mathStartTime) return;
 
             const snap = await get(ref(database, mathPath()));
-            const existing = snap.val();
-
-            // 🚫 If duration already exists, do nothing
-            if (existing?.durationMs) {
-                console.log("Time already recorded. Not overwriting.");
-                return;
-            }
+            const existing = snap.val() || {};
 
             mathEndTime = Date.now();
             const totalMs = mathEndTime - mathStartTime;
@@ -412,20 +438,34 @@
             const minutes = Math.floor(totalSeconds / 60);
             const seconds = totalSeconds % 60;
 
-            document.getElementById('mathPrompt').innerHTML =
-                `All problems solved!<br>
-         Final Score: ${mathScore}<br>
-         Time: ${minutes}m ${seconds}s`;
+            const best = existing.bestDurationMs;
 
-            document.getElementById('mathStats').innerHTML = '';
+            let isNewBest = false;
+
+            if (!best || totalMs < best) {
+                isNewBest = true;
+            }
 
             await update(ref(database, mathPath()), {
                 startTime: mathStartTime,
                 endTime: mathEndTime,
-                durationMs: totalMs
+                durationMs: totalMs,
+                bestDurationMs: isNewBest ? totalMs : best
             });
 
-            console.log("Time locked in:", totalMs);
+            const bestTime = isNewBest ? totalMs : best;
+
+            const bestSeconds = Math.floor(bestTime / 1000);
+            const bestMin = Math.floor(bestSeconds / 60);
+            const bestSec = bestSeconds % 60;
+
+            document.getElementById('mathPrompt').innerHTML =
+                `All problems solved!<br>
+         Final Time: ${minutes}m ${seconds}s<br>
+         <strong>Top Time: ${bestMin}m ${bestSec}s</strong>
+         ${isNewBest ? "<br>🏆 NEW RECORD!" : ""}`;
+
+            document.getElementById('mathStats').innerHTML = "";
         }
 
         function mathPath() {
@@ -433,7 +473,7 @@
         }
 
         function persistMath() {
-            return set(ref(database, mathPath()), {
+            return update(ref(database, mathPath()), {
                 answered: Array.from(answeredSet),
                 score: mathScore
             });
@@ -459,12 +499,22 @@
                 const minutes = Math.floor(totalSeconds / 60);
                 const seconds = totalSeconds % 60;
 
+                let bestDisplay = "";
+
+                if (data.bestDurationMs) {
+                    const bestSeconds = Math.floor(data.bestDurationMs / 1000);
+                    const bestMin = Math.floor(bestSeconds / 60);
+                    const bestSec = bestSeconds % 60;
+
+                    bestDisplay = `<br><strong>Top Time: ${bestMin}m ${bestSec}s</strong>`;
+                }
+
                 document.getElementById('mathPrompt').innerHTML =
                     `All problems solved!<br>
-                    Final Score: ${data.score}<br>
-                    Time: ${minutes}m ${seconds}s`;
+                    Final Time: ${minutes}m ${seconds}s
+                    ${bestDisplay}`;
 
-                document.getElementById('mathStats').innerHTML = '';
+                document.getElementById('mathStats').innerHTML = "";
                 return;
             }
 
