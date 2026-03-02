@@ -101,29 +101,22 @@
 
       let drawColor = $("color").value;
       let scale = Number($("scale").value);
-      let noDoubles = false;
       let isDown = false;
       let lastPoint = null;
       let history = [];
 
-let bgImage = null;
+      let images = [];
+      let activeImage = null;
 
-let bgTransform = {
-  x: 0,
-  y: 0,
-  width: 0,
-  height: 0
-};
+      let dragging = false;
+      let stretching = false;
 
-let draggingBg = false;
-let stretchingBg = false;
-
-let dragOffsetX = 0;
-let dragOffsetY = 0;
-let stretchStartX = 0;
-let stretchStartY = 0;
-let startWidth = 0;
-let startHeight = 0;
+      let dragOffsetX = 0;
+      let dragOffsetY = 0;
+      let stretchStartX = 0;
+      let stretchStartY = 0;
+      let startWidth = 0;
+      let startHeight = 0;
 
       /* ===================== Undo ===================== */
 
@@ -138,66 +131,53 @@ let startHeight = 0;
       }
 
       $("undoBtn").onclick = undo;
-      $("noDoubles").onchange = e => noDoubles = e.target.checked;
 
-      /* ===================== Size + Scale ===================== */
+      /* ===================== Size & Scale ===================== */
 
       function setSize(w, h) {
-        bgCanvas.width = w; bgCanvas.height = h;
-        paintCanvas.width = w; paintCanvas.height = h;
-
+        bgCanvas.width = w;
+        bgCanvas.height = h;
+        paintCanvas.width = w;
+        paintCanvas.height = h;
         history = [];
-        updateScale();   // this also sizes gridCanvas correctly now
-        clearPaint();
-        redrawBackground();
+        updateScale();
+        redrawAll();
       }
 
       function updateScale() {
         scale = Number($("scale").value);
-
         const pixelWidth = bgCanvas.width * scale;
         const pixelHeight = bgCanvas.height * scale;
 
-        // Visual size for bg + paint (CSS scale)
         bgCanvas.style.width = pixelWidth + "px";
         bgCanvas.style.height = pixelHeight + "px";
         paintCanvas.style.width = pixelWidth + "px";
         paintCanvas.style.height = pixelHeight + "px";
 
-        // Grid canvas is REAL screen pixels (so the grid is crisp & correctly spaced)
         const dpr = window.devicePixelRatio || 1;
-        gridCanvas.width = Math.round(pixelWidth * dpr);
-        gridCanvas.height = Math.round(pixelHeight * dpr);
+        gridCanvas.width = pixelWidth * dpr;
+        gridCanvas.height = pixelHeight * dpr;
         gridCanvas.style.width = pixelWidth + "px";
         gridCanvas.style.height = pixelHeight + "px";
 
-        // Draw in CSS pixel coordinates
         gridCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
         drawGrid();
       }
 
       function drawGrid() {
         const pixelWidth = bgCanvas.width * scale;
         const pixelHeight = bgCanvas.height * scale;
-
         gridCtx.clearRect(0, 0, pixelWidth, pixelHeight);
 
-        const gridSize = Number($("gridSize").value) || 1;
-        const step = gridSize * scale; // <-- key change (grid in screen pixels)
-
-        gridCtx.strokeStyle = "rgba(255,255,255,0.25)";
-        gridCtx.lineWidth = 1;
-
+        const step = (Number($("gridSize").value) || 1) * scale;
+        gridCtx.strokeStyle = "rgba(255,255,255,.25)";
         gridCtx.beginPath();
 
-        // vertical lines
         for (let x = 0; x <= pixelWidth; x += step) {
           gridCtx.moveTo(x + 0.5, 0);
           gridCtx.lineTo(x + 0.5, pixelHeight);
         }
 
-        // horizontal lines
         for (let y = 0; y <= pixelHeight; y += step) {
           gridCtx.moveTo(0, y + 0.5);
           gridCtx.lineTo(pixelWidth, y + 0.5);
@@ -207,10 +187,6 @@ let startHeight = 0;
       }
 
       /* ===================== Drawing ===================== */
-
-      function clearPaint() {
-        ctx.clearRect(0, 0, paintCanvas.width, paintCanvas.height);
-      }
 
       function getMousePos(e) {
         const rect = paintCanvas.getBoundingClientRect();
@@ -229,29 +205,37 @@ let startHeight = 0;
         ctx.clearRect(x, y, 1, 1);
       }
 
-      function drawLine(x0, y0, x1, y1, color) {
+      /* ===================== Images ===================== */
 
-        let dx = Math.abs(x1 - x0);
-        let dy = Math.abs(y1 - y0);
-        let sx = x0 < x1 ? 1 : -1;
-        let sy = y0 < y1 ? 1 : -1;
-        let err = dx - dy;
-        let lastDrawn = null;
+      async function importImage(file, layer) {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.src = url;
+        await img.decode().catch(() => { });
+        URL.revokeObjectURL(url);
 
-        while (true) {
+        const newImage = {
+          img,
+          x: 0,
+          y: 0,
+          width: bgCanvas.width,
+          height: bgCanvas.height,
+          layer
+        };
 
-          if (!noDoubles || !lastDrawn || lastDrawn.x !== x0 || lastDrawn.y !== y0) {
-            if (color === "erase") erasePixel(x0, y0);
-            else setPixel(x0, y0, color);
-            lastDrawn = { x: x0, y: y0 };
-          }
+        images.push(newImage);
+        activeImage = newImage;
+        redrawAll();
+      }
 
-          if (x0 === x1 && y0 === y1) break;
+      function redrawAll() {
 
-          let e2 = 2 * err;
-          if (e2 > -dy) { err -= dy; x0 += sx; }
-          if (e2 < dx) { err += dx; y0 += sy; }
+        bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+        ctx.clearRect(0, 0, paintCanvas.width, paintCanvas.height);
 
+        for (const image of images) {
+          const target = image.layer === "background" ? bgCtx : ctx;
+          target.drawImage(image.img, image.x, image.y, image.width, image.height);
         }
       }
 
@@ -259,162 +243,88 @@ let startHeight = 0;
 
       paintCanvas.addEventListener("contextmenu", e => e.preventDefault());
 
-paintCanvas.addEventListener("mousedown", e => {
-
-  const { x, y } = getMousePos(e);
-
-  if (!bgImage) {
-    saveState();
-    isDown = true;
-    if (e.button === 0) setPixel(x, y, drawColor);
-    if (e.button === 2) erasePixel(x, y);
-    lastPoint = { x, y };
-    return;
-  }
-
-  // SHIFT = Move
-  if (e.shiftKey) {
-    draggingBg = true;
-    dragOffsetX = x - bgTransform.x;
-    dragOffsetY = y - bgTransform.y;
-    return;
-  }
-
-  // ALT = Stretch
-  if (e.altKey) {
-    stretchingBg = true;
-    stretchStartX = x;
-    stretchStartY = y;
-    startWidth = bgTransform.width;
-    startHeight = bgTransform.height;
-    return;
-  }
-
-  // Otherwise normal drawing
-  saveState();
-  isDown = true;
-  if (e.button === 0) setPixel(x, y, drawColor);
-  if (e.button === 2) erasePixel(x, y);
-  lastPoint = { x, y };
-});
-
-paintCanvas.addEventListener("mousemove", e => {
-
-  const { x, y } = getMousePos(e);
-
-  // MOVE
-  if (draggingBg && bgImage) {
-    bgTransform.x = x - dragOffsetX;
-    bgTransform.y = y - dragOffsetY;
-    redrawBackground();
-    return;
-  }
-
-  // STRETCH
-  if (stretchingBg && bgImage) {
-    const dx = x - stretchStartX;
-    const dy = y - stretchStartY;
-
-    bgTransform.width = Math.max(1, startWidth + dx);
-    bgTransform.height = Math.max(1, startHeight + dy);
-
-    redrawBackground();
-    return;
-  }
-
-  // Normal drawing
-  if (!isDown) return;
-
-  if (lastPoint) {
-    if (e.buttons === 2)
-      drawLine(lastPoint.x, lastPoint.y, x, y, "erase");
-    else
-      drawLine(lastPoint.x, lastPoint.y, x, y, drawColor);
-  }
-
-  lastPoint = { x, y };
-});
-
-      paintCanvas.addEventListener("mousemove", e => {
-        if (!draggingBg) return;
+      paintCanvas.addEventListener("mousedown", e => {
 
         const { x, y } = getMousePos(e);
 
-        bgTransform.x = x - bgTransform.width / 2;
-        bgTransform.y = y - bgTransform.height / 2;
+        if ((e.shiftKey || e.altKey) && images.length) {
 
-        redrawBackground();
+          activeImage = images[images.length - 1];
+
+          if (e.shiftKey) {
+            dragging = true;
+            dragOffsetX = x - activeImage.x;
+            dragOffsetY = y - activeImage.y;
+          }
+
+          if (e.altKey) {
+            stretching = true;
+            stretchStartX = x;
+            stretchStartY = y;
+            startWidth = activeImage.width;
+            startHeight = activeImage.height;
+          }
+          return;
+        }
+
+        saveState();
+        isDown = true;
+
+        if (e.button === 0) setPixel(x, y, drawColor);
+        if (e.button === 2) erasePixel(x, y);
+
+        lastPoint = { x, y };
       });
 
-window.addEventListener("mouseup", () => {
-  isDown = false;
-  draggingBg = false;
-  stretchingBg = false;
-});
+      paintCanvas.addEventListener("mousemove", e => {
 
-      paintCanvas.addEventListener("wheel", e => {
-        if (!bgImage) return;
+        const { x, y } = getMousePos(e);
 
-        e.preventDefault();
+        if (dragging && activeImage) {
+          activeImage.x = x - dragOffsetX;
+          activeImage.y = y - dragOffsetY;
+          redrawAll();
+          return;
+        }
 
-        const scaleFactor = e.deltaY < 0 ? 1.1 : 0.9;
+        if (stretching && activeImage) {
+          activeImage.width = Math.max(1, startWidth + (x - stretchStartX));
+          activeImage.height = Math.max(1, startHeight + (y - stretchStartY));
+          redrawAll();
+          return;
+        }
 
-        bgTransform.width *= scaleFactor;
-        bgTransform.height *= scaleFactor;
+        if (!isDown) return;
 
-        redrawBackground();
+        if (lastPoint) {
+          if (e.buttons === 2) erasePixel(x, y);
+          else setPixel(x, y, drawColor);
+        }
+
+        lastPoint = { x, y };
       });
 
-      /* ===================== Import ===================== */
+      window.addEventListener("mouseup", () => {
+        isDown = false;
+        dragging = false;
+        stretching = false;
+      });
 
-      async function importToPaint(file) {
-        const img = new Image();
-        const url = URL.createObjectURL(file);
-        img.src = url;
-        await img.decode().catch(() => { });
-        URL.revokeObjectURL(url);
-        ctx.drawImage(img, 0, 0, paintCanvas.width, paintCanvas.height);
-      }
+      /* ===================== UI ===================== */
 
-      async function importToBackground(file) {
-        const img = new Image();
-        const url = URL.createObjectURL(file);
-        img.src = url;
-        await img.decode().catch(() => { });
-        URL.revokeObjectURL(url);
-
-        bgImage = img;
-
-        bgTransform.x = 0;
-        bgTransform.y = 0;
-        bgTransform.width = bgCanvas.width;
-        bgTransform.height = bgCanvas.height;
-
-        redrawBackground();
-      }
-
-      function redrawBackground() {
-        bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
-
-        if (!bgImage) return;
-
-        bgCtx.drawImage(
-          bgImage,
-          bgTransform.x,
-          bgTransform.y,
-          bgTransform.width,
-          bgTransform.height
-        );
-      }
-
-      /* ===================== Export ===================== */
+      $("color").oninput = e => drawColor = e.target.value;
+      $("scale").onchange = updateScale;
+      $("applySize").onclick = () => setSize(Number($("w").value), Number($("h").value));
+      $("importBtn").onclick = () => { const f = $("importFile").files[0]; if (f) importImage(f, "paint"); };
+      $("importBgBtn").onclick = () => { const f = $("importFile").files[0]; if (f) importImage(f, "background"); };
+      $("exportPng").onclick = () => exportMerged(1);
+      $("exportScaled").onclick = () => exportMerged(Number($("exportScale").value));
+      $("gridSize").oninput = drawGrid;
 
       function exportMerged(scaleOut = 1) {
-
         const out = document.createElement("canvas");
         out.width = bgCanvas.width * scaleOut;
         out.height = bgCanvas.height * scaleOut;
-
         const octx = out.getContext("2d");
         octx.imageSmoothingEnabled = false;
 
@@ -427,24 +337,10 @@ window.addEventListener("mouseup", () => {
         a.click();
       }
 
-      /* ===================== UI ===================== */
-
-      $("color").oninput = e => drawColor = e.target.value;
-      $("scale").onchange = updateScale;
-      $("applySize").onclick = () => setSize(Number($("w").value), Number($("h").value));
-      $("importBtn").onclick = () => { const f = $("importFile").files[0]; if (f) importToPaint(f); };
-      $("importBgBtn").onclick = () => { const f = $("importFile").files[0]; if (f) importToBackground(f); };
-      $("exportPng").onclick = () => exportMerged(1);
-      $("exportScaled").onclick = () => exportMerged(Number($("exportScale").value));
-      $("gridSize").oninput = drawGrid;
-
-      /* ===================== Init ===================== */
-
       setSize(32, 32);
 
     })();
   </script>
-
 </body>
 
 </html>
