@@ -279,6 +279,21 @@
 
         const CORRECT_REWARD = 500;
         const WRONG_COST = 200;
+        let mathFlash = null; // { key: "3_7", color: "green"|"red", until: number }
+        const FLASH_MS = 500;
+
+        function setMathFlash(key, color) {
+            mathFlash = { key, color, until: Date.now() + FLASH_MS };
+            generateMathTable(); // re-render to show flash immediately
+
+            setTimeout(() => {
+                // only clear if it's the same flash (avoid race)
+                if (mathFlash && mathFlash.key === key && Date.now() >= mathFlash.until) {
+                    mathFlash = null;
+                    generateMathTable();
+                }
+            }, FLASH_MS + 20);
+        }
 
         function generateMathTable() {
 
@@ -303,10 +318,33 @@
                         cell.textContent = i;
                     } else if (i > 0 && j > 0) {
                         const key = `${i}_${j}`;
+
+                        // Base styling for multiply cells
+                        cell.dataset.key = key;
+
+                        // Show solved values
                         if (answeredSet.has(key)) {
                             cell.textContent = i * j;
                         } else {
                             cell.textContent = '';
+                        }
+
+                        // Highlight the CURRENT target cell (where answer goes)
+                        if (i === mathNum1 && j === mathNum2 && !answeredSet.has(key)) {
+                            cell.style.outline = '3px solid #d4af37'; // gold outline
+                            cell.style.boxShadow = '0 0 10px rgba(212,175,55,.6)';
+                        }
+
+                        // Flash effect (red/green)
+                        if (mathFlash && mathFlash.key === key && Date.now() < mathFlash.until) {
+                            // Light flash background; keep text readable
+                            cell.style.background = (mathFlash.color === 'green')
+                                ? 'rgba(0, 255, 0, 0.25)'
+                                : 'rgba(255, 0, 0, 0.25)';
+
+                            cell.style.outline = (mathFlash.color === 'green')
+                                ? '3px solid rgba(0,255,0,.9)'
+                                : '3px solid rgba(255,0,0,.9)';
                         }
                     }
                 }
@@ -329,6 +367,8 @@
                 `What is <strong>${mathNum1} × ${mathNum2}</strong>?`;
 
             document.getElementById('mathAnswerInput').value = '';
+            generateMathTable(); // ✅ move target highlight
+
         }
 
         function updateMathStats() {
@@ -336,34 +376,32 @@
                 `Solved: ${answeredSet.size} / 81`;
         }
 
-        function submitMathAnswer() {
-
+        async function submitMathAnswer() {
             const input = document.getElementById('mathAnswerInput');
             const answer = parseInt(input.value);
 
             if (isNaN(answer)) return;
 
             const correct = answer === mathNum1 * mathNum2;
+            const key = `${mathNum1}_${mathNum2}`;
 
             if (correct) {
+                setMathFlash(key, 'green');
 
                 if (!mathStartTime) {
                     mathStartTime = Date.now();
-                    console.log("Math started:", mathStartTime);
+                    await persistMathStartTime();
                 }
 
-                answeredSet.add(`${mathNum1}_${mathNum2}`);
+                answeredSet.add(key);
                 mathScore++;
 
                 state.coins += CORRECT_REWARD;
                 state.xp += 3;
-                if (!mathNum1 || !mathNum2) return;
             } else {
-
+                setMathFlash(key, 'red');
                 state.coins = Math.max(0, state.coins - WRONG_COST);
-            }
-
-            state.level = levelFromXP(state.xp);
+            } state.level = levelFromXP(state.xp);
 
             renderHUD();
             persistPlayer();
@@ -403,10 +441,12 @@
             mathStartTime = null;
             mathEndTime = null;
 
-            // Only reset current run data — preserve bestDurationMs
             await set(ref(database, mathPath()), {
                 answered: [],
                 score: 0,
+                startTime: null,
+                endTime: null,
+                durationMs: null,
                 bestDurationMs: best
             });
 
@@ -486,24 +526,33 @@
             if (!data) {
                 answeredSet = new Set();
                 mathScore = 0;
-            } else {
-                answeredSet = new Set(data.answered || []);
-                mathScore = data.score || 0;
+                mathStartTime = null;
+                mathEndTime = null;
+
+                generateMathTable();
+                updateMathStats();
+                generateMathQuestion();
+                return;
             }
 
-            if (data?.durationMs) {
+            answeredSet = new Set(data.answered || []);
+            mathScore = data.score || 0;
+
+            // ✅ Restore start time if this run is still in progress
+            if (data.durationMs) {
+                // Completed run: don't treat next correct as continuing old run
+                mathStartTime = null;
+                mathEndTime = data.endTime ?? null;
 
                 const totalSeconds = Math.floor(data.durationMs / 1000);
                 const minutes = Math.floor(totalSeconds / 60);
                 const seconds = totalSeconds % 60;
 
                 let bestDisplay = "";
-
                 if (data.bestDurationMs) {
                     const bestSeconds = Math.floor(data.bestDurationMs / 1000);
                     const bestMin = Math.floor(bestSeconds / 60);
                     const bestSec = bestSeconds % 60;
-
                     bestDisplay = `<br><strong>Top Time: ${bestMin}m ${bestSec}s</strong>`;
                 }
 
@@ -516,9 +565,22 @@
                 return;
             }
 
+            // In-progress run
+            mathStartTime = data.startTime ?? null;
+            mathEndTime = null;
+
             generateMathTable();
             updateMathStats();
             generateMathQuestion();
+        }
+
+        async function persistMathStartTime() {
+            if (!mathStartTime) return;
+            await update(ref(database, mathPath()), {
+                startTime: mathStartTime,
+                endTime: null,
+                durationMs: null
+            });
         }
 
         function focusCanvas() { canvas?.focus?.(); }
