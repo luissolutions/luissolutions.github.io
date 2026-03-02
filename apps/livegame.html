@@ -185,15 +185,16 @@
             player: { x: 3, y: 3, dir: 'down' }
         };
 
-        const GRID = 8;
-        const TILE = 512 / GRID; // 64
+        let GRID_X = 8;
+        let GRID_Y = 8;
+        let TILE = 64;
 
         const roomEditor = createRoomEditor({
             database,
             ref,
             update,
-            TILE,
-            GRID
+            getTile: () => TILE,
+            getGrid: () => ({ x: GRID_X, y: GRID_Y })
         });
 
         let shopItems = [];
@@ -348,6 +349,8 @@
                     currentRoom = Object.keys(rooms)[0];
                 }
 
+                applyRoomSize();
+
                 if (rooms[currentRoom]?.bg) {
                     bgLoaded = false;
                     bgImage.src = rooms[currentRoom].bg;
@@ -386,6 +389,29 @@
             );
         }
 
+        function applyRoomSize() {
+
+            const room = rooms[currentRoom];
+
+            if (!room) {
+                GRID_X = 8;
+                GRID_Y = 8;
+            } else {
+                const w = Number(room.width);
+                const h = Number(room.height);
+
+                GRID_X = Number.isFinite(w) && w > 0 ? w : 8;
+                GRID_Y = Number.isFinite(h) && h > 0 ? h : 8;
+            }
+
+            TILE = Math.floor(
+                Math.min(
+                    canvas.width / GRID_X,
+                    canvas.height / GRID_Y
+                )
+            );
+        }
+
         /* ================= ROOM CHANGE ================= */
 
         function changeRoom(roomName) {
@@ -401,6 +427,7 @@
             }
 
             currentRoom = roomName;
+            applyRoomSize();
 
             if (rooms[currentRoom]?.bg) {
                 bgLoaded = false;
@@ -470,7 +497,7 @@
 
         function isSolidTile(x, y) {
 
-            if (x < 0 || x >= GRID || y < 0 || y >= GRID) return true;
+            if (x < 0 || x >= GRID_X || y < 0 || y >= GRID_Y) return true;
 
             const item = getItem(x, y);
             if (item && item.obj.solid !== false) return true;
@@ -1039,7 +1066,7 @@
                     const tx = x + dx;
                     const ty = y + dy;
 
-                    if (tx < 0 || tx >= GRID || ty < 0 || ty >= GRID)
+                    if (tx < 0 || tx >= GRID_X || ty < 0 || ty >= GRID_Y)
                         return false;
 
                     const existing = getItem(tx, ty);
@@ -1059,8 +1086,8 @@
         }
 
         function drawGrid() {
-            for (let y = 0; y < GRID; y++) {
-                for (let x = 0; x < GRID; x++) {
+            for (let y = 0; y < GRID_Y; y++) {
+                for (let x = 0; x < GRID_X; x++) {
                     ctx.fillStyle = (x + y) % 2 ? '#141a33' : '#18203b';
                     ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
                 }
@@ -1114,7 +1141,7 @@
             drawPlayer();
             drawInteractablesByLayer(1); // in front of player
         }
-        
+
         /* ================= INSPECT ================= */
 
         function getItem(x, y) {
@@ -1534,7 +1561,7 @@
                 return;
             }
 
-            if (newX < 0 || newX >= GRID || newY < 0 || newY >= GRID) {
+            if (newX < 0 || newX >= GRID_X || newY < 0 || newY >= GRID_Y) {
                 lastStepAt = now;
                 return;
             }
@@ -1687,7 +1714,7 @@
 
             const baseBlock = {
                 type,
-                x: Math.min(GRID - 1, state.player.x + 1),
+                x: Math.min(GRID_X - 1, state.player.x + 1),
                 y: state.player.y,
                 w,
                 h,
