@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pixel Sprite Studio</title>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      background: #141a33;
+      color: #fff;
+      font-family: monospace;
+    }
+
+    .panel {
+      margin-bottom: 12px
+    }
+
+    canvas {
+      image-rendering: pixelated;
+      border: 2px solid #444;
+      display: block;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h2>Pixel Sprite Studio</h2>
+
+  <div class="panel">
+    Width <input id="w" type="number" value="32">
+    Height <input id="h" type="number" value="32">
+
+    Scale
+    <select id="scale">
+      <option value="2">2x</option>
+      <option value="4">4x</option>
+      <option value="8">8x</option>
+      <option value="12">12x</option>
+      <option value="16">16x</option>
+      <option value="24" selected>24x</option>
+      <option value="32">32x</option>
+    </select>
+
+    Grid Size
+    <input id="gridSize" type="number" value="1" min="1" style="width:60px;">
+    <button id="applySize">Apply Size</button>
+  </div>
+
+  <div class="panel">
+    <button id="undoBtn">Undo</button>
+    Color <input id="color" type="color" value="#d4af37">
+    <label>
+      <input id="noDoubles" type="checkbox">
+      Clean Lines
+    </label>
+  </div>
+
+  <div class="panel">
+    <input id="importFile" type="file" accept="image/png,image/jpeg,image/webp">
+    <button id="importBtn">Import to Paint</button>
+    <button id="importBgBtn">Import as Background</button>
+  </div>
+
+  <div class="panel">
+    <button id="exportPng">Export PNG (1x)</button>
+    <select id="exportScale">
+      <option value="2">2x</option>
+      <option value="4" selected>4x</option>
+      <option value="8">8x</option>
+    </select>
+    <button id="exportScaled">Export Scaled</button>
+  </div>
+
+  <div style="position:relative; display:inline-block;">
+    <canvas id="bgLayer"></canvas>
+    <canvas id="paintLayer" style="position:absolute; left:0; top:0; z-index:1;"></canvas>
+    <canvas id="gridLayer" style="position:absolute; left:0; top:0; pointer-events:none; z-index:2;"></canvas>
+  </div>
+
+  <script>
+    (() => {
+
+      const $ = id => document.getElementById(id);
+
+      const bgCanvas = $("bgLayer");
+      const paintCanvas = $("paintLayer");
+      const gridCanvas = $("gridLayer");
+
+      const bgCtx = bgCanvas.getContext("2d");
+      const ctx = paintCanvas.getContext("2d", { willReadFrequently: true });
+      const gridCtx = gridCanvas.getContext("2d");
+
+      bgCtx.imageSmoothingEnabled = false;
+      ctx.imageSmoothingEnabled = false;
+      gridCtx.imageSmoothingEnabled = false;
+
+      let drawColor = $("color").value;
+      let scale = Number($("scale").value);
+      let noDoubles = false;
+      let isDown = false;
+      let lastPoint = null;
+      let history = [];
+
+let bgImage = null;
+
+let bgTransform = {
+  x: 0,
+  y: 0,
+  width: 0,
+  height: 0
+};
+
+let draggingBg = false;
+let stretchingBg = false;
+
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+let stretchStartX = 0;
+let stretchStartY = 0;
+let startWidth = 0;
+let startHeight = 0;
+
+      /* ===================== Undo ===================== */
+
+      function saveState() {
+        history.push(ctx.getImageData(0, 0, paintCanvas.width, paintCanvas.height));
+        if (history.length > 50) history.shift();
+      }
+
+      function undo() {
+        if (!history.length) return;
+        ctx.putImageData(history.pop(), 0, 0);
+      }
+
+      $("undoBtn").onclick = undo;
+      $("noDoubles").onchange = e => noDoubles = e.target.checked;
+
+      /* ===================== Size + Scale ===================== */
+
+      function setSize(w, h) {
+        bgCanvas.width = w; bgCanvas.height = h;
+        paintCanvas.width = w; paintCanvas.height = h;
+
+        history = [];
+        updateScale();   // this also sizes gridCanvas correctly now
+        clearPaint();
+        redrawBackground();
+      }
+
+      function updateScale() {
+        scale = Number($("scale").value);
+
+        const pixelWidth = bgCanvas.width * scale;
+        const pixelHeight = bgCanvas.height * scale;
+
+        // Visual size for bg + paint (CSS scale)
+        bgCanvas.style.width = pixelWidth + "px";
+        bgCanvas.style.height = pixelHeight + "px";
+        paintCanvas.style.width = pixelWidth + "px";
+        paintCanvas.style.height = pixelHeight + "px";
+
+        // Grid canvas is REAL screen pixels (so the grid is crisp & correctly spaced)
+        const dpr = window.devicePixelRatio || 1;
+        gridCanvas.width = Math.round(pixelWidth * dpr);
+        gridCanvas.height = Math.round(pixelHeight * dpr);
+        gridCanvas.style.width = pixelWidth + "px";
+        gridCanvas.style.height = pixelHeight + "px";
+
+        // Draw in CSS pixel coordinates
+        gridCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        drawGrid();
+      }
+
+      function drawGrid() {
+        const pixelWidth = bgCanvas.width * scale;
+        const pixelHeight = bgCanvas.height * scale;
+
+        gridCtx.clearRect(0, 0, pixelWidth, pixelHeight);
+
+        const gridSize = Number($("gridSize").value) || 1;
+        const step = gridSize * scale; // <-- key change (grid in screen pixels)
+
+        gridCtx.strokeStyle = "rgba(255,255,255,0.25)";
+        gridCtx.lineWidth = 1;
+
+        gridCtx.beginPath();
+
+        // vertical lines
+        for (let x = 0; x <= pixelWidth; x += step) {
+          gridCtx.moveTo(x + 0.5, 0);
+          gridCtx.lineTo(x + 0.5, pixelHeight);
+        }
+
+        // horizontal lines
+        for (let y = 0; y <= pixelHeight; y += step) {
+          gridCtx.moveTo(0, y + 0.5);
+          gridCtx.lineTo(pixelWidth, y + 0.5);
+        }
+
+        gridCtx.stroke();
+      }
+
+      /* ===================== Drawing ===================== */
+
+      function clearPaint() {
+        ctx.clearRect(0, 0, paintCanvas.width, paintCanvas.height);
+      }
+
+      function getMousePos(e) {
+        const rect = paintCanvas.getBoundingClientRect();
+        return {
+          x: Math.floor((e.clientX - rect.left) / rect.width * paintCanvas.width),
+          y: Math.floor((e.clientY - rect.top) / rect.height * paintCanvas.height)
+        };
+      }
+
+      function setPixel(x, y, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, 1, 1);
+      }
+
+      function erasePixel(x, y) {
+        ctx.clearRect(x, y, 1, 1);
+      }
+
+      function drawLine(x0, y0, x1, y1, color) {
+
+        let dx = Math.abs(x1 - x0);
+        let dy = Math.abs(y1 - y0);
+        let sx = x0 < x1 ? 1 : -1;
+        let sy = y0 < y1 ? 1 : -1;
+        let err = dx - dy;
+        let lastDrawn = null;
+
+        while (true) {
+
+          if (!noDoubles || !lastDrawn || lastDrawn.x !== x0 || lastDrawn.y !== y0) {
+            if (color === "erase") erasePixel(x0, y0);
+            else setPixel(x0, y0, color);
+            lastDrawn = { x: x0, y: y0 };
+          }
+
+          if (x0 === x1 && y0 === y1) break;
+
+          let e2 = 2 * err;
+          if (e2 > -dy) { err -= dy; x0 += sx; }
+          if (e2 < dx) { err += dx; y0 += sy; }
+
+        }
+      }
+
+      /* ===================== Mouse ===================== */
+
+      paintCanvas.addEventListener("contextmenu", e => e.preventDefault());
+
+paintCanvas.addEventListener("mousedown", e => {
+
+  const { x, y } = getMousePos(e);
+
+  if (!bgImage) {
+    saveState();
+    isDown = true;
+    if (e.button === 0) setPixel(x, y, drawColor);
+    if (e.button === 2) erasePixel(x, y);
+    lastPoint = { x, y };
+    return;
+  }
+
+  // SHIFT = Move
+  if (e.shiftKey) {
+    draggingBg = true;
+    dragOffsetX = x - bgTransform.x;
+    dragOffsetY = y - bgTransform.y;
+    return;
+  }
+
+  // ALT = Stretch
+  if (e.altKey) {
+    stretchingBg = true;
+    stretchStartX = x;
+    stretchStartY = y;
+    startWidth = bgTransform.width;
+    startHeight = bgTransform.height;
+    return;
+  }
+
+  // Otherwise normal drawing
+  saveState();
+  isDown = true;
+  if (e.button === 0) setPixel(x, y, drawColor);
+  if (e.button === 2) erasePixel(x, y);
+  lastPoint = { x, y };
+});
+
+paintCanvas.addEventListener("mousemove", e => {
+
+  const { x, y } = getMousePos(e);
+
+  // MOVE
+  if (draggingBg && bgImage) {
+    bgTransform.x = x - dragOffsetX;
+    bgTransform.y = y - dragOffsetY;
+    redrawBackground();
+    return;
+  }
+
+  // STRETCH
+  if (stretchingBg && bgImage) {
+    const dx = x - stretchStartX;
+    const dy = y - stretchStartY;
+
+    bgTransform.width = Math.max(1, startWidth + dx);
+    bgTransform.height = Math.max(1, startHeight + dy);
+
+    redrawBackground();
+    return;
+  }
+
+  // Normal drawing
+  if (!isDown) return;
+
+  if (lastPoint) {
+    if (e.buttons === 2)
+      drawLine(lastPoint.x, lastPoint.y, x, y, "erase");
+    else
+      drawLine(lastPoint.x, lastPoint.y, x, y, drawColor);
+  }
+
+  lastPoint = { x, y };
+});
+
+      paintCanvas.addEventListener("mousemove", e => {
+        if (!draggingBg) return;
+
+        const { x, y } = getMousePos(e);
+
+        bgTransform.x = x - bgTransform.width / 2;
+        bgTransform.y = y - bgTransform.height / 2;
+
+        redrawBackground();
+      });
+
+window.addEventListener("mouseup", () => {
+  isDown = false;
+  draggingBg = false;
+  stretchingBg = false;
+});
+
+      paintCanvas.addEventListener("wheel", e => {
+        if (!bgImage) return;
+
+        e.preventDefault();
+
+        const scaleFactor = e.deltaY < 0 ? 1.1 : 0.9;
+
+        bgTransform.width *= scaleFactor;
+        bgTransform.height *= scaleFactor;
+
+        redrawBackground();
+      });
+
+      /* ===================== Import ===================== */
+
+      async function importToPaint(file) {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.src = url;
+        await img.decode().catch(() => { });
+        URL.revokeObjectURL(url);
+        ctx.drawImage(img, 0, 0, paintCanvas.width, paintCanvas.height);
+      }
+
+      async function importToBackground(file) {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.src = url;
+        await img.decode().catch(() => { });
+        URL.revokeObjectURL(url);
+
+        bgImage = img;
+
+        bgTransform.x = 0;
+        bgTransform.y = 0;
+        bgTransform.width = bgCanvas.width;
+        bgTransform.height = bgCanvas.height;
+
+        redrawBackground();
+      }
+
+      function redrawBackground() {
+        bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+
+        if (!bgImage) return;
+
+        bgCtx.drawImage(
+          bgImage,
+          bgTransform.x,
+          bgTransform.y,
+          bgTransform.width,
+          bgTransform.height
+        );
+      }
+
+      /* ===================== Export ===================== */
+
+      function exportMerged(scaleOut = 1) {
+
+        const out = document.createElement("canvas");
+        out.width = bgCanvas.width * scaleOut;
+        out.height = bgCanvas.height * scaleOut;
+
+        const octx = out.getContext("2d");
+        octx.imageSmoothingEnabled = false;
+
+        octx.drawImage(bgCanvas, 0, 0, out.width, out.height);
+        octx.drawImage(paintCanvas, 0, 0, out.width, out.height);
+
+        const a = document.createElement("a");
+        a.href = out.toDataURL("image/png");
+        a.download = "export.png";
+        a.click();
+      }
+
+      /* ===================== UI ===================== */
+
+      $("color").oninput = e => drawColor = e.target.value;
+      $("scale").onchange = updateScale;
+      $("applySize").onclick = () => setSize(Number($("w").value), Number($("h").value));
+      $("importBtn").onclick = () => { const f = $("importFile").files[0]; if (f) importToPaint(f); };
+      $("importBgBtn").onclick = () => { const f = $("importFile").files[0]; if (f) importToBackground(f); };
+      $("exportPng").onclick = () => exportMerged(1);
+      $("exportScaled").onclick = () => exportMerged(Number($("exportScale").value));
+      $("gridSize").oninput = drawGrid;
+
+      /* ===================== Init ===================== */
+
+      setSize(32, 32);
+
+    })();
+  </script>
+
+</body>
+
+</html>
