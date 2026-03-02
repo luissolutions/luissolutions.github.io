@@ -170,7 +170,7 @@
             auth, onAuthStateChanged, database, ref, onValue, set, update, get,
             storage, storageRef, uploadBytes, getDownloadURL, deleteObject, remove,
         } from '../assets/js/firebase-init.js';
-        import { createQuizModule } from './assets/js/livegame.js';
+        import { createQuizModule, createMathModule } from './assets/js/livegame.js';
         import { createRoomEditor } from './assets/js/livegameEditor.js';
 
         /* ================= BASE ================= */
@@ -250,14 +250,6 @@
             spriteLoaded = true;
         };
 
-        // Quiz memory
-        let allQuestions = [];
-        let questions = [];
-        let currentQuestionIndex = 0;
-
-        let answeredQuestions = {};
-        let correctAnswersCount = 0;
-        let wrongAnswersCount = 0;
 
         function getCurrentRoomItems() {
 
@@ -268,320 +260,18 @@
             return state.roomItems[currentRoom];
         }
 
-        /* ================= MATH GAME ================= */
-
-        let mathNum1 = 0;
-        let mathNum2 = 0;
-        let mathScore = 0;
-        let answeredSet = new Set();
-        let mathStartTime = null;
-        let mathEndTime = null;
-
-        const CORRECT_REWARD = 500;
-        const WRONG_COST = 200;
-        let mathFlash = null; // { key: "3_7", color: "green"|"red", until: number }
-        const FLASH_MS = 500;
-
-        function setMathFlash(key, color) {
-            mathFlash = { key, color, until: Date.now() + FLASH_MS };
-            generateMathTable(); // re-render to show flash immediately
-
-            setTimeout(() => {
-                // only clear if it's the same flash (avoid race)
-                if (mathFlash && mathFlash.key === key && Date.now() >= mathFlash.until) {
-                    mathFlash = null;
-                    generateMathTable();
-                }
-            }, FLASH_MS + 20);
-        }
-
-        function generateMathTable() {
-
-            const table = document.getElementById('mathTable');
-            table.innerHTML = '';
-
-            for (let i = 0; i <= 9; i++) {
-
-                const row = table.insertRow();
-
-                for (let j = 0; j <= 9; j++) {
-
-                    const cell = row.insertCell();
-                    cell.style.width = '64px';
-                    cell.style.height = '64px';
-                    cell.style.textAlign = 'center';
-                    cell.style.border = '1px solid #444';
-
-                    if (i === 0 && j > 0) {
-                        cell.textContent = j;
-                    } else if (j === 0 && i > 0) {
-                        cell.textContent = i;
-                    } else if (i > 0 && j > 0) {
-                        const key = `${i}_${j}`;
-
-                        // Base styling for multiply cells
-                        cell.dataset.key = key;
-
-                        // Show solved values
-                        if (answeredSet.has(key)) {
-                            cell.textContent = i * j;
-                        } else {
-                            cell.textContent = '';
-                        }
-
-                        // Highlight the CURRENT target cell (where answer goes)
-                        if (i === mathNum1 && j === mathNum2 && !answeredSet.has(key)) {
-                            cell.style.outline = '3px solid #d4af37'; // gold outline
-                            cell.style.boxShadow = '0 0 10px rgba(212,175,55,.6)';
-                        }
-
-                        // Flash effect (red/green)
-                        if (mathFlash && mathFlash.key === key && Date.now() < mathFlash.until) {
-                            // Light flash background; keep text readable
-                            cell.style.background = (mathFlash.color === 'green')
-                                ? 'rgba(0, 255, 0, 0.25)'
-                                : 'rgba(255, 0, 0, 0.25)';
-
-                            cell.style.outline = (mathFlash.color === 'green')
-                                ? '3px solid rgba(0,255,0,.9)'
-                                : '3px solid rgba(255,0,0,.9)';
-                        }
-                    }
-                }
-            }
-        }
-
-        function generateMathQuestion() {
-
-            if (answeredSet.size >= 81) {
-                endMathGame();
-                return;
-            }
-
-            do {
-                mathNum1 = Math.floor(Math.random() * 9) + 1;
-                mathNum2 = Math.floor(Math.random() * 9) + 1;
-            } while (answeredSet.has(`${mathNum1}_${mathNum2}`));
-
-            document.getElementById('mathPrompt').innerHTML =
-                `What is <strong>${mathNum1} × ${mathNum2}</strong>?`;
-
-            document.getElementById('mathAnswerInput').value = '';
-            generateMathTable(); // ✅ move target highlight
-
-        }
-
-        function updateMathStats() {
-            document.getElementById('mathStats').innerHTML =
-                `Solved: ${answeredSet.size} / 81`;
-        }
-
-        async function submitMathAnswer() {
-            const input = document.getElementById('mathAnswerInput');
-            const answer = parseInt(input.value);
-
-            if (isNaN(answer)) return;
-
-            const correct = answer === mathNum1 * mathNum2;
-            const key = `${mathNum1}_${mathNum2}`;
-
-            if (correct) {
-                setMathFlash(key, 'green');
-
-                if (!mathStartTime) {
-                    mathStartTime = Date.now();
-                    await persistMathStartTime();
-                }
-
-                answeredSet.add(key);
-                mathScore++;
-
-                state.coins += CORRECT_REWARD;
-                state.xp += 3;
-            } else {
-                setMathFlash(key, 'red');
-                state.coins = Math.max(0, state.coins - WRONG_COST);
-            } state.level = levelFromXP(state.xp);
-
-            renderHUD();
-            persistPlayer();
-
-            generateMathTable();
-            updateMathStats();
-            generateMathQuestion();
-            persistMath();
-        }
-
-        async function startMathGame() {
-
-            await loadMathProgress();
-
-            const snap = await get(ref(database, mathPath()));
-            const data = snap.val();
-
-            if (data?.bestDurationMs) {
-                const bestSeconds = Math.floor(data.bestDurationMs / 1000);
-                const bestMin = Math.floor(bestSeconds / 60);
-                const bestSec = bestSeconds % 60;
-
-                document.getElementById('mathStats').innerHTML =
-                    `🏆 Top Time: ${bestMin}m ${bestSec}s`;
-            }
-        }
-
-        async function resetMathGame() {
-
-            const snap = await get(ref(database, mathPath()));
-            const existing = snap.val() || {};
-
-            const best = existing.bestDurationMs || null;
-
-            answeredSet.clear();
-            mathScore = 0;
-            mathStartTime = null;
-            mathEndTime = null;
-
-            await set(ref(database, mathPath()), {
-                answered: [],
-                score: 0,
-                startTime: null,
-                endTime: null,
-                durationMs: null,
-                bestDurationMs: best
-            });
-
-            generateMathTable();
-            updateMathStats();
-            generateMathQuestion();
-
-            if (best) {
-                const bestSeconds = Math.floor(best / 1000);
-                const bestMin = Math.floor(bestSeconds / 60);
-                const bestSec = bestSeconds % 60;
-
-                document.getElementById('mathStats').innerHTML =
-                    `🏆 Top Time: ${bestMin}m ${bestSec}s`;
-            }
-        }
-
-        async function endMathGame() {
-
-            if (!mathStartTime) return;
-
-            const snap = await get(ref(database, mathPath()));
-            const existing = snap.val() || {};
-
-            mathEndTime = Date.now();
-            const totalMs = mathEndTime - mathStartTime;
-
-            const totalSeconds = Math.floor(totalMs / 1000);
-            const minutes = Math.floor(totalSeconds / 60);
-            const seconds = totalSeconds % 60;
-
-            const best = existing.bestDurationMs;
-
-            let isNewBest = false;
-
-            if (!best || totalMs < best) {
-                isNewBest = true;
-            }
-
-            await update(ref(database, mathPath()), {
-                startTime: mathStartTime,
-                endTime: mathEndTime,
-                durationMs: totalMs,
-                bestDurationMs: isNewBest ? totalMs : best
-            });
-
-            const bestTime = isNewBest ? totalMs : best;
-
-            const bestSeconds = Math.floor(bestTime / 1000);
-            const bestMin = Math.floor(bestSeconds / 60);
-            const bestSec = bestSeconds % 60;
-
-            document.getElementById('mathPrompt').innerHTML =
-                `All problems solved!<br>
-         Final Time: ${minutes}m ${seconds}s<br>
-         <strong>Top Time: ${bestMin}m ${bestSec}s</strong>
-         ${isNewBest ? "<br>🏆 NEW RECORD!" : ""}`;
-
-            document.getElementById('mathStats').innerHTML = "";
-        }
-
-        function mathPath() {
-            return `${DATABASE_BASE_PATH}/gameData/mathProgress`;
-        }
-
-        function persistMath() {
-            return update(ref(database, mathPath()), {
-                answered: Array.from(answeredSet),
-                score: mathScore
-            });
-        }
-
-        async function loadMathProgress() {
-            const snap = await get(ref(database, mathPath()));
-            const data = snap.val();
-
-            if (!data) {
-                answeredSet = new Set();
-                mathScore = 0;
-                mathStartTime = null;
-                mathEndTime = null;
-
-                generateMathTable();
-                updateMathStats();
-                generateMathQuestion();
-                return;
-            }
-
-            answeredSet = new Set(data.answered || []);
-            mathScore = data.score || 0;
-
-            // ✅ Restore start time if this run is still in progress
-            if (data.durationMs) {
-                // Completed run: don't treat next correct as continuing old run
-                mathStartTime = null;
-                mathEndTime = data.endTime ?? null;
-
-                const totalSeconds = Math.floor(data.durationMs / 1000);
-                const minutes = Math.floor(totalSeconds / 60);
-                const seconds = totalSeconds % 60;
-
-                let bestDisplay = "";
-                if (data.bestDurationMs) {
-                    const bestSeconds = Math.floor(data.bestDurationMs / 1000);
-                    const bestMin = Math.floor(bestSeconds / 60);
-                    const bestSec = bestSeconds % 60;
-                    bestDisplay = `<br><strong>Top Time: ${bestMin}m ${bestSec}s</strong>`;
-                }
-
-                document.getElementById('mathPrompt').innerHTML =
-                    `All problems solved!<br>
-                    Final Time: ${minutes}m ${seconds}s
-                    ${bestDisplay}`;
-
-                document.getElementById('mathStats').innerHTML = "";
-                return;
-            }
-
-            // In-progress run
-            mathStartTime = data.startTime ?? null;
-            mathEndTime = null;
-
-            generateMathTable();
-            updateMathStats();
-            generateMathQuestion();
-        }
-
-        async function persistMathStartTime() {
-            if (!mathStartTime) return;
-            await update(ref(database, mathPath()), {
-                startTime: mathStartTime,
-                endTime: null,
-                durationMs: null
-            });
-        }
+        const math = createMathModule({
+            database,
+            ref,
+            get,
+            set,
+            update,
+            state,
+            renderHUD,
+            persistPlayer,
+            levelFromXP,
+            basePathGetter: () => DATABASE_BASE_PATH
+        });
 
         function focusCanvas() { canvas?.focus?.(); }
 
@@ -948,8 +638,9 @@
                     if (obj.type === 'quiz') setMode('quiz');
                     if (obj.type === 'math') {
                         setMode('math');
-                        startMathGame();
-                    } if (obj.type === 'shop') setMode('shop');
+                        math.startMathGame();
+                    }
+                    if (obj.type === 'shop') setMode('shop');
                     if (obj.type === 'door') changeRoom(obj.target);
                     if (obj.type === 'app') {
                         if (!obj.appUrl) {
@@ -985,8 +676,8 @@
 
             if (obj.type === 'math') {
                 setMode('math');
-                startMathGame();
-            };
+                math.start();
+            }
 
             if (obj.type === 'shop') setMode('shop');
 
@@ -1418,11 +1109,12 @@
                 drawGrid();
             }
 
-            drawInteractables();
+            drawInteractablesByLayer(0); // behind player
             drawItems();
             drawPlayer();
+            drawInteractablesByLayer(1); // in front of player
         }
-
+        
         /* ================= INSPECT ================= */
 
         function getItem(x, y) {
@@ -2061,6 +1753,43 @@
             selectedInteractable = null;
         }
 
+        function drawInteractablesByLayer(targetLayer = 0) {
+
+            const room = rooms[currentRoom];
+            if (!room) return;
+
+            const interactables = room.interactables || {};
+
+            Object.values(interactables).forEach(obj => {
+
+                const layer = obj.layer ?? 0;
+                if (layer !== targetLayer) return;
+
+                const px = obj.x * TILE;
+                const py = obj.y * TILE;
+
+                const w = obj.w || 1;
+                const h = obj.h || 1;
+
+                const locked =
+                    obj.levelRequirement &&
+                    state.level < obj.levelRequirement;
+
+                if (locked) ctx.globalAlpha = 0.5;
+
+                const img = getCachedImage(obj.img);
+
+                if (img && img.complete && img.naturalWidth > 0) {
+                    ctx.drawImage(img, px, py, TILE * w, TILE * h);
+                } else {
+                    ctx.fillStyle = locked ? '#880000' : '#ff3cff';
+                    ctx.fillRect(px + 4, py + 4, TILE * w - 8, TILE * h - 8);
+                }
+
+                if (locked) ctx.globalAlpha = 1;
+            });
+        }
+
         function initEventListeners() {
 
             const closeButtons = {
@@ -2095,14 +1824,17 @@
 
             // MATH
             document.getElementById('mathSubmitBtn')
-                ?.addEventListener('click', submitMathAnswer);
+                ?.addEventListener('click', math.submitMathAnswer);
 
             document.getElementById('mathResetBtn')
-                ?.addEventListener('click', resetMathGame);
+                ?.addEventListener('click', math.resetMathGame);
 
             document.getElementById('mathAnswerInput')
                 ?.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') submitMathAnswer();
+                    if (e.key === 'Enter') {
+                        e.preventDefault(); // prevent accidental form submit
+                        math.submitMathAnswer();
+                    }
                 });
 
             // UPLOADS
