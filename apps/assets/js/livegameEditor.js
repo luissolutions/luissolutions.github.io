@@ -1,4 +1,10 @@
-export function createRoomEditor({ database, ref, update, TILE, GRID }) {
+export function createRoomEditor({
+    database,
+    ref,
+    update,
+    getTile,
+    getGrid
+}) {
 
     let currentRoom = null;
     let roomsRef = null;
@@ -7,14 +13,16 @@ export function createRoomEditor({ database, ref, update, TILE, GRID }) {
     const canvas = document.getElementById('editorCanvas');
     const ctx = canvas.getContext('2d');
 
-    /* ================= BACKGROUND IMAGE ================= */
+    ctx.imageSmoothingEnabled = false;
+
+    /* ================= BACKGROUND ================= */
 
     const bgImage = new Image();
 
     let bgX = 0;
     let bgY = 0;
-    let bgWidth = canvas.width;
-    let bgHeight = canvas.height;
+    let bgWidth = 0;
+    let bgHeight = 0;
 
     let draggingBg = false;
     let resizingBg = false;
@@ -22,7 +30,10 @@ export function createRoomEditor({ database, ref, update, TILE, GRID }) {
 
     canvas.addEventListener("contextmenu", e => e.preventDefault());
 
+    /* ================= OPEN ================= */
+
     function open(roomName, roomsData, basePath) {
+
         currentRoom = roomName;
         roomsRef = `${basePath}/gameData/rooms/${roomName}`;
 
@@ -30,8 +41,16 @@ export function createRoomEditor({ database, ref, update, TILE, GRID }) {
 
         if (!roomData.walls) roomData.walls = [];
 
+        const { x: GRID_X, y: GRID_Y } = getGrid();
+        const TILE = getTile();
+
+        canvas.width = GRID_X * TILE;
+        canvas.height = GRID_Y * TILE;
+
         if (roomData.bg) {
             bgImage.src = roomData.bg;
+            bgWidth = canvas.width;
+            bgHeight = canvas.height;
         }
 
         draw();
@@ -41,16 +60,19 @@ export function createRoomEditor({ database, ref, update, TILE, GRID }) {
 
     function draw() {
 
+        const { x: GRID_X, y: GRID_Y } = getGrid();
+        const TILE = getTile();
+
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Draw background
+        // Background
         if (bgImage.complete && bgImage.naturalWidth > 0) {
             ctx.drawImage(bgImage, bgX, bgY, bgWidth, bgHeight);
         }
 
-        // Draw grid
-        for (let y = 0; y < GRID; y++) {
-            for (let x = 0; x < GRID; x++) {
+        // Grid
+        for (let y = 0; y < GRID_Y; y++) {
+            for (let x = 0; x < GRID_X; x++) {
 
                 ctx.strokeStyle = "rgba(255,255,255,0.08)";
                 ctx.strokeRect(x * TILE, y * TILE, TILE, TILE);
@@ -64,14 +86,15 @@ export function createRoomEditor({ database, ref, update, TILE, GRID }) {
             }
         }
 
-        // Resize handle (bottom-right corner)
+        // Resize handle
         ctx.fillStyle = "#fff";
         ctx.fillRect(bgX + bgWidth - 10, bgY + bgHeight - 10, 10, 10);
     }
 
-    /* ================= TILE LOGIC ================= */
+    /* ================= TILE ================= */
 
-    function getTile(e) {
+    function getTilePos(e) {
+
         const rect = canvas.getBoundingClientRect();
 
         const scaleX = canvas.width / rect.width;
@@ -79,6 +102,8 @@ export function createRoomEditor({ database, ref, update, TILE, GRID }) {
 
         const canvasX = (e.clientX - rect.left) * scaleX;
         const canvasY = (e.clientY - rect.top) * scaleY;
+
+        const TILE = getTile();
 
         return {
             x: Math.floor(canvasX / TILE),
@@ -90,11 +115,14 @@ export function createRoomEditor({ database, ref, update, TILE, GRID }) {
 
     canvas.addEventListener("mousedown", e => {
 
+        const { x: GRID_X, y: GRID_Y } = getGrid();
+        const TILE = getTile();
+
         const rect = canvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
 
-        // Check resize handle
+        // Resize handle
         if (
             mx > bgX + bgWidth - 10 &&
             mx < bgX + bgWidth &&
@@ -106,7 +134,7 @@ export function createRoomEditor({ database, ref, update, TILE, GRID }) {
             return;
         }
 
-        // Drag background only if holding SHIFT
+        // Drag background (SHIFT)
         if (
             e.shiftKey &&
             mx > bgX &&
@@ -119,10 +147,9 @@ export function createRoomEditor({ database, ref, update, TILE, GRID }) {
             return;
         }
 
-        // Otherwise → wall editing
-        const { x, y } = getTile(e);
+        const { x, y } = getTilePos(e);
 
-        if (x < 0 || x >= GRID || y < 0 || y >= GRID) return;
+        if (x < 0 || x >= GRID_X || y < 0 || y >= GRID_Y) return;
 
         if (e.button === 2) {
             roomData.walls = roomData.walls.filter(w => !(w.x === x && w.y === y));

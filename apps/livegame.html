@@ -49,9 +49,10 @@
         <div class="layout">
             <!-- LEFT COLUMN -->
             <div class="leftColumn">
-                <canvas id="canvas" width="512" height="512" tabindex="0"></canvas>
-            </div>
-            <!-- RIGHT COLUMN -->
+                <div class="canvasWrap">
+                    <canvas id="canvas" tabindex="0"></canvas>
+                </div>
+            </div> <!-- RIGHT COLUMN -->
             <div class="rightColumn">
                 <div id="infoPanel" class="panel">
                     Walk up to an item and press <b>E</b> — or click an item.
@@ -158,7 +159,7 @@
             <button id="saveEditorBtn">💾 Save</button>
         </div>
 
-        <canvas id="editorCanvas" width="512" height="512"></canvas>
+        <canvas id="editorCanvas"></canvas>
 
         <div class="hint">
             Wheel = zoom • Drag = move • Left click = wall • Right click = erase
@@ -300,7 +301,7 @@
             loop();
         }
 
-        let currentRoom = "room1";
+        let currentRoom = null;
 
         let rooms = {};
 
@@ -345,7 +346,7 @@
                     update(ref(database, `${DATABASE_BASE_PATH}/gameData/rooms`), rooms);
                 }
 
-                if (!rooms[currentRoom]) {
+                if (!currentRoom || !rooms[currentRoom]) {
                     currentRoom = Object.keys(rooms)[0];
                 }
 
@@ -363,6 +364,8 @@
         async function createDefaultRoom() {
 
             const defaultRoom = {
+                width: 12,
+                height: 8,
                 bg: "",
                 walls: [],
                 interactables: {
@@ -392,42 +395,56 @@
         function applyRoomSize() {
 
             const room = rooms[currentRoom];
+            if (!room) return;
 
-            if (!room) {
-                GRID_X = 8;
-                GRID_Y = 8;
-            } else {
-                const w = Number(room.width);
-                const h = Number(room.height);
+            const w = Number(room.width);
+            const h = Number(room.height);
 
-                GRID_X = Number.isFinite(w) && w > 0 ? w : 8;
-                GRID_Y = Number.isFinite(h) && h > 0 ? h : 8;
-            }
+            GRID_X = Number.isFinite(w) && w > 0 ? w : 8;
+            GRID_Y = Number.isFinite(h) && h > 0 ? h : 8;
 
-            TILE = Math.floor(
-                Math.min(
-                    canvas.width / GRID_X,
-                    canvas.height / GRID_Y
-                )
-            );
+            TILE = 32; // keep fixed tile size
+
+            canvas.width = GRID_X * TILE;
+            canvas.height = GRID_Y * TILE;
         }
 
         /* ================= ROOM CHANGE ================= */
 
-        function changeRoom(roomName) {
+        function changeRoom(roomName, fromRoom = null) {
 
-            if (!roomName) {
-                console.warn("Attempted to change to undefined room.");
-                return;
-            }
-
-            if (!rooms[roomName]) {
-                console.warn("Room does not exist:", roomName);
-                return;
-            }
+            if (!rooms[roomName]) return;
 
             currentRoom = roomName;
+
             applyRoomSize();
+
+            // Default spawn: keep current position clamped
+            let spawnX = Math.min(state.player.x, GRID_X - 1);
+            let spawnY = Math.min(state.player.y, GRID_Y - 1);
+
+            if (fromRoom) {
+                const room = rooms[currentRoom];
+
+                const returnDoor = Object.values(room.interactables || {})
+                    .find(o => o.type === 'door' && o.target === fromRoom);
+
+                if (returnDoor) {
+                    const spawn = findNearestFreeTile(returnDoor.x, returnDoor.y);
+                    spawnX = spawn.x;
+                    spawnY = spawn.y;
+                } else {
+                    const spawn = findNearestFreeTile(
+                        Math.floor(GRID_X / 2),
+                        Math.floor(GRID_Y / 2)
+                    );
+                    spawnX = spawn.x;
+                    spawnY = spawn.y;
+                }
+            }
+
+            state.player.x = spawnX;
+            state.player.y = spawnY;
 
             if (rooms[currentRoom]?.bg) {
                 bgLoaded = false;
@@ -436,13 +453,14 @@
 
             renderInventory();
             renderHUD();
-
             persistPlayer();
         }
 
-        function createRoom(roomId, returnRoom = null, doorImage = null) {
+        function createRoom(roomId, returnRoom = null, doorImage = null, width = 12, height = 8) {
 
             const newRoom = {
+                width,
+                height,
                 bg: "",
                 walls: [],
                 interactables: {}
@@ -452,8 +470,8 @@
                 newRoom.interactables["return_door"] = {
                     id: "return_door",
                     type: "door",
-                    x: 5,
-                    y: 5,
+                    x: Math.floor(width / 2),
+                    y: Math.floor(height / 2),
                     solid: true,
                     draggable: true,
                     target: returnRoom,
@@ -668,7 +686,7 @@
                         math.startMathGame();
                     }
                     if (obj.type === 'shop') setMode('shop');
-                    if (obj.type === 'door') changeRoom(obj.target);
+
                     if (obj.type === 'app') {
                         if (!obj.appUrl) {
                             infoPanel.innerHTML = "No app URL defined.";
@@ -717,15 +735,20 @@
                     DATABASE_BASE_PATH
                 );
             }
-
             if (obj.type === 'door') {
-
-                if (!rooms[obj.target]) {
-                    await createRoom(obj.target);
-                }
-
-                changeRoom(obj.target);
+                await enterDoor(obj);
+                return;
             }
+
+        }
+
+        async function enterDoor(obj) {
+            if (!rooms[obj.target]) {
+                await createRoom(obj.target);
+            }
+
+            const previousRoom = currentRoom;
+            changeRoom(obj.target, previousRoom);
         }
 
         /* ================= MODE ================= */
@@ -831,6 +854,7 @@
                 // 🔥 Restore room
                 if (data.room && rooms[data.room]) {
                     currentRoom = data.room;
+                    applyRoomSize();   // ✅ FIX: resize canvas to correct room
                 }
 
                 // 🔥 Restore player position
@@ -854,6 +878,36 @@
                 renderHUD();
                 renderInventory();
             });
+        }
+
+        function findNearestFreeTile(startX, startY, maxRadius = 10) {
+
+            // If door tile itself is free (rare), use it
+            if (!isSolidTile(startX, startY)) {
+                return { x: startX, y: startY };
+            }
+
+            // Spiral search outward
+            for (let r = 1; r <= maxRadius; r++) {
+
+                for (let dx = -r; dx <= r; dx++) {
+                    for (let dy = -r; dy <= r; dy++) {
+
+                        // Only check outer ring
+                        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+
+                        const x = startX + dx;
+                        const y = startY + dy;
+
+                        if (!isSolidTile(x, y)) {
+                            return { x, y };
+                        }
+                    }
+                }
+            }
+
+            // Fallback if no space found
+            return { x: 0, y: 0 };
         }
 
         function persistPlayer() {
@@ -1128,8 +1182,8 @@
         }
 
         function draw() {
-            ctx.clearRect(0, 0, 512, 512);
-
+            ctx.globalAlpha = 1; // 🔥 RESET EVERY FRAME
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             if (bgImage.complete && bgImage.naturalWidth > 0) {
                 ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
             } else {
@@ -1729,8 +1783,9 @@
 
                 baseBlock.target = newRoomId;
 
-                await createRoom(newRoomId, currentRoom, url);
+                await createRoom(newRoomId, currentRoom, url, 16, 12);
             }
+            
             if (type === "app") {
                 const appUrl = document.getElementById("appUrlInput").value.trim();
                 if (!appUrl) return alert("Enter an app URL first.");
