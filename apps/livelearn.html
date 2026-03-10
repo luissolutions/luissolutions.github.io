@@ -63,16 +63,16 @@
         <div id="highScore">High Scores:</div>
       </div>
     </section>
-    </section>
   </header>
 
   <main>
+
     <section>
       <div>
         <input type="text" id="filterInput" placeholder="Filter questions">
         <button id="filterButton">Filter</button>
       </div>
-      </div>
+
       <label>
         <input type="radio" name="questionType" value="multipleChoice" checked> Multiple Choice
       </label>
@@ -82,22 +82,33 @@
       <label>
         <input type="radio" name="questionType" value="flashcard"> Flashcard
       </label>
+
       <div>
         <div>
           <input type="checkbox" id="showIncorrect">
           <label for="showIncorrect">Include Incorrect Questions</label>
           <button id="loadIncorrectQuestionsButton">Load Incorrect Questions</button>
         </div>
+
+        <div>
+          <input type="checkbox" id="showCorrect">
+          <label for="showCorrect">Include Correctly Answered Questions</label>
+          <button id="loadCorrectQuestionsButton">Review Learned Questions</button>
+        </div>
+
         <div id="questionCounter">Questions Remaining: 0</div>
+
         <div>
           <input type="checkbox" id="saveQuestionCheckbox">
           <label for="saveQuestionCheckbox">Save Question</label>
           <button id="loadSavedQuestionsButton">Load Saved Questions</button>
         </div>
+
         <div>
           <input type="checkbox" id="shuffleToggle" checked>
           <label for="shuffleToggle">Shuffle Questions</label>
         </div>
+      </div>
     </section>
 
     <section>
@@ -159,19 +170,35 @@
     let timeElapsed = 0;
     let timerRunning = false;
     let timerStartTime = null;
+    let appInitialized = false;
+    let domListenersRegistered = false;
+    let questionsUnsubscribe = null;
+    let currentViewMode = 'normal';
 
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? user.uid : 'public';
-      initializeApp();
+
+      if (!appInitialized) {
+        initializeApp();
+        appInitialized = true;
+      } else {
+        loadSavedData().then(() => {
+          fetchQuestions(true);
+        });
+      }
     });
 
     function initializeApp() {
-      loadFromFirebase('highScores', [], (highScores) => {
+      if (!domListenersRegistered) {
+        registerEventListeners();
+        domListenersRegistered = true;
+      }
+
+      watchFirebase('highScores', [], (highScores) => {
         displayHighScores(highScores);
       });
 
       loadSavedData().then(() => {
-        registerEventListeners();
         fetchQuestions(true);
       });
     }
@@ -179,23 +206,31 @@
     function saveToFirebase(path, value) {
       if (!DATABASE_BASE_PATH) {
         console.error("Database path is not set.");
-        return;
+        return Promise.resolve();
       }
 
       const dataRef = ref(database, `${DATABASE_BASE_PATH}/quizData/${path}`);
-      set(dataRef, value)
-        .then(() => console.log("Data saved successfully"))
-        .catch((error) => console.error("Error saving data:", error));
+      return set(dataRef, value);
     }
 
-    function loadFromFirebase(path, defaultValue, callback) {
+    function loadFromFirebaseOnce(path, defaultValue) {
+      if (!DATABASE_BASE_PATH) {
+        console.error("DATABASE_BASE_PATH is not set.");
+        return Promise.resolve(defaultValue);
+      }
+
+      const dataRef = ref(database, `${DATABASE_BASE_PATH}/quizData/${path}`);
+      return get(dataRef).then(snapshot => snapshot.exists() ? snapshot.val() : defaultValue);
+    }
+
+    function watchFirebase(path, defaultValue, callback) {
       if (!DATABASE_BASE_PATH) {
         console.error("DATABASE_BASE_PATH is not set.");
         return;
       }
 
       const dataRef = ref(database, `${DATABASE_BASE_PATH}/quizData/${path}`);
-      onValue(dataRef, (snapshot) => {
+      return onValue(dataRef, (snapshot) => {
         const data = snapshot.val();
         callback(data !== null ? data : defaultValue);
       });
@@ -275,25 +310,27 @@
       const highScores = loadFromLocalStorage('highScores', '[]');
 
       const totalQuestions = correctAnswersCount + wrongAnswersCount;
+      if (totalQuestions === 0) {
+        alert("No completed questions yet.");
+        return;
+      }
+
       const percentage = Math.round((correctAnswersCount / totalQuestions) * 100);
       const timeTaken = formatTime(timeElapsed);
 
       let playerName = prompt("New high score! Enter your name:");
-      if (!playerName) {
-        return;
-      }
+      if (!playerName) return;
 
       highScores.push({
         name: playerName,
         correctAnswers: correctAnswersCount,
-        totalQuestions: totalQuestions,
-        percentage: percentage,
+        totalQuestions,
+        percentage,
         time: timeTaken
       });
 
       saveToFirebase(highScoresPath, highScores);
       saveToLocalStorage('highScores', highScores);
-
       displayHighScores(highScores);
     }
 
@@ -311,15 +348,19 @@
     }
 
     function loadFromLocalStorage(key, defaultValue) {
-      return JSON.parse(localStorage.getItem(key) || defaultValue);
+      const value = localStorage.getItem(key);
+      return value ? JSON.parse(value) : defaultValue;
     }
 
     function shuffleArray(array) {
-      for (let i = array.length - 1; i > 0; i--) {
+      const arr = [...array];
+
+      for (let i = arr.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
+        [arr[i], arr[j]] = [arr[j], arr[i]];
       }
-      return array;
+
+      return arr;
     }
 
     function isShuffleEnabled() {
@@ -351,6 +392,7 @@
       document.getElementById('loadSavedQuestionsButton').addEventListener('click', loadSavedQuestions);
       document.getElementById('loadIncorrectQuestionsButton').addEventListener('click', loadIncorrectQuestions);
       document.getElementById('showIncorrect').addEventListener('change', toggleShowIncorrect);
+      document.getElementById('showCorrect').addEventListener('change', toggleShowIncorrect);
       document.querySelectorAll('input[name="questionType"]').forEach(radio => {
         radio.addEventListener('change', () => {
           if (questions.length > 0) displayQuestion(questions[currentQuestionIndex]);
@@ -364,7 +406,11 @@
       const shuffleEnabled = document.getElementById('shuffleToggle').checked;
       const questionsRef = ref(database, 'share/questions');
 
-      onValue(questionsRef, snapshot => {
+      if (questionsUnsubscribe) {
+        questionsUnsubscribe();
+      }
+
+      questionsUnsubscribe = onValue(questionsRef, snapshot => {
         allQuestions = [];
         const data = snapshot.val();
 
@@ -385,18 +431,14 @@
         }
 
         if (shuffleEnabled) {
-          filteredQuestions = shuffleArray(filteredQuestions);
+          filteredQuestions = shuffleArray([...filteredQuestions]);
         }
 
-        questions = [...filteredQuestions];
+        questions = filteredQuestions;
         currentQuestionIndex = 0;
+        currentViewMode = 'normal';
 
-        if (questions.length > 0) {
-          displayQuestion(questions[currentQuestionIndex]);
-        } else {
-          displayQuestion(null);
-        }
-
+        displayQuestion(questions[currentQuestionIndex] || null);
         updateQuestionCounter();
         toggleNavigationButtons();
       });
@@ -441,7 +483,7 @@
     function populateEditForm(question) {
       document.getElementById('newDescription').value = question.description;
       document.getElementById('newQuestion').value = question.question;
-      document.getElementById('options').value = question.options.join(', ');
+      document.getElementById('options').value = question.options ? question.options.join(', ') : '';
       document.getElementById('correctAnswer').value = Array.isArray(question.correctAnswer)
         ? question.correctAnswer.join(', ')
         : question.correctAnswer;
@@ -452,6 +494,24 @@
     }
 
     function displayNextQuestion() {
+      if (questions.length === 0) {
+        displayQuestion(null);
+        return;
+      }
+
+      if (currentViewMode !== 'normal') {
+        if (currentQuestionIndex < questions.length - 1) {
+          currentQuestionIndex++;
+          displayQuestion(questions[currentQuestionIndex]);
+        } else {
+          alert('This is the last question.');
+        }
+
+        toggleNavigationButtons();
+        updateQuestionCounter();
+        return;
+      }
+
       const total = questions.length;
 
       for (let i = currentQuestionIndex + 1; i < total; i++) {
@@ -481,6 +541,24 @@
     }
 
     function displayPreviousQuestion() {
+      if (questions.length === 0) {
+        return;
+      }
+
+      if (currentViewMode !== 'normal') {
+        if (currentQuestionIndex > 0) {
+          currentQuestionIndex--;
+          displayQuestion(questions[currentQuestionIndex]);
+          localStorage.setItem('currentQuestionIndex', currentQuestionIndex);
+        } else {
+          alert('This is the first question.');
+        }
+
+        toggleNavigationButtons();
+        updateQuestionCounter();
+        return;
+      }
+
       if (currentQuestionIndex > 0) {
         currentQuestionIndex--;
         displayQuestion(questions[currentQuestionIndex]);
@@ -511,7 +589,8 @@
         if (currentQuestion) {
           document.getElementById('newDescription').value = currentQuestion.description;
           document.getElementById('newQuestion').value = currentQuestion.question;
-          document.getElementById('options').value = currentQuestion.options.join(', ');
+          document.getElementById('options').value =
+            currentQuestion.options ? currentQuestion.options.join(', ') : '';
           document.getElementById('correctAnswer').value = Array.isArray(currentQuestion.correctAnswer)
             ? currentQuestion.correctAnswer.join(', ')
             : currentQuestion.correctAnswer;
@@ -531,7 +610,7 @@
       const showIncorrect = document.getElementById('showIncorrect').checked;
       const shuffleEnabled = document.getElementById('shuffleToggle').checked;
 
-      questions = filterQuestionsList(allQuestions, showIncorrect)
+      questions = filterQuestionsList(allQuestions)
         .filter(q => q.description.toLowerCase().includes(filterText));
 
       if (shuffleEnabled) {
@@ -544,13 +623,23 @@
       toggleNavigationButtons();
     }
 
-    function filterQuestionsList(questionList, showIncorrect) {
+    function filterQuestionsList(questionList) {
+
+      const showIncorrect = document.getElementById('showIncorrect')?.checked;
+      const showCorrect = document.getElementById('showCorrect')?.checked;
+
       return questionList.filter(q => {
+
         const status = answeredQuestions[q.id];
-        if (status === 'answered') return false;
-        if (!showIncorrect && status === 'incorrect') return false;
+
+        if (status === 'answered' && !showCorrect) return false;
+
+        if (status === 'incorrect' && !showIncorrect) return false;
+
         return true;
+
       });
+
     }
 
     function generateOptionsHTML(options, correctAnswer) {
@@ -562,7 +651,7 @@
 
     function revealFlashcardAnswer(question) {
       const quizSection = document.getElementById('quizSection');
-      const optionsHTML = question.options.map(option => {
+      const optionsHTML = (question.options || []).map(option => {
         const isCorrect = Array.isArray(question.correctAnswer) ? question.correctAnswer.includes(option) : question.correctAnswer === option;
         return isCorrect ? `<strong>${option}</strong>` : option;
       }).join('<br>');
@@ -574,6 +663,22 @@
       const questionType = document.querySelector('input[name="questionType"]:checked').value;
       const currentQuestion = questions[currentQuestionIndex];
       let isCorrect = false;
+
+      if (questionType === 'multipleChoice') {
+        const selected = document.querySelectorAll('input[name="question"]:checked');
+        if (selected.length === 0) {
+          alert("Please select an answer.");
+          return;
+        }
+      }
+
+      if (questionType === 'textInput') {
+        const input = document.getElementById('textInputAnswer');
+        if (!input.value.trim()) {
+          alert("Please enter an answer.");
+          return;
+        }
+      }
 
       if (questionType === 'textInput') {
         const userAnswer = document.getElementById('textInputAnswer').value.trim().toLowerCase();
@@ -691,25 +796,46 @@
     }
 
     function updateQuestionInFirebase(questionId, newQuestion, newDescription, options, correctAnswer, explanation) {
-      const questionRef = ref(database, `share/questions/${currentDescription}/${questionId}`);
+      const oldRef = ref(database, `share/questions/${currentDescription}/${questionId}`);
+      const newRef = ref(database, `share/questions/${newDescription}/${questionId}`);
 
-      set(questionRef, {
+      const payload = {
         question: newQuestion,
-        options: options,
-        correctAnswer: correctAnswer,
-        explanation: explanation
-      })
-        .then(() => {
-          alert('Question updated successfully.');
-          resetAddQuestionForm();
-          fetchQuestions(true);
-        })
-        .catch((error) => {
-          alert('Error updating question: ' + error.message);
-        });
+        options,
+        correctAnswer,
+        explanation
+      };
+
+      const writeNew = set(newRef, payload);
+
+      if (newDescription !== currentDescription) {
+        writeNew
+          .then(() => remove(oldRef))
+          .then(() => {
+            alert('Question updated successfully.');
+            currentDescription = newDescription;
+            resetAddQuestionForm();
+            fetchQuestions(true);
+          })
+          .catch((error) => {
+            alert('Error updating question: ' + error.message);
+          });
+      } else {
+        writeNew
+          .then(() => {
+            alert('Question updated successfully.');
+            resetAddQuestionForm();
+            fetchQuestions(true);
+          })
+          .catch((error) => {
+            alert('Error updating question: ' + error.message);
+          });
+      }
     }
 
     function handleSaveQuestion(question) {
+      if (!question) return;
+
       const isChecked = document.getElementById('saveQuestionCheckbox').checked;
 
       if (!DATABASE_BASE_PATH) {
@@ -717,15 +843,27 @@
         return;
       }
 
-      const path = `${DATABASE_BASE_PATH}/quizData/savedQuestions/${question.id}`;
+      const questionRef = ref(database, `${DATABASE_BASE_PATH}/quizData/savedQuestions/${question.id}`);
 
       if (isChecked) {
-        saveToFirebase(`savedQuestions/${question.id}`, question);
+        set(questionRef, question)
+          .then(() => {
+            const savedQuestions = loadFromLocalStorage('savedQuestions', '[]');
+            const exists = savedQuestions.some(q => q.id === question.id);
+            if (!exists) {
+              savedQuestions.push(question);
+              saveToLocalStorage('savedQuestions', savedQuestions);
+            }
+          })
+          .catch((error) => {
+            console.error(`Error saving question: ${error.message}`);
+          });
       } else {
-        const questionRef = ref(database, path);
         remove(questionRef)
           .then(() => {
-            console.log(`Saved question: ${question.id} has been removed.`);
+            const savedQuestions = loadFromLocalStorage('savedQuestions', '[]')
+              .filter(q => q.id !== question.id);
+            saveToLocalStorage('savedQuestions', savedQuestions);
           })
           .catch((error) => {
             console.error(`Error removing question: ${error.message}`);
@@ -739,17 +877,39 @@
     }
 
     function loadSavedQuestions() {
-      loadFromFirebase('savedQuestions', [], (data) => {
+      loadFromFirebaseOnce('savedQuestions', {}).then((data) => {
+
         if (data && Object.keys(data).length) {
+
           const savedQuestions = Object.values(data);
-          const filtered = savedQuestions.filter(q => answeredQuestions[q.id] !== 'answered');
-          questions = document.getElementById('shuffleToggle').checked ? shuffleArray(filtered) : filtered;
+
+          const filterText = document.getElementById('filterInput').value.toLowerCase();
+
+          const filtered = savedQuestions.filter(q => {
+
+            if (answeredQuestions[q.id] === 'answered') return false;
+
+            if (filterText && !q.description.toLowerCase().includes(filterText)) return false;
+
+            return true;
+
+          });
+
+          questions = document.getElementById('shuffleToggle').checked
+            ? shuffleArray(filtered)
+            : filtered;
+
           currentQuestionIndex = 0;
+          currentViewMode = 'savedReview';
+
           displayQuestion(questions[currentQuestionIndex]);
           updateQuestionCounter();
+          toggleNavigationButtons();
+
         } else {
           alert('No saved questions found.');
         }
+
       });
     }
 
@@ -778,10 +938,28 @@
     }
 
     function updateQuestionCounter() {
-      const remaining = questions.filter(q =>
-        answeredQuestions[q.id] !== 'answered'
-      ).length;
-      document.getElementById('questionCounter').textContent = `Questions Remaining: ${remaining}`;
+
+      if (questions.length === 0) {
+        document.getElementById('questionCounter').textContent = `Questions Remaining: 0`;
+        return;
+      }
+
+      if (currentViewMode === 'normal') {
+
+        const remaining = questions.filter(q =>
+          answeredQuestions[q.id] !== 'answered'
+        ).length;
+
+        document.getElementById('questionCounter').textContent =
+          `Questions Remaining: ${remaining}`;
+
+      } else {
+
+        document.getElementById('questionCounter').textContent =
+          `Reviewing ${currentQuestionIndex + 1} / ${questions.length}`;
+
+      }
+
     }
 
     function resetQuiz() {
@@ -813,7 +991,6 @@
       updateQuestionCounter();
       updateScoreDisplay();
       startTimer();
-      location.reload();
     }
 
 
@@ -848,25 +1025,15 @@
 
     function loadSavedData() {
       return Promise.all([
-        new Promise(resolve =>
-          loadFromFirebase('answeredQuestions', {}, data => {
-            answeredQuestions = data;
-            resolve();
-          })
-        ),
-        new Promise(resolve =>
-          loadFromFirebase('correctAnswersCount', 0, data => {
-            correctAnswersCount = data;
-            resolve();
-          })
-        ),
-        new Promise(resolve =>
-          loadFromFirebase('wrongAnswersCount', 0, data => {
-            wrongAnswersCount = data;
-            resolve();
-          })
-        )
-      ]).then(() => {
+        loadFromFirebaseOnce('answeredQuestions', {}),
+        loadFromFirebaseOnce('correctAnswersCount', 0),
+        loadFromFirebaseOnce('wrongAnswersCount', 0),
+        loadFromFirebaseOnce('savedQuestions', {})
+      ]).then(([answered, correct, wrong, saved]) => {
+        answeredQuestions = answered;
+        correctAnswersCount = correct;
+        wrongAnswersCount = wrong;
+        saveToLocalStorage('savedQuestions', Object.values(saved || {}));
         updateScoreDisplay();
       });
     }
@@ -897,7 +1064,8 @@
       indexKeyElement.innerHTML = 'Loading...';
 
       const questionsRef = ref(database, 'share/questions');
-      onValue(questionsRef, snapshot => {
+
+      get(questionsRef).then(snapshot => {
         const data = snapshot.val();
         if (!data) {
           indexKeyElement.innerHTML = 'No topics available';
@@ -929,9 +1097,17 @@
     }
 
     function loadIncorrectQuestions() {
-      const incorrectQuestions = allQuestions.filter(
-        question => answeredQuestions[question.id] === 'incorrect'
-      );
+      const filterText = document.getElementById('filterInput').value.toLowerCase();
+
+      const incorrectQuestions = allQuestions.filter(q => {
+
+        if (answeredQuestions[q.id] !== 'incorrect') return false;
+
+        if (filterText && !q.description.toLowerCase().includes(filterText)) return false;
+
+        return true;
+
+      });
 
       if (incorrectQuestions.length === 0) {
         alert('No incorrectly answered questions found.');
@@ -942,11 +1118,45 @@
 
       questions = shuffleEnabled ? shuffleArray(incorrectQuestions) : incorrectQuestions;
       currentQuestionIndex = 0;
+      currentViewMode = 'incorrectReview';
 
       displayQuestion(questions[currentQuestionIndex]);
       updateQuestionCounter();
       toggleNavigationButtons();
     }
+
+    function loadCorrectQuestions() {
+
+      const filterText = document.getElementById('filterInput').value.toLowerCase();
+
+      const correctQuestions = allQuestions.filter(q => {
+
+        if (answeredQuestions[q.id] !== 'answered') return false;
+
+        if (filterText && !q.description.toLowerCase().includes(filterText)) return false;
+
+        return true;
+
+      });
+
+      if (correctQuestions.length === 0) {
+        alert('No correctly answered questions.');
+        return;
+      }
+
+      const shuffleEnabled = document.getElementById('shuffleToggle').checked;
+
+      questions = shuffleEnabled ? shuffleArray(correctQuestions) : correctQuestions;
+      currentQuestionIndex = 0;
+      currentViewMode = 'correctReview';
+
+      displayQuestion(questions[currentQuestionIndex]);
+      updateQuestionCounter();
+      toggleNavigationButtons();
+    }
+
+    document.getElementById('loadCorrectQuestionsButton')
+      .addEventListener('click', loadCorrectQuestions);
 
     document.getElementById('shuffleToggle').addEventListener('change', () => {
       const shuffleEnabled = document.getElementById('shuffleToggle').checked;
@@ -964,16 +1174,55 @@
     });
 
     function toggleNavigationButtons() {
-      document.getElementById('previousQuestion').disabled = currentQuestionIndex === 0;
-      document.getElementById('nextQuestion').disabled = currentQuestionIndex === questions.length - 1;
+      const prevBtn = document.getElementById('previousQuestion');
+      const nextBtn = document.getElementById('nextQuestion');
+
+      if (questions.length === 0) {
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        return;
+      }
+
+      if (currentViewMode !== 'normal') {
+        prevBtn.disabled = currentQuestionIndex === 0;
+        nextBtn.disabled = currentQuestionIndex >= questions.length - 1;
+        return;
+      }
+
+      prevBtn.disabled = currentQuestionIndex === 0;
+
+      const hasAnotherUnanswered = questions.some((q, index) =>
+        index > currentQuestionIndex && answeredQuestions[q.id] !== 'answered'
+      );
+
+      nextBtn.disabled = !hasAnotherUnanswered;
     }
 
     document.addEventListener('keydown', (event) => {
+
       if (event.shiftKey && event.key === 'ArrowLeft') {
         displayPreviousQuestion();
-      } else if (event.shiftKey && event.key === 'ArrowRight') {
+      }
+
+      else if (event.shiftKey && event.key === 'ArrowRight') {
         displayNextQuestion();
       }
+
+      else if (event.key === 'Enter') {
+
+        const active = document.activeElement;
+
+        if (
+          active &&
+          (active.id === 'textInputAnswer' ||
+            active.type === 'radio' ||
+            active.type === 'checkbox')
+        ) {
+          event.preventDefault();
+          submitAnswer();
+        }
+      }
+
     });
   </script>
 </body>
