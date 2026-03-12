@@ -5,7 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Finance Inventory</title>
-    <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
+    <link rel="stylesheet" href="../assets/css/excel-styles.css" id="stylesheet">
     <script type="module" src="./assets/js/login.js" defer></script>
 
     <style>
@@ -190,9 +190,9 @@
                 <div class="tight">
                     <label>Show</label>
                     <select id="mode">
-                        <option value="all" selected>All (expenses + income)</option>
+                        <option value="all">All (expenses + income)</option>
                         <option value="expenses">Expenses only</option>
-                        <option value="inv">Inventory only (tag: inv)</option>
+                        <option value="inv" selected>Inventory only (tag: inv)</option>
                     </select>
                 </div>
             </div>
@@ -210,6 +210,7 @@
                 <label><input type="checkbox" data-field="desc" checked> Description</label>
                 <label><input type="checkbox" data-field="tags" checked> Tags</label>
                 <label><input type="checkbox" data-field="cat" checked> Category</label>
+                <label><input type="checkbox" data-field="qty" checked> Quantity</label>
                 <label><input type="checkbox" data-field="link" checked> Link</label>
                 <label><input type="checkbox" data-field="id" checked> ID</label>
                 <label><input type="checkbox" data-field="imgControls" checked> Image Buttons</label>
@@ -373,6 +374,7 @@
                 id: String(id),
                 amt: Number(v.amt ?? 0),
                 altAmt: Number(v.altAmt ?? 0),
+                qty: Number(v.qty ?? 1),
                 cat: String(v.cat ?? ''),
                 sub: String(v.sub ?? ''),
                 sku: String(v.sku ?? ''),
@@ -391,6 +393,7 @@
             return {
                 amt: Number(t.amt ?? 0),
                 altAmt: Number(t.altAmt ?? 0),
+                qty: Number(t.qty ?? 1),
                 cat: String(t.cat ?? ''),
                 sub: String(t.sub ?? ''),
                 sku: String(t.sku ?? ''),
@@ -446,11 +449,13 @@
                 const g = map.get(key);
                 g.all.push(t);
 
-                g.qty += 1;
-                g.total += Math.abs(Number(t.amt) || 0);
+                const q = Number(t.qty ?? 1);
+
+                g.qty += q;
+                g.total += Math.abs(Number(t.amt) || 0) * q;
 
                 const price = roundMoney(Math.abs(Number(t.amt) || 0));
-                g.prices.set(price, (g.prices.get(price) || 0) + 1);
+                g.prices.set(price, (g.prices.get(price) || 0) + q);
 
                 const isNewer =
                     (Number(t.date) > Number(g.latest?.date || 0)) ||
@@ -595,6 +600,7 @@
             desc: true,
             tags: true,
             cat: true,
+            qty: true,
             link: true,
             id: true,
             imgControls: true,
@@ -644,9 +650,16 @@
             bindFieldTogglesOnce();
 
             $('yearSelect')?.addEventListener('change', () => {
+
                 currentYear = parseInt($('yearSelect').value, 10) || currentYear;
+
                 localStorage.setItem(LAST_YEAR_KEY, String(currentYear));
+
+                _yearTx = [];
+                renderAll();
+
                 attachYearListener(currentYear);
+
             });
 
             $('q')?.addEventListener('input', renderAll);
@@ -681,6 +694,7 @@
                 const tx = {
                     amt: signedAmt,
                     altAmt: signedAlt,
+                    qty: 1,
                     cat,
                     sub: '',
                     sku,
@@ -759,7 +773,11 @@
         function applyMode(list) {
             const mode = $('mode')?.value || 'all';
             if (mode === 'expenses') return list.filter(t => t.type === 'expense');
-            if (mode === 'inv') return list.filter(t => t.type === 'expense' && hasTag(t, 'inv'));
+            if (mode === 'inv')
+                return list.filter(t =>
+                    t.type === 'expense' &&
+                    (hasTag(t, 'inv') || hasTag(t, 'invonly'))
+                );
             return list;
         }
 
@@ -912,7 +930,6 @@
 
             file.className = 'btn';
             file.style.padding = '8px';
-            file.style.width = '100%';
             file.title = 'Choose an image to upload';
 
             file.addEventListener('change', async () => {
@@ -951,10 +968,29 @@
 
             if (isFieldOn('date')) {
                 fields.appendChild(fieldText('Date', ymdFromUtcTS(t.date), async (next) => {
+
                     const ymd = String(next || '').trim();
                     if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return;
+
                     const ts = utcNoonTSFromYMD(ymd);
-                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, date: ts }));
+                    const newYear = new Date(ts).getUTCFullYear();
+
+                    const updated = stripTxForSave({ ...t, date: ts });
+
+                    if (newYear !== currentYear) {
+
+                        // write to new year node
+                        await writeTx(newYear, t.id, updated);
+
+                        // remove from old year node
+                        await deleteTx(currentYear, t.id);
+
+                    } else {
+
+                        await writeTx(currentYear, t.id, updated);
+
+                    }
+
                 }));
             }
 
@@ -1001,6 +1037,16 @@
             if (isFieldOn('cat')) {
                 fields.appendChild(fieldText('Category', t.cat, async (next) => {
                     await writeTx(currentYear, t.id, stripTxForSave({ ...t, cat: next }));
+                }));
+            }
+
+            if (isFieldOn('qty')) {
+                fields.appendChild(fieldText('Quantity', String(t.qty ?? 1), async (next) => {
+
+                    const q = Math.max(1, Math.floor(Number(next) || 1));
+
+                    await writeTx(currentYear, t.id, stripTxForSave({ ...t, qty: q }));
+
                 }));
             }
 
