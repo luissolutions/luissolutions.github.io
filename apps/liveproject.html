@@ -1358,34 +1358,44 @@
           return;
         }
 
-        const byProjectName = new Map();
+        const byProjectAndCustomer = new Map();
 
         snap.forEach(child => {
+
           const id = child.key;
           const v = child.val() || {};
 
           const projectName = (v.project || "").trim() || id;
-          const customerName = (v.customerName || "").trim();
+          const customerName = (v.customerName || "").trim() || "—";
+
           const updatedAt = v.meta?.updatedAt || v.updatedAt || 0;
 
           const createdAt = Number(id);
-          const createdAtSafe = Number.isFinite(createdAt) ? createdAt : Number.MAX_SAFE_INTEGER;
+          const createdAtSafe = Number.isFinite(createdAt)
+            ? createdAt
+            : Number.MAX_SAFE_INTEGER;
 
-          const existing = byProjectName.get(projectName);
+          // combine project + customer name
+          const key = `${projectName}||${customerName}`;
 
-          // keep OLDEST record per project name
+          const existing = byProjectAndCustomer.get(key);
+
+          // keep OLDEST record per combination
           if (!existing || createdAtSafe < existing.createdAt) {
-            byProjectName.set(projectName, {
+
+            byProjectAndCustomer.set(key, {
               id,
               projectName,
-              customerName: customerName || "—",
+              customerName,
               updatedAt,
               createdAt: createdAtSafe
             });
+
           }
+
         });
 
-        dropdownProjectsCache = Array.from(byProjectName.values());
+        dropdownProjectsCache = Array.from(byProjectAndCustomer.values());
         renderProjectDropdown();
       };
 
@@ -1978,6 +1988,14 @@
         renderHeader();
         renderSidebarPills();
         renderAll();
+
+        if (state.projectFieldName) {
+          loadProjectImages(state.projectFieldName);
+        } else {
+          imageSelect.innerHTML = '<option>Select Image</option>';
+          photoContainer.innerHTML = '';
+          imageUrls = [];
+        }
       };
 
       state.listeners.recordRef = rRef;
@@ -1985,10 +2003,6 @@
       onValue(rRef, rCb);
 
       await ensureMetaExists(id);
-
-      if (state.projectFieldName) {
-        loadProjectImages(state.projectFieldName);
-      }
     }
 
     // ============================
@@ -2089,12 +2103,7 @@
     ui.projectDropdown.addEventListener("change", async () => {
       const id = ui.projectDropdown.value;
       if (!id) return;
-
       await loadRecordById(id);
-
-      if (state.projectFieldName) {
-        loadProjectImages(state.projectFieldName);
-      }
     });
 
     ui.clearAppDataBtn.addEventListener("click", async () => {
@@ -2286,7 +2295,12 @@
 
         const allImages = await getAllImagesRecursive(rootRef);
 
+        const seen = new Set();
+
         for (const { name, url } of allImages) {
+
+          if (seen.has(url)) continue;
+          seen.add(url);
 
           const option = document.createElement('option');
 
@@ -2339,8 +2353,45 @@
 
       img.src = url;
       img.style.maxWidth = "500px";
+      img.style.cursor = "pointer";
+
+      img.addEventListener("click", () => {
+        window.open(url, "_blank");
+      });
 
       photoContainer.appendChild(img);
+
+    });
+
+    const deleteImageButton = document.getElementById("deleteImageButton");
+
+    deleteImageButton.addEventListener("click", async () => {
+
+      const selectedUrl = imageSelect.value;
+
+      if (!selectedUrl) {
+        alert("Select an image first.");
+        return;
+      }
+
+      if (!confirm("Delete this image?")) return;
+
+      try {
+
+        const imageRef = storageRef(storage, selectedUrl);
+
+        await deleteObject(imageRef);
+
+        alert("Image deleted");
+
+        loadProjectImages(state.projectFieldName);
+
+      } catch (error) {
+
+        console.error("Delete failed:", error);
+        alert("Failed to delete image.");
+
+      }
 
     });
   </script>
