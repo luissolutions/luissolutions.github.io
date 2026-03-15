@@ -203,10 +203,6 @@
     textarea {
       min-height: 50px;
     }
-
-    .col-hidden {
-      display: none !important;
-    }
   </style>
 </head>
 
@@ -324,6 +320,28 @@
           <div><strong>Project Notes</strong></div>
         </div>
         <textarea style="width: 100%;" id="projectNotesInput" rows="6" placeholder="Project notes..."></textarea>
+
+        <div id="imageUploadSection">
+          <p>Images for Project</p>
+
+          <input type="file" id="fileUploader" accept="image/*">
+          <br>
+
+          <input type="text" id="imageNameInput" placeholder="Enter Image Name">
+
+          <button id="uploadButton">Upload Image</button>
+
+          <br><br>
+
+          <label>Existing Images:</label>
+          <select id="imageSelect">
+            <option>Select Image</option>
+          </select>
+
+          <div id="photoContainer"></div>
+
+          <button id="deleteImageButton">Delete Selected Image</button>
+        </div>
 
         <!-- DAILY TASKS PANEL -->
         <div id="dailyTasksPanel" class="detail-panel hidden">
@@ -453,7 +471,8 @@
       storageRef,
       uploadBytes,
       getDownloadURL,
-      deleteObject
+      deleteObject,
+      listAll
     } from "./assets/js/firebase-init.js";
 
     // ============================
@@ -1966,6 +1985,10 @@
       onValue(rRef, rCb);
 
       await ensureMetaExists(id);
+
+      if (state.projectFieldName) {
+        loadProjectImages(state.projectFieldName);
+      }
     }
 
     // ============================
@@ -2066,7 +2089,12 @@
     ui.projectDropdown.addEventListener("change", async () => {
       const id = ui.projectDropdown.value;
       if (!id) return;
+
       await loadRecordById(id);
+
+      if (state.projectFieldName) {
+        loadProjectImages(state.projectFieldName);
+      }
     });
 
     ui.clearAppDataBtn.addEventListener("click", async () => {
@@ -2204,6 +2232,116 @@
 
       initUIForBasePath();
       await restoreLastOpenState();
+    });
+
+    const fileUploader = document.getElementById("fileUploader");
+    const uploadButton = document.getElementById("uploadButton");
+    const imageSelect = document.getElementById("imageSelect");
+    const photoContainer = document.getElementById("photoContainer");
+
+    let imageUrls = [];
+
+
+    async function getAllImagesRecursive(folderRef) {
+
+      let results = [];
+
+      const list = await listAll(folderRef);
+
+      // files in this folder
+      for (const item of list.items) {
+
+        const url = await getDownloadURL(item);
+
+        results.push({
+          name: item.name,
+          url: url
+        });
+
+      }
+
+      // subfolders
+      for (const prefix of list.prefixes) {
+
+        const nested = await getAllImagesRecursive(prefix);
+
+        results = results.concat(nested);
+
+      }
+
+      return results;
+    }
+
+    async function loadProjectImages(project) {
+
+      imageUrls = [];
+
+      imageSelect.innerHTML = '<option>Select Image</option>';
+      photoContainer.innerHTML = '';
+
+      try {
+
+        const rootRef =
+          storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images/${project}`);
+
+        const allImages = await getAllImagesRecursive(rootRef);
+
+        for (const { name, url } of allImages) {
+
+          const option = document.createElement('option');
+
+          option.value = url;
+          option.textContent = name;
+
+          imageSelect.appendChild(option);
+
+          imageUrls.push(url);
+        }
+
+      } catch (error) {
+
+        console.error("Error loading images:", error);
+
+      }
+    }
+
+    uploadButton.addEventListener("click", async () => {
+
+      const project = state.projectFieldName;
+
+      const file = fileUploader.files[0];
+
+      if (!file) {
+        alert("Select image");
+        return;
+      }
+
+      const storagePath =
+        `${DATABASE_BASE_PATH}/tasks/images/${project}/${file.name}`;
+
+      const imageRef = storageRef(storage, storagePath);
+
+      await uploadBytes(imageRef, file);
+
+      alert("Image uploaded");
+
+      loadProjectImages(project);
+
+    });
+
+    imageSelect.addEventListener("change", () => {
+
+      const url = imageSelect.value;
+
+      photoContainer.innerHTML = "";
+
+      const img = document.createElement("img");
+
+      img.src = url;
+      img.style.maxWidth = "500px";
+
+      photoContainer.appendChild(img);
+
     });
   </script>
 
