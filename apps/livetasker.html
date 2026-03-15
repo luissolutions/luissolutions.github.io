@@ -224,6 +224,7 @@
         let currentPage = 1;
         let imagesPerPage = 6;
         let totalPages = 0;
+        let unsubscribeTasks = null;
 
         // === Watchdog / Date helpers ===
 
@@ -300,7 +301,7 @@
             saveTask(currentTask);
             updateTaskInTable(currentTask);
             resetTimerState();
-            updateTotalHours();
+            updateTotalHours(allTasks);
             applyColumnVisibility();
             clearTaskImages();
         }
@@ -440,7 +441,7 @@
                 startOdometerInput.value = task.startOdometer || '';
                 endOdometerInput.value = task.endOdometer || '';
                 customerAddressInput.value = task.customerAddress || '';
-                endOdometerInput.disabled = !task.endOdometer;
+                endOdometerInput.disabled = task.endOdometer == null;
 
                 loadTaskImages(task.project);
                 changeTimerButtonToRefresh();
@@ -473,7 +474,7 @@
                 if (row && row.parentNode) {
                     row.parentNode.removeChild(row);
                 }
-                updateTotalHours();
+                updateTotalHours(allTasks);
                 applySearchFilter();
                 addLoadAllButton();
             }).catch(error => {
@@ -507,8 +508,12 @@
         }
 
         function calculateDistance(startOdometer, endOdometer) {
-            const distance = endOdometer - startOdometer;
-            return distance.toFixed(1);
+            const start = parseFloat(startOdometer);
+            const end = parseFloat(endOdometer);
+
+            if (isNaN(start) || isNaN(end)) return '';
+
+            return (end - start).toFixed(1);
         }
 
         function formatDateTime(dateTime) {
@@ -539,22 +544,23 @@
             currentTaskTimeDisplay.innerText = taskLength;
         }
 
-        function updateTotalHours() {
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
-            onValue(taskRef, snapshot => {
-                let totalSeconds = 0;
-                snapshot.forEach(taskSnapshot => {
-                    const task = taskSnapshot.val();
-                    if (task.endTime) {
-                        const lengthInSeconds = (new Date(task.endTime) - new Date(task.startTime)) / 1000;
-                        totalSeconds += lengthInSeconds;
-                    }
-                });
-                const hours = Math.floor(totalSeconds / 3600);
-                const minutes = Math.floor((totalSeconds % 3600) / 60);
-                const decimalHours = (totalSeconds / 3600).toFixed(2);
-                totalHoursSpan.innerText = `${hours} hours, ${minutes} minutes (${decimalHours})`;
+        function updateTotalHours(tasks) {
+
+            let totalSeconds = 0;
+
+            tasks.forEach(task => {
+                if (task.endTime) {
+                    const length = (new Date(task.endTime) - new Date(task.startTime)) / 1000;
+                    totalSeconds += length;
+                }
             });
+
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const decimalHours = (totalSeconds / 3600).toFixed(2);
+
+            totalHoursSpan.innerText =
+                `${hours} hours, ${minutes} minutes (${decimalHours})`;
         }
 
         let allTasks = [];
@@ -573,29 +579,71 @@
         }
 
         function loadTasks() {
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
-            onValue(taskRef, snapshot => {
-                taskLogTable.innerHTML = '';
-                allTasks = [];
+
+            if (unsubscribeTasks) unsubscribeTasks();
+
+            const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+
+            unsubscribeTasks = onValue(tasksRef, snapshot => {
+
+                const tasks = [];
+
                 snapshot.forEach(taskSnapshot => {
                     const task = taskSnapshot.val() || {};
                     task.__key = taskSnapshot.key;
-                    task.id = task.id || task.__key;
-                    allTasks.push(task);
+                    task.id = task.id || taskSnapshot.key;
+                    tasks.push(task);
                 });
 
-                allTasks.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
-
-                const initialTasks = allTasks.slice(0, initialLoadCount);
-                initialTasks.forEach(task => addTaskToTable(task));
-
-                document.getElementById('totalTasks').innerText = allTasks.length;
-
-                checkForOngoingTask();
-                processTasksForDailyTimeSpent();
-                updateTotalHours();
-                populateTaskDropdown(allTasks);
+                handleTasksUpdate(tasks);
             });
+        }
+
+        function handleTasksUpdate(tasks) {
+
+            taskLogTable.innerHTML = '';
+            allTasks = tasks;
+
+            // sort newest first
+            tasks.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+
+            const initialTasks = tasks.slice(0, initialLoadCount);
+
+            initialTasks.forEach(task => addTaskToTable(task));
+
+            document.getElementById('totalTasks').innerText = tasks.length;
+
+            checkForOngoingTask(tasks);
+            updateTotalHours(tasks);
+            processTasksForDailyTimeSpent(tasks);
+            populateTaskDropdown(tasks);
+        }
+
+        function sortTableByColumn(columnIndex, order = 'asc') {
+
+            const rows = Array.from(taskLogTable.querySelectorAll('tr'));
+
+            rows.sort((a, b) => {
+
+                const aText = a.cells[columnIndex]?.innerText.trim() || '';
+                const bText = b.cells[columnIndex]?.innerText.trim() || '';
+
+                const aDate = new Date(aText);
+                const bDate = new Date(bText);
+
+                let comparison;
+
+                if (!isNaN(aDate) && !isNaN(bDate)) {
+                    comparison = aDate - bDate;
+                } else {
+                    comparison = aText.localeCompare(bText);
+                }
+
+                return order === 'asc' ? comparison : -comparison;
+
+            });
+
+            rows.forEach(row => taskLogTable.appendChild(row));
         }
 
         function addLoadAllButton() {
@@ -623,8 +671,8 @@
             document.getElementById("loadAllBtn").remove();
             document.getElementById('totalTasks').innerText = allTasks.length;
 
-            processTasksForDailyTimeSpent();
-            updateTotalHours();
+            processTasksForDailyTimeSpent(allTasks);
+            updateTotalHours(allTasks);
             applySearchFilter();
 
             window.scrollTo({
@@ -671,35 +719,31 @@
             });
         }
 
-        function checkForOngoingTask() {
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/`);
-            onValue(taskRef, snapshot => {
-                let incompleteTasks = [];
+        function checkForOngoingTask(tasks) {
 
-                snapshot.forEach(taskSnapshot => {
-                    const task = taskSnapshot.val();
-                    if (task.startTime && !task.endTime) {
-                        incompleteTasks.push(task);
-                    }
-                });
+            const incompleteTasks = tasks.filter(
+                task => task.startTime && !task.endTime
+            );
 
-                if (incompleteTasks.length > 0) {
-                    incompleteTasks.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+            if (incompleteTasks.length === 0) return;
 
-                    const oldestTask = incompleteTasks[0];
+            incompleteTasks.sort((a, b) =>
+                new Date(a.startTime) - new Date(b.startTime)
+            );
 
-                    currentTask = oldestTask;
-                    taskNameInput.value = currentTask.customerName || '';
-                    projectInput.value = currentTask.project || '';
-                    taskNotesTextarea.value = currentTask.notes || '';
-                    customerAddressInput.value = currentTask.customerAddress || '';
-                    startOdometerInput.value = currentTask.startOdometer || '';
-                    endOdometerInput.value = currentTask.endOdometer || '';
-                    endOdometerInput.disabled = false;
+            const oldestTask = incompleteTasks[0];
 
-                    timerInterval = setInterval(updateCurrentTaskTime, 1000);
-                }
-            });
+            currentTask = oldestTask;
+
+            taskNameInput.value = currentTask.customerName || '';
+            projectInput.value = currentTask.project || '';
+            taskNotesTextarea.value = currentTask.notes || '';
+            customerAddressInput.value = currentTask.customerAddress || '';
+            startOdometerInput.value = currentTask.startOdometer || '';
+            endOdometerInput.value = currentTask.endOdometer || '';
+            endOdometerInput.disabled = false;
+
+            timerInterval = setInterval(updateCurrentTaskTime, 1000);
         }
 
         function toggleColumnVisibility(event) {
@@ -844,26 +888,16 @@
                 dailyTimeContainer.appendChild(dateElement);
             });
         }
-        function processTasksForDailyTimeSpent() {
-            const tasks = [];
-            const t0 = performance.now();
 
-            const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
-            onValue(taskRef, snapshot => {
-                try {
-                    tasks.length = 0;
-                    snapshot.forEach(taskSnapshot => {
-                        // Stop collecting if we’re already over 60s (extreme dataset)
-                        if (performance.now() - t0 > CALC_DEADLINE_MS) return;
-                        tasks.push(taskSnapshot.val());
-                    });
+        function processTasksForDailyTimeSpent(tasks) {
 
-                    const dailyTimeSpent = calculateDailyTimeSpent(tasks);
-                    displayDailyTimeSpent(dailyTimeSpent);
-                } catch (err) {
-                    console.error("Daily time processing failed (skipping):", err);
-                }
-            });
+            try {
+                const dailyTimeSpent = calculateDailyTimeSpent(tasks);
+                displayDailyTimeSpent(dailyTimeSpent);
+            } catch (err) {
+                console.error("Daily time processing failed:", err);
+            }
+
         }
 
         function saveData() {
@@ -1169,7 +1203,7 @@
                 startOdometerInput.value = task.startOdometer || '';
                 endOdometerInput.value = task.endOdometer || '';
                 customerAddressInput.value = task.customerAddress || '';
-                endOdometerInput.disabled = !task.endOdometer;
+                endOdometerInput.disabled = task.endOdometer == null;
 
                 updateTaskBtn.style.display = 'inline-block';
                 loadTaskImages(task.project);
@@ -1512,17 +1546,17 @@
             await loadTaskImages(project);
         };
 
-        function lazyLoadImage(image) {
-            const observer = new IntersectionObserver((entries, observer) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const img = entry.target;
-                        img.src = img.dataset.src;
-                        observer.unobserve(img);
-                    }
-                });
+        const observer = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.src = entry.target.dataset.src;
+                    observer.unobserve(entry.target);
+                }
             });
-            observer.observe(image);
+        });
+
+        function lazyLoadImage(img) {
+            observer.observe(img);
         }
 
         toggleTimerBtn.addEventListener('click', toggleTimer);
@@ -1632,35 +1666,41 @@
 
             const startTimeHeader = document.querySelector('#task-log th.start-time-column');
             startTimeHeader.addEventListener('click', () => {
-                sortTableByColumn(7, sortOrder);
+
+                const sorted = [...allTasks].sort((a, b) => {
+
+                    const aTime = new Date(a.startTime);
+                    const bTime = new Date(b.startTime);
+
+                    return sortOrder === 'asc'
+                        ? aTime - bTime
+                        : bTime - aTime;
+                });
+
+                taskLogTable.innerHTML = '';
+
+                sorted.forEach(task => addTaskToTable(task));
+
                 sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+
             });
 
             const endTimeHeader = document.querySelector('#task-log th.end-time-column');
             endTimeHeader.addEventListener('click', (e) => {
                 e.preventDefault();
 
-                const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
-                onValue(taskRef, snapshot => {
-                    taskLogTable.innerHTML = '';
-                    let allTasks = [];
+                taskLogTable.innerHTML = '';
 
-                    snapshot.forEach(taskSnapshot => {
-                        allTasks.push(taskSnapshot.val());
-                    });
+                const reversed = [...allTasks].reverse();
 
-                    allTasks.reverse();
+                reversed.forEach(task => addTaskToTable(task));
 
-                    allTasks.forEach(task => addTaskToTable(task));
+                document.getElementById('totalTasks').innerText = reversed.length;
 
-                    document.getElementById('totalTasks').innerText = allTasks.length;
-                    checkForOngoingTask();
-                    processTasksForDailyTimeSpent();
-                    updateTotalHours();
-                    populateTaskDropdown(allTasks);
-                });
-
-                console.log('End Time column clicked. Table refreshed to show tasks in original database order (newest on top).');
+                checkForOngoingTask(reversed);
+                processTasksForDailyTimeSpent(reversed);
+                updateTotalHours(reversed);
+                populateTaskDropdown(reversed);
             });
 
             document.getElementById('loadAllBtn').addEventListener('click', loadAllTasks);
@@ -1700,7 +1740,7 @@
                     return;
                 }
 
-                const sanitizedSectionName = sectionName.trim() || "Jobs";
+                const section = await getOrCreateSection(sanitizedSectionName);
 
                 isProcessing = true;
                 populateOneNoteBtn.textContent = "Stop";
