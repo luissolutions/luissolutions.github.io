@@ -1988,36 +1988,36 @@
 
     async function addItemToActiveList() {
 
-  if (!state.recordId) return alert("Select a project first.");
-  if (!state.activeListId) return alert("Select or create a list first.");
+      if (!state.recordId) return alert("Select a project first.");
+      if (!state.activeListId) return alert("Select or create a list first.");
 
-  const listId = state.activeListId;
-  const id = (ui.itemInputs.id.value || "").trim();
-  if (!id) return alert("ID is required.");
+      const listId = state.activeListId;
+      const id = (ui.itemInputs.id.value || "").trim();
+      if (!id) return alert("ID is required.");
 
-  const existing = state.lists[listId]?.[id];
+      const existing = state.lists[listId]?.[id];
 
-  if (existing) {
-    alert(`Item with ID "${id}" already exists.`);
-    return;
-  }
+      if (existing) {
+        alert(`Item with ID "${id}" already exists.`);
+        return;
+      }
 
-  const item = {
-    id,
-    model: ui.itemInputs.model.value || "",
-    type: ui.itemInputs.type.value || "",
-    location: ui.itemInputs.location.value || "",
-    status: ui.itemInputs.status.value || "",
-    ip: ui.itemInputs.ip.value || "",
-    mac: ui.itemInputs.mac.value || "",
-    notes: "",
-    images: []
-  };
+      const item = {
+        id,
+        model: ui.itemInputs.model.value || "",
+        type: ui.itemInputs.type.value || "",
+        location: ui.itemInputs.location.value || "",
+        status: ui.itemInputs.status.value || "",
+        ip: ui.itemInputs.ip.value || "",
+        mac: ui.itemInputs.mac.value || "",
+        notes: "",
+        images: []
+      };
 
-  await dbSet(PATH.item(state.recordId, listId, id), item);
+      await dbSet(PATH.item(state.recordId, listId, id), item);
 
-  Object.values(ui.itemInputs).forEach(el => el.value = "");
-}
+      Object.values(ui.itemInputs).forEach(el => el.value = "");
+    }
 
     // ============================
     // Uploads
@@ -2510,27 +2510,46 @@
 
     async function addTextToImage(url, text) {
 
-      const response = await fetch(url);
-      const blob = await response.blob();
+      return new Promise((resolve, reject) => {
 
-      const img = await createImageBitmap(blob);
+        const img = new Image();
 
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width;
-      canvas.height = img.height + 120;
+        img.crossOrigin = "anonymous";
 
-      const ctx = canvas.getContext("2d");
+        img.onload = () => {
 
-      ctx.drawImage(img, 0, 0);
+          const canvas = document.createElement("canvas");
 
-      ctx.fillStyle = "white";
-      ctx.font = "80px Arial";
-      ctx.textAlign = "center";
+          canvas.width = img.width;
+          canvas.height = img.height + 120;
 
-      ctx.fillText(text, canvas.width / 2, canvas.height - 40);
+          const ctx = canvas.getContext("2d");
 
-      return new Promise(resolve => {
-        canvas.toBlob(resolve, "image/jpeg", 0.95);
+          ctx.drawImage(img, 0, 0);
+
+          ctx.fillStyle = "white";
+          ctx.font = "80px Arial";
+          ctx.textAlign = "center";
+
+          ctx.fillText(text, canvas.width / 2, canvas.height - 40);
+
+          canvas.toBlob(blob => {
+
+            if (!blob) {
+              reject("Failed to create blob");
+              return;
+            }
+
+            resolve(blob);
+
+          }, "image/jpeg", 0.95);
+
+        };
+
+        img.onerror = reject;
+
+        img.src = url;
+
       });
 
     }
