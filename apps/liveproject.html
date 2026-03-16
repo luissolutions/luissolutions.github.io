@@ -14,6 +14,28 @@
 
   <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
   <style>
+    .col-hidden {
+      display: none;
+    }
+
+    .thumb-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: 130px;
+    }
+
+    .thumb-markup {
+      width: 100%;
+      font-size: 11px;
+    }
+
+    .thumb-delete {
+      position: absolute;
+      margin-left: 95px;
+      margin-top: -10px;
+    }
+
     /* ---- Sidebar ---- */
     .sidebar {
       width: 320px;
@@ -1534,11 +1556,13 @@
     // ============================
     // Thumb strip
     // ============================
-    function renderThumbStrip({ images, onOpen, onDelete, onNoteSave }) {
+    function renderThumbStrip({ images, onOpen, onDelete, onNoteSave, onReplace }) {
+
       const wrap = document.createElement("div");
       wrap.className = "thumb-strip";
 
       (Array.isArray(images) ? images : []).forEach((img, idx) => {
+
         const w = document.createElement("div");
         w.className = "thumb-wrapper";
 
@@ -1552,6 +1576,42 @@
         del.textContent = "×";
         del.addEventListener("click", () => onDelete(idx));
 
+        const markupInput = document.createElement("input");
+        markupInput.type = "text";
+        markupInput.placeholder = "Markup text";
+        markupInput.className = "thumb-markup";
+
+        const markupBtn = document.createElement("button");
+        markupBtn.textContent = "Markup";
+
+        markupBtn.addEventListener("click", async () => {
+
+          const text = markupInput.value.trim();
+
+          if (!text) {
+            alert("Enter markup text");
+            return;
+          }
+
+          try {
+
+            const newBlob = await addTextToImage(img.url, text);
+
+            if (onReplace) {
+              await onReplace(idx, newBlob);
+            }
+
+            markupInput.value = "";
+
+          } catch (err) {
+
+            console.error(err);
+            alert("Markup failed");
+
+          }
+
+        });
+
         const note = document.createElement("textarea");
         note.className = "thumb-note";
         note.rows = 2;
@@ -1562,8 +1622,12 @@
 
         w.appendChild(thumb);
         w.appendChild(del);
+        w.appendChild(markupInput);
+        w.appendChild(markupBtn);
         w.appendChild(note);
+
         wrap.appendChild(w);
+
       });
 
       return wrap;
@@ -1623,6 +1687,27 @@
         tdImg.appendChild(renderThumbStrip({
           images: t.images,
           onOpen: (url) => window.open(url, "_blank"),
+
+          onReplace: async (index, newBlob) => {
+
+            const currentObj = state.daily[t.key] || {};
+            const imgs = ensureImagesArray(currentObj).slice();
+
+            const img = imgs[index];
+            if (!img?.path) return;
+
+            const sRef = storageRef(storage, img.path);
+
+            await uploadBytes(sRef, newBlob, { contentType: "image/jpeg" });
+
+            // force refresh in UI
+            const newUrl = await getDownloadURL(sRef);
+
+            imgs[index].url = newUrl;
+
+            await dbUpdate(`${baseDailyRoot}/${t.key}`, { images: imgs });
+
+          },
           onDelete: async (index) => {
             if (!confirm("Delete this image?")) return;
 
@@ -1776,6 +1861,26 @@
         tdImg.appendChild(renderThumbStrip({
           images: r.images,
           onOpen: (url) => window.open(url, "_blank"),
+
+          onReplace: async (index, newBlob) => {
+
+            const itemObj = getListItems(state.lists[listId] || {})[r.key] || {};
+            const imgs = ensureImagesArray(itemObj).slice();
+
+            const img = imgs[index];
+            if (!img?.path) return;
+
+            const sRef = storageRef(storage, img.path);
+
+            await uploadBytes(sRef, newBlob, { contentType: "image/jpeg" });
+
+            const newUrl = await getDownloadURL(sRef);
+
+            imgs[index].url = newUrl;
+
+            await dbUpdate(baseItemPath, { images: imgs });
+
+          },
           onDelete: async (index) => {
             if (!confirm("Delete this item image?")) return;
 
@@ -2394,6 +2499,33 @@
       }
 
     });
+
+    async function addTextToImage(url, text) {
+
+      const response = await fetch(url);
+      const blob = await response.blob();
+
+      const img = await createImageBitmap(blob);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height + 120;
+
+      const ctx = canvas.getContext("2d");
+
+      ctx.drawImage(img, 0, 0);
+
+      ctx.fillStyle = "white";
+      ctx.font = "80px Arial";
+      ctx.textAlign = "center";
+
+      ctx.fillText(text, canvas.width / 2, canvas.height - 40);
+
+      return new Promise(resolve => {
+        canvas.toBlob(resolve, "image/jpeg", 0.95);
+      });
+
+    }
   </script>
 
 </body>
