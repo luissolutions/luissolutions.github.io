@@ -2091,7 +2091,7 @@
         if (state.projectFieldName) {
           loadProjectImages(state.projectFieldName);
         } else {
-          imageSelect.innerHTML = '<option>Select Image</option>';
+          imageSelect.innerHTML = '<option value="">Select Image</option>';
           photoContainer.innerHTML = '';
           imageUrls = [];
         }
@@ -2363,7 +2363,8 @@
 
         results.push({
           name: item.name,
-          url: url
+          url: url,
+          path: item.fullPath
         });
 
       }
@@ -2383,8 +2384,7 @@
     async function loadProjectImages(project) {
 
       imageUrls = [];
-
-      imageSelect.innerHTML = '<option>Select Image</option>';
+      imageSelect.innerHTML = '<option value="">Select Image</option>';
       photoContainer.innerHTML = '';
 
       try {
@@ -2396,14 +2396,14 @@
 
         const seen = new Set();
 
-        for (const { name, url } of allImages) {
+        for (const { name, url, path } of allImages) {
 
-          if (seen.has(url)) continue;
-          seen.add(url);
+          if (seen.has(path)) continue;
+          seen.add(path);
 
           const option = document.createElement('option');
 
-          option.value = url;
+          option.value = JSON.stringify({ url, path });
           option.textContent = name;
 
           imageSelect.appendChild(option);
@@ -2421,42 +2421,63 @@
     uploadButton.addEventListener("click", async () => {
 
       const project = state.projectFieldName;
-
       const file = fileUploader.files[0];
+      const customName = document.getElementById("imageNameInput").value.trim();
 
       if (!file) {
         alert("Select image");
         return;
       }
 
-      const storagePath =
-        `${DATABASE_BASE_PATH}/tasks/images/${project}/${file.name}`;
+      try {
 
-      const imageRef = storageRef(storage, storagePath);
+        const resizedBlob = await resizeImageToJpeg(file, 2048, 0.9);
 
-      await uploadBytes(imageRef, file);
+        const safeProject = project.replace(/[^\w\-]/g, "_");
 
-      alert("Image uploaded");
+        const baseName = customName
+          ? customName.replace(/[^\w\-]/g, "_")
+          : file.name.replace(/\.[^/.]+$/, "").replace(/[^\w\-]/g, "_");
 
-      loadProjectImages(project);
+        const fileName = `${baseName}_${Date.now()}.jpg`;
+
+        const storagePath =
+          `${DATABASE_BASE_PATH}/tasks/images/${safeProject}/${fileName}`;
+
+        const imageRef = storageRef(storage, storagePath);
+
+        await uploadBytes(imageRef, resizedBlob, {
+          contentType: "image/jpeg"
+        });
+
+        alert("Image uploaded");
+
+        fileUploader.value = "";
+        document.getElementById("imageNameInput").value = "";
+
+        loadProjectImages(project);
+
+      } catch (err) {
+
+        console.error(err);
+        alert("Upload failed");
+
+      }
 
     });
 
     imageSelect.addEventListener("change", () => {
 
-      const url = imageSelect.value;
+      const selected = JSON.parse(imageSelect.value || "{}");
+      const url = selected.url;
 
       photoContainer.innerHTML = "";
 
       const img = document.createElement("img");
-
       img.src = url;
       img.style.maxWidth = "500px";
-      img.style.cursor = "pointer";
 
-      img.addEventListener("click", () => {
-        window.open(url, "_blank");
-      });
+      img.onclick = () => window.open(url, "_blank");
 
       photoContainer.appendChild(img);
 
@@ -2466,9 +2487,9 @@
 
     deleteImageButton.addEventListener("click", async () => {
 
-      const selectedUrl = imageSelect.value;
+      const selected = JSON.parse(imageSelect.value || "{}");
 
-      if (!selectedUrl) {
+      if (!selected.path) {
         alert("Select an image first.");
         return;
       }
@@ -2476,9 +2497,7 @@
       if (!confirm("Delete this image?")) return;
 
       try {
-
-        const imageRef = storageRef(storage, selectedUrl);
-
+        const imageRef = storageRef(storage, selected.path); // ✅ correct
         await deleteObject(imageRef);
 
         alert("Image deleted");
@@ -2486,10 +2505,8 @@
         loadProjectImages(state.projectFieldName);
 
       } catch (error) {
-
         console.error("Delete failed:", error);
         alert("Failed to delete image.");
-
       }
 
     });
