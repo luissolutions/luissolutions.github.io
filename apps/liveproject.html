@@ -1697,8 +1697,23 @@
         const addImgBtn = document.createElement("button");
         addImgBtn.textContent = "Add Image";
 
+        const markupToggle = document.createElement("input");
+        markupToggle.type = "checkbox";
+        markupToggle.title = "Auto markup with ID";
+
+        const markupLabel = document.createElement("label");
+        markupLabel.style.fontSize = "11px";
+        markupLabel.appendChild(markupToggle);
+        markupLabel.appendChild(document.createTextNode("ID Markup"));
+
         addImgBtn.addEventListener("click", () => {
-          pendingUploadTarget = { kind: "daily", dailyKey: t.key };
+          pendingUploadTarget = {
+            kind: "daily",
+            dailyKey: t.key,
+            autoMarkup: markupToggle.checked,
+            markupText: `${state.customerName || "Site"} - ${t.key}`
+          };
+
           ui.imageUploadInput.value = "";
           ui.imageUploadInput.click();
         });
@@ -1721,6 +1736,7 @@
         });
 
         tdActions.appendChild(addImgBtn);
+        tdActions.appendChild(markupLabel);
         tdActions.appendChild(delBtn);
 
         tr.appendChild(tdDate);
@@ -1878,17 +1894,26 @@
         const addImgBtn = document.createElement("button");
         addImgBtn.textContent = "Add Image";
 
-        addImgBtn.addEventListener("click", () => {
+        const markupToggle = document.createElement("input");
+        markupToggle.type = "checkbox";
+        markupToggle.title = "Auto markup with ID";
 
+        const markupLabel = document.createElement("label");
+        markupLabel.style.fontSize = "11px";
+        markupLabel.appendChild(markupToggle);
+        markupLabel.appendChild(document.createTextNode(" ID"));
+
+        addImgBtn.addEventListener("click", () => {
           pendingUploadTarget = {
             kind: "listItem",
             listId,
-            itemId: r.key
+            itemId: r.key,
+            autoMarkup: markupToggle.checked,
+            markupText: `${state.customerName || "Site"} - ${r.id || r.key}`
           };
 
           ui.imageUploadInput.value = "";
           ui.imageUploadInput.click();
-
         });
 
         const delBtn = document.createElement("button");
@@ -1911,6 +1936,7 @@
         });
 
         tdActions.appendChild(addImgBtn);
+        tdActions.appendChild(markupLabel);
         tdActions.appendChild(delBtn);
 
         tr.appendChild(tdImg);
@@ -2022,7 +2048,20 @@
       pendingUploadTarget = null;
 
       try {
-        const resizedBlob = await resizeImageToJpeg(file, 2048, 0.9);
+        let resizedBlob = await resizeImageToJpeg(file, 2048, 0.9);
+
+        if (target.autoMarkup && target.markupText) {
+          try {
+            // create temp URL
+            const tempUrl = URL.createObjectURL(resizedBlob);
+
+            resizedBlob = await addTextToImage(tempUrl, target.markupText);
+
+            URL.revokeObjectURL(tempUrl);
+          } catch (e) {
+            console.warn("Auto markup failed:", e);
+          }
+        }
 
         let storagePath;
         let dbNodePath;
@@ -2437,7 +2476,7 @@
 
       try {
 
-        const resizedBlob = await resizeImageToJpeg(file, 2048, 0.9);
+        let resizedBlob = await resizeImageToJpeg(file, 2048, 0.9);
 
         const safeProject = project.replace(/[^\w\-]/g, "_");
 
