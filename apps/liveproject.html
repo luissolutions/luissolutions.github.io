@@ -8,8 +8,7 @@
 
   <!-- Auth / login UI -->
   <script type="module" src="./assets/js/login.js" defer></script>
-
-  <!-- Your existing CSS (walmart-tracker look) -->
+  <script type="module" src="assets/js/microsoftAuth.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
 
   <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
@@ -227,6 +226,13 @@
       </form>
       <button id="logout" style="display: none;">Logout</button>
     </section>
+
+    <div class="ms">
+      <br>
+      <button id="loginButton">Login to MS</button>
+      <button id="logoutButton">Logout of MS</button>
+      <p id="loginStatus">Login status...</p>
+    </div>
   </header>
 
   <main>
@@ -446,7 +452,7 @@
 
     <!-- Shared hidden file input (images) -->
     <input type="file" id="imageUploadInput" accept="image/*" class="hidden" />
-
+    <button id="uploadAllToOneDriveBtn">Upload All to OneDrive</button>
   </main>
 
   <script type="module">
@@ -885,6 +891,110 @@
     async function dbRemove(path, touch = true) {
       await remove(dbRef(path));
       if (touch) await touchRecord();
+    }
+
+    async function urlToBlob(url) {
+      const res = await fetch(url);
+      return await res.blob();
+    }
+
+    async function uploadToOneDrivePath(blob, path) {
+      const res = await fetch(
+        `https://graph.microsoft.com/v1.0/me/drive/root:/${path}:/content`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "image/jpeg"
+          },
+          body: blob
+        }
+      );
+
+      if (!res.ok) {
+        console.error(await res.text());
+        throw new Error("Upload failed");
+      }
+
+      return await res.json();
+    }
+
+    document.getElementById("uploadAllToOneDriveBtn")
+      .addEventListener("click", async () => {
+
+        if (!accessToken || isTokenExpired(accessToken)) {
+          alert("Please login to Microsoft first.");
+          return;
+        }
+
+        if (!state.recordId) {
+          alert("No project selected.");
+          return;
+        }
+
+        const images = collectAllImages();
+
+        if (!images.length) {
+          alert("No images to upload.");
+          return;
+        }
+
+        const project = (state.projectFieldName || "Project").replace(/[^\w\-]/g, "_");
+
+        let success = 0;
+
+        for (const img of images) {
+          try {
+            const blob = await urlToBlob(img.url);
+
+            const fileName = `${img.name}_${Date.now()}.jpg`;
+
+            const path = `Jobs/${project}/${fileName}`;
+
+            await uploadToOneDrivePath(blob, path);
+
+            success++;
+
+          } catch (e) {
+            console.warn("Failed:", img.url, e);
+          }
+        }
+
+        alert(`Uploaded ${success} / ${images.length} images to OneDrive`);
+      });
+
+    function collectAllImages() {
+      const images = [];
+
+      // Daily
+      for (const [key, task] of Object.entries(state.daily || {})) {
+        (task.images || []).forEach(img => {
+          if (img?.url) {
+            images.push({
+              url: img.url,
+              name: `${state.customerName || "Site"}-${key}`
+            });
+          }
+        });
+      }
+
+      // Lists
+      for (const [listId, list] of Object.entries(state.lists || {})) {
+        const items = getListItems(list);
+
+        for (const [itemKey, item] of Object.entries(items)) {
+          (item.images || []).forEach(img => {
+            if (img?.url) {
+              images.push({
+                url: img.url,
+                name: `${state.customerName || "Site"}-${item.id || itemKey}-${item.location || ""}`
+              });
+            }
+          });
+        }
+      }
+
+      return images;
     }
 
     // ============================
