@@ -965,6 +965,32 @@
         alert(`Uploaded ${success} / ${images.length} images to OneDrive`);
       });
 
+    async function renameItemKey(listId, oldKey, newKey) {
+      if (!state.recordId) return;
+      if (!newKey || oldKey === newKey) return;
+
+      const items = state.lists[listId] || {};
+
+      if (items[newKey]) {
+        alert(`Key "${newKey}" already exists.`);
+        return;
+      }
+
+      const itemData = items[oldKey];
+      if (!itemData) return;
+
+      const basePath = PATH.list(state.recordId, listId);
+
+      const updates = {};
+      updates[`${basePath}/${newKey}`] = {
+        ...itemData,
+        id: newKey
+      };
+      updates[`${basePath}/${oldKey}`] = null;
+
+      await update(dbRef(PATH.record(state.recordId)), updates);
+    }
+
     function collectAllImages() {
       const images = [];
 
@@ -1943,8 +1969,18 @@
         const tr = document.createElement("tr");
         const baseItemPath = PATH.item(state.recordId, listId, r.key);
 
-        tr.appendChild(mkTdInput("id", r.id, "Camera ID / Cable #", (val) => dbUpdate(baseItemPath, { id: val })));
-        tr.appendChild(mkTdInput("model", r.model, "Model", (val) => dbUpdate(baseItemPath, { model: val })));
+        tr.appendChild(mkTdInput("id", r.id, "Camera ID / Cable #", async (val) => {
+          const newKey = val.trim();
+          const oldKey = r.key;
+
+          if (!newKey) return;
+
+          if (newKey !== oldKey) {
+            await renameItemKey(listId, oldKey, newKey);
+          } else {
+            await dbUpdate(baseItemPath, { id: newKey });
+          }
+        })); tr.appendChild(mkTdInput("model", r.model, "Model", (val) => dbUpdate(baseItemPath, { model: val })));
         tr.appendChild(mkTdInput("type", r.type, "Type (Camera, Controller, etc)", (val) => dbUpdate(baseItemPath, { type: val })));
         tr.appendChild(mkTdInput("location", r.location, "Location", (val) => dbUpdate(baseItemPath, { location: val })));
         tr.appendChild(mkTdInput("status", r.status, "Status", (val) => dbUpdate(baseItemPath, { status: val })));
