@@ -57,6 +57,7 @@
         textarea,
         select {
             width: 100%;
+            width: stretch;
             padding: 10px;
             border-radius: 10px;
             outline: none;
@@ -219,7 +220,6 @@
             <h2>End-of-Week Partner Evaluation (Final Night)</h2>
             <div class="small" id="thresholdLine"></div>
 
-            <div id="finalScoring"></div>
 
             <div class="grid">
                 <div class="col-4">
@@ -243,6 +243,34 @@
             <div id="finalFlags"></div>
 
             <div id="finalNotesWrap"></div>
+        </div>
+
+        <div class="section" id="scoreSection">
+            <h2>QC Score</h2>
+
+            <div class="grid">
+                <div class="col-4">
+                    <label>Total Completed</label>
+                    <input id="scoreCompleted" readonly>
+                </div>
+
+                <div class="col-4">
+                    <label>Total Items</label>
+                    <input id="scoreMax" readonly>
+                </div>
+
+                <div class="col-4">
+                    <label>Score %</label>
+                    <input id="scorePercent" readonly>
+                </div>
+            </div>
+
+            <div class="grid">
+                <div class="col-12">
+                    <label>Recommendation</label>
+                    <input id="scoreDecision" readonly>
+                </div>
+            </div>
         </div>
 
         <div class="section" id="emailSection">
@@ -297,6 +325,59 @@
             return text.replace(/[\\/:*?"<>|]+/g, "_");
         }
 
+        function computeChecklistScore() {
+            if (!config) return { total: 0, max: 0, percent: 0 };
+
+            let total = 0;
+            let max = 0;
+
+            function countCheckboxSection(prefix, items) {
+                items?.forEach((_, i) => {
+                    max += 1;
+                    if (el(`${prefix}_${i}`)?.checked) {
+                        total += 1;
+                    }
+                });
+            }
+
+            countCheckboxSection("ack", config.qcAcknowledgement?.items);
+            countCheckboxSection("pre", config.preDeployment?.items);
+            countCheckboxSection("train", config.dailyTraining?.items);
+            countCheckboxSection("safe", config.safetyStoreProtection?.items);
+            countCheckboxSection("proto", config.dailyProtocol?.items);
+
+            // progress scoring
+            (config.dailyProgress?.counters || []).forEach(f => {
+                const done = Number(el(`field_${f.id}`)?.value || 0);
+                const totalTarget = Number(el(`field_${f.targetId}`)?.value || 0);
+
+                if (totalTarget > 0) {
+                    const ratio = Math.min(done / totalTarget, 1);
+                    max += 1;
+                    total += ratio;
+                }
+            });
+
+            const percent = max ? Math.round((total / max) * 100) : 0;
+
+            return { total, max, percent };
+        }
+
+        function getChecklistDecision(percent) {
+            if (percent >= 90) return "Fully Certified";
+            if (percent >= 75) return "Certified – Minor Coaching";
+            if (percent >= 60) return "Conditional";
+            return "Not Approved";
+        }
+
+        function updateChecklistScoreUI() {
+            const { total, max, percent } = computeChecklistScore();
+
+            el("scoreCompleted").value = total;
+            el("scoreMax").value = max;
+            el("scorePercent").value = percent + "%";
+            el("scoreDecision").value = getChecklistDecision(percent);
+        }
         function decisionFromScore(score, thresholds) {
             if (score >= thresholds.fullyCertified) return "Fully Certified";
             if (score >= thresholds.minorCoaching) return "Certified – Minor Coaching Recommended";
@@ -475,6 +556,8 @@
 
             setConfigStatus(true, "Config loaded");
             autoLoad();
+
+            el("configSection").classList.add("hidden");
         }
 
         function buildMeta() {
@@ -644,7 +727,19 @@
             });
 
             (config.dailyProgress?.counters || []).forEach(f => {
-                buildNumberField(countersGrid, f, "col-3");
+                const wrap = document.createElement("div");
+                wrap.className = "col-3";
+
+                wrap.innerHTML = `
+    <label>${escapeText(f.label)}</label>
+    <div class="fraction">
+        <input id="field_${f.id}" type="number" min="0" placeholder="Done">
+        <span>/</span>
+        <input id="field_${f.targetId}" type="number" min="0" placeholder="Total">
+    </div>
+`;
+
+                countersGrid.appendChild(wrap);
             });
 
             buildNotesFields("dailyProgressNotesWrap", config.dailyProgress?.notesFields);
@@ -1121,23 +1216,23 @@ Notes: ${prNotes || "N/A"}`;
 
                 finalBlock =
                     `End-of-Week Partner Evaluation (Final Night)
-Scoring Breakdown
-${scoreLines}
+                    Scoring Breakdown
+                    ${scoreLines}
 
-Total Score: ${total}/100
-Auto Recommendation: ${auto}
-Final Recommendation: ${decision}
+                    Total Score: ${total}/100
+                    Auto Recommendation: ${auto}
+                    Final Recommendation: ${decision}
 
-Effectiveness / Efficiency Forecast
-${forecastLines || "N/A"}
+                    Effectiveness / Efficiency Forecast
+                    ${forecastLines || "N/A"}
 
-Final Flags
-${finalFlagLines}
+                    Final Flags
+                    ${finalFlagLines}
 
-Final Notes
-Strengths: ${strengths}
-Gaps / Training Needed: ${gaps}
-Recommended Next Steps: ${next}`;
+                    Final Notes
+                    Strengths: ${strengths}
+                    Gaps / Training Needed: ${gaps}
+                    Recommended Next Steps: ${next}`;
             }
 
             const bodyParts = [
@@ -1531,45 +1626,6 @@ Recommended Next Steps: ${next}`;
             }
         }
 
-        function computeCheckboxScore() {
-            let total = 0;
-
-            // positive sections
-            config.sections.forEach((section, sIdx) => {
-                section.items.forEach((item, iIdx) => {
-                    const checkbox = document.getElementById(`sec_${sIdx}_${iIdx}`);
-                    if (checkbox?.checked) {
-                        total += item.points;
-                    }
-                });
-            });
-
-            // deductions
-            (config.deductions || []).forEach((item, iIdx) => {
-                const checkbox = document.getElementById(`deduct_${iIdx}`);
-                if (checkbox?.checked) {
-                    total += item.points; // negative values
-                }
-            });
-
-            return total;
-        }
-
-        function updateScoreDisplay() {
-            const score = computeCheckboxScore();
-
-            document.getElementById("finalTotal").value = score;
-
-            const decision = decisionFromScore(score, config.thresholds);
-            document.getElementById("autoDecision").value = decision;
-        }
-
-        document.addEventListener("change", (e) => {
-            if (e.target.type === "checkbox") {
-                updateScoreDisplay();
-            }
-        });
-
         el("configFile").addEventListener("change", async (e) => {
             const file = e.target.files?.[0];
             if (!file) return;
@@ -1589,11 +1645,8 @@ Recommended Next Steps: ${next}`;
             }
         });
 
-        document.addEventListener("change", (e) => {
-            if (e.target.id === "overrideDecision" || e.target.classList.contains("finalScoreInput")) {
-                computeFinalScore();
-            }
-        });
+        document.addEventListener("change", updateChecklistScoreUI);
+        document.addEventListener("input", updateChecklistScoreUI);
 
         document.addEventListener("input", autoSave);
         document.addEventListener("change", autoSave);
