@@ -218,8 +218,11 @@
 
         <div class="section hidden" id="finalEvalSection">
             <h2>End-of-Week Partner Evaluation (Final Night)</h2>
+
             <div class="small" id="thresholdLine"></div>
 
+            <h3>Scoring</h3>
+            <div id="finalScoring"></div>
 
             <div class="grid">
                 <div class="col-4">
@@ -284,6 +287,11 @@
             <label for="emailOut">Email Text</label>
             <textarea id="emailOut" class="mono" style="min-height:300px"></textarea>
         </div>
+
+        <div class="col-4">
+            <label>Overall Progress</label>
+            <input id="overallProgress" readonly>
+        </div>
     </main>
 
     <script type="module">
@@ -325,6 +333,25 @@
             return text.replace(/[\\/:*?"<>|]+/g, "_");
         }
 
+        function updateOverallProgress() {
+            if (!config) return; // ✅ FIX
+
+            let totalDone = 0;
+            let totalTarget = 0;
+
+            (config.dailyProgress?.counters || []).forEach(f => {
+                const done = Number(el(`field_${f.id}`)?.value || 0);
+                const total = Number(el(`field_${f.targetId}`)?.value || 0);
+
+                totalDone += done;
+                totalTarget += total;
+            });
+
+            const percent = totalTarget ? Math.round((totalDone / totalTarget) * 100) : 0;
+
+            el("overallProgress").value = percent + "%";
+        }
+
         function computeChecklistScore() {
             if (!config) return { total: 0, max: 0, percent: 0 };
 
@@ -332,9 +359,20 @@
             let max = 0;
 
             function countCheckboxSection(prefix, items) {
-                items?.forEach((_, i) => {
+                const night = el("nightSelect")?.value || "1";
+
+                items?.forEach((item, i) => {
+                    const isPersistent = typeof item === "object"
+                        ? item.persistent
+                        : false;
+
+                    const id = isPersistent
+                        ? `${prefix}_${i}`
+                        : `${prefix}_${i}_n${night}`;
+
                     max += 1;
-                    if (el(`${prefix}_${i}`)?.checked) {
+
+                    if (el(id)?.checked) {
                         total += 1;
                     }
                 });
@@ -445,7 +483,7 @@
         }
 
         async function updateMicrosoftStatus() {
-            const statusEl = el("status");
+            const statusEl = el("loginStatus");
             const loginBtn = el("loginButton");
             const logoutBtn = el("logoutButton");
 
@@ -551,11 +589,13 @@
             if (dateInput) setTodayIfEmpty(dateInput);
 
             updateVisibilityByNight();
-            computeFinalScore();
             hideEmptySections();
 
             setConfigStatus(true, "Config loaded");
             autoLoad();
+
+            updateChecklistScoreUI();
+            updateOverallProgress();
 
             el("configSection").classList.add("hidden");
         }
@@ -581,10 +621,31 @@
             });
 
             ns.addEventListener("change", () => {
+                window.__preserveNight = true;  // 🔥 prevent override
+
+                const saved = localStorage.getItem(STORAGE_KEY);
+                const night = ns.value;
+
+                carryForwardProgress(night);
+
                 const nightMeta = el("meta_nightNumber");
                 if (nightMeta) nightMeta.value = ns.options[ns.selectedIndex]?.textContent || "";
+
+                if (saved) {
+                    applyData(JSON.parse(saved));
+                } else {
+                    buildQCAck();
+                    buildPreDeploy();
+                    buildDailyTraining();
+                    buildSafety();
+                    buildDailyProtocol();
+                }
+
+                window.__preserveNight = false; // reset
+
                 updateVisibilityByNight();
-                hideEmptySections();
+                updateChecklistScoreUI();
+                updateOverallProgress();
             });
 
             (config.metaFields || []).forEach(f => {
@@ -625,16 +686,34 @@
             const container = el(containerId);
             container.innerHTML = "";
 
-            (items || []).forEach((text, idx) => {
-                const id = safeId(prefix, idx);
+            (items || []).forEach((item, idx) => {
+                const night = el("nightSelect")?.value || "1";
+
+                const isPersistent = typeof item === "object"
+                    ? item.persistent
+                    : false;
+
+                const text = typeof item === "object"
+                    ? item.text
+                    : item;
+
+                const id = isPersistent
+                    ? `${prefix}_${idx}`
+                    : `${prefix}_${idx}_n${night}`;
+
                 const row = document.createElement("div");
                 row.className = "checkItem";
+
                 row.innerHTML = `
-                    <label for="${id}">
-                        <input type="checkbox" id="${id}">
-                        <span>${escapeText(text)}</span>
-                    </label>
-                `;
+            <label for="${id}">
+                <input type="checkbox" id="${id}">
+                <span>
+                    ${escapeText(text)}
+                    ${isPersistent ? " 🔒" : ""}
+                </span>
+            </label>
+        `;
+
                 container.appendChild(row);
             });
         }
@@ -831,155 +910,113 @@
             }
         }
 
-        function collectCheckboxes(prefix, length) {
-            const out = [];
-            for (let i = 0; i < length; i++) {
-                const checkbox = el(`${prefix}_${i}`);
-                out.push(!!checkbox?.checked);
-            }
-            return out;
-        }
+        function setCheckboxes(prefix, checks, items) {
+            const night = el("nightSelect")?.value || "1";
 
-        function setCheckboxes(prefix, checks) {
-            (checks || []).forEach((value, idx) => {
-                const checkbox = el(`${prefix}_${idx}`);
+            if (!Array.isArray(checks)) return;
+
+            checks.forEach((value, idx) => {
+                const item = items?.[idx];
+                const isPersistent = typeof item === "object"
+                    ? item.persistent
+                    : false;
+
+                const id = isPersistent
+                    ? `${prefix}_${idx}`
+                    : `${prefix}_${idx}_n${night}`;
+
+                const checkbox = el(id);
                 if (checkbox) checkbox.checked = !!value;
             });
-        }
-
-        function collectData() {
-            const data = {
-                nightSelect: el("nightSelect")?.value ?? "1",
-                meta: {},
-                fields: {},
-                checks: {},
-                final: {}
-            };
-
-            (config?.metaFields || []).forEach(f => {
-                const node = el(`meta_${f.id}`);
-                data.meta[f.id] = node ? node.value : "";
-            });
-
-            data.checks.ack = collectCheckboxes("ack", (config?.qcAcknowledgement?.items || []).length);
-            data.fields.qcAckNotes = el(`field_${config?.qcAcknowledgement?.notesField?.id}`)?.value ?? "";
-
-            data.checks.pre = collectCheckboxes("pre", (config?.preDeployment?.items || []).length);
-            data.fields.preDeployNotes = el(`field_${config?.preDeployment?.notesField?.id}`)?.value ?? "";
-
-            (config?.dailyProgress?.statusFields || []).forEach(f => {
-                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
-            });
-
-            (config?.dailyProgress?.counters || []).forEach(f => {
-                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
-            });
-
-            (config?.dailyProgress?.notesFields || []).forEach(f => {
-                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
-            });
-
-            data.checks.train = collectCheckboxes("train", (config?.dailyTraining?.items || []).length);
-
-            (config?.dailyTraining?.understandingFields || []).forEach(f => {
-                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
-            });
-
-            data.fields.trainingNotes = el(`field_${config?.dailyTraining?.notesField?.id}`)?.value ?? "";
-
-            data.checks.safe = collectCheckboxes("safe", (config?.safetyStoreProtection?.items || []).length);
-
-            (config?.safetyStoreProtection?.notesFields || []).forEach(f => {
-                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
-            });
-
-            data.checks.proto = collectCheckboxes("proto", (config?.dailyProtocol?.items || []).length);
-            data.fields.protocolNotes = el(`field_${config?.dailyProtocol?.notesField?.id}`)?.value ?? "";
-
-            const fe = config?.finalEvaluation;
-            if (fe) {
-                data.final.scores = {};
-                data.final.notes = {};
-
-                (fe.scoring || []).forEach(cat => {
-                    data.final.scores[cat.id] = el(`final_${cat.id}`)?.value ?? "";
-                    data.final.notes[cat.id] = el(`finalNote_${cat.id}`)?.value ?? "";
-                });
-
-                data.final.overrideDecision = el("overrideDecision")?.value ?? "";
-                data.final.forecast = {};
-
-                (fe.effectivenessForecast?.fields || []).forEach(f => {
-                    data.final.forecast[f.id] = el(`field_${f.id}`)?.value ?? "";
-                });
-
-                data.final.flags = collectCheckboxes("fflag", (fe.flags || []).length);
-
-                (fe.notesFields || []).forEach(f => {
-                    data.final[f.id] = el(`field_${f.id}`)?.value ?? "";
-                });
-            }
-
-            return data;
         }
 
         function applyData(data) {
             if (!data || !config) return;
 
-            if (el("nightSelect")) {
+            if (el("nightSelect") && !window.__preserveNight) {
                 el("nightSelect").value = data.nightSelect ?? "1";
-                const nightMeta = el("meta_nightNumber");
-                if (nightMeta) {
-                    nightMeta.value = el("nightSelect").options[el("nightSelect").selectedIndex]?.textContent || "";
-                }
+             const nightMeta = el("meta_nightNumber");
+            if (nightMeta) {
+                nightMeta.value = el("nightSelect").options[el("nightSelect").selectedIndex]?.textContent || "";
             }
+        }
 
-            (config.metaFields || []).forEach(f => {
-                const node = el(`meta_${f.id}`);
-                if (node) node.value = data.meta?.[f.id] ?? "";
+        const night = el("nightSelect")?.value || "1";
+
+        (config.metaFields || []).forEach(f => {
+            const node = el(`meta_${f.id}`);
+            if (node) node.value = data.meta?.[f.id] ?? "";
+        });
+
+        // Rebuild night-based checkbox sections first
+        buildQCAck();
+        buildPreDeploy();
+        buildDailyTraining();
+        buildSafety();
+        buildDailyProtocol();
+
+        setCheckboxes(
+            "ack",
+            data.checks?.ack,
+            config.qcAcknowledgement?.items
+        );
+        setCheckboxes("pre", data.checks?.pre?.[night], config.preDeployment?.items);
+        setCheckboxes("train", data.checks?.train?.[night], config.dailyTraining?.items);
+        setCheckboxes("safe", data.checks?.safe?.[night], config.safetyStoreProtection?.items);
+        setCheckboxes("proto", data.checks?.proto?.[night], config.dailyProtocol?.items);
+
+        Object.keys(data.fields || {}).forEach(key => {
+            const node = el(`field_${key}`);
+            if (node) node.value = data.fields[key] ?? "";
+        });
+
+        const fe = config.finalEvaluation;
+        if (fe && data.final) {
+            (fe.scoring || []).forEach(cat => {
+                const scoreNode = el(`final_${cat.id}`);
+                const noteNode = el(`finalNote_${cat.id}`);
+
+                if (scoreNode) scoreNode.value = data.final.scores?.[cat.id] ?? "";
+                if (noteNode) noteNode.value = data.final.notes?.[cat.id] ?? "";
             });
 
-            setCheckboxes("ack", data.checks?.ack);
-            setCheckboxes("pre", data.checks?.pre);
-            setCheckboxes("train", data.checks?.train);
-            setCheckboxes("safe", data.checks?.safe);
-            setCheckboxes("proto", data.checks?.proto);
+            if (el("overrideDecision")) {
+                el("overrideDecision").value = data.final.overrideDecision ?? "";
+            }
 
-            Object.keys(data.fields || {}).forEach(key => {
+            Object.keys(data.final.forecast || {}).forEach(key => {
                 const node = el(`field_${key}`);
-                if (node) node.value = data.fields[key] ?? "";
+                if (node) node.value = data.final.forecast[key] ?? "";
             });
 
-            const fe = config.finalEvaluation;
-            if (fe && data.final) {
-                (fe.scoring || []).forEach(cat => {
-                    const scoreNode = el(`final_${cat.id}`);
-                    const noteNode = el(`finalNote_${cat.id}`);
+            setCheckboxes("fflag", data.final.flags, config.finalEvaluation?.flags);
 
-                    if (scoreNode) scoreNode.value = data.final.scores?.[cat.id] ?? "";
-                    if (noteNode) noteNode.value = data.final.notes?.[cat.id] ?? "";
-                });
+            (fe.notesFields || []).forEach(f => {
+                const node = el(`field_${f.id}`);
+                if (node) node.value = data.final[f.id] ?? "";
+            });
+        }
 
-                if (el("overrideDecision")) {
-                    el("overrideDecision").value = data.final.overrideDecision ?? "";
+        updateVisibilityByNight();
+        updateChecklistScoreUI();
+        updateOverallProgress();
+        hideEmptySections();
+        }
+
+        function carryForwardProgress(currentNight) {
+            if (!config || currentNight === "1") return;
+
+            const prevNight = String(Number(currentNight) - 1);
+
+            (config.dailyProgress?.counters || []).forEach(f => {
+                const prev = localStorage.getItem(`progress_${f.id}_n${prevNight}`);
+                if (prev !== null) {
+                    const input = el(`field_${f.id}`);
+                    if (input && !input.value) {
+                        input.value = prev;
+                    }
                 }
-
-                Object.keys(data.final.forecast || {}).forEach(key => {
-                    const node = el(`field_${key}`);
-                    if (node) node.value = data.final.forecast[key] ?? "";
-                });
-
-                setCheckboxes("fflag", data.final.flags);
-
-                (fe.notesFields || []).forEach(f => {
-                    const node = el(`field_${f.id}`);
-                    if (node) node.value = data.final[f.id] ?? "";
-                });
-            }
-
-            updateVisibilityByNight();
-            computeFinalScore();
-            hideEmptySections();
+            });
         }
 
         function saveLocal() {
@@ -1088,11 +1125,27 @@
         }
 
         function checkedLines(prefix, items) {
+            const night = el("nightSelect")?.value || "1";
             const out = [];
-            (items || []).forEach((text, idx) => {
-                const checkbox = el(`${prefix}_${idx}`);
-                if (checkbox?.checked) out.push(`✓ ${escapeText(text)}`);
+
+            (items || []).forEach((item, idx) => {
+                const isPersistent = typeof item === "object"
+                    ? item.persistent
+                    : false;
+
+                const text = typeof item === "object"
+                    ? item.text
+                    : item;
+
+                const id = isPersistent
+                    ? `${prefix}_${idx}`
+                    : `${prefix}_${idx}_n${night}`;
+
+                if (el(id)?.checked) {
+                    out.push(`✓ ${escapeText(text)}`);
+                }
             });
+
             return out;
         }
 
@@ -1147,8 +1200,11 @@ Notes: ${preNotes || "N/A"}`;
 
             const dp = config.dailyProgress || {};
             const statusLines = (dp.statusFields || []).map(f => `${f.label}: ${escapeText(d.fields[f.id]) || "N/A"}`);
-            const counterLines = (dp.counters || []).map(f => `${f.label}: ${escapeText(d.fields[f.id]) || "0"}`);
-            const dpNotes = (dp.notesFields || []).map(f => `${f.label}: ${escapeText(d.fields[f.id]) || "N/A"}`).join("\n");
+            const counterLines = (dp.counters || []).map(f => {
+                const done = escapeText(d.fields[f.id]) || "0";
+                const total = escapeText(d.fields[f.targetId]) || "0";
+                return `${f.label}: ${done} / ${total}`;
+            }); const dpNotes = (dp.notesFields || []).map(f => `${f.label}: ${escapeText(d.fields[f.id]) || "N/A"}`).join("\n");
 
             const dailyProgressBlock =
                 `Daily Training & Progress (${nightName})
@@ -1406,7 +1462,8 @@ Notes: ${prNotes || "N/A"}`;
             addSection("QC Acknowledgement");
 
             (config.qcAcknowledgement?.items || []).forEach((item, i) => {
-                addChecklistItem(item, data.checks.ack[i]);
+                const text = typeof item === "object" ? item.text : item;
+                addChecklistItem(text, data.checks.ack[i]);
             });
 
             if (data.fields.qcAckNotes) {
@@ -1416,12 +1473,13 @@ Notes: ${prNotes || "N/A"}`;
 
             addDivider();
 
-            // ================= PRE DEPLOY =================
             if (data.nightSelect === "0") {
                 addSection("Pre-Deployment Activities (Day 0)");
 
+                const preChecks = data.checks.pre?.[data.nightSelect] || [];
                 (config.preDeployment?.items || []).forEach((item, i) => {
-                    addChecklistItem(item, data.checks.pre[i]);
+                    const text = typeof item === "object" ? item.text : item;
+                    addChecklistItem(text, preChecks[i]);
                 });
 
                 if (data.fields.preDeployNotes) {
@@ -1432,11 +1490,12 @@ Notes: ${prNotes || "N/A"}`;
                 addDivider();
             }
 
-            // ================= DAILY RESPONSIBILITIES =================
             addSection("Daily Responsibilities / Protocol");
 
+            const protoChecks = data.checks.proto?.[data.nightSelect] || [];
             (config.dailyProtocol?.items || []).forEach((item, i) => {
-                addChecklistItem(item, data.checks.proto[i]);
+                const text = typeof item === "object" ? item.text : item;
+                addChecklistItem(text, protoChecks[i]);
             });
 
             if (data.fields.protocolNotes) {
@@ -1446,11 +1505,12 @@ Notes: ${prNotes || "N/A"}`;
 
             addDivider();
 
-            // ================= TRAINING =================
             addSection("Training Completed");
 
+            const trainChecks = data.checks.train?.[data.nightSelect] || [];
             (config.dailyTraining?.items || []).forEach((item, i) => {
-                addChecklistItem(item, data.checks.train[i]);
+                const text = typeof item === "object" ? item.text : item;
+                addChecklistItem(text, trainChecks[i]);
             });
 
             if (data.fields.trainingNotes) {
@@ -1460,11 +1520,12 @@ Notes: ${prNotes || "N/A"}`;
 
             addDivider();
 
-            // ================= SAFETY =================
             addSection("Safety / Store Protection");
 
+            const safeChecks = data.checks.safe?.[data.nightSelect] || [];
             (config.safetyStoreProtection?.items || []).forEach((item, i) => {
-                addChecklistItem(item, data.checks.safe[i]);
+                const text = typeof item === "object" ? item.text : item;
+                addChecklistItem(text, safeChecks[i]);
             });
 
             (config.safetyStoreProtection?.notesFields || []).forEach(f => {
@@ -1607,6 +1668,13 @@ Notes: ${prNotes || "N/A"}`;
         function autoSave() {
             if (!config) return;
 
+            const night = el("nightSelect")?.value || "1";
+
+            (config.dailyProgress?.counters || []).forEach(f => {
+                const val = el(`field_${f.id}`)?.value || "";
+                localStorage.setItem(`progress_${f.id}_n${night}`, val);
+            });
+
             clearTimeout(saveTimeout);
 
             saveTimeout = setTimeout(() => {
@@ -1624,6 +1692,128 @@ Notes: ${prNotes || "N/A"}`;
             } catch (e) {
                 console.error("Auto-load failed", e);
             }
+        }
+
+        function collectCheckboxes(prefix, items) {
+            const night = el("nightSelect")?.value || "1";
+            const out = [];
+
+            (items || []).forEach((item, i) => {
+                const isPersistent = typeof item === "object"
+                    ? item.persistent
+                    : false;
+
+                const id = isPersistent
+                    ? `${prefix}_${i}`
+                    : `${prefix}_${i}_n${night}`;
+
+                const checkbox = el(id);
+                out.push(!!checkbox?.checked);
+            });
+
+            return out;
+        }
+
+        function collectData() {
+            const night = el("nightSelect")?.value || "1";
+
+            const data = {
+                nightSelect: night,
+                meta: {},
+                fields: {},
+                checks: {
+                    ack: [],
+                    pre: {},
+                    train: {},
+                    safe: {},
+                    proto: {}
+                },
+                final: {}
+            };
+
+            (config?.metaFields || []).forEach(f => {
+                const node = el(`meta_${f.id}`);
+                data.meta[f.id] = node ? node.value : "";
+            });
+
+            data.checks.ack = collectCheckboxes(
+                "ack",
+                config.qcAcknowledgement?.items
+            );
+            data.fields.qcAckNotes = el(`field_${config?.qcAcknowledgement?.notesField?.id}`)?.value ?? "";
+
+            data.checks.pre[night] = collectCheckboxes(
+                "pre",
+                config.preDeployment?.items
+            );
+            data.fields.preDeployNotes = el(`field_${config?.preDeployment?.notesField?.id}`)?.value ?? "";
+
+            (config?.dailyProgress?.statusFields || []).forEach(f => {
+                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
+            });
+
+            (config?.dailyProgress?.counters || []).forEach(f => {
+                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
+                if (f.targetId) {
+                    data.fields[f.targetId] = el(`field_${f.targetId}`)?.value ?? "";
+                }
+            });
+
+            (config?.dailyProgress?.notesFields || []).forEach(f => {
+                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
+            });
+
+            data.checks.train[night] = collectCheckboxes(
+                "train",
+                config.dailyTraining?.items
+            );
+
+            (config?.dailyTraining?.understandingFields || []).forEach(f => {
+                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
+            });
+
+            data.fields.trainingNotes = el(`field_${config?.dailyTraining?.notesField?.id}`)?.value ?? "";
+
+            data.checks.safe[night] = collectCheckboxes(
+                "safe",
+                config.safetyStoreProtection?.items
+            );
+
+            (config?.safetyStoreProtection?.notesFields || []).forEach(f => {
+                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
+            });
+
+            data.checks.proto[night] = collectCheckboxes(
+                "proto",
+                config.dailyProtocol?.items
+            );
+            data.fields.protocolNotes = el(`field_${config?.dailyProtocol?.notesField?.id}`)?.value ?? "";
+
+            const fe = config?.finalEvaluation;
+            if (fe) {
+                data.final.scores = {};
+                data.final.notes = {};
+
+                (fe.scoring || []).forEach(cat => {
+                    data.final.scores[cat.id] = el(`final_${cat.id}`)?.value ?? "";
+                    data.final.notes[cat.id] = el(`finalNote_${cat.id}`)?.value ?? "";
+                });
+
+                data.final.overrideDecision = el("overrideDecision")?.value ?? "";
+                data.final.forecast = {};
+
+                (fe.effectivenessForecast?.fields || []).forEach(f => {
+                    data.final.forecast[f.id] = el(`field_${f.id}`)?.value ?? "";
+                });
+
+                data.final.flags = collectCheckboxes("fflag", fe.flags || []);
+
+                (fe.notesFields || []).forEach(f => {
+                    data.final[f.id] = el(`field_${f.id}`)?.value ?? "";
+                });
+            }
+
+            return data;
         }
 
         el("configFile").addEventListener("change", async (e) => {
@@ -1645,11 +1835,16 @@ Notes: ${prNotes || "N/A"}`;
             }
         });
 
-        document.addEventListener("change", updateChecklistScoreUI);
-        document.addEventListener("input", updateChecklistScoreUI);
+        function handleInputChange() {
+            if (!config) return; // ✅ critical guard
 
-        document.addEventListener("input", autoSave);
-        document.addEventListener("change", autoSave);
+            updateChecklistScoreUI();
+            updateOverallProgress();
+            autoSave();
+        }
+
+        document.addEventListener("input", handleInputChange);
+        document.addEventListener("change", handleInputChange);
 
         window.generateEmail = generateEmail;
         window.copyEmail = copyEmail;
