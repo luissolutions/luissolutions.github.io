@@ -1,0 +1,1924 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>RADAR QC Tool</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link rel="stylesheet" href="../assets/css/app-styles.css" id="stylesheet">
+    <script type="module" src="./assets/js/login.js" defer></script>
+
+    <style>
+        .section {
+            margin-bottom: 16px;
+            padding: 14px;
+            border: 1px solid;
+            border-radius: 12px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 10px;
+        }
+
+        .col-3 {
+            grid-column: span 3;
+        }
+
+        .col-4 {
+            grid-column: span 4;
+        }
+
+        .col-6 {
+            grid-column: span 6;
+        }
+
+        .col-12 {
+            grid-column: span 12;
+        }
+
+        @media (max-width: 900px) {
+
+            .col-3,
+            .col-4,
+            .col-6 {
+                grid-column: span 12;
+            }
+        }
+
+        label {
+            display: block;
+            margin: 10px 0 6px;
+        }
+
+        input,
+        textarea,
+        select {
+            width: 100%;
+            padding: 10px;
+            border-radius: 10px;
+            outline: none;
+        }
+
+        .checkItem {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            padding: 10px;
+            border: 1px solid;
+            border-radius: 10px;
+            margin: 8px 0;
+        }
+
+        .checkItem label {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+            cursor: pointer;
+        }
+
+        .checkItem input[type="checkbox"] {
+            width: auto;
+            margin-top: 2px;
+            flex: 0 0 auto;
+        }
+
+        .fraction {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .fraction input {
+            width: 100%;
+        }
+
+        .scoreRow {
+            border: 1px solid;
+            border-radius: 12px;
+            padding: 12px;
+            margin: 10px 0;
+        }
+
+        .scoreRow .rowTop {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+
+        .btnRow {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .adminRow {
+            display: grid;
+            grid-template-columns: 1fr auto auto auto;
+            gap: 8px;
+            align-items: center;
+            margin: 8px 0;
+        }
+
+        .adminMini {
+            width: 90px;
+        }
+
+        .badgeLive {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid;
+            font-size: 12px;
+        }
+
+        #saveStatus {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .muted {
+            opacity: 0.75;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Standardized Checklist + Evaluation</h1>
+
+        <span id="login-section" class="logins-section">
+            <section>
+                <form id="login-form">
+                    <label for="username">Email:</label>
+                    <input type="email" id="username" required>
+                    <br>
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" required>
+                    <br>
+                    <button type="submit">Sign in</button>
+                </form>
+                <button id="logout" style="display:none;">Logout</button>
+            </section>
+
+            <div class="ms">
+                <br>
+                <button id="loginButton">Login to MS</button>
+                <button id="logoutButton">Logout of MS</button>
+                <p id="loginStatus">Login status...</p>
+            </div>
+        </span>
+    </header>
+
+    <main>
+        <div class="section">
+            <h2>Site Record</h2>
+            <div class="grid">
+                <div class="col-6">
+                    <label for="siteInput">Site ID</label>
+                    <input id="siteInput" placeholder="Enter Site ID (ex: 761)">
+                </div>
+                <div class="col-6">
+                    <label>&nbsp;</label>
+                    <div class="btnRow">
+                        <button onclick="loadSite()">Load Site</button>
+                        <button onclick="createNewSite()">New Site</button>
+                        <span id="saveStatus" class="badgeLive">Saved</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="small" id="programLine"></div>
+
+        <div class="section" id="configSection">
+            <h2>Live Config (Firebase)</h2>
+            <div class="small">Checklist template loads automatically from Firebase and updates live.</div>
+            <div class="btnRow">
+                <span id="configStatus" class="badge bad">Config not loaded</span>
+            </div>
+        </div>
+
+        <div class="section" id="siteInfoSection">
+            <h2>Site / Team Info</h2>
+            <div class="grid" id="metaGrid"></div>
+            <div class="btnRow">
+                <button class="danger" onclick="resetAll()">Reset</button>
+                <button onclick="saveLocal()">Save Local</button>
+                <button onclick="loadLocal()">Load Local</button>
+            </div>
+            <div class="small">Firebase is primary. Local storage is a backup on this device/browser.</div>
+        </div>
+
+        <div class="section" id="qcAckSection">
+            <h2>QC Acknowledgement</h2>
+            <div id="qcAckList"></div>
+            <div id="qcAckNotesWrap"></div>
+        </div>
+
+        <div class="section" id="preDeploySection">
+            <h2>Pre-Deployment</h2>
+            <div id="preDeployList"></div>
+            <div id="preDeployNotesWrap"></div>
+        </div>
+
+        <div class="section" id="dailyProgressSection">
+            <h2>Daily Training & Progress</h2>
+            <div class="grid" id="dailyStatusGrid"></div>
+            <div class="grid" id="dailyCountersGrid"></div>
+            <div id="dailyProgressNotesWrap"></div>
+        </div>
+
+        <div class="section" id="dailyTrainingSection">
+            <h2>Training Completed Today</h2>
+            <div id="dailyTrainingList"></div>
+            <div class="grid" id="understandingGrid"></div>
+            <div id="trainingNotesWrap"></div>
+        </div>
+
+        <div class="section" id="safetySection">
+            <h2>Safety / Store Protection</h2>
+            <div id="safetyList"></div>
+            <div id="safetyNotesWrap"></div>
+        </div>
+
+        <div class="section" id="dailyProtocolSection">
+            <h2>Daily Responsibilities / Protocol</h2>
+            <div id="dailyProtocolList"></div>
+            <div id="dailyProtocolNotesWrap"></div>
+        </div>
+
+        <div class="section hidden" id="finalEvalSection">
+            <h2>End-of-Week Partner Evaluation (Final Night)</h2>
+
+            <div class="small" id="thresholdLine"></div>
+
+            <h3>Scoring</h3>
+            <div id="finalScoring"></div>
+
+            <div class="grid">
+                <div class="col-4">
+                    <label for="finalTotal">Total Score</label>
+                    <input id="finalTotal" type="text" readonly value="0">
+                </div>
+                <div class="col-4">
+                    <label for="autoDecision">Auto Recommendation</label>
+                    <input id="autoDecision" type="text" readonly value="Not Approved">
+                </div>
+                <div class="col-4">
+                    <label for="overrideDecision">Override Recommendation</label>
+                    <select id="overrideDecision"></select>
+                </div>
+            </div>
+
+            <h3>Effectiveness / Efficiency Forecast</h3>
+            <div class="grid" id="forecastGrid"></div>
+
+            <h3>Final Flags</h3>
+            <div id="finalFlags"></div>
+
+            <div id="finalNotesWrap"></div>
+        </div>
+
+        <div class="section" id="scoreSection">
+            <h2>QC Score</h2>
+
+            <div class="grid">
+                <div class="col-4">
+                    <label>Total Completed</label>
+                    <input id="scoreCompleted" readonly>
+                </div>
+
+                <div class="col-4">
+                    <label>Total Items</label>
+                    <input id="scoreMax" readonly>
+                </div>
+
+                <div class="col-4">
+                    <label>Score %</label>
+                    <input id="scorePercent" readonly>
+                </div>
+            </div>
+
+            <div class="grid">
+                <div class="col-12">
+                    <label>Recommendation</label>
+                    <input id="scoreDecision" readonly>
+                </div>
+            </div>
+        </div>
+
+        <div class="section" id="emailSection">
+            <h2>Email Export</h2>
+            <div class="btnRow">
+                <button onclick="generateEmail()">Generate Report</button>
+                <button onclick="copyEmail()">Copy</button>
+                <button onclick="downloadPdf()">Download PDF</button>
+                <button onclick="uploadPdfReport()">Upload PDF to OneDrive</button>
+            </div>
+            <label for="emailOut">Email Text</label>
+            <textarea id="emailOut" class="mono" style="min-height:300px"></textarea>
+        </div>
+
+        <div class="col-4">
+            <label>Overall Progress</label>
+            <input id="overallProgress" readonly>
+        </div>
+
+        <div class="section">
+            <h2>Admin Editor</h2>
+
+            <div class="grid">
+                <div class="col-4">
+                    <label for="adminSection">Section</label>
+                    <select id="adminSection">
+                        <option value="qcAcknowledgement">QC Ack</option>
+                        <option value="preDeployment">Pre Deploy</option>
+                        <option value="dailyTraining">Training</option>
+                        <option value="safetyStoreProtection">Safety</option>
+                        <option value="dailyProtocol">Protocol</option>
+                    </select>
+                </div>
+
+                <div class="col-6">
+                    <label for="adminText">Question text</label>
+                    <input id="adminText" placeholder="Question text">
+                </div>
+
+                <div class="col-2">
+                    <label for="adminPersistent">Persistent</label>
+                    <input type="checkbox" id="adminPersistent">
+                </div>
+            </div>
+
+            <div class="btnRow">
+                <button onclick="addItem()">Add</button>
+            </div>
+
+            <div id="adminList"></div>
+        </div>
+    </main>
+
+    <script type="module">
+        import {
+            accessToken,
+            isLoggedIn,
+            isTokenExpired,
+            loginToMicrosoft,
+            logoutFromMicrosoft,
+            getUserInfo
+        } from "./assets/js/microsoftAuth.js";
+
+        import {
+            getDatabase,
+            ref,
+            set,
+            get,
+            onValue
+        } from './assets/js/firebase-init.js';
+
+        const db = getDatabase();
+
+        const LOCAL_RECORD_KEY = "radar_qc_tool_standard_v3";
+        const LAST_SITE_KEY = "radar_qc_last_site";
+
+        let config = null;
+        let currentSite = null;
+        let saveTimeout = null;
+        let pauseAutosave = false;
+
+        function el(id) {
+            return document.getElementById(id);
+        }
+
+        function escapeText(value) {
+            return String(value ?? "").replace(/\r/g, "").trim();
+        }
+
+        function setTodayIfEmpty(input) {
+            if (!input || input.value) return;
+            const d = new Date();
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, "0");
+            const dd = String(d.getDate()).padStart(2, "0");
+            input.value = `${yyyy}-${mm}-${dd}`;
+        }
+
+        function sanitizeFilePart(value, fallback = "Unknown") {
+            const text = escapeText(value) || fallback;
+            return text.replace(/[\\/:*?"<>|]+/g, "_");
+        }
+
+        function setSaveStatus(text) {
+            const node = el("saveStatus");
+            if (node) node.textContent = text;
+        }
+
+        function setConfigStatus(ok, msg) {
+            const status = el("configStatus");
+            status.textContent = msg;
+            status.classList.remove("good", "warn", "bad");
+            status.classList.add(ok ? "good" : "bad");
+        }
+
+        function getRecordRef(siteId) {
+            return ref(db, `public/qcRecords/${siteId}`);
+        }
+
+        function getConfigRef() {
+            return ref(db, `public/qcTemplates/default`);
+        }
+
+        function getAdminSectionConfig() {
+            const key = el("adminSection")?.value;
+            return key ? config?.[key] : null;
+        }
+
+        function validateConfig(parsed) {
+            const required = [
+                "metaFields",
+                "nights",
+                "qcAcknowledgement",
+                "dailyProgress",
+                "dailyTraining",
+                "dailyProtocol"
+            ];
+
+            const missing = required.filter(key => parsed[key] == null);
+            if (missing.length) {
+                throw new Error("Missing required keys: " + missing.join(", "));
+            }
+
+            if (!Array.isArray(parsed.metaFields)) throw new Error("metaFields must be an array");
+            if (!Array.isArray(parsed.nights)) throw new Error("nights must be an array");
+            if (!Array.isArray(parsed.qcAcknowledgement?.items)) throw new Error("qcAcknowledgement.items must be an array");
+            if (!Array.isArray(parsed.dailyTraining?.items)) throw new Error("dailyTraining.items must be an array");
+            if (!Array.isArray(parsed.dailyProtocol?.items)) throw new Error("dailyProtocol.items must be an array");
+        }
+
+        function buildCheckboxList(containerId, items, prefix) {
+            const container = el(containerId);
+            container.innerHTML = "";
+
+            (items || []).forEach((item, idx) => {
+                const night = el("nightSelect")?.value || "1";
+
+                const isPersistent = typeof item === "object" ? !!item.persistent : false;
+                const text = typeof item === "object" ? item.text : item;
+
+                const id = isPersistent
+                    ? `${prefix}_${idx}`
+                    : `${prefix}_${idx}_n${night}`;
+
+                const row = document.createElement("div");
+                row.className = "checkItem";
+
+                row.innerHTML = `
+                    <label for="${id}">
+                        <input type="checkbox" id="${id}">
+                        <span>${escapeText(text)}${isPersistent ? " 🔒" : ""}</span>
+                    </label>
+                `;
+
+                container.appendChild(row);
+            });
+        }
+
+        function buildNotesField(parentId, field) {
+            const parent = el(parentId);
+            parent.innerHTML = "";
+            if (!field) return;
+
+            const id = `field_${field.id}`;
+            const wrap = document.createElement("div");
+            wrap.innerHTML = `
+                <label for="${id}">${escapeText(field.label || "Notes")}</label>
+                <textarea id="${id}" placeholder="${escapeText(field.placeholder)}"></textarea>
+            `;
+            parent.appendChild(wrap);
+        }
+
+        function buildNotesFields(parentId, fields) {
+            const parent = el(parentId);
+            parent.innerHTML = "";
+
+            (fields || []).forEach(f => {
+                const id = `field_${f.id}`;
+                const wrap = document.createElement("div");
+                wrap.innerHTML = `
+                    <label for="${id}">${escapeText(f.label || "Notes")}</label>
+                    <textarea id="${id}" placeholder="${escapeText(f.placeholder)}"></textarea>
+                `;
+                parent.appendChild(wrap);
+            });
+        }
+
+        function buildSelectField(container, field, colClass = "col-4") {
+            const wrap = document.createElement("div");
+            wrap.className = colClass;
+            const id = `field_${field.id}`;
+            const opts = (field.options || [])
+                .map(o => `<option value="${escapeText(o)}">${escapeText(o)}</option>`)
+                .join("");
+
+            wrap.innerHTML = `
+                <label for="${id}">${escapeText(field.label)}</label>
+                <select id="${id}">${opts}</select>
+            `;
+            container.appendChild(wrap);
+        }
+
+        function buildMeta() {
+            const grid = el("metaGrid");
+            grid.innerHTML = "";
+
+            const nightWrap = document.createElement("div");
+            nightWrap.className = "col-4";
+            nightWrap.innerHTML = `
+                <label for="nightSelect">Night / Phase</label>
+                <select id="nightSelect"></select>
+            `;
+            grid.appendChild(nightWrap);
+
+            const ns = el("nightSelect");
+
+            (config.nights || []).forEach(n => {
+                const opt = document.createElement("option");
+                opt.value = n.id;
+                opt.textContent = n.name;
+                ns.appendChild(opt);
+            });
+
+            ns.addEventListener("change", () => {
+                const nightMeta = el("meta_nightNumber");
+                if (nightMeta) {
+                    nightMeta.value = ns.options[ns.selectedIndex]?.textContent || "";
+                }
+
+                buildQCAck();
+                buildPreDeploy();
+                buildDailyTraining();
+                buildSafety();
+                buildDailyProtocol();
+                buildFinalEval();
+
+                if (currentSite) {
+                    loadSite();
+                } else {
+                    const raw = localStorage.getItem(LOCAL_RECORD_KEY);
+                    if (raw) {
+                        try {
+                            pauseAutosave = true;
+                            applyData(JSON.parse(raw));
+                        } finally {
+                            pauseAutosave = false;
+                        }
+                    }
+                }
+
+                updateVisibilityByNight();
+                updateChecklistScoreUI();
+                updateOverallProgress();
+            });
+
+            (config.metaFields || []).forEach(f => {
+                const wrap = document.createElement("div");
+                wrap.className = f.type === "textarea" ? "col-12" : "col-4";
+                const id = `meta_${f.id}`;
+
+                if (f.type === "textarea") {
+                    wrap.innerHTML = `
+                        <label for="${id}">${escapeText(f.label)}</label>
+                        <textarea id="${id}" placeholder="${escapeText(f.placeholder)}"></textarea>
+                    `;
+                } else if (f.type === "date") {
+                    wrap.innerHTML = `
+                        <label for="${id}">${escapeText(f.label)}</label>
+                        <input id="${id}" type="date">
+                    `;
+                } else if (f.type === "number") {
+                    wrap.innerHTML = `
+                        <label for="${id}">${escapeText(f.label)}</label>
+                        <input id="${id}" type="number" min="${f.min ?? 0}" step="${f.step ?? 1}" placeholder="${escapeText(f.placeholder)}">
+                    `;
+                } else {
+                    wrap.innerHTML = `
+                        <label for="${id}">${escapeText(f.label)}</label>
+                        <input id="${id}" type="text" placeholder="${escapeText(f.placeholder)}">
+                    `;
+                }
+
+                grid.appendChild(wrap);
+            });
+
+            const nightMeta = el("meta_nightNumber");
+            if (nightMeta) {
+                nightMeta.value = ns.options[ns.selectedIndex]?.textContent || "";
+            }
+        }
+
+        function buildQCAck() {
+            buildCheckboxList("qcAckList", config.qcAcknowledgement?.items, "ack");
+            buildNotesField("qcAckNotesWrap", config.qcAcknowledgement?.notesField);
+        }
+
+        function buildPreDeploy() {
+            buildCheckboxList("preDeployList", config.preDeployment?.items, "pre");
+            buildNotesField("preDeployNotesWrap", config.preDeployment?.notesField);
+        }
+
+        function buildDailyProgress() {
+            const statusGrid = el("dailyStatusGrid");
+            const countersGrid = el("dailyCountersGrid");
+            statusGrid.innerHTML = "";
+            countersGrid.innerHTML = "";
+
+            (config.dailyProgress?.statusFields || []).forEach(f => {
+                const wrap = document.createElement("div");
+                wrap.className = "col-4";
+                const id = `field_${f.id}`;
+                const opts = (f.options || [])
+                    .map(o => `<option value="${escapeText(o)}">${escapeText(o)}</option>`)
+                    .join("");
+
+                wrap.innerHTML = `
+                    <label for="${id}">${escapeText(f.label)}</label>
+                    <select id="${id}">${opts}</select>
+                `;
+                statusGrid.appendChild(wrap);
+            });
+
+            (config.dailyProgress?.counters || []).forEach(f => {
+                const wrap = document.createElement("div");
+                wrap.className = "col-3";
+                wrap.innerHTML = `
+                    <label>${escapeText(f.label)}</label>
+                    <div class="fraction">
+                        <input id="field_${f.id}" type="number" min="0" placeholder="Done">
+                        <span>/</span>
+                        <input id="field_${f.targetId}" type="number" min="0" placeholder="Total">
+                    </div>
+                `;
+                countersGrid.appendChild(wrap);
+            });
+
+            buildNotesFields("dailyProgressNotesWrap", config.dailyProgress?.notesFields);
+        }
+
+        function buildDailyTraining() {
+            buildCheckboxList("dailyTrainingList", config.dailyTraining?.items, "train");
+            const understandingGrid = el("understandingGrid");
+            understandingGrid.innerHTML = "";
+
+            (config.dailyTraining?.understandingFields || []).forEach(f => {
+                buildSelectField(understandingGrid, f, "col-4");
+            });
+
+            buildNotesField("trainingNotesWrap", config.dailyTraining?.notesField);
+        }
+
+        function buildSafety() {
+            buildCheckboxList("safetyList", config.safetyStoreProtection?.items, "safe");
+            buildNotesFields("safetyNotesWrap", config.safetyStoreProtection?.notesFields);
+        }
+
+        function buildDailyProtocol() {
+            buildCheckboxList("dailyProtocolList", config.dailyProtocol?.items, "proto");
+            buildNotesField("dailyProtocolNotesWrap", config.dailyProtocol?.notesField);
+        }
+
+        function buildFinalEval() {
+            const fe = config.finalEvaluation;
+            const section = el("finalEvalSection");
+
+            if (!fe) {
+                section.classList.add("hidden");
+                return;
+            }
+
+            el("thresholdLine").innerHTML =
+                `Score thresholds:
+                <span class="badge good">${fe.thresholds.fullyCertified}+</span>
+                <span class="badge warn">${fe.thresholds.minorCoaching}–${fe.thresholds.fullyCertified - 1}</span>
+                <span class="badge warn">${fe.thresholds.conditional}–${fe.thresholds.minorCoaching - 1}</span>
+                <span class="badge bad">&lt;${fe.thresholds.conditional}</span>`;
+
+            const scoringWrap = el("finalScoring");
+            scoringWrap.innerHTML = "";
+
+            (fe.scoring || []).forEach(cat => {
+                const row = document.createElement("div");
+                row.className = "scoreRow";
+                row.innerHTML = `
+                    <div class="rowTop">
+                        <div><b>${escapeText(cat.name)}</b> <span class="badge">Max ${cat.max}</span></div>
+                        <input class="finalScoreInput" id="final_${cat.id}" type="number" min="0" max="${cat.max}" step="1" value="">
+                    </div>
+                    <div class="small muted" style="margin-top:6px">${escapeText(cat.hint || "")}</div>
+                    <label for="finalNote_${cat.id}">Notes</label>
+                    <textarea id="finalNote_${cat.id}" placeholder="Notes for ${escapeText(cat.name)}..."></textarea>
+                `;
+                scoringWrap.appendChild(row);
+            });
+
+            const od = el("overrideDecision");
+            od.innerHTML = "";
+            (fe.recommendationOptions || []).forEach(opt => {
+                const option = document.createElement("option");
+                option.value = opt === "Auto (based on score)" ? "" : opt;
+                option.textContent = opt;
+                od.appendChild(option);
+            });
+
+            const fg = el("forecastGrid");
+            fg.innerHTML = "";
+            (fe.effectivenessForecast?.fields || []).forEach(f => buildSelectField(fg, f, "col-4"));
+
+            buildCheckboxList("finalFlags", fe.flags, "fflag");
+            buildNotesFields("finalNotesWrap", fe.notesFields);
+        }
+
+        function updateVisibilityByNight() {
+            const nightId = el("nightSelect")?.value ?? "1";
+
+            el("preDeploySection").classList.toggle("hidden", nightId !== "1");
+            if (config?.finalEvaluation) {
+                el("finalEvalSection").classList.toggle("hidden", nightId !== "5");
+            } else {
+                el("finalEvalSection").classList.add("hidden");
+            }
+        }
+
+        function setCheckboxes(prefix, checks, items) {
+            const night = el("nightSelect")?.value || "1";
+            if (!Array.isArray(checks)) return;
+
+            checks.forEach((value, idx) => {
+                const item = items?.[idx];
+                const isPersistent = typeof item === "object" ? !!item.persistent : false;
+
+                const id = isPersistent
+                    ? `${prefix}_${idx}`
+                    : `${prefix}_${idx}_n${night}`;
+
+                const checkbox = el(id);
+                if (checkbox) checkbox.checked = !!value;
+            });
+        }
+
+        function collectCheckboxes(prefix, items) {
+            const night = el("nightSelect")?.value || "1";
+            const out = [];
+
+            (items || []).forEach((item, i) => {
+                const isPersistent = typeof item === "object" ? !!item.persistent : false;
+                const id = isPersistent ? `${prefix}_${i}` : `${prefix}_${i}_n${night}`;
+                out.push(!!el(id)?.checked);
+            });
+
+            return out;
+        }
+
+        function collectData() {
+            const night = el("nightSelect")?.value || "1";
+
+            const data = {
+                nightSelect: night,
+                meta: {},
+                fields: {},
+                checks: {
+                    ack: [],
+                    pre: {},
+                    train: {},
+                    safe: {},
+                    proto: {}
+                },
+                final: {}
+            };
+
+            (config?.metaFields || []).forEach(f => {
+                const node = el(`meta_${f.id}`);
+                data.meta[f.id] = node ? node.value : "";
+            });
+
+            data.checks.ack = collectCheckboxes("ack", config.qcAcknowledgement?.items);
+            data.fields.qcAckNotes = el(`field_${config?.qcAcknowledgement?.notesField?.id}`)?.value ?? "";
+
+            data.checks.pre[night] = collectCheckboxes("pre", config.preDeployment?.items);
+            data.fields.preDeployNotes = el(`field_${config?.preDeployment?.notesField?.id}`)?.value ?? "";
+
+            (config?.dailyProgress?.statusFields || []).forEach(f => {
+                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
+            });
+
+            (config?.dailyProgress?.counters || []).forEach(f => {
+                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
+                if (f.targetId) data.fields[f.targetId] = el(`field_${f.targetId}`)?.value ?? "";
+            });
+
+            (config?.dailyProgress?.notesFields || []).forEach(f => {
+                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
+            });
+
+            data.checks.train[night] = collectCheckboxes("train", config.dailyTraining?.items);
+
+            (config?.dailyTraining?.understandingFields || []).forEach(f => {
+                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
+            });
+
+            data.fields.trainingNotes = el(`field_${config?.dailyTraining?.notesField?.id}`)?.value ?? "";
+
+            data.checks.safe[night] = collectCheckboxes("safe", config.safetyStoreProtection?.items);
+
+            (config?.safetyStoreProtection?.notesFields || []).forEach(f => {
+                data.fields[f.id] = el(`field_${f.id}`)?.value ?? "";
+            });
+
+            data.checks.proto[night] = collectCheckboxes("proto", config.dailyProtocol?.items);
+            data.fields.protocolNotes = el(`field_${config?.dailyProtocol?.notesField?.id}`)?.value ?? "";
+
+            const fe = config?.finalEvaluation;
+            if (fe) {
+                data.final.scores = {};
+                data.final.notes = {};
+
+                (fe.scoring || []).forEach(cat => {
+                    data.final.scores[cat.id] = el(`final_${cat.id}`)?.value ?? "";
+                    data.final.notes[cat.id] = el(`finalNote_${cat.id}`)?.value ?? "";
+                });
+
+                data.final.overrideDecision = el("overrideDecision")?.value ?? "";
+                data.final.forecast = {};
+
+                (fe.effectivenessForecast?.fields || []).forEach(f => {
+                    data.final.forecast[f.id] = el(`field_${f.id}`)?.value ?? "";
+                });
+
+                data.final.flags = collectCheckboxes("fflag", fe.flags || []);
+
+                (fe.notesFields || []).forEach(f => {
+                    data.final[f.id] = el(`field_${f.id}`)?.value ?? "";
+                });
+            }
+
+            return data;
+        }
+
+        function applyData(data) {
+            if (!data || !config) return;
+
+            pauseAutosave = true;
+            try {
+                if (el("nightSelect")) {
+                    el("nightSelect").value = data.nightSelect ?? "1";
+                    const nightMeta = el("meta_nightNumber");
+                    if (nightMeta) {
+                        nightMeta.value = el("nightSelect").options[el("nightSelect").selectedIndex]?.textContent || "";
+                    }
+                }
+
+                const night = el("nightSelect")?.value || "1";
+
+                (config.metaFields || []).forEach(f => {
+                    const node = el(`meta_${f.id}`);
+                    if (node) node.value = data.meta?.[f.id] ?? "";
+                });
+
+                buildQCAck();
+                buildPreDeploy();
+                buildDailyTraining();
+                buildSafety();
+                buildDailyProtocol();
+                buildFinalEval();
+
+                setCheckboxes("ack", data.checks?.ack, config.qcAcknowledgement?.items);
+                setCheckboxes("pre", data.checks?.pre?.[night], config.preDeployment?.items);
+                setCheckboxes("train", data.checks?.train?.[night], config.dailyTraining?.items);
+                setCheckboxes("safe", data.checks?.safe?.[night], config.safetyStoreProtection?.items);
+                setCheckboxes("proto", data.checks?.proto?.[night], config.dailyProtocol?.items);
+
+                Object.keys(data.fields || {}).forEach(key => {
+                    const node = el(`field_${key}`);
+                    if (node) node.value = data.fields[key] ?? "";
+                });
+
+                const fe = config.finalEvaluation;
+                if (fe && data.final) {
+                    (fe.scoring || []).forEach(cat => {
+                        const scoreNode = el(`final_${cat.id}`);
+                        const noteNode = el(`finalNote_${cat.id}`);
+                        if (scoreNode) scoreNode.value = data.final.scores?.[cat.id] ?? "";
+                        if (noteNode) noteNode.value = data.final.notes?.[cat.id] ?? "";
+                    });
+
+                    if (el("overrideDecision")) {
+                        el("overrideDecision").value = data.final.overrideDecision ?? "";
+                    }
+
+                    Object.keys(data.final.forecast || {}).forEach(key => {
+                        const node = el(`field_${key}`);
+                        if (node) node.value = data.final.forecast[key] ?? "";
+                    });
+
+                    setCheckboxes("fflag", data.final.flags, config.finalEvaluation?.flags);
+
+                    (fe.notesFields || []).forEach(f => {
+                        const node = el(`field_${f.id}`);
+                        if (node) node.value = data.final[f.id] ?? "";
+                    });
+                }
+
+                updateVisibilityByNight();
+                updateChecklistScoreUI();
+                updateOverallProgress();
+                hideEmptySections();
+                computeFinalScore();
+            } finally {
+                pauseAutosave = false;
+            }
+        }
+
+        function computeChecklistScore() {
+            if (!config) return { total: 0, max: 0, percent: 0 };
+
+            let total = 0;
+            let max = 0;
+
+            function countCheckboxSection(prefix, items) {
+                const night = el("nightSelect")?.value || "1";
+
+                items?.forEach((item, i) => {
+                    const isPersistent = typeof item === "object" ? !!item.persistent : false;
+                    const id = isPersistent ? `${prefix}_${i}` : `${prefix}_${i}_n${night}`;
+
+                    max += 1;
+                    if (el(id)?.checked) total += 1;
+                });
+            }
+
+            countCheckboxSection("ack", config.qcAcknowledgement?.items);
+            countCheckboxSection("pre", config.preDeployment?.items);
+            countCheckboxSection("train", config.dailyTraining?.items);
+            countCheckboxSection("safe", config.safetyStoreProtection?.items);
+            countCheckboxSection("proto", config.dailyProtocol?.items);
+
+            (config.dailyProgress?.counters || []).forEach(f => {
+                const done = Number(el(`field_${f.id}`)?.value || 0);
+                const totalTarget = Number(el(`field_${f.targetId}`)?.value || 0);
+                if (totalTarget > 0) {
+                    const ratio = Math.min(done / totalTarget, 1);
+                    max += 1;
+                    total += ratio;
+                }
+            });
+
+            const percent = max ? Math.round((total / max) * 100) : 0;
+            return { total, max, percent };
+        }
+
+        function getChecklistDecision(percent) {
+            if (percent >= 90) return "Fully Certified";
+            if (percent >= 75) return "Certified – Minor Coaching";
+            if (percent >= 60) return "Conditional";
+            return "Not Approved";
+        }
+
+        function updateChecklistScoreUI() {
+            const { total, max, percent } = computeChecklistScore();
+            el("scoreCompleted").value = total;
+            el("scoreMax").value = max;
+            el("scorePercent").value = percent + "%";
+            el("scoreDecision").value = getChecklistDecision(percent);
+        }
+
+        function updateOverallProgress() {
+            if (!config) return;
+
+            let totalDone = 0;
+            let totalTarget = 0;
+
+            (config.dailyProgress?.counters || []).forEach(f => {
+                const done = Number(el(`field_${f.id}`)?.value || 0);
+                const total = Number(el(`field_${f.targetId}`)?.value || 0);
+                totalDone += done;
+                totalTarget += total;
+            });
+
+            const percent = totalTarget ? Math.round((totalDone / totalTarget) * 100) : 0;
+            el("overallProgress").value = percent + "%";
+        }
+
+        function decisionFromScore(score, thresholds) {
+            if (score >= thresholds.fullyCertified) return "Fully Certified";
+            if (score >= thresholds.minorCoaching) return "Certified – Minor Coaching Recommended";
+            if (score >= thresholds.conditional) return "Conditional – Additional Training Required";
+            return "Not Approved";
+        }
+
+        function badgeClass(decision) {
+            if (decision.includes("Fully")) return "good";
+            if (decision.includes("Minor") || decision.includes("Conditional")) return "warn";
+            return "bad";
+        }
+
+        function isScoringComplete() {
+            const scoreInputs = [...document.querySelectorAll(".finalScoreInput")];
+            if (!scoreInputs.length) return false;
+            return scoreInputs.every(input => input.value !== "");
+        }
+
+        function clampScoreInputs() {
+            document.querySelectorAll(".finalScoreInput").forEach(input => {
+                const max = Number(input.max || 0);
+                let value = input.value;
+                if (value === "") return;
+
+                value = Number(value);
+                if (Number.isNaN(value)) {
+                    input.value = "";
+                    return;
+                }
+
+                if (value < 0) value = 0;
+                if (value > max) value = max;
+                input.value = String(value);
+            });
+        }
+
+        function computeFinalScore() {
+            const fe = config?.finalEvaluation;
+            if (!fe) return { total: 0, auto: "Not Approved", decision: "Not Approved" };
+
+            clampScoreInputs();
+
+            let total = 0;
+            (fe.scoring || []).forEach(cat => {
+                const raw = el(`final_${cat.id}`)?.value ?? "";
+                const value = raw === "" ? 0 : parseInt(raw, 10);
+                total += Number.isNaN(value) ? 0 : Math.max(0, Math.min(cat.max, value));
+            });
+
+            const auto = isScoringComplete()
+                ? decisionFromScore(total, fe.thresholds)
+                : "Incomplete";
+
+            const override = el("overrideDecision")?.value || "";
+            const decision = override || auto;
+
+            if (el("finalTotal")) el("finalTotal").value = total;
+            if (el("autoDecision")) el("autoDecision").value = auto;
+
+            const autoDecision = el("autoDecision");
+            if (autoDecision) {
+                autoDecision.classList.remove("good", "warn", "bad");
+                if (auto !== "Incomplete") {
+                    autoDecision.classList.add(badgeClass(auto));
+                }
+            }
+
+            return { total, auto, decision };
+        }
+
+        function checkedLines(prefix, items) {
+            const night = el("nightSelect")?.value || "1";
+            const out = [];
+
+            (items || []).forEach((item, idx) => {
+                const isPersistent = typeof item === "object" ? !!item.persistent : false;
+                const text = typeof item === "object" ? item.text : item;
+                const id = isPersistent ? `${prefix}_${idx}` : `${prefix}_${idx}_n${night}`;
+                if (el(id)?.checked) out.push(`✓ ${escapeText(text)}`);
+            });
+
+            return out;
+        }
+
+        function generateEmail() {
+            if (!config) {
+                alert("Template not loaded.");
+                return;
+            }
+
+            const d = collectData();
+            const nightId = el("nightSelect")?.value ?? "1";
+            const nightName = el("nightSelect")?.options[el("nightSelect").selectedIndex]?.textContent || "";
+
+            const siteNumber = escapeText(d.meta.siteNumber);
+            const partnerCompany = escapeText(d.meta.partnerCompany);
+            const leadTech = escapeText(d.meta.leadTech);
+
+            const subjectTpl = config.emailExport?.subjectTemplate || "RADAR QC – Daily Progress – Site {{siteNumber}}";
+            const subject =
+                "Subject: " + subjectTpl
+                    .replaceAll("{{siteNumber}}", siteNumber || "[Site]")
+                    .replaceAll("{{partnerCompany}}", partnerCompany || "[Partner]")
+                    .replaceAll("{{leadTech}}", leadTech || "[Lead]");
+
+            const siteInfo =
+                `Site Information
+Site #: ${siteNumber || "N/A"}
+Location: ${escapeText(d.meta.siteLocation) || "N/A"}
+Night/Phase: ${escapeText(d.meta.nightNumber) || nightName || "N/A"}
+QC Lead: ${escapeText(d.meta.qcLead) || "N/A"}
+Partner Company: ${partnerCompany || "N/A"}
+Lead Tech: ${leadTech || "N/A"}
+Tech Count: ${escapeText(d.meta.techCount) || "N/A"}
+Date: ${escapeText(d.meta.dateField) || "N/A"}
+
+Install Summary
+${escapeText(d.meta.installSummary) || "N/A"}`;
+
+            const ackChecked = checkedLines("ack", config.qcAcknowledgement?.items);
+            const ackNotes = escapeText(el(`field_${config.qcAcknowledgement?.notesField?.id}`)?.value);
+            const ackBlock =
+                `QC Acknowledgement
+${ackChecked.length ? ackChecked.join("\n") : "None checked."}
+Notes: ${ackNotes || "N/A"}`;
+
+            const preChecked = checkedLines("pre", config.preDeployment?.items);
+            const preNotes = escapeText(el(`field_${config.preDeployment?.notesField?.id}`)?.value);
+            const preBlock =
+                `Pre-Deployment
+${preChecked.length ? preChecked.join("\n") : "None checked."}
+Notes: ${preNotes || "N/A"}`;
+
+            const dp = config.dailyProgress || {};
+            const statusLines = (dp.statusFields || []).map(f => `${f.label}: ${escapeText(d.fields[f.id]) || "N/A"}`);
+            const counterLines = (dp.counters || []).map(f => {
+                const done = escapeText(d.fields[f.id]) || "0";
+                const total = escapeText(d.fields[f.targetId]) || "0";
+                return `${f.label}: ${done} / ${total}`;
+            });
+            const dpNotes = (dp.notesFields || []).map(f => `${f.label}: ${escapeText(d.fields[f.id]) || "N/A"}`).join("\n");
+
+            const dailyProgressBlock =
+                `Daily Training & Progress (${nightName})
+${statusLines.join("\n")}
+
+Counts
+${counterLines.join("\n")}
+
+Notes
+${dpNotes || "N/A"}`;
+
+            const trChecked = checkedLines("train", config.dailyTraining?.items);
+            const undLines = (config.dailyTraining?.understandingFields || []).map(f => `${f.label}: ${escapeText(d.fields[f.id]) || "N/A"}`);
+            const trNotes = escapeText(el(`field_${config.dailyTraining?.notesField?.id}`)?.value);
+
+            const trainingBlock =
+                `Training Completed Today
+${trChecked.length ? trChecked.join("\n") : "None checked."}
+
+Partner Understanding
+${undLines.join("\n")}
+
+Training Notes: ${trNotes || "N/A"}`;
+
+            const sfChecked = checkedLines("safe", config.safetyStoreProtection?.items);
+            const sfNotes = (config.safetyStoreProtection?.notesFields || []).map(f => `${f.label}: ${escapeText(d.fields[f.id]) || "N/A"}`).join("\n");
+
+            const safetyBlock =
+                `Safety / Store Protection
+${sfChecked.length ? sfChecked.join("\n") : "None checked."}
+
+Notes
+${sfNotes || "N/A"}`;
+
+            const prChecked = checkedLines("proto", config.dailyProtocol?.items);
+            const prNotes = escapeText(el(`field_${config.dailyProtocol?.notesField?.id}`)?.value);
+
+            const protocolBlock =
+                `Daily Responsibilities / Protocol
+${prChecked.length ? prChecked.join("\n") : "None checked."}
+Notes: ${prNotes || "N/A"}`;
+
+            let finalBlock = "";
+            if (nightId === "5" && config.finalEvaluation) {
+                const fe = config.finalEvaluation;
+                const { total, auto, decision } = computeFinalScore();
+
+                const scoreLines = (fe.scoring || []).map(cat => {
+                    const value = parseInt(el(`final_${cat.id}`)?.value || "0", 10);
+                    return `${cat.name}: ${Number.isNaN(value) ? 0 : value}/${cat.max}`;
+                }).join("\n");
+
+                const finalFlagLines = (fe.flags || [])
+                    .map((text, idx) => el(`fflag_${idx}`)?.checked ? `• ${escapeText(text)}` : null)
+                    .filter(Boolean)
+                    .join("\n") || "None";
+
+                const forecastLines = (fe.effectivenessForecast?.fields || [])
+                    .map(f => `${f.label}: ${escapeText(d.final.forecast?.[f.id]) || "N/A"}`)
+                    .join("\n");
+
+                const strengths = escapeText(d.final?.strengths) || "N/A";
+                const gaps = escapeText(d.final?.gapsTraining) || "N/A";
+                const next = escapeText(d.final?.nextSteps) || "N/A";
+
+                finalBlock =
+                    `End-of-Week Partner Evaluation (Final Night)
+Scoring Breakdown
+${scoreLines}
+
+Total Score: ${total}/100
+Auto Recommendation: ${auto}
+Final Recommendation: ${decision}
+
+Effectiveness / Efficiency Forecast
+${forecastLines || "N/A"}
+
+Final Flags
+${finalFlagLines}
+
+Final Notes
+Strengths: ${strengths}
+Gaps / Training Needed: ${gaps}
+Recommended Next Steps: ${next}`;
+            }
+
+            const bodyParts = [
+                subject,
+                "",
+                siteInfo,
+                "",
+                ackBlock,
+                "",
+                nightId === "1" ? preBlock : "",
+                "",
+                dailyProgressBlock,
+                "",
+                trainingBlock,
+                "",
+                safetyBlock,
+                "",
+                protocolBlock,
+                "",
+                finalBlock
+            ].filter(part => escapeText(part).length);
+
+            el("emailOut").value = bodyParts.join("\n");
+        }
+
+        async function copyEmail() {
+            const txt = el("emailOut").value;
+            if (!txt.trim()) {
+                alert("Generate the report first.");
+                return;
+            }
+
+            try {
+                await navigator.clipboard.writeText(txt);
+                alert("Copied.");
+            } catch {
+                el("emailOut").focus();
+                el("emailOut").select();
+                document.execCommand("copy");
+                alert("Copied (fallback).");
+            }
+        }
+
+        function hideEmptySections() {
+            const sections = [
+                { id: "qcAckSection", has: config?.qcAcknowledgement?.items?.length },
+                { id: "preDeploySection", has: config?.preDeployment?.items?.length },
+                {
+                    id: "dailyProgressSection",
+                    has: (
+                        config?.dailyProgress?.statusFields?.length ||
+                        config?.dailyProgress?.counters?.length ||
+                        config?.dailyProgress?.notesFields?.length
+                    )
+                },
+                {
+                    id: "dailyTrainingSection",
+                    has: (
+                        config?.dailyTraining?.items?.length ||
+                        config?.dailyTraining?.understandingFields?.length
+                    )
+                },
+                { id: "safetySection", has: config?.safetyStoreProtection?.items?.length },
+                { id: "dailyProtocolSection", has: config?.dailyProtocol?.items?.length },
+                { id: "finalEvalSection", has: config?.finalEvaluation }
+            ];
+
+            sections.forEach(s => {
+                const sectionNode = document.getElementById(s.id);
+                if (!sectionNode) return;
+                sectionNode.classList.toggle("hidden", !s.has);
+            });
+        }
+
+        async function generatePdfFromChecklist() {
+            if (!config) throw new Error("Template not loaded.");
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const data = collectData();
+
+            let y = 10;
+
+            function checkPageBreak(extra = 0) {
+                if (y + extra > 280) {
+                    doc.addPage();
+                    y = 10;
+                }
+            }
+
+            function addTitle(text) {
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(16);
+                doc.text(text, 10, y);
+                y += 8;
+                doc.setFont("helvetica", "normal");
+            }
+
+            function addHeaderLine(label, value) {
+                doc.setFont("helvetica", "bold");
+                doc.text(label, 10, y);
+                doc.setFont("helvetica", "normal");
+                doc.text(String(value || "N/A"), 70, y);
+                y += 6;
+            }
+
+            function addDivider() {
+                doc.line(10, y, 200, y);
+                y += 6;
+            }
+
+            function addSection(title) {
+                checkPageBreak(10);
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(12);
+                doc.text(title.toUpperCase(), 10, y);
+                y += 6;
+                doc.setFont("helvetica", "normal");
+                doc.setFontSize(10);
+            }
+
+            function addChecklistItem(text, checked) {
+                const symbol = checked ? "[X]" : "[ ]";
+                const lines = doc.splitTextToSize(text, 160);
+                checkPageBreak(lines.length * 6);
+                doc.text(symbol, 10, y);
+                doc.text(lines, 20, y);
+                y += lines.length * 6;
+            }
+
+            function addText(text) {
+                const lines = doc.splitTextToSize(text, 180);
+                checkPageBreak(lines.length * 5);
+                doc.text(lines, 10, y);
+                y += lines.length * 5;
+            }
+
+            addTitle("RADAR QC Technician Checklist");
+            addHeaderLine("Site #:", data.meta.siteNumber);
+            addHeaderLine("Location:", data.meta.siteLocation);
+            addHeaderLine("QC Lead:", data.meta.qcLead);
+            addHeaderLine("Partner:", data.meta.partnerCompany);
+            addHeaderLine("Lead Tech:", data.meta.leadTech);
+            addHeaderLine("Date:", data.meta.dateField);
+            addDivider();
+
+            addSection("QC Acknowledgement");
+            (config.qcAcknowledgement?.items || []).forEach((item, i) => {
+                const text = typeof item === "object" ? item.text : item;
+                addChecklistItem(text, data.checks.ack[i]);
+            });
+            if (data.fields.qcAckNotes) addText(`Notes: ${data.fields.qcAckNotes}`);
+            addDivider();
+
+            if (data.nightSelect === "1") {
+                addSection("Pre-Deployment");
+                const preChecks = data.checks.pre?.[data.nightSelect] || [];
+                (config.preDeployment?.items || []).forEach((item, i) => {
+                    const text = typeof item === "object" ? item.text : item;
+                    addChecklistItem(text, preChecks[i]);
+                });
+                if (data.fields.preDeployNotes) addText(`Notes: ${data.fields.preDeployNotes}`);
+                addDivider();
+            }
+
+            addSection("Daily Responsibilities / Protocol");
+            const protoChecks = data.checks.proto?.[data.nightSelect] || [];
+            (config.dailyProtocol?.items || []).forEach((item, i) => {
+                const text = typeof item === "object" ? item.text : item;
+                addChecklistItem(text, protoChecks[i]);
+            });
+            if (data.fields.protocolNotes) addText(`Notes: ${data.fields.protocolNotes}`);
+            addDivider();
+
+            addSection("Training Completed");
+            const trainChecks = data.checks.train?.[data.nightSelect] || [];
+            (config.dailyTraining?.items || []).forEach((item, i) => {
+                const text = typeof item === "object" ? item.text : item;
+                addChecklistItem(text, trainChecks[i]);
+            });
+            if (data.fields.trainingNotes) addText(`Notes: ${data.fields.trainingNotes}`);
+            addDivider();
+
+            addSection("Safety / Store Protection");
+            const safeChecks = data.checks.safe?.[data.nightSelect] || [];
+            (config.safetyStoreProtection?.items || []).forEach((item, i) => {
+                const text = typeof item === "object" ? item.text : item;
+                addChecklistItem(text, safeChecks[i]);
+            });
+            (config.safetyStoreProtection?.notesFields || []).forEach(f => {
+                if (data.fields[f.id]) addText(`${f.label}: ${data.fields[f.id]}`);
+            });
+            addDivider();
+
+            addSection("Daily Training & Progress");
+            (config.dailyProgress?.statusFields || []).forEach(f => addText(`${f.label}: ${data.fields[f.id] || "N/A"}`));
+            (config.dailyProgress?.counters || []).forEach(f => addText(`${f.label}: ${data.fields[f.id] || "0"} / ${data.fields[f.targetId] || "0"}`));
+            (config.dailyProgress?.notesFields || []).forEach(f => {
+                if (data.fields[f.id]) addText(`${f.label}: ${data.fields[f.id]}`);
+            });
+            addDivider();
+
+            if (data.nightSelect === "5" && config.finalEvaluation) {
+                addSection("Final Evaluation Summary");
+                let total = 0;
+                config.finalEvaluation.scoring.forEach(cat => {
+                    const val = parseInt(document.getElementById(`final_${cat.id}`)?.value || "0", 10);
+                    total += val;
+                    addText(`${cat.name}: ${val}/${cat.max}`);
+                });
+                addText(`Total Score: ${total}`);
+                addText(`Recommendation: ${decisionFromScore(total, config.finalEvaluation.thresholds)}`);
+            }
+
+            return doc.output("blob");
+        }
+
+        async function downloadPdf() {
+            if (!config) {
+                alert("Template not loaded.");
+                return;
+            }
+
+            try {
+                const blob = await generatePdfFromChecklist();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                const site = sanitizeFilePart(el("meta_siteNumber")?.value, "Site");
+                const night = sanitizeFilePart(el("meta_nightNumber")?.value, "Night");
+                a.href = url;
+                a.download = `QC_Report_${site}_${night}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                console.error(err);
+                alert("Failed to generate PDF.");
+            }
+        }
+
+        async function updateMicrosoftStatus() {
+            const statusEl = el("loginStatus");
+            const loginBtn = el("loginButton");
+            const logoutBtn = el("logoutButton");
+
+            if (!statusEl) return;
+
+            if (!isLoggedIn()) {
+                statusEl.textContent = "Not logged in";
+                if (loginBtn) loginBtn.style.display = "inline-block";
+                if (logoutBtn) logoutBtn.style.display = "none";
+                return;
+            }
+
+            try {
+                const user = await getUserInfo();
+                if (!user) {
+                    statusEl.textContent = "Not logged in";
+                    if (loginBtn) loginBtn.style.display = "inline-block";
+                    if (logoutBtn) logoutBtn.style.display = "none";
+                    return;
+                }
+
+                statusEl.textContent = `Logged in: ${user.displayName || user.userPrincipalName}`;
+                if (loginBtn) loginBtn.style.display = "none";
+                if (logoutBtn) logoutBtn.style.display = "inline-block";
+            } catch (err) {
+                console.error("Failed to load Microsoft user info:", err);
+                statusEl.textContent = "Login status unavailable";
+                if (loginBtn) loginBtn.style.display = "inline-block";
+                if (logoutBtn) logoutBtn.style.display = "none";
+            }
+        }
+
+        el("loginButton")?.addEventListener("click", async () => {
+            await loginToMicrosoft();
+        });
+
+        el("logoutButton")?.addEventListener("click", () => {
+            logoutFromMicrosoft();
+            updateMicrosoftStatus();
+        });
+
+        async function ensureOneDriveFolder(path) {
+            const parts = path.split("/").filter(Boolean);
+            let currentPath = "";
+
+            for (const part of parts) {
+                currentPath += (currentPath ? "/" : "") + part;
+
+                const checkUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${currentPath}:/`;
+                const res = await fetch(checkUrl, {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                });
+
+                if (res.status === 404) {
+                    const parent = currentPath.includes("/")
+                        ? currentPath.substring(0, currentPath.lastIndexOf("/"))
+                        : "";
+
+                    const createUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${parent ? parent : ""}:/children`;
+
+                    const createRes = await fetch(createUrl, {
+                        method: "POST",
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            name: part,
+                            folder: {},
+                            "@microsoft.graph.conflictBehavior": "rename"
+                        })
+                    });
+
+                    if (!createRes.ok) {
+                        throw new Error(`Failed to create folder: ${part}`);
+                    }
+                } else if (!res.ok) {
+                    throw new Error(`Failed to check folder: ${currentPath}`);
+                }
+            }
+        }
+
+        async function uploadPdfReport() {
+            if (!isLoggedIn()) {
+                alert("Please login to Microsoft first.");
+                return;
+            }
+
+            if (isTokenExpired(accessToken)) {
+                alert("Session expired. Please login again.");
+                return;
+            }
+
+            if (!config) {
+                alert("Template not loaded.");
+                return;
+            }
+
+            try {
+                const blob = await generatePdfFromChecklist();
+                const data = collectData();
+
+                const site = sanitizeFilePart(data.meta.siteNumber, "UnknownSite");
+                const night = sanitizeFilePart(data.meta.nightNumber, "Night");
+
+                const baseFolder = "QC Reports";
+                const siteFolder = `${baseFolder}/${site}`;
+                const nightFolder = `${siteFolder}/${night}`;
+
+                await ensureOneDriveFolder(baseFolder);
+                await ensureOneDriveFolder(siteFolder);
+                await ensureOneDriveFolder(nightFolder);
+
+                const fileName = `QC_Report_${Date.now()}.pdf`;
+                const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${nightFolder}/${fileName}:/content`;
+
+                const res = await fetch(uploadUrl, {
+                    method: "PUT",
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        "Content-Type": "application/pdf"
+                    },
+                    body: blob
+                });
+
+                if (!res.ok) {
+                    const errText = await res.text();
+                    console.error("Upload failed:", errText);
+                    alert("Upload failed. Check console for details.");
+                    return;
+                }
+
+                const result = await res.json();
+                alert("Uploaded to OneDrive!");
+                console.log("File URL:", result.webUrl);
+            } catch (err) {
+                console.error("Upload error:", err);
+                alert("Upload error. Check console for details.");
+            }
+        }
+
+        async function saveSiteData() {
+            if (!config || !currentSite || pauseAutosave) return;
+
+            setSaveStatus("Saving...");
+            const data = collectData();
+
+            try {
+                await set(getRecordRef(currentSite), data);
+                localStorage.setItem(LOCAL_RECORD_KEY, JSON.stringify(data));
+                setSaveStatus("Saved");
+            } catch (err) {
+                console.error("Save failed:", err);
+                setSaveStatus("Save failed");
+            }
+        }
+
+        async function loadSite() {
+            const site = escapeText(el("siteInput").value);
+            if (!site) {
+                alert("Enter site");
+                return;
+            }
+
+            currentSite = site;
+            localStorage.setItem(LAST_SITE_KEY, site);
+            setSaveStatus("Loading...");
+
+            const snap = await get(getRecordRef(site));
+
+            if (!snap.exists()) {
+                pauseAutosave = true;
+                try {
+                    resetAll(false);
+                } finally {
+                    pauseAutosave = false;
+                }
+                setSaveStatus("New site");
+                alert("New site created");
+                return;
+            }
+
+            applyData(snap.val());
+            setSaveStatus("Loaded");
+        }
+
+        function createNewSite() {
+            const site = escapeText(el("siteInput").value);
+            if (!site) {
+                alert("Enter site");
+                return;
+            }
+
+            currentSite = site;
+            localStorage.setItem(LAST_SITE_KEY, site);
+
+            pauseAutosave = true;
+            try {
+                resetAll(false);
+            } finally {
+                pauseAutosave = false;
+            }
+
+            setSaveStatus("New site");
+        }
+
+        function autoSaveLocal() {
+            if (!config || pauseAutosave) return;
+            clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(() => {
+                const data = collectData();
+                localStorage.setItem(LOCAL_RECORD_KEY, JSON.stringify(data));
+            }, 300);
+        }
+
+        function saveLocal() {
+            if (!config) {
+                alert("Template not loaded.");
+                return;
+            }
+
+            const data = collectData();
+            localStorage.setItem(LOCAL_RECORD_KEY, JSON.stringify(data));
+            alert("Saved locally.");
+        }
+
+        function loadLocal() {
+            if (!config) {
+                alert("Template not loaded.");
+                return;
+            }
+
+            const raw = localStorage.getItem(LOCAL_RECORD_KEY);
+            if (!raw) {
+                alert("No saved record found.");
+                return;
+            }
+
+            applyData(JSON.parse(raw));
+            alert("Loaded.");
+        }
+
+        function resetAll(confirmFirst = true) {
+            if (confirmFirst && !confirm("Clear all current form data?")) return;
+
+            document.querySelectorAll("input, textarea, select").forEach(node => {
+                if (node.id === "siteInput" || node.id.startsWith("admin")) return;
+
+                if (node.type === "checkbox") node.checked = false;
+                else if (!node.readOnly) node.value = "";
+            });
+
+            if (el("nightSelect")) el("nightSelect").value = "1";
+
+            const dateInput = document.querySelector('#metaGrid input[type="date"]');
+            if (dateInput) setTodayIfEmpty(dateInput);
+
+            // ✅ ONLY rebuild IF config exists
+            if (config) {
+                buildQCAck();
+                buildPreDeploy();
+                buildDailyTraining();
+                buildSafety();
+                buildDailyProtocol();
+                buildFinalEval();
+
+                updateVisibilityByNight();
+                updateChecklistScoreUI();
+                updateOverallProgress();
+                computeFinalScore();
+            }
+        }
+
+        function renderAdmin() {
+            const sectionKey = el("adminSection").value;
+            const list = el("adminList");
+            list.innerHTML = "";
+
+            const items = config?.[sectionKey]?.items || [];
+
+            items.forEach((item, i) => {
+                const text = typeof item === "object" ? item.text : item;
+                const persistent = typeof item === "object" ? !!item.persistent : false;
+
+                const row = document.createElement("div");
+                row.className = "adminRow";
+
+                row.innerHTML = `
+                    <input value="${escapeText(text)}" data-kind="text">
+                    <label class="adminMini"><input type="checkbox" ${persistent ? "checked" : ""} data-kind="persistent"> Persistent</label>
+                    <button type="button" data-action="save">Update</button>
+                    <button type="button" data-action="delete">Delete</button>
+                `;
+
+                const textInput = row.querySelector('[data-kind="text"]');
+                const persistentInput = row.querySelector('[data-kind="persistent"]');
+                const saveBtn = row.querySelector('[data-action="save"]');
+                const deleteBtn = row.querySelector('[data-action="delete"]');
+
+                saveBtn.addEventListener("click", async () => {
+                    const updated = {
+                        text: textInput.value,
+                        persistent: persistentInput.checked
+                    };
+                    config[sectionKey].items[i] = updated;
+                    await saveConfig();
+                });
+
+                deleteBtn.addEventListener("click", async () => {
+                    config[sectionKey].items.splice(i, 1);
+                    await saveConfig();
+                });
+
+                list.appendChild(row);
+            });
+        }
+
+        async function saveConfig() {
+            await set(getConfigRef(), config);
+            renderAdmin();
+
+            buildQCAck();
+            buildPreDeploy();
+            buildDailyTraining();
+            buildSafety();
+            buildDailyProtocol();
+            buildFinalEval();
+
+            updateVisibilityByNight();
+            updateChecklistScoreUI();
+            updateOverallProgress();
+        }
+
+        async function addItem() {
+            const key = el("adminSection").value;
+            const text = escapeText(el("adminText").value);
+            const persistent = el("adminPersistent").checked;
+
+            if (!text) return;
+
+            if (!config[key].items) config[key].items = [];
+            config[key].items.push({ text, persistent });
+
+            el("adminText").value = "";
+            el("adminPersistent").checked = false;
+
+            await saveConfig();
+        }
+
+        function listenConfig() {
+            onValue(getConfigRef(), (snap) => {
+                if (!snap.exists()) return;
+
+                try {
+                    const parsed = snap.val();
+                    validateConfig(parsed);
+                    config = parsed;
+
+                    el("programLine").textContent = `${config.program || "QC Program"} • v${config.version || "1.0"}`;
+
+                    buildMeta();
+                    buildQCAck();
+                    buildPreDeploy();
+                    buildDailyProgress();
+                    buildDailyTraining();
+                    buildSafety();
+                    buildDailyProtocol();
+                    buildFinalEval();
+
+                    const dateInput = document.querySelector('#metaGrid input[type="date"]');
+                    if (dateInput) setTodayIfEmpty(dateInput);
+
+                    renderAdmin();
+                    updateVisibilityByNight();
+                    hideEmptySections();
+                    updateChecklistScoreUI();
+                    updateOverallProgress();
+                    setConfigStatus(true, "Live config loaded");
+
+                    const lastSite = localStorage.getItem(LAST_SITE_KEY);
+                    if (lastSite && !currentSite) {
+                        el("siteInput").value = lastSite;
+                        loadSite();
+                    } else if (!currentSite) {
+                        const raw = localStorage.getItem(LOCAL_RECORD_KEY);
+                        if (raw) {
+                            try {
+                                applyData(JSON.parse(raw));
+                            } catch (err) {
+                                console.error("Failed to load local backup:", err);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error(err);
+                    setConfigStatus(false, "Config load failed");
+                }
+            });
+        }
+
+        document.addEventListener("input", (e) => {
+            if (e.target.classList.contains("finalScoreInput")) {
+                computeFinalScore();
+            }
+        });
+
+        function handleInputChange() {
+            if (!config || pauseAutosave) return;
+            updateChecklistScoreUI();
+            updateOverallProgress();
+            autoSaveLocal();
+            saveSiteData();
+        }
+
+        document.addEventListener("input", handleInputChange);
+        document.addEventListener("change", handleInputChange);
+
+        el("adminSection")?.addEventListener("change", renderAdmin);
+
+        window.loadSite = loadSite;
+        window.createNewSite = createNewSite;
+        window.generateEmail = generateEmail;
+        window.copyEmail = copyEmail;
+        window.uploadPdfReport = uploadPdfReport;
+        window.downloadPdf = downloadPdf;
+        window.saveLocal = saveLocal;
+        window.loadLocal = loadLocal;
+        window.resetAll = resetAll;
+        window.addItem = addItem;
+
+        await updateMicrosoftStatus();
+        listenConfig();
+    </script>
+</body>
+
+</html>
