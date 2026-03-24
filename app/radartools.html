@@ -301,6 +301,14 @@
     </div>
 
     <main>
+
+        <div style="margin: 10px 0;">
+            <label>Site Number</label>
+            <input id="siteNumber" placeholder="Enter Site Number" />
+            <button onclick="loadLocal()">Load</button>
+            <button onclick="saveLocal()">Save</button>
+        </div>
+
         <!-- Instruction Block -->
         <section>
 
@@ -348,12 +356,6 @@
                 config = await res.json();
 
                 buildApp();
-
-                // AUTO LOAD SAVED DATA
-                const raw = localStorage.getItem(KEY);
-                if (raw) {
-                    applyData(JSON.parse(raw));
-                }
 
             } catch (err) {
                 console.error("Failed to load config:", err);
@@ -551,25 +553,52 @@
         }
 
         // ================= SAVE =================
-        const KEY = "qc_app";
+        function getStorageKey() {
+            const site = el("siteNumber")?.value?.trim();
+            return site ? `qc_app_${site}` : null;
+        }
 
+        el("siteNumber").addEventListener("change", () => {
+            try {
+                loadLocal();
+            } catch { }
+        });
         function saveLocal() {
-            localStorage.setItem(KEY, JSON.stringify(collectData()));
+            localStorage.setItem(getStorageKey(), JSON.stringify(collectData()));
             alert("Saved");
         }
 
         function loadLocal() {
-            const raw = localStorage.getItem(KEY);
-            if (!raw) return alert("No save");
+            const key = getStorageKey();
+
+            if (!key) {
+                alert("Enter a site number first");
+                return;
+            }
+
+            const raw = localStorage.getItem(key);
+
+            if (!raw) {
+                alert("No save found for this site");
+                return;
+            }
 
             applyData(JSON.parse(raw));
         }
 
         // ================= AUTOSAVE =================
         let t;
-        document.addEventListener("input", () => {
+
+        document.addEventListener("input", (e) => {
+            if (e.target.id === "siteNumber") return;
+
+            const key = getStorageKey();
+            if (!key) return; // 🚫 don't save until site exists
+
             clearTimeout(t);
-            t = setTimeout(() => localStorage.setItem(KEY, JSON.stringify(collectData())), 300);
+            t = setTimeout(() => {
+                localStorage.setItem(key, JSON.stringify(collectData()));
+            }, 300);
         });
 
         // ================= SCORE AUTO UPDATE =================
@@ -587,12 +616,6 @@
             });
         });
 
-        window.addEventListener("load", () => {
-            const raw = localStorage.getItem(KEY);
-            if (raw && config) {
-                applyData(JSON.parse(raw));
-            }
-        });
     </script>
 
     <script type="module">
