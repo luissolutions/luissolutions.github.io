@@ -237,7 +237,6 @@
 
         body {
             font-family: Arial;
-            padding: 20px;
         }
 
         section {
@@ -293,6 +292,30 @@
         #modalOverlay.show {
             visibility: visible;
         }
+
+        .collapsible-header {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .collapsed>*:not(h2):not(h3) {
+            display: none;
+        }
+
+        .collapsible-header::after {
+            content: " ▼";
+            float: right;
+            font-size: 0.8em;
+        }
+
+        .collapsed .collapsible-header::after {
+            content: " ▶";
+        }
+
+        .collapsed {
+            max-height: 90px;
+            border: 1px solid #ccc;
+        }
     </style>
 </head>
 
@@ -331,7 +354,7 @@
     <main>
 
         <section>
-            <h2>Generate Image with Optional Resize and Markup</h2>
+            <h2>Generate Image with Markup</h2>
 
             <label>Second Part: <input type="text" id="secondPart" /></label><br>
 
@@ -346,22 +369,16 @@
         </section>
 
         <section>
-            <div id="comparisonResults"></div>
-            <button id="compareBtn">Compare Sites</button>
-            <div style="margin: 10px 0;">
+            <div>
                 <label>Site Number</label>
                 <input id="siteNumber" placeholder="Enter Site Number" />
             </div>
         </section>
 
-        <!-- Instruction Block -->
         <section>
-
             <div id="app"></div>
-
         </section>
 
-        <!-- Tools List from Firebase -->
         <section>
             <h2>🧰 Tools List</h2>
 
@@ -382,9 +399,15 @@
             <div id="toolGrid" class="product-grid"></div>
         </section>
 
+        <section>
+            <h2>Site Analysis</h2>
+
+            <button id="compareBtn">Compare Sites</button>
+            <div id="comparisonResults"></div>
+        </section>
+
     </main>
 
-    <!-- Image Modal -->
     <div id="imgModal" class="modal hidden">
         <span id="imgModalClose" class="modal-close">&times;</span>
         <img class="modal-content" id="imgModalImg">
@@ -786,8 +809,27 @@
                 const div = document.createElement("div");
                 div.className = "section";
 
-                div.innerHTML = `<h2>${section.title || "Section " + (i + 1)}</h2>
-                     <div id="section_${section.id}"></div>`;
+                div.innerHTML = `
+                    <h2 class="collapsible-header">${section.title || "Section " + (i + 1)}</h2>
+                    <div id="section_${section.id}"></div>
+                `;
+
+                const header = div.querySelector('h2');
+                const key = 'section_dynamic_' + section.id;
+
+                // load saved state
+                if (localStorage.getItem(key) === 'true') {
+                    div.classList.add('collapsed');
+                }
+
+                header.addEventListener('click', () => {
+                    div.classList.toggle('collapsed');
+
+                    localStorage.setItem(
+                        key,
+                        div.classList.contains('collapsed')
+                    );
+                });
 
                 app.appendChild(div);
                 renderSection(section);
@@ -1354,9 +1396,6 @@
             });
         });
 
-        document.getElementById('modalOverlay').addEventListener('click', () => {
-            document.getElementById('modalOverlay').classList.remove('show');
-        });
 
         window.addEventListener('beforeunload', (e) => {
             if (allImages.length > 0) {
@@ -1364,6 +1403,32 @@
                 e.returnValue = 'If you reload, all images will be lost.';
             }
         });
+
+        document.querySelectorAll('main > section').forEach(section => {
+            const header = section.querySelector('h2');
+
+            if (!header) return;
+
+            header.classList.add('collapsible-header');
+
+            const key = 'section_' + (section.dataset.id || header.innerText);
+
+            // ✅ Load saved state
+            if (localStorage.getItem(key) === 'true') {
+                section.classList.add('collapsed');
+            }
+
+            // ✅ Toggle + save
+            header.addEventListener('click', () => {
+                section.classList.toggle('collapsed');
+
+                localStorage.setItem(
+                    key,
+                    section.classList.contains('collapsed')
+                );
+            });
+        });
+
     </script>
 
 </body>
