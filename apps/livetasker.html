@@ -228,6 +228,24 @@
 
         // === Watchdog / Date helpers ===
 
+        function snapTo15Minutes(date) {
+            const snapped = new Date(date);
+            let minutes = snapped.getMinutes();
+
+            let snappedMinutes = Math.ceil(minutes / 15) * 15;
+
+            if (snappedMinutes === 60) {
+                snapped.setHours(snapped.getHours() + 1);
+                snappedMinutes = 0;
+            }
+
+            snapped.setMinutes(snappedMinutes);
+            snapped.setSeconds(0);
+            snapped.setMilliseconds(0);
+
+            return snapped;
+        }
+
         function isValidDate(d) {
             return d instanceof Date && !isNaN(d.getTime());
         }
@@ -273,7 +291,7 @@
                     startOdometer,
                     endOdometer: null,
                     location,
-                    startTime: new Date().toISOString(),
+                    startTime: snapTo15Minutes(new Date()).toISOString(),
                     endTime: null
                 };
                 saveTask(currentTask);
@@ -294,7 +312,7 @@
         function endTask() {
             clearInterval(timerInterval);
             currentTask.endOdometer = endOdometerInput.value.trim();
-            currentTask.endTime = new Date().toISOString();
+            currentTask.endTime = snapTo15Minutes(new Date()).toISOString();
             currentTask.notes = taskNotesTextarea.value.trim();
             currentTask.customerAddress = customerAddressInput.value.trim();
             currentTask.project = projectInput.value.trim();
@@ -415,9 +433,14 @@
             projectCell.addEventListener('blur', () => updateTaskField(task.id, 'project', projectCell.innerText));
             startOdometerCell.addEventListener('blur', () => updateTaskField(task.id, 'startOdometer', startOdometerCell.innerText));
             endOdometerCell.addEventListener('blur', () => updateTaskField(task.id, 'endOdometer', endOdometerCell.innerText));
-            startTimeCell.addEventListener('blur', () => updateTaskField(task.id, 'startTime', new Date(startTimeCell.innerText).toISOString()));
-            endTimeCell.addEventListener('blur', () => updateTaskField(task.id, 'endTime', new Date(endTimeCell.innerText).toISOString()));
-            notesCell.addEventListener('blur', () => updateTaskField(task.id, 'notes', notesCell.innerText));
+            startTimeCell.addEventListener('blur', () => updateTaskField(task.id, 'startTime', snapTo15Minutes(new Date(startTimeCell.innerText)).toISOString()));
+            endTimeCell.addEventListener('blur', () =>
+                updateTaskField(
+                    task.id,
+                    'endTime',
+                    snapTo15Minutes(new Date(endTimeCell.innerText)).toISOString()
+                )
+            ); notesCell.addEventListener('blur', () => updateTaskField(task.id, 'notes', notesCell.innerText));
 
             const deleteButton = document.createElement('button');
             deleteButton.classList.add('clear-button');
@@ -538,7 +561,7 @@
 
             const taskLength = calculateTaskLength({
                 startTime: currentTask.startTime,
-                endTime: now.toISOString()
+                endTime: snapTo15Minutes(now).toISOString()
             });
 
             currentTaskTimeDisplay.innerText = taskLength;
@@ -1653,6 +1676,21 @@
             }
         }
 
+        const headerTitle = document.querySelector('header h1');
+        const loginSection = document.getElementById('login-section');
+
+        headerTitle.addEventListener('click', (e) => {
+            if (e.ctrlKey) {
+                const isHidden =
+                    getComputedStyle(loginSection).display === 'none';
+
+                loginSection.style.display = isHidden ? 'block' : 'none';
+
+                loadTasks();
+                console.log('Header double-clicked: reloading tasks...');
+            }
+        });
+
         document.addEventListener('DOMContentLoaded', () => {
             loadColumnVisibility();
             applyColumnVisibility();
@@ -1704,19 +1742,6 @@
             });
 
             document.getElementById('loadAllBtn').addEventListener('click', loadAllTasks);
-
-            const headerTitle = document.querySelector('header h1');
-            const loginSection = document.getElementById('login-section');
-
-            headerTitle.addEventListener('dblclick', () => {
-                loginSection.style.display =
-                    loginSection.style.display === 'none' || getComputedStyle(loginSection).display === 'none'
-                        ? 'block'
-                        : 'none';
-
-                console.log('Header double-clicked: reloading tasks...');
-                loadTasks();
-            });
 
         });
 
