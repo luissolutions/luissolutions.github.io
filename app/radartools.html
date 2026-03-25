@@ -240,7 +240,7 @@
             padding: 20px;
         }
 
-        .section {
+        section {
             border: 1px solid #ccc;
             border-radius: 10px;
             padding: 15px;
@@ -264,6 +264,34 @@
 
         .row {
             margin-bottom: 10px;
+        }
+
+        img {
+            margin-top: 10px;
+            max-width: 100%;
+            border-radius: 6px;
+        }
+
+        #modalOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            visibility: hidden;
+        }
+
+        #modalOverlay img {
+            max-width: 90%;
+            max-height: 90%;
+        }
+
+        #modalOverlay.show {
+            visibility: visible;
         }
     </style>
 </head>
@@ -302,12 +330,29 @@
 
     <main>
 
-        <div id="comparisonResults"></div>
-        <button id="compareBtn">Compare Sites</button>
-        <div style="margin: 10px 0;">
-            <label>Site Number</label>
-            <input id="siteNumber" placeholder="Enter Site Number" />
-        </div>
+        <section>
+            <h2>Generate Image with Optional Resize and Markup</h2>
+
+            <label>Second Part: <input type="text" id="secondPart" /></label><br>
+
+            <input type="file" id="imageInput" accept="image/*" /><br>
+
+            <label><input type="checkbox" id="resizeCheckbox" checked /> Resize Image</label>
+            <label><input type="checkbox" id="markupCheckbox" checked /> Add Markup</label><br>
+
+            <button id="generateBtn">Generate Image</button>
+            <div id="previewSection"></div>
+            <button id="downloadAllBtn">Download All</button>
+        </section>
+
+        <section>
+            <div id="comparisonResults"></div>
+            <button id="compareBtn">Compare Sites</button>
+            <div style="margin: 10px 0;">
+                <label>Site Number</label>
+                <input id="siteNumber" placeholder="Enter Site Number" />
+            </div>
+        </section>
 
         <!-- Instruction Block -->
         <section>
@@ -636,54 +681,59 @@
 
         function compareSitesDetailed() {
             const sites = getAllSites();
-
-            if (sites.length < 2) return [];
-
-            const base = sites[0];
             const results = [];
 
-            sites.slice(1).forEach(site => {
-                const diff = {
-                    site: site.site,
-                    differences: []
-                };
+            if (sites.length < 2) return results;
 
-                Object.keys(base.data.sections).forEach(sectionId => {
-                    const a = base.data.sections[sectionId];
-                    const b = site.data.sections[sectionId];
+            for (let i = 0; i < sites.length; i++) {
+                for (let j = i + 1; j < sites.length; j++) {
 
-                    // compare checklist
-                    if (a?.items && b?.items) {
-                        a.items.forEach((val, i) => {
-                            if (a.items[i].value !== b.items[i].value) {
-                                diff.differences.push(
-                                    `${sectionId} item ${i + 1} differs (${a.items[i].value} vs ${b.items[i].value})`
-                                );
-                            }
-                        });
-                    }
+                    const aSite = sites[i];
+                    const bSite = sites[j];
 
-                    // compare scoring
-                    if (a?.scores && b?.scores) {
-                        Object.keys(a.scores).forEach(k => {
-                            if (a.scores[k] !== b.scores[k]) {
-                                diff.differences.push(
-                                    `${sectionId} score "${k}" differs (${a.scores[k]} vs ${b.scores[k]})`
-                                );
-                            }
-                        });
-                    }
+                    const diff = {
+                        siteA: aSite.site,
+                        siteB: bSite.site,
+                        differences: []
+                    };
 
-                    // compare single select
-                    if (a?.selected !== b?.selected) {
-                        diff.differences.push(
-                            `${sectionId} selection differs`
-                        );
-                    }
-                });
+                    Object.keys(aSite.data.sections).forEach(sectionId => {
+                        const a = aSite.data.sections[sectionId];
+                        const b = bSite.data.sections[sectionId];
 
-                results.push(diff);
-            });
+                        // checklist
+                        if (a?.items && b?.items) {
+                            a.items.forEach((_, i) => {
+                                if (a.items[i].value !== b.items[i].value) {
+                                    diff.differences.push(
+                                        `${sectionId} item ${i + 1} differs (${a.items[i].value} vs ${b.items[i].value})`
+                                    );
+                                }
+                            });
+                        }
+
+                        // scoring
+                        if (a?.scores && b?.scores) {
+                            Object.keys(a.scores).forEach(k => {
+                                if (a.scores[k] !== b.scores[k]) {
+                                    diff.differences.push(
+                                        `${sectionId} score "${k}" differs (${a.scores[k]} vs ${b.scores[k]})`
+                                    );
+                                }
+                            });
+                        }
+
+                        // single select
+                        if (a?.selected !== b?.selected) {
+                            diff.differences.push(
+                                `${sectionId} selection differs (${a.selected} vs ${b.selected})`
+                            );
+                        }
+                    });
+
+                    results.push(diff);
+                }
+            }
 
             return results;
         }
@@ -971,31 +1021,46 @@
             console.table(results);
         }
 
-        function showComparisonUI() {
-            const results = compareSitesDetailed();
+        function showAveragesUI() {
+            const data = calculateSiteAverages();
             const container = document.getElementById("comparisonResults");
 
-            if (!results.length) {
-                container.innerHTML = "<p>Need at least 2 sites to compare</p>";
+            if (!data) {
+                container.innerHTML = "<p>No sites saved</p>";
                 return;
             }
 
             container.innerHTML = `
-                <h2>Site Differences</h2>
-                ${results.map(r => `
-                    <div style="margin-bottom:15px; padding:10px; border:1px solid #ccc;">
-                        <strong>Compared to base → ${r.site}</strong>
-                        <ul>
-                            ${r.differences.length
-                    ? r.differences.map(d => `<li>${d}</li>`).join("")
-                    : "<li>No differences</li>"
-                }
-                        </ul>
-                    </div>
-                `).join("")}
-            `;
-        }
+        <h2>📊 Site Averages</h2>
+        ${Object.entries(data).map(([sectionId, sec]) => `
+            <div style="margin-bottom:15px; padding:10px; border:1px solid #ccc;">
+                <strong>${sectionId}</strong>
 
+                ${sec.scores ? `
+                    <div><b>Scores:</b></div>
+                    <ul>
+                        ${Object.entries(sec.scores).map(([k, v]) =>
+                `<li>${k}: ${v}</li>`
+            ).join("")}
+                    </ul>
+                ` : ""}
+
+                ${sec.checklist ? `
+                    <div><b>Checklist Completion:</b></div>
+                    <ul>
+                        ${sec.checklist.map((v, i) =>
+                `<li>Item ${i + 1}: ${v}</li>`
+            ).join("")}
+                    </ul>
+                ` : ""}
+
+                ${sec.mostCommon ? `
+                    <div><b>Most Common Selection:</b> Option ${sec.mostCommon.optionIndex}</div>
+                ` : ""}
+            </div>
+        `).join("")}
+    `;
+        }
         // ================= SAVE =================
         function getStorageKey() {
             const site = el("siteNumber")?.value?.trim();
@@ -1045,6 +1110,87 @@
             }, 50);
         }
 
+        function calculateSiteAverages() {
+            const sites = getAllSites();
+            if (!sites.length) return null;
+
+            const totals = {};
+            const counts = sites.length;
+
+            sites.forEach(site => {
+                const sections = site.data.sections || {};
+
+                Object.entries(sections).forEach(([sectionId, sec]) => {
+
+                    if (!totals[sectionId]) {
+                        totals[sectionId] = {
+                            scores: {},
+                            checklist: [],
+                            selected: {}
+                        };
+                    }
+
+                    // ---- SCORING ----
+                    if (sec.scores) {
+                        Object.entries(sec.scores).forEach(([k, v]) => {
+                            totals[sectionId].scores[k] = (totals[sectionId].scores[k] || 0) + Number(v || 0);
+                        });
+                    }
+
+                    // ---- CHECKLIST ----
+                    if (sec.items) {
+                        sec.items.forEach((item, i) => {
+                            if (!totals[sectionId].checklist[i]) {
+                                totals[sectionId].checklist[i] = 0;
+                            }
+                            totals[sectionId].checklist[i] += item.value;
+                        });
+                    }
+
+                    // ---- SINGLE SELECT ----
+                    if (sec.selected !== null && sec.selected !== undefined) {
+                        totals[sectionId].selected[sec.selected] =
+                            (totals[sectionId].selected[sec.selected] || 0) + 1;
+                    }
+
+                });
+            });
+
+            // ---- CONVERT TO AVERAGES ----
+            const averages = {};
+
+            Object.entries(totals).forEach(([sectionId, data]) => {
+                averages[sectionId] = {};
+
+                // scores avg
+                if (Object.keys(data.scores).length) {
+                    averages[sectionId].scores = {};
+                    Object.entries(data.scores).forEach(([k, v]) => {
+                        averages[sectionId].scores[k] = (v / counts).toFixed(2);
+                    });
+                }
+
+                // checklist avg (percentage)
+                if (data.checklist.length) {
+                    averages[sectionId].checklist = data.checklist.map(v =>
+                        ((v / counts) * 100).toFixed(1) + "%"
+                    );
+                }
+
+                // most selected
+                if (Object.keys(data.selected).length) {
+                    const top = Object.entries(data.selected)
+                        .sort((a, b) => b[1] - a[1])[0];
+
+                    averages[sectionId].mostCommon = {
+                        optionIndex: top[0],
+                        count: top[1]
+                    };
+                }
+            });
+
+            return averages;
+        }
         // ================= AUTOSAVE =================
         let t;
 
@@ -1070,7 +1216,7 @@
             localStorage.setItem(key, JSON.stringify(collectData()));
         });
 
-        document.getElementById("compareBtn").addEventListener("click", showComparisonUI);
+        document.getElementById("compareBtn").addEventListener("click", showAveragesUI);
 
         // ================= SCORE AUTO UPDATE =================
         document.addEventListener("input", () => {
@@ -1087,6 +1233,137 @@
             });
         });
 
+        const allImages = [];
+
+        const resizeImage = (file, maxWidth) => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const img = new Image();
+                img.onload = () => {
+                    let [w, h] = [img.width, img.height];
+                    if (w > maxWidth) {
+                        h *= maxWidth / w;
+                        w = maxWidth;
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    canvas.toBlob(blob => blob ? resolve(blob) : reject("Resize failed"), file.type);
+                };
+                img.src = reader.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        const addTextToImage = (blob, text) => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height + 100;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    ctx.fillStyle = 'white';
+                    ctx.font = '80px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(text, canvas.width / 2, canvas.height - 20);
+                    canvas.toBlob(blob => blob ? resolve(blob) : reject("Markup failed"), 'image/jpeg');
+                };
+                img.src = reader.result;
+            };
+            reader.readAsDataURL(blob);
+        });
+
+        document.getElementById('generateBtn').addEventListener('click', async () => {
+            const first = document.getElementById('siteNumber').value.trim();
+            const second = document.getElementById('secondPart').value.trim();
+            const file = document.getElementById('imageInput').files[0];
+            const doResize = document.getElementById('resizeCheckbox').checked;
+            const doMarkup = document.getElementById('markupCheckbox').checked;
+
+            if (!second || !file) {
+                alert("Enter site number and second part, and choose a file.");
+                return;
+            }
+
+            try {
+                let blob = file;
+                if (doResize) {
+                    blob = await resizeImage(blob, 2048);
+                }
+
+                const label = `${first}-${second}`;
+                if (doMarkup) {
+                    blob = await addTextToImage(blob, label);
+                }
+
+                allImages.push({ blob, label });
+
+                const url = URL.createObjectURL(blob);
+                const img = new Image();
+                img.src = url;
+                img.alt = label;
+                img.style.maxWidth = '200px';
+                img.style.cursor = 'pointer';
+                img.addEventListener('click', () => {
+                    document.getElementById('modalImage').src = url;
+                    document.getElementById('modalOverlay').classList.add('show');
+                });
+
+                const wrapper = document.createElement('div');
+                wrapper.style.marginBottom = '30px';
+                wrapper.innerHTML = `<strong>${label}</strong><br>`;
+                wrapper.appendChild(img);
+
+                const downloadBtn = document.createElement('a');
+                downloadBtn.href = url;
+                downloadBtn.download = `${label}.jpg`;
+                downloadBtn.textContent = 'Download Image';
+                downloadBtn.style.display = 'inline-block';
+                downloadBtn.style.marginTop = '10px';
+                downloadBtn.style.fontSize = '18px';
+
+                wrapper.appendChild(document.createElement('br'));
+                wrapper.appendChild(downloadBtn);
+
+                document.getElementById('previewSection').appendChild(wrapper);
+            } catch (err) {
+                alert("Error generating image: " + err);
+                console.error(err);
+            }
+        });
+
+        document.getElementById('downloadAllBtn').addEventListener('click', () => {
+            if (allImages.length === 0) {
+                alert("No images to download.");
+                return;
+            }
+
+            allImages.forEach(({ blob, label }) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${label}.jpg`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        });
+
+        document.getElementById('modalOverlay').addEventListener('click', () => {
+            document.getElementById('modalOverlay').classList.remove('show');
+        });
+
+        window.addEventListener('beforeunload', (e) => {
+            if (allImages.length > 0) {
+                e.preventDefault();
+                e.returnValue = 'If you reload, all images will be lost.';
+            }
+        });
     </script>
 
 </body>
