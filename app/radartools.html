@@ -302,6 +302,8 @@
 
     <main>
 
+        <div id="comparisonResults"></div>
+<button id="compareBtn">Compare Sites</button>
         <div style="margin: 10px 0;">
             <label>Site Number</label>
             <input id="siteNumber" placeholder="Enter Site Number" />
@@ -344,279 +346,7 @@
         <span id="imgModalClose" class="modal-close">&times;</span>
         <img class="modal-content" id="imgModalImg">
     </div>
-    <script>
-        let config = null;
 
-        function el(id) { return document.getElementById(id); }
-
-        // ================= LOAD CONFIG =================
-        async function loadConfig() {
-            try {
-                const res = await fetch("./assets/js/radar_checklist.json"); // 👈 your file
-                config = await res.json();
-
-                buildApp();
-
-            } catch (err) {
-                console.error("Failed to load config:", err);
-                alert("Config failed to load");
-            }
-        }
-
-        // LOAD ON PAGE START
-        loadConfig();
-
-        // ================= BUILD =================
-        function buildApp() {
-            const app = el("app");
-            app.innerHTML = "";
-
-            config.sections.forEach((section, i) => {
-                const div = document.createElement("div");
-                div.className = "section";
-
-                div.innerHTML = `<h2>${section.title || "Section " + (i + 1)}</h2>
-                     <div id="section_${section.id}"></div>`;
-
-                app.appendChild(div);
-                renderSection(section);
-            });
-        }
-
-        // ================= RENDER =================
-        function renderSection(section) {
-            const container = el(`section_${section.id}`);
-            container.innerHTML = "";
-
-            // CHECKLIST
-            if (section.type === "checklist") {
-                section.items.forEach((item, i) => {
-                    const text = typeof item === "object" ? item.text : item;
-
-                    container.innerHTML += `
-        <div class="checkItem">
-          <label>
-            <input type="checkbox" id="${section.id}_${i}">
-            ${text}
-          </label>
-        </div>
-      `;
-                });
-
-                if (section.notes) {
-                    container.innerHTML += `<label>Notes</label>
-                              <textarea id="notes_${section.id}"></textarea>`;
-                }
-            }
-
-            // FIELDS
-            if (section.type === "fields") {
-                section.fields.forEach(f => {
-                    container.innerHTML += `
-        <label>${f.label}</label>
-        <input id="field_${f.id}" type="${f.type || "text"}">
-      `;
-                });
-            }
-
-            // COUNTER
-            if (section.type === "counter") {
-                section.fields.forEach(f => {
-                    container.innerHTML += `
-        <label>${f.label}</label>
-        <div>
-          <input id="field_${f.id}" type="number" placeholder="Done">
-          /
-          <input id="field_${f.targetId}" type="number" placeholder="Total">
-        </div>
-      `;
-                });
-            }
-
-            // MATRIX
-            if (section.type === "matrix") {
-                section.rows.forEach((row, r) => {
-                    const rowDiv = document.createElement("div");
-                    rowDiv.className = "row";
-
-                    rowDiv.innerHTML = `<strong>${row}</strong><br>`;
-
-                    section.columns.forEach((col, c) => {
-                        rowDiv.innerHTML += `
-          <label style="display:inline-block;margin-right:10px;">
-            <input type="radio" name="${section.id}_${r}" id="${section.id}_${r}_${c}">
-            ${col}
-          </label>
-        `;
-                    });
-
-                    container.appendChild(rowDiv);
-                });
-            }
-
-            // SCORING
-            if (section.type === "scoring") {
-                section.fields.forEach(f => {
-                    container.innerHTML += `
-        <label>${f.label} (0-${f.max})</label>
-        <input id="score_${f.id}" type="number" max="${f.max}">
-      `;
-                });
-
-                container.innerHTML += `
-      <label>Total</label>
-      <input id="score_total" readonly>
-    `;
-            }
-
-            // SINGLE SELECT
-            if (section.type === "singleSelect") {
-                section.options.forEach((opt, i) => {
-                    container.innerHTML += `
-        <label>
-          <input type="radio" name="${section.id}" id="${section.id}_${i}">
-          ${opt}
-        </label>
-      `;
-                });
-            }
-        }
-
-        // ================= DATA =================
-        function collectData() {
-            const data = { sections: {} };
-
-            config.sections.forEach(section => {
-                const sec = {};
-
-                // checklist
-                if (section.type === "checklist") {
-                    sec.items = section.items.map((_, i) => el(`${section.id}_${i}`)?.checked);
-                    if (section.notes) sec.notes = el(`notes_${section.id}`)?.value;
-                }
-
-                // fields
-                if (section.type === "fields") {
-                    sec.fields = {};
-                    section.fields.forEach(f => {
-                        sec.fields[f.id] = el(`field_${f.id}`)?.value;
-                    });
-                }
-
-                // scoring
-                if (section.type === "scoring") {
-                    sec.scores = {};
-                    let total = 0;
-
-                    section.fields.forEach(f => {
-                        const val = Number(el(`score_${f.id}`)?.value || 0);
-                        sec.scores[f.id] = val;
-                        total += val;
-                    });
-
-                    sec.total = total;
-                }
-
-                data.sections[section.id] = sec;
-            });
-
-            return data;
-        }
-
-        // ================= APPLY =================
-        function applyData(data) {
-            Object.entries(data.sections).forEach(([id, sec]) => {
-
-                if (sec.items) {
-                    sec.items.forEach((v, i) => {
-                        el(`${id}_${i}`).checked = v;
-                    });
-                }
-
-                if (sec.notes !== undefined) {
-                    el(`notes_${id}`).value = sec.notes;
-                }
-
-                if (sec.fields) {
-                    Object.entries(sec.fields).forEach(([k, v]) => {
-                        el(`field_${k}`).value = v;
-                    });
-                }
-
-                if (sec.scores) {
-                    Object.entries(sec.scores).forEach(([k, v]) => {
-                        el(`score_${k}`).value = v;
-                    });
-                }
-
-            });
-        }
-
-        // ================= SAVE =================
-        function getStorageKey() {
-            const site = el("siteNumber")?.value?.trim();
-            return site ? `qc_app_${site}` : null;
-        }
-
-        el("siteNumber").addEventListener("change", () => {
-            try {
-                loadLocal();
-            } catch { }
-        });
-        function saveLocal() {
-            localStorage.setItem(getStorageKey(), JSON.stringify(collectData()));
-            alert("Saved");
-        }
-
-        function loadLocal() {
-            const key = getStorageKey();
-
-            if (!key) {
-                alert("Enter a site number first");
-                return;
-            }
-
-            const raw = localStorage.getItem(key);
-
-            if (!raw) {
-                alert("No save found for this site");
-                return;
-            }
-
-            applyData(JSON.parse(raw));
-        }
-
-        // ================= AUTOSAVE =================
-        let t;
-
-        document.addEventListener("input", (e) => {
-            if (e.target.id === "siteNumber") return;
-
-            const key = getStorageKey();
-            if (!key) return; // 🚫 don't save until site exists
-
-            clearTimeout(t);
-            t = setTimeout(() => {
-                localStorage.setItem(key, JSON.stringify(collectData()));
-            }, 300);
-        });
-
-        // ================= SCORE AUTO UPDATE =================
-        document.addEventListener("input", () => {
-            if (!config) return;
-
-            config.sections.forEach(section => {
-                if (section.type === "scoring") {
-                    let total = 0;
-                    section.fields.forEach(f => {
-                        total += Number(el(`score_${f.id}`)?.value || 0);
-                    });
-                    el("score_total").value = total;
-                }
-            });
-        });
-
-    </script>
 
     <script type="module">
         import { database, ref, get, onValue } from '../assets/js/firebase-init.js';
@@ -957,9 +687,6 @@
             }
         ];
 
-        const checklistEl = document.getElementById("checklist");
-        const storageKey = "radar-install-checklist";
-
         function loadChecklistState() {
             try {
                 return JSON.parse(localStorage.getItem(storageKey)) || {};
@@ -968,36 +695,97 @@
             }
         }
 
+        function compareSitesDetailed() {
+            const sites = getAllSites();
+
+            if (sites.length < 2) return [];
+
+            const base = sites[0]; // compare everything to first site
+            const results = [];
+
+            sites.slice(1).forEach(site => {
+                const diff = {
+                    site: site.site,
+                    differences: []
+                };
+
+                Object.keys(base.data.sections).forEach(sectionId => {
+                    const a = base.data.sections[sectionId];
+                    const b = site.data.sections[sectionId];
+
+                    // compare checklist
+                    if (a?.items && b?.items) {
+                        a.items.forEach((val, i) => {
+                            if (val !== b.items[i]) {
+                                diff.differences.push(
+                                    `${sectionId} item ${i + 1} mismatch`
+                                );
+                            }
+                        });
+                    }
+
+                    // compare scoring
+                    if (a?.scores && b?.scores) {
+                        Object.keys(a.scores).forEach(k => {
+                            if (a.scores[k] !== b.scores[k]) {
+                                diff.differences.push(
+                                    `${sectionId} score "${k}" differs (${a.scores[k]} vs ${b.scores[k]})`
+                                );
+                            }
+                        });
+                    }
+
+                    // compare single select
+                    if (a?.selected !== b?.selected) {
+                        diff.differences.push(
+                            `${sectionId} selection differs`
+                        );
+                    }
+                });
+
+                results.push(diff);
+            });
+
+            return results;
+        }
+
+        function getAllSites() {
+            const sites = [];
+
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+
+                if (key.startsWith("qc_app_")) {
+                    const site = key.replace("qc_app_", "");
+                    const data = JSON.parse(localStorage.getItem(key));
+
+                    sites.push({ site, data });
+                }
+            }
+
+            return sites;
+        }
+
         function saveChecklistState(state) {
             localStorage.setItem(storageKey, JSON.stringify(state));
         }
 
         function renderChecklist() {
-            const state = loadChecklistState();
             checklistEl.innerHTML = "";
 
-            checklistData.forEach((group, gi) => {
+            checklistData.forEach((group) => {
                 const groupDiv = document.createElement("div");
                 groupDiv.className = "checklist-group";
 
                 groupDiv.innerHTML = `<h3>${group.title}</h3>`;
 
-                group.items.forEach((text, ii) => {
-                    const id = `g${gi}-i${ii}`;
-                    const checked = state[id] === true;
-
+                group.items.forEach((text) => {
                     const row = document.createElement("div");
                     row.className = "checklist-item";
 
                     row.innerHTML = `
-                <input type="checkbox" id="${id}" ${checked ? "checked" : ""}>
-                <label for="${id}">${text}</label>
+                <div>${text}</div>
             `;
-
-                    row.querySelector("input").addEventListener("change", (e) => {
-                        state[id] = e.target.checked;
-                        saveChecklistState(state);
-                    });
 
                     groupDiv.appendChild(row);
                 });
@@ -1006,17 +794,375 @@
             });
         }
 
-        document.getElementById("resetChecklist").addEventListener("click", () => {
-            if (confirm("Reset the entire checklist?")) {
-                localStorage.removeItem(storageKey);
-                renderChecklist();
+
+        let config = null;
+        let isLoading = false;
+
+        function el(id) { return document.getElementById(id); }
+
+        // ================= LOAD CONFIG =================
+        async function loadConfig() {
+            try {
+                const res = await fetch("./assets/js/radar_checklist.json"); // 👈 your file
+                config = await res.json();
+
+                buildApp();
+
+            } catch (err) {
+                console.error("Failed to load config:", err);
+                alert("Config failed to load");
             }
+        }
+
+        // LOAD ON PAGE START
+        loadConfig();
+
+        // ================= BUILD =================
+        function buildApp() {
+            const app = el("app");
+            app.innerHTML = "";
+
+            config.sections.forEach((section, i) => {
+                const div = document.createElement("div");
+                div.className = "section";
+
+                div.innerHTML = `<h2>${section.title || "Section " + (i + 1)}</h2>
+                     <div id="section_${section.id}"></div>`;
+
+                app.appendChild(div);
+                renderSection(section);
+            });
+        }
+
+        // ================= RENDER =================
+        function renderSection(section) {
+            const container = el(`section_${section.id}`);
+            container.innerHTML = "";
+
+            // CHECKLIST
+            if (section.type === "checklist") {
+                section.items.forEach((item, i) => {
+                    const text = typeof item === "object" ? item.text : item;
+
+                    container.innerHTML += `
+        <div class="checkItem">
+          <label>
+            <input type="checkbox" id="${section.id}_${i}">
+            ${text}
+          </label>
+        </div>
+      `;
+                });
+
+                if (section.notes) {
+                    container.innerHTML += `<label>Notes</label>
+                              <textarea id="notes_${section.id}"></textarea>`;
+                }
+            }
+
+            // FIELDS
+            if (section.type === "fields") {
+                section.fields.forEach(f => {
+                    container.innerHTML += `
+        <label>${f.label}</label>
+        <input id="field_${f.id}" type="${f.type || "text"}">
+      `;
+                });
+            }
+
+            // COUNTER
+            if (section.type === "counter") {
+                section.fields.forEach(f => {
+                    container.innerHTML += `
+        <label>${f.label}</label>
+        <div>
+          <input id="field_${f.id}" type="number" placeholder="Done">
+          /
+          <input id="field_${f.targetId}" type="number" placeholder="Total">
+        </div>
+      `;
+                });
+            }
+
+            // MATRIX
+            if (section.type === "matrix") {
+                section.rows.forEach((row, r) => {
+                    const rowDiv = document.createElement("div");
+                    rowDiv.className = "row";
+
+                    rowDiv.innerHTML = `<strong>${row}</strong><br>`;
+
+                    section.columns.forEach((col, c) => {
+                        rowDiv.innerHTML += `
+          <label style="display:inline-block;margin-right:10px;">
+            <input type="radio" name="${section.id}_${r}" id="${section.id}_${r}_${c}">
+            ${col}
+          </label>
+        `;
+                    });
+
+                    container.appendChild(rowDiv);
+                });
+            }
+
+            // SCORING
+            if (section.type === "scoring") {
+                section.fields.forEach(f => {
+                    container.innerHTML += `
+        <label>${f.label} (0-${f.max})</label>
+        <input id="score_${f.id}" type="number" max="${f.max}">
+      `;
+                });
+
+                container.innerHTML += `
+      <label>Total</label>
+      <input id="score_total" readonly>
+    `;
+            }
+
+            // SINGLE SELECT
+            if (section.type === "singleSelect") {
+                section.options.forEach((opt, i) => {
+                    container.innerHTML += `
+        <label>
+          <input type="radio" name="${section.id}" id="${section.id}_${i}">
+          ${opt}
+        </label>
+      `;
+                });
+            }
+        }
+
+        // ================= DATA =================
+        function collectData() {
+            const data = { sections: {} };
+
+            config.sections.forEach(section => {
+                const sec = {};
+
+                // checklist
+                if (section.type === "checklist") {
+                    sec.items = section.items.map((_, i) => el(`${section.id}_${i}`)?.checked);
+                    if (section.notes) sec.notes = el(`notes_${section.id}`)?.value;
+                }
+
+                // fields
+                if (section.type === "fields") {
+                    sec.fields = {};
+                    section.fields.forEach(f => {
+                        sec.fields[f.id] = el(`field_${f.id}`)?.value;
+                    });
+                }
+
+                // scoring
+                if (section.type === "scoring") {
+                    sec.scores = {};
+                    let total = 0;
+
+                    section.fields.forEach(f => {
+                        const val = Number(el(`score_${f.id}`)?.value || 0);
+                        sec.scores[f.id] = val;
+                        total += val;
+                    });
+
+                    sec.total = total;
+                }
+
+                // matrix (radio groups per row)
+                if (section.type === "matrix") {
+                    sec.matrix = [];
+
+                    section.rows.forEach((_, r) => {
+                        let selected = null;
+
+                        section.columns.forEach((_, c) => {
+                            if (el(`${section.id}_${r}_${c}`)?.checked) {
+                                selected = c;
+                            }
+                        });
+
+                        sec.matrix[r] = selected;
+                    });
+                }
+
+                // single select
+                if (section.type === "singleSelect") {
+                    sec.selected = null;
+
+                    section.options.forEach((_, i) => {
+                        if (el(`${section.id}_${i}`)?.checked) {
+                            sec.selected = i;
+                        }
+                    });
+                }
+
+                data.sections[section.id] = sec;
+            });
+
+            return data;
+        }
+
+        // ================= APPLY =================
+        function applyData(data) {
+            Object.entries(data.sections).forEach(([id, sec]) => {
+
+                if (sec.items) {
+                    sec.items.forEach((v, i) => {
+                        el(`${id}_${i}`).checked = v;
+                    });
+                }
+
+                if (sec.notes !== undefined) {
+                    el(`notes_${id}`).value = sec.notes;
+                }
+
+                if (sec.fields) {
+                    Object.entries(sec.fields).forEach(([k, v]) => {
+                        el(`field_${k}`).value = v;
+                    });
+                }
+
+                if (sec.scores) {
+                    Object.entries(sec.scores).forEach(([k, v]) => {
+                        el(`score_${k}`).value = v;
+                    });
+                }
+
+                // matrix restore
+                if (sec.matrix) {
+                    sec.matrix.forEach((c, r) => {
+                        if (c !== null) {
+                            const radio = el(`${id}_${r}_${c}`);
+                            if (radio) radio.checked = true;
+                        }
+                    });
+                }
+
+                // single select restore
+                if (sec.selected !== null) {
+                    const radio = el(`${id}_${sec.selected}`);
+                    if (radio) radio.checked = true;
+                }
+
+            });
+        }
+
+        function showComparison() {
+            const results = compareSites();
+
+            console.table(results);
+        }
+
+        function showComparisonUI() {
+            const results = compareSitesDetailed();
+            const container = document.getElementById("comparisonResults");
+
+            if (!results.length) {
+                container.innerHTML = "<p>Need at least 2 sites to compare</p>";
+                return;
+            }
+
+            container.innerHTML = `
+        <h2>Site Differences</h2>
+        ${results.map(r => `
+            <div style="margin-bottom:15px; padding:10px; border:1px solid #ccc;">
+                <strong>Compared to base → ${r.site}</strong>
+                <ul>
+                    ${r.differences.length
+                    ? r.differences.map(d => `<li>${d}</li>`).join("")
+                    : "<li>No differences</li>"
+                }
+                </ul>
+            </div>
+        `).join("")}
+    `;
+        }
+
+        // ================= SAVE =================
+        function getStorageKey() {
+            const site = el("siteNumber")?.value?.trim();
+            return site ? `qc_app_${site}` : null;
+        }
+
+        el("siteNumber").addEventListener("change", () => {
+            try {
+                loadLocal();
+            } catch { }
         });
 
-        // Initial render
-        renderChecklist();
+        function saveLocal() {
+            localStorage.setItem(getStorageKey(), JSON.stringify(collectData()));
+            alert("Saved");
+        }
+
+        function loadLocal() {
+            const key = getStorageKey();
+
+            if (!key) {
+                alert("Enter a site number first");
+                return;
+            }
+
+            const raw = localStorage.getItem(key);
+
+            if (!raw) {
+                alert("No save found for this site");
+                return;
+            }
+
+            const data = JSON.parse(raw);
+
+            isLoading = true;
+
+            setTimeout(() => {
+                applyData(data);
+                isLoading = false;
+            }, 50);
+        }
+
+        // ================= AUTOSAVE =================
+        let t;
+
+        document.addEventListener("input", (e) => {
+            if (isLoading) return; // 🚫 block during load
+            if (e.target.id === "siteNumber") return;
+
+            const key = getStorageKey();
+            if (!key) return;
+
+            clearTimeout(t);
+            t = setTimeout(() => {
+                localStorage.setItem(key, JSON.stringify(collectData()));
+            }, 300);
+        });
+
+        document.addEventListener("change", (e) => {
+            if (isLoading) return; // 🚫 block during load
+
+            const key = getStorageKey();
+            if (!key) return;
+
+            localStorage.setItem(key, JSON.stringify(collectData()));
+        });
+
+        document.getElementById("compareBtn").addEventListener("click", showComparisonUI);
+        // ================= SCORE AUTO UPDATE =================
+        document.addEventListener("input", () => {
+            if (!config) return;
+
+            config.sections.forEach(section => {
+                if (section.type === "scoring") {
+                    let total = 0;
+                    section.fields.forEach(f => {
+                        total += Number(el(`score_${f.id}`)?.value || 0);
+                    });
+                    el("score_total").value = total;
+                }
+            });
+        });
 
     </script>
+
 </body>
 
 </html>
