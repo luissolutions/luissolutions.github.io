@@ -303,12 +303,10 @@
     <main>
 
         <div id="comparisonResults"></div>
-<button id="compareBtn">Compare Sites</button>
+        <button id="compareBtn">Compare Sites</button>
         <div style="margin: 10px 0;">
             <label>Site Number</label>
             <input id="siteNumber" placeholder="Enter Site Number" />
-            <button onclick="loadLocal()">Load</button>
-            <button onclick="saveLocal()">Save</button>
         </div>
 
         <!-- Instruction Block -->
@@ -347,7 +345,6 @@
         <img class="modal-content" id="imgModalImg">
     </div>
 
-
     <script type="module">
         import { database, ref, get, onValue } from '../assets/js/firebase-init.js';
 
@@ -363,7 +360,6 @@
         const allTools = [];
         let affiliateTag = "";
 
-        // Use your SearchEngine if present
         const toolSearchEngine = (window.SearchEngine && window.SearchEngine.create)
             ? window.SearchEngine.create({
                 fields: {
@@ -452,11 +448,9 @@
 
             let out = records;
 
-            // category/subcategory filters first
             if (cat) out = out.filter(t => t.category === cat);
             if (comp) out = out.filter(t => t.component === comp);
 
-            // then your advanced search syntax
             if (q) {
                 if (toolSearchEngine) out = toolSearchEngine.filter(out, q);
                 else out = out.filter(t => t.name.toLowerCase().includes(q.toLowerCase()));
@@ -484,10 +478,10 @@
                 const metaHtml = `<div class="meta">${escapeHtml(t.category)}${t.component ? " • " + escapeHtml(t.component) : ""}</div>`;
 
                 div.innerHTML = `
-          <img src="${t.imageUrl}" alt="${escapeHtml(t.name)}" />
-          ${titleHtml}
-          ${metaHtml}
-        `;
+                    <img src="${t.imageUrl}" alt="${escapeHtml(t.name)}" />
+                    ${titleHtml}
+                    ${metaHtml}
+                    `;
 
                 toolGrid.appendChild(div);
             }
@@ -500,7 +494,7 @@
         }
 
         categoryFilter.addEventListener("change", () => {
-            rebuildSubCategoryDropdown(); // sub-cats depend on category
+            rebuildSubCategoryDropdown();
             renderTools();
         });
 
@@ -508,7 +502,7 @@
         toolSearch.addEventListener("input", renderTools);
 
         exportBtn.addEventListener("click", () => {
-            const shown = applyFilters(allTools); // export what you're looking at
+            const shown = applyFilters(allTools);
             const csvRows = [["Name", "Category", "Component", "Link"]];
             shown.forEach(t => {
                 csvRows.push([
@@ -532,7 +526,6 @@
             URL.revokeObjectURL(url);
         });
 
-        // Load affiliate tag + tools
         get(ref(database, "public/settings/affiliateTag")).then(snap => affiliateTag = snap.val() || "");
 
         get(ref(database, "public/inventory")).then(snap => {
@@ -618,7 +611,6 @@
             relayoutSoon();
         });
 
-        // Modal logic
         const modal = document.getElementById("imgModal");
         const modalImg = document.getElementById("imgModalImg");
         const modalClose = document.getElementById("imgModalClose");
@@ -642,65 +634,12 @@
             }
         });
 
-        // -------------------------
-        // LocalStorage Checklist
-        // -------------------------
-        const checklistData = [
-            {
-                title: "Night 1 – Kickoff & 40%",
-                items: [
-                    "Meet & Greet with Site MOD",
-                    "Submit Pre-Installation Form",
-                    "Verify lifts and BOM inventory",
-                    "Install backboard and rack",
-                    "Install controller and switches",
-                    "Map sensor locations with laser",
-                    "Install and bring online 40% of sensors",
-                    "Capture depth + angled photos",
-                    "Submit move requests if needed",
-                    "Clean site and obtain release code"
-                ]
-            },
-            {
-                title: "Night 2 – Build to 80%",
-                items: [
-                    "Meet & Greet with Site MOD",
-                    "Submit Pre-Installation Form",
-                    "Resolve photo issues",
-                    "Install next 40% of sensors",
-                    "Finalize sensor moves",
-                    "Clean site and obtain release code"
-                ]
-            },
-            {
-                title: "Night 3 – Final & Closeout",
-                items: [
-                    "Meet & Greet with Site MOD",
-                    "Submit Pre-Installation Form",
-                    "Install final sensors (100%)",
-                    "Perform validation testing",
-                    "Resolve offline sensors",
-                    "Walk-through and sign punch list",
-                    "Remove tools and lifts",
-                    "Obtain final release code"
-                ]
-            }
-        ];
-
-        function loadChecklistState() {
-            try {
-                return JSON.parse(localStorage.getItem(storageKey)) || {};
-            } catch {
-                return {};
-            }
-        }
-
         function compareSitesDetailed() {
             const sites = getAllSites();
 
             if (sites.length < 2) return [];
 
-            const base = sites[0]; // compare everything to first site
+            const base = sites[0];
             const results = [];
 
             sites.slice(1).forEach(site => {
@@ -716,9 +655,9 @@
                     // compare checklist
                     if (a?.items && b?.items) {
                         a.items.forEach((val, i) => {
-                            if (val !== b.items[i]) {
+                            if (a.items[i].value !== b.items[i].value) {
                                 diff.differences.push(
-                                    `${sectionId} item ${i + 1} mismatch`
+                                    `${sectionId} item ${i + 1} differs (${a.items[i].value} vs ${b.items[i].value})`
                                 );
                             }
                         });
@@ -766,35 +705,6 @@
             return sites;
         }
 
-        function saveChecklistState(state) {
-            localStorage.setItem(storageKey, JSON.stringify(state));
-        }
-
-        function renderChecklist() {
-            checklistEl.innerHTML = "";
-
-            checklistData.forEach((group) => {
-                const groupDiv = document.createElement("div");
-                groupDiv.className = "checklist-group";
-
-                groupDiv.innerHTML = `<h3>${group.title}</h3>`;
-
-                group.items.forEach((text) => {
-                    const row = document.createElement("div");
-                    row.className = "checklist-item";
-
-                    row.innerHTML = `
-                <div>${text}</div>
-            `;
-
-                    groupDiv.appendChild(row);
-                });
-
-                checklistEl.appendChild(groupDiv);
-            });
-        }
-
-
         let config = null;
         let isLoading = false;
 
@@ -803,7 +713,7 @@
         // ================= LOAD CONFIG =================
         async function loadConfig() {
             try {
-                const res = await fetch("./assets/js/radar_checklist.json"); // 👈 your file
+                const res = await fetch("./assets/js/radar_checklist.json");
                 config = await res.json();
 
                 buildApp();
@@ -845,13 +755,13 @@
                     const text = typeof item === "object" ? item.text : item;
 
                     container.innerHTML += `
-        <div class="checkItem">
-          <label>
-            <input type="checkbox" id="${section.id}_${i}">
-            ${text}
-          </label>
-        </div>
-      `;
+                    <div class="checkItem">
+                    <label>
+                        <input type="checkbox" id="${section.id}_${i}">
+                        ${text}
+                    </label>
+                    </div>
+                `;
                 });
 
                 if (section.notes) {
@@ -874,13 +784,13 @@
             if (section.type === "counter") {
                 section.fields.forEach(f => {
                     container.innerHTML += `
-        <label>${f.label}</label>
-        <div>
-          <input id="field_${f.id}" type="number" placeholder="Done">
-          /
-          <input id="field_${f.targetId}" type="number" placeholder="Total">
-        </div>
-      `;
+                        <label>${f.label}</label>
+                        <div>
+                        <input id="field_${f.id}" type="number" placeholder="Done">
+                        /
+                        <input id="field_${f.targetId}" type="number" placeholder="Total">
+                        </div>
+                    `;
                 });
             }
 
@@ -894,11 +804,11 @@
 
                     section.columns.forEach((col, c) => {
                         rowDiv.innerHTML += `
-          <label style="display:inline-block;margin-right:10px;">
-            <input type="radio" name="${section.id}_${r}" id="${section.id}_${r}_${c}">
-            ${col}
-          </label>
-        `;
+                    <label style="display:inline-block;margin-right:10px;">
+                        <input type="radio" name="${section.id}_${r}" id="${section.id}_${r}_${c}">
+                        ${col}
+                    </label>
+                    `;
                     });
 
                     container.appendChild(rowDiv);
@@ -909,26 +819,26 @@
             if (section.type === "scoring") {
                 section.fields.forEach(f => {
                     container.innerHTML += `
-        <label>${f.label} (0-${f.max})</label>
-        <input id="score_${f.id}" type="number" max="${f.max}">
-      `;
+                        <label>${f.label} (0-${f.max})</label>
+                        <input id="score_${f.id}" type="number" max="${f.max}">
+                    `;
                 });
 
                 container.innerHTML += `
-      <label>Total</label>
-      <input id="score_total" readonly>
-    `;
+                    <label>Total</label>
+                    <input id="score_total" readonly>
+                    `;
             }
 
             // SINGLE SELECT
             if (section.type === "singleSelect") {
                 section.options.forEach((opt, i) => {
                     container.innerHTML += `
-        <label>
-          <input type="radio" name="${section.id}" id="${section.id}_${i}">
-          ${opt}
-        </label>
-      `;
+                        <label>
+                        <input type="radio" name="${section.id}" id="${section.id}_${i}">
+                        ${opt}
+                        </label>
+                    `;
                 });
             }
         }
@@ -940,13 +850,11 @@
             config.sections.forEach(section => {
                 const sec = {};
 
-                // checklist
                 if (section.type === "checklist") {
                     sec.items = section.items.map((_, i) => el(`${section.id}_${i}`)?.checked);
                     if (section.notes) sec.notes = el(`notes_${section.id}`)?.value;
                 }
 
-                // fields
                 if (section.type === "fields") {
                     sec.fields = {};
                     section.fields.forEach(f => {
@@ -954,7 +862,6 @@
                     });
                 }
 
-                // scoring
                 if (section.type === "scoring") {
                     sec.scores = {};
                     let total = 0;
@@ -968,7 +875,6 @@
                     sec.total = total;
                 }
 
-                // matrix (radio groups per row)
                 if (section.type === "matrix") {
                     sec.matrix = [];
 
@@ -985,7 +891,6 @@
                     });
                 }
 
-                // single select
                 if (section.type === "singleSelect") {
                     sec.selected = null;
 
@@ -993,6 +898,21 @@
                         if (el(`${section.id}_${i}`)?.checked) {
                             sec.selected = i;
                         }
+                    });
+                }
+
+                if (section.type === "checklist") {
+                    sec.items = section.items.map((item, i) => {
+                        const checked = el(`${section.id}_${i}`)?.checked;
+
+                        const isNegative = item.negative === true;
+
+                        return {
+                            checked,
+                            value: isNegative
+                                ? (checked ? -1 : 1)   // negative logic
+                                : (checked ? 1 : 0)    // normal logic
+                        };
                     });
                 }
 
@@ -1028,7 +948,6 @@
                     });
                 }
 
-                // matrix restore
                 if (sec.matrix) {
                     sec.matrix.forEach((c, r) => {
                         if (c !== null) {
@@ -1038,7 +957,6 @@
                     });
                 }
 
-                // single select restore
                 if (sec.selected !== null) {
                     const radio = el(`${id}_${sec.selected}`);
                     if (radio) radio.checked = true;
@@ -1063,19 +981,19 @@
             }
 
             container.innerHTML = `
-        <h2>Site Differences</h2>
-        ${results.map(r => `
-            <div style="margin-bottom:15px; padding:10px; border:1px solid #ccc;">
-                <strong>Compared to base → ${r.site}</strong>
-                <ul>
-                    ${r.differences.length
+                <h2>Site Differences</h2>
+                ${results.map(r => `
+                    <div style="margin-bottom:15px; padding:10px; border:1px solid #ccc;">
+                        <strong>Compared to base → ${r.site}</strong>
+                        <ul>
+                            ${r.differences.length
                     ? r.differences.map(d => `<li>${d}</li>`).join("")
                     : "<li>No differences</li>"
                 }
-                </ul>
-            </div>
-        `).join("")}
-    `;
+                        </ul>
+                    </div>
+                `).join("")}
+            `;
         }
 
         // ================= SAVE =================
@@ -1091,7 +1009,14 @@
         });
 
         function saveLocal() {
-            localStorage.setItem(getStorageKey(), JSON.stringify(collectData()));
+            const key = getStorageKey();
+
+            if (!key) {
+                alert("Enter a site number first");
+                return;
+            }
+
+            localStorage.setItem(key, JSON.stringify(collectData()));
             alert("Saved");
         }
 
@@ -1124,7 +1049,7 @@
         let t;
 
         document.addEventListener("input", (e) => {
-            if (isLoading) return; // 🚫 block during load
+            if (isLoading) return;
             if (e.target.id === "siteNumber") return;
 
             const key = getStorageKey();
@@ -1137,7 +1062,7 @@
         });
 
         document.addEventListener("change", (e) => {
-            if (isLoading) return; // 🚫 block during load
+            if (isLoading) return;
 
             const key = getStorageKey();
             if (!key) return;
@@ -1146,6 +1071,7 @@
         });
 
         document.getElementById("compareBtn").addEventListener("click", showComparisonUI);
+
         // ================= SCORE AUTO UPDATE =================
         document.addEventListener("input", () => {
             if (!config) return;
