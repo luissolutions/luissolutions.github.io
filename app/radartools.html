@@ -421,10 +421,20 @@
     </div>
 
     <script type="module">
-        import { database, ref, get, onValue } from '../assets/js/firebase-init.js';
+        import {
+            auth, onAuthStateChanged,
+            database, ref, set, get, onValue, push, update
+        } from '../assets/js/firebase-init.js';
         import { initToolsModule } from './assets/js/toolsModule.js';
         import { initLinksModule } from './assets/js/linksModule.js';
         import { initImageModule } from './assets/js/imageModule.js';
+
+
+        let DATABASE_BASE_PATH = 'public';
+
+        onAuthStateChanged(auth, (user) => {
+            DATABASE_BASE_PATH = user ? user.uid : 'public';
+        });
 
         (() => {
             // -------------------------
@@ -1111,48 +1121,57 @@
                 });
             }
 
-            function loadLocal() {
-                const key = getStorageKey();
+            async function loadFirebase() {
+                const site = els.siteNumber?.value?.trim();
 
-                if (!key) {
+                if (!site) {
                     alert("Enter a site number first");
                     return;
                 }
 
-                const raw = localStorage.getItem(key);
+                try {
+                    const snap = await get(ref(database, `${DATABASE_BASE_PATH}/sites/${site}`));
 
-                if (!raw) {
-                    const create = confirm("Site not found. Create new site?");
-                    if (!create) return;
+                    if (!snap.exists()) {
+                        const create = confirm("Site not found. Create new site?");
+                        if (!create) return;
+
+                        clearAppInputs();
+                        return;
+                    }
+
+                    const data = snap.val();
 
                     clearAppInputs();
-                    localStorage.setItem(key, JSON.stringify({ sections: {} }));
-                    return;
+
+                    state.isLoading = true;
+                    setTimeout(() => {
+                        buildApp(data);
+                        applyData(data);
+                        state.isLoading = false;
+                    }, 0);
+
+                } catch (err) {
+                    console.error("Load failed:", err);
                 }
-
-                const data = safeJsonParse(raw, { sections: {} });
-                if (!data) return;
-
-                clearAppInputs();
-
-                state.isLoading = true;
-                setTimeout(() => {
-                    buildApp(data);
-                    applyData(data);
-                    state.isLoading = false;
-                }, 0);
             }
 
-            function saveLocal() {
-                const key = getStorageKey();
+            async function saveFirebase() {
+                const site = els.siteNumber?.value?.trim();
 
-                if (!key) {
+                if (!site) {
                     alert("Enter a site number first");
                     return;
                 }
 
-                localStorage.setItem(key, JSON.stringify(collectData()));
-                alert("Saved");
+                const data = collectData();
+
+                try {
+                    await set(ref(database, `${DATABASE_BASE_PATH}/sites/${site}`), data);
+                    console.log("Saved to Firebase");
+                } catch (err) {
+                    console.error("Save failed:", err);
+                }
             }
 
             function getAllSites() {
@@ -1416,10 +1435,13 @@
             // Autosave
             // -------------------------
             function autoSaveNow() {
-                const key = getStorageKey();
-                if (!key) return;
+                const site = els.siteNumber?.value?.trim();
+                if (!site) return;
 
-                localStorage.setItem(key, JSON.stringify(collectData()));
+                const data = collectData();
+
+                set(ref(database, `${DATABASE_BASE_PATH}/sites/${site}`), data)
+                    .catch(err => console.error("Autosave failed:", err));
             }
 
             const debouncedAutoSave = debounce(autoSaveNow, 300);
@@ -1517,7 +1539,7 @@
 
                 els.siteNumber.addEventListener("change", () => {
                     try {
-                        loadLocal();
+                        loadFirebase();
                     } catch (err) {
                         console.error("Failed to load local data:", err);
                     }
@@ -1560,8 +1582,7 @@
             // -------------------------
             // Public helpers (optional)
             // -------------------------
-            window.saveLocal = saveLocal;
-            window.loadLocal = loadLocal;
+            window.loadFirebase = loadFirebase;
             window.showComparison = showComparison;
             window.compareSitesDetailed = compareSitesDetailed;
             window.calculateSiteAverages = calculateSiteAverages;
