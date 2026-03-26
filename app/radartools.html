@@ -22,7 +22,7 @@
         }
 
         .hidden {
-            display: none !important;
+            display: none;
         }
 
         .row {
@@ -130,8 +130,7 @@
             gap: 8px;
             flex: 1;
             min-width: 0;
-            overflow-x: auto;
-            overflow-y: hidden;
+            overflow: hidden;
             scrollbar-width: none;
         }
 
@@ -287,7 +286,7 @@
         .modal-close {
             position: absolute;
             top: 20px;
-            right: 30px;
+            right: 40px;
             color: #fff;
             font-size: 36px;
             font-weight: bold;
@@ -388,7 +387,7 @@
             <button id="downloadAllBtn" type="button">Download All</button>
         </section>
 
-        <section>
+        <section class="collapsed">
             <h2>🧰 Tools List</h2>
 
             <div class="toolbar">
@@ -409,7 +408,7 @@
             <div id="toolGrid" class="product-grid"></div>
         </section>
 
-        <section>
+        <section class="collapsed">
             <h2>Site Analysis</h2>
             <button id="compareBtn" type="button">Compare Sites</button>
             <div id="comparisonResults"></div>
@@ -423,6 +422,9 @@
 
     <script type="module">
         import { database, ref, get, onValue } from '../assets/js/firebase-init.js';
+        import { initToolsModule } from './assets/js/toolsModule.js';
+        import { initLinksModule } from './assets/js/linksModule.js';
+        import { initImageModule } from './assets/js/imageModule.js';
 
         (() => {
             // -------------------------
@@ -545,36 +547,6 @@
                 })
                 : null;
 
-            // -------------------------
-            // Tools List
-            // -------------------------
-            function normalizeTools(data) {
-                const items = [];
-
-                for (const category of Object.keys(data || {})) {
-                    const categoryObj = data[category] || {};
-
-                    for (const component of Object.keys(categoryObj)) {
-                        const componentObj = categoryObj[component] || {};
-
-                        for (const key of Object.keys(componentObj)) {
-                            const entry = componentObj[key] || {};
-                            const partName = entry.part || key;
-
-                            items.push({
-                                name: partName,
-                                category: category || "",
-                                component: component || "",
-                                affiliateUrl: entry.affiliateUrl || "",
-                                imageUrl: entry.imageUrl || `assets/img/database/${encodeURIComponent(partName)}.png`
-                            });
-                        }
-                    }
-                }
-
-                return items;
-            }
-
             function ensureTag(url) {
                 try {
                     if (!url) return "";
@@ -621,90 +593,12 @@
                 els.subCategoryFilter.value = components.includes(current) ? current : "";
             }
 
-            function applyFilters(records) {
-                const category = els.categoryFilter.value || "";
-                const component = els.subCategoryFilter.value || "";
-                const query = (els.toolSearch.value || "").trim();
-
-                let output = [...records];
-
-                if (category) {
-                    output = output.filter(t => t.category === category);
-                }
-
-                if (component) {
-                    output = output.filter(t => t.component === component);
-                }
-
-                if (query) {
-                    if (toolSearchEngine) {
-                        output = toolSearchEngine.filter(output, query);
-                    } else {
-                        const q = query.toLowerCase();
-                        output = output.filter(t =>
-                            t.name.toLowerCase().includes(q) ||
-                            t.category.toLowerCase().includes(q) ||
-                            t.component.toLowerCase().includes(q)
-                        );
-                    }
-                }
-
-                return output;
-            }
-
-            function renderTools() {
-                els.toolGrid.innerHTML = "";
-                const shown = applyFilters(state.allTools);
-                const fragment = document.createDocumentFragment();
-
-                for (const tool of shown) {
-                    const card = createEl("div", { className: "product" });
-                    const image = createEl("img", {
-                        attrs: {
-                            src: tool.imageUrl,
-                            alt: tool.name
-                        }
-                    });
-
-                    const link = ensureTag(tool.affiliateUrl);
-
-                    const title = createEl("h3", { className: "tool-title" });
-                    if (link) {
-                        const anchor = createEl("a", {
-                            text: tool.name,
-                            attrs: {
-                                href: link,
-                                target: "_blank",
-                                rel: "noopener"
-                            }
-                        });
-                        title.appendChild(anchor);
-                    } else {
-                        title.textContent = tool.name;
-                    }
-
-                    const meta = createEl("div", {
-                        className: "meta",
-                        text: `${tool.category}${tool.component ? " • " + tool.component : ""}`
-                    });
-
-                    card.appendChild(image);
-                    card.appendChild(title);
-                    card.appendChild(meta);
-                    fragment.appendChild(card);
-                }
-
-                els.toolGrid.appendChild(fragment);
-            }
-
             function refreshToolUI() {
-                rebuildCategoryDropdown();
-                rebuildSubCategoryDropdown();
-                renderTools();
+                state.toolsModule?.loadTools(state.allTools);
             }
 
             function exportToolsToCsv() {
-                const shown = applyFilters(state.allTools);
+                const shown = state.toolsModule.applyFilters(state.allTools);
                 const rows = [["Name", "Category", "Component", "Link"]];
 
                 shown.forEach(t => {
@@ -731,64 +625,6 @@
                 a.remove();
 
                 setTimeout(() => URL.revokeObjectURL(url), 0);
-            }
-
-            // -------------------------
-            // Links nav
-            // -------------------------
-            function closeMoreMenu() {
-                els.moreMenu.classList.remove("open");
-                els.moreBtn.setAttribute("aria-expanded", "false");
-            }
-
-            function makeLinkChip(link, className = "nav-chip") {
-                return createEl("a", {
-                    className,
-                    text: link.title || link.url,
-                    attrs: {
-                        href: link.url,
-                        target: "_blank",
-                        rel: "noopener",
-                        title: link.title || link.url
-                    }
-                });
-            }
-
-            function layoutLinks(links) {
-                els.linkBar.innerHTML = "";
-                els.moreMenu.innerHTML = "";
-                closeMoreMenu();
-
-                const chips = links.map(link => makeLinkChip(link, "nav-chip"));
-                chips.forEach(chip => els.linkBar.appendChild(chip));
-
-                requestAnimationFrame(() => {
-                    const overflow = [];
-
-                    while (els.linkBar.scrollWidth > els.linkBar.clientWidth && els.linkBar.children.length > 0) {
-                        const last = els.linkBar.lastElementChild;
-                        overflow.unshift({
-                            title: last.textContent,
-                            url: last.href
-                        });
-                        last.remove();
-                    }
-
-                    if (overflow.length > 0) {
-                        els.moreWrap.classList.remove("hidden");
-                        overflow.forEach(link => {
-                            els.moreMenu.appendChild(makeLinkChip(link, "more-item"));
-                        });
-                    } else {
-                        els.moreWrap.classList.add("hidden");
-                    }
-                });
-            }
-
-            function relayoutLinksSoon() {
-                if (!state.lastLinks.length) return;
-                layoutLinks(state.lastLinks);
-                setTimeout(() => layoutLinks(state.lastLinks), 50);
             }
 
             // -------------------------
@@ -1541,178 +1377,6 @@
                 });
             }
 
-            // -------------------------
-            // Image generation / markup
-            // -------------------------
-            function resizeImage(file, maxWidth) {
-                return new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-
-                    reader.onerror = () => reject("Failed to read image.");
-
-                    reader.onload = () => {
-                        const img = new Image();
-
-                        img.onerror = () => reject("Invalid image.");
-
-                        img.onload = () => {
-                            let width = img.width;
-                            let height = img.height;
-
-                            if (width > maxWidth) {
-                                height *= maxWidth / width;
-                                width = maxWidth;
-                            }
-
-                            const canvas = document.createElement("canvas");
-                            canvas.width = width;
-                            canvas.height = height;
-
-                            const ctx = canvas.getContext("2d");
-                            if (!ctx) {
-                                reject("Canvas context unavailable.");
-                                return;
-                            }
-
-                            ctx.drawImage(img, 0, 0, width, height);
-
-                            canvas.toBlob(
-                                (blob) => blob ? resolve(blob) : reject("Resize failed"),
-                                file.type || "image/jpeg"
-                            );
-                        };
-
-                        img.src = reader.result;
-                    };
-
-                    reader.readAsDataURL(file);
-                });
-            }
-
-            function addTextToImage(blob, text) {
-                return new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-
-                    reader.onerror = () => reject("Failed to read image blob.");
-
-                    reader.onload = () => {
-                        const img = new Image();
-
-                        img.onerror = () => reject("Invalid image.");
-
-                        img.onload = () => {
-                            const barHeight = 120;
-                            const canvas = document.createElement("canvas");
-                            canvas.width = img.width;
-                            canvas.height = img.height + barHeight;
-
-                            const ctx = canvas.getContext("2d");
-                            if (!ctx) {
-                                reject("Canvas context unavailable.");
-                                return;
-                            }
-
-                            ctx.drawImage(img, 0, 0);
-                            ctx.fillStyle = "black";
-                            ctx.fillRect(0, img.height, canvas.width, barHeight);
-
-                            ctx.fillStyle = "white";
-                            ctx.font = `${Math.floor(canvas.width / 15)}px Arial`;
-                            ctx.textAlign = "center";
-                            ctx.textBaseline = "middle";
-                            ctx.fillText(text, canvas.width / 2, img.height + (barHeight / 2));
-
-                            canvas.toBlob(
-                                (outputBlob) => outputBlob ? resolve(outputBlob) : reject("Markup failed"),
-                                "image/jpeg"
-                            );
-                        };
-
-                        img.src = reader.result;
-                    };
-
-                    reader.readAsDataURL(blob);
-                });
-            }
-
-            async function handleGenerateImage() {
-                const first = els.siteNumber.value.trim();
-                const second = els.secondPart.value.trim();
-                const file = els.imageInput.files?.[0];
-                const doResize = els.resizeCheckbox.checked;
-                const doMarkup = els.markupCheckbox.checked;
-
-                if (!first || !second || !file) {
-                    alert("Enter site number and second part, and choose a file.");
-                    return;
-                }
-
-                try {
-                    let blob = file;
-
-                    if (doResize) {
-                        blob = await resizeImage(blob, 2048);
-                    }
-
-                    const label = `${first}-${second}`;
-
-                    if (doMarkup) {
-                        blob = await addTextToImage(blob, label);
-                    }
-
-                    state.allImages.push({ blob, label });
-                    renderGeneratedPreview(blob, label);
-                } catch (err) {
-                    console.error(err);
-                    alert("Error generating image: " + err);
-                }
-            }
-
-            function renderGeneratedPreview(blob, label) {
-                const url = URL.createObjectURL(blob);
-
-                const wrapper = createEl("div", { className: "preview-item" });
-                wrapper.appendChild(createEl("strong", { text: label }));
-                wrapper.appendChild(document.createElement("br"));
-
-                const img = new Image();
-                img.src = url;
-                img.alt = label;
-                img.style.maxWidth = "200px";
-                img.style.cursor = "pointer";
-                img.addEventListener("click", () => openModal(url));
-
-                const downloadLink = createEl("a", {
-                    text: "Download Image",
-                    attrs: {
-                        href: url,
-                        download: `${label}.jpg`
-                    }
-                });
-
-                wrapper.appendChild(img);
-                wrapper.appendChild(document.createElement("br"));
-                wrapper.appendChild(downloadLink);
-                els.previewSection.appendChild(wrapper);
-            }
-
-            function downloadAllImages() {
-                if (state.allImages.length === 0) {
-                    alert("No images to download.");
-                    return;
-                }
-
-                state.allImages.forEach(({ blob, label }) => {
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `${label}.jpg`;
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    setTimeout(() => URL.revokeObjectURL(url), 0);
-                });
-            }
 
             // -------------------------
             // Firebase
@@ -1729,8 +1393,7 @@
             async function loadInventory() {
                 try {
                     const snap = await get(ref(database, "public/inventory"));
-                    state.allTools = normalizeTools(snap.val() || {});
-                    refreshToolUI();
+                    state.toolsModule.loadTools(snap.val() || {});
                 } catch (err) {
                     console.error("Inventory load failed:", err);
                 }
@@ -1760,10 +1423,21 @@
             }
 
             const debouncedAutoSave = debounce(autoSaveNow, 300);
-            const debouncedToolSearch = debounce(renderTools, 150);
-
+            const debouncedToolSearch = debounce(() => {
+                state.toolsModule?.loadTools(state.allTools);
+            }, 150);
 
             //helpers
+
+            function relayoutLinksSoon() {
+                if (!state.linksModule) return;
+
+                state.linksModule.layoutLinks(state.lastLinks || []);
+
+                setTimeout(() => {
+                    state.linksModule.layoutLinks(state.lastLinks || []);
+                }, 50);
+            }
 
             function getTotalNights(data) {
                 return Math.min(
@@ -1779,6 +1453,7 @@
             // Event binding
             // -------------------------
             function bindEvents() {
+
                 document.addEventListener("input", (e) => {
                     // Only rebuild on total nights change
                     if (e.target.id === "field_totalNights") {
@@ -1800,24 +1475,21 @@
                 });
 
                 els.categoryFilter.addEventListener("change", () => {
-                    rebuildSubCategoryDropdown();
-                    renderTools();
+                    state.toolsModule?.loadTools(state.allTools);
                 });
 
-                els.subCategoryFilter.addEventListener("change", renderTools);
+                els.subCategoryFilter.addEventListener("change", () => {
+                    state.toolsModule?.loadTools(state.allTools);
+                });
+
                 els.toolSearch.addEventListener("input", debouncedToolSearch);
                 els.exportTools.addEventListener("click", exportToolsToCsv);
-
-                els.moreBtn?.addEventListener("click", () => {
-                    const open = els.moreMenu.classList.toggle("open");
-                    els.moreBtn.setAttribute("aria-expanded", String(open));
-                });
 
                 document.addEventListener("click", (event) => {
                     const target = event.target;
 
                     if (els.moreWrap && !els.moreWrap.contains(target)) {
-                        closeMoreMenu();
+                        els.moreMenu.classList.remove("open");
                     }
 
                     if (target.tagName === "IMG" && target.closest(".product")) {
@@ -1827,7 +1499,7 @@
 
                 document.addEventListener("keydown", (event) => {
                     if (event.key === "Escape") {
-                        closeMoreMenu();
+                        els.moreMenu.classList.remove("open");
                         closeModal();
                     }
 
@@ -1865,8 +1537,6 @@
                 });
 
                 els.compareBtn.addEventListener("click", showAveragesUI);
-                els.generateBtn.addEventListener("click", handleGenerateImage);
-                els.downloadAllBtn.addEventListener("click", downloadAllImages);
 
                 window.addEventListener("resize", relayoutLinksSoon);
 
@@ -1900,6 +1570,21 @@
             // Init
             // -------------------------
             async function init() {
+
+                state.toolsModule = initToolsModule({ els, state, createEl, ensureTag });
+                state.linksModule = initLinksModule({ els, createEl });
+
+                state.toolsModule.bindEvents();
+                state.linksModule.bindEvents();
+
+                state.imageModule = initImageModule({
+                    els,
+                    state,
+                    createEl,
+                    openModal
+                });
+
+                state.imageModule.bindEvents();
                 bindEvents();
                 await Promise.all([
                     loadConfig(),
