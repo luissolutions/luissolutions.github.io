@@ -978,15 +978,15 @@
                         sectionData.matrix = [];
 
                         section.rows.forEach((_, rowIndex) => {
-                            let selected = null;
 
-                            section.columns.forEach((_, colIndex) => {
-                                if ($(`${section.id}_${rowIndex}_${colIndex}`)?.checked) {
-                                    selected = colIndex;
-                                }
-                            });
+                            const checked = document.querySelector(
+                                `input[name="${section.id}_${rowIndex}"]:checked`
+                            );
 
-                            sectionData.matrix[rowIndex] = selected;
+                            sectionData.matrix[rowIndex] = checked
+                                ? Number(checked.id.split("_").pop())
+                                : null;
+
                         });
                     }
 
@@ -1098,10 +1098,10 @@
 
                     if (sectionData.fields && sectionConfig?.type === "nightCounter") {
                         Object.entries(sectionData.fields).forEach(([fieldId, values]) => {
-                            values.forEach((val, dayIndex) => {
-                                const input = document.getElementById(`field_${sectionId}_${fieldId}_${dayIndex}`);
-                                if (input) input.value = val;
-                            });
+values.forEach((val, dayIndex) => {
+    const el = $(`field_${sectionId}_${fieldId}_${dayIndex}`);
+    if (el) el.value = val;
+});
                         });
                     }
                 });
@@ -1143,11 +1143,9 @@
                     clearAppInputs();
 
                     state.isLoading = true;
-                    setTimeout(() => {
-                        buildApp(data);
-                        applyData(data);
-                        state.isLoading = false;
-                    }, 0);
+                    buildApp(data);
+                    applyData(data);
+                    state.isLoading = false;
 
                 } catch (err) {
                     console.error("Load failed:", err);
@@ -1448,12 +1446,7 @@
 
             function relayoutLinksSoon() {
                 if (!state.linksModule) return;
-
                 state.linksModule.layoutLinks(state.lastLinks || []);
-
-                setTimeout(() => {
-                    state.linksModule.layoutLinks(state.lastLinks || []);
-                }, 50);
             }
 
             function getTotalNights(data) {
@@ -1472,33 +1465,43 @@
             function bindEvents() {
 
                 document.addEventListener("input", (e) => {
-                    // Only rebuild on total nights change
+                    if (state.isLoading) return;
+
                     if (e.target.id === "field_totalNights") {
                         const existing = collectData();
                         buildApp(existing);
                         applyData(existing);
+                        return;
                     }
 
-                    // Just update totals visually for sensor count
                     if (e.target.id === "field_sensorTotal") {
                         const total = e.target.value;
 
                         document.querySelectorAll('[id^="field_nightly_production_"]').forEach(input => {
-                            const parent = input.parentElement;
-                            const span = parent.querySelector("span:last-child");
+                            const span = input.parentElement.querySelector("span:last-child");
                             if (span) span.textContent = `/ ${total}`;
                         });
+                        return;
+                    }
+
+                    if (e.target.id !== "siteNumber") {
+                        debouncedAutoSave();
+                        updateAllScoringTotals();
                     }
                 });
 
                 els.exportTools.addEventListener("click", exportToolsToCsv);
 
+                // Close menu (global)
                 document.addEventListener("click", (event) => {
-                    const target = event.target;
-
-                    if (els.moreWrap && !els.moreWrap.contains(target)) {
+                    if (els.moreWrap && !els.moreWrap.contains(event.target)) {
                         els.moreMenu.classList.remove("open");
                     }
+                });
+
+                // Handle image clicks (scoped)
+                els.app.addEventListener("click", (event) => {
+                    const target = event.target;
 
                     if (target.tagName === "IMG" && target.closest(".product")) {
                         openModal(target.src);
@@ -1531,23 +1534,16 @@
                     }
                 });
 
-                document.addEventListener("input", (event) => {
-                    if (state.isLoading) return;
-                    if (event.target.id === "siteNumber") return;
-
-                    debouncedAutoSave();
-                    updateAllScoringTotals();
-                });
 
                 document.addEventListener("change", () => {
                     if (state.isLoading) return;
-                    autoSaveNow();
+                    debouncedAutoSave();
                 });
 
                 els.compareBtn.addEventListener("click", showAveragesUI);
 
-                window.addEventListener("resize", relayoutLinksSoon);
-
+                const debouncedRelayout = debounce(relayoutLinksSoon, 150);
+                window.addEventListener("resize", debouncedRelayout);
                 window.addEventListener("beforeunload", (event) => {
                     if (state.allImages.length > 0) {
                         event.preventDefault();
