@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <title>Radar Job Reference</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 
     <link rel="stylesheet" href="../assets/css/app-styles.css" />
     <script type="module" src="../apps/assets/js/login.js" defer></script>
@@ -45,7 +45,6 @@
         }
 
         .checkItem label {
-            margin: 5px 0;
             cursor: pointer;
             background: var(--secondaryBackgroundColor);
             border-radius: 8px;
@@ -69,8 +68,7 @@
             content: attr(data-label);
             font-size: 0.7rem;
             opacity: 0.7;
-            margin-bottom: 2px;
-            margin-right: 7px;
+            padding: 9px;
         }
 
         /* =========================
@@ -866,6 +864,57 @@
                 container.innerHTML = "";
                 const fragment = document.createDocumentFragment();
 
+                if (section.type === "nightCounter") {
+                    const days = getTotalNights(data);
+
+                    // Get sensor total from site_info
+                    const sensorTotal =
+                        data?.sections?.site_info?.fields?.sensorTotal ||
+                        document.getElementById("field_sensorTotal")?.value ||
+                        "";
+
+                    section.fields.forEach(field => {
+                        const wrapper = createEl("div", { className: "row" });
+
+                        wrapper.appendChild(createEl("strong", { text: field.label }));
+                        wrapper.appendChild(document.createElement("br"));
+
+                        for (let day = 0; day < days; day++) {
+                            const containerRow = createEl("div");
+
+                            // Night label
+                            containerRow.appendChild(createEl("span", {
+                                text: `Night ${day + 1}: `
+                            }));
+
+                            // Input (done)
+                            const input = createEl("input", {
+                                attrs: {
+                                    id: `field_${section.id}_${field.id}_${day}`,
+                                    type: "number",
+                                    placeholder: "0",
+                                    style: "width:70px; margin-right:5px;"
+                                }
+                            });
+
+                            containerRow.appendChild(input);
+
+                            // Total display (read-only visual)
+                            const totalSpan = createEl("span", {
+                                text: `/ ${sensorTotal}`
+                            });
+
+                            containerRow.appendChild(totalSpan);
+
+                            wrapper.appendChild(containerRow);
+                        }
+
+                        container.appendChild(wrapper);
+                    });
+
+                    return;
+                }
+
                 if (section.type === "checklist") {
                     section.items.forEach((item, index) => {
                         const text = typeof item === "object" ? item.text : item;
@@ -1041,6 +1090,23 @@
                 state.config.sections.forEach(section => {
                     const sectionData = {};
 
+                    if (section.type === "nightCounter") {
+                        const days = getTotalNights(data);
+                        sectionData.fields = {};
+
+                        section.fields.forEach(field => {
+                            sectionData.fields[field.id] = [];
+
+                            for (let day = 0; day < days; day++) {
+                                const val = Number(
+                                    document.getElementById(`field_${section.id}_${field.id}_${day}`)?.value || 0
+                                );
+
+                                sectionData.fields[field.id].push(val);
+                            }
+                        });
+                    }
+
                     if (section.type === "fields" || section.type === "counter") {
                         sectionData.fields = {};
                         section.fields.forEach(field => {
@@ -1178,6 +1244,20 @@
                                 const checkbox = $(`${sectionId}_${index}`);
                                 if (checkbox) checkbox.checked = item.checked;
                             }
+                        });
+                    }
+
+                    // ==========================
+                    // Night Counter (APPLY FIX)
+                    // ==========================
+                    const sectionConfig = state.config.sections.find(s => s.id === sectionId);
+
+                    if (sectionData.fields && sectionConfig?.type === "nightCounter") {
+                        Object.entries(sectionData.fields).forEach(([fieldId, values]) => {
+                            values.forEach((val, dayIndex) => {
+                                const input = document.getElementById(`field_${sectionId}_${fieldId}_${dayIndex}`);
+                                if (input) input.value = val;
+                            });
                         });
                     }
                 });
@@ -1700,10 +1780,22 @@
             // -------------------------
             function bindEvents() {
                 document.addEventListener("input", (e) => {
+                    // Only rebuild on total nights change
                     if (e.target.id === "field_totalNights") {
                         const existing = collectData();
                         buildApp(existing);
                         applyData(existing);
+                    }
+
+                    // Just update totals visually for sensor count
+                    if (e.target.id === "field_sensorTotal") {
+                        const total = e.target.value;
+
+                        document.querySelectorAll('[id^="field_nightly_production_"]').forEach(input => {
+                            const parent = input.parentElement;
+                            const span = parent.querySelector("span:last-child");
+                            if (span) span.textContent = `/ ${total}`;
+                        });
                     }
                 });
 
