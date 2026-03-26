@@ -1,5 +1,5 @@
-export function initToolsModule({ els, state, createEl, ensureTag }) {
-
+export function initToolsModule({ els, state, createEl, ensureTag, toolSearchEngine }) {
+    
     function normalizeTools(data) {
         const items = [];
 
