@@ -480,7 +480,9 @@
                 linksModule: null,
                 imageModule: null,
                 saveQueue: Promise.resolve(),
-                isSaving: false
+                isSaving: false,
+                isLocalChange: false
+
             };
 
             function escapeHtml(value) {
@@ -1242,46 +1244,41 @@
                     return;
                 }
 
-                showStatus("Loading site…");
+                showStatus("Connecting...");
                 state.isLoading = true;
 
                 try {
                     const siteRef = ref(database, `${DATABASE_BASE_PATH}/sites/${site}`);
-                    const snap = await get(siteRef);
 
-                    if (!snap.exists()) {
-                        const shouldCreate = confirm("Site not found. Create new site?");
-                        if (!shouldCreate) {
-                            showStatus("Site not found.", true);
+                    // 🔥 REAL-TIME LISTENER
+                    onValue(siteRef, (snap) => {
+                        if (state.isLocalChange) return; // prevent loop
+
+                        const data = snap.val();
+
+                        // Auto-create site if missing
+                        if (!data) {
+                            const emptyData = { sections: {} };
+                            set(siteRef, emptyData);
                             return;
                         }
 
-                        const emptyData = { sections: {} };
-
-                        await set(siteRef, emptyData); // 🔥 ACTUALLY CREATE IT
-
                         clearAppInputs();
-                        buildApp(emptyData);
+                        buildApp(data);
+                        applyData(data);
 
-                        showStatus("New site created.");
-                        return;
-                    }
+                        const storageKey = getStorageKey();
+                        if (storageKey) {
+                            localStorage.setItem(storageKey, JSON.stringify(data));
+                        }
 
-                    const data = snap.val();
-                    clearAppInputs();
-                    buildApp(data);
-                    applyData(data);
+                        showStatus("Live updated");
+                        state.isLoading = false;
+                    });
 
-                    const storageKey = getStorageKey();
-                    if (storageKey) {
-                        localStorage.setItem(storageKey, JSON.stringify(data));
-                    }
-
-                    showStatus("Loaded.");
                 } catch (err) {
                     console.error("Load failed:", err);
                     showStatus("Failed to load site.", true);
-                } finally {
                     state.isLoading = false;
                 }
             }
@@ -1310,7 +1307,9 @@
                     state.isSaving = true;
 
                     try {
+                        state.isLocalChange = true;
                         await persistSiteData(site, data);
+                        state.isLocalChange = false;
                         showStatus(`Saved at ${new Date().toLocaleTimeString()}`);
                     } catch (err) {
                         console.error("Save failed:", err);
