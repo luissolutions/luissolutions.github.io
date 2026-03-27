@@ -1,5 +1,8 @@
 export function initImageModule({ els, state, createEl, openModal }) {
 
+    // =========================
+    // Resize Image
+    // =========================
     function resizeImage(file, maxWidth) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -31,7 +34,8 @@ export function initImageModule({ els, state, createEl, openModal }) {
 
                     canvas.toBlob(
                         (blob) => blob ? resolve(blob) : reject("Resize failed"),
-                        file.type || "image/jpeg"
+                        "image/jpeg",
+                        0.9
                     );
                 };
 
@@ -42,6 +46,9 @@ export function initImageModule({ els, state, createEl, openModal }) {
         });
     }
 
+    // =========================
+    // Add Bottom Markup Bar
+    // =========================
     function addTextToImage(blob, text) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -54,7 +61,7 @@ export function initImageModule({ els, state, createEl, openModal }) {
                 img.onerror = () => reject("Invalid image.");
 
                 img.onload = () => {
-                    const barHeight = 120;
+                    const barHeight = Math.max(80, img.width * 0.08);
 
                     const canvas = document.createElement("canvas");
                     canvas.width = img.width;
@@ -63,21 +70,32 @@ export function initImageModule({ els, state, createEl, openModal }) {
                     const ctx = canvas.getContext("2d");
                     if (!ctx) return reject("Canvas context unavailable.");
 
+                    // Draw image
                     ctx.drawImage(img, 0, 0);
 
+                    // Black bar
                     ctx.fillStyle = "black";
                     ctx.fillRect(0, img.height, canvas.width, barHeight);
 
-                    ctx.fillStyle = "white";
-                    ctx.font = `${Math.floor(canvas.width / 15)}px Arial`;
+                    // Dynamic font sizing
+                    let fontSize = Math.floor(canvas.width / 15);
+                    ctx.font = `${fontSize}px Arial`;
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
 
+                    // Shrink text if too wide
+                    while (ctx.measureText(text).width > canvas.width * 0.9 && fontSize > 10) {
+                        fontSize -= 2;
+                        ctx.font = `${fontSize}px Arial`;
+                    }
+
+                    ctx.fillStyle = "white";
                     ctx.fillText(text, canvas.width / 2, img.height + (barHeight / 2));
 
                     canvas.toBlob(
                         (outputBlob) => outputBlob ? resolve(outputBlob) : reject("Markup failed"),
-                        "image/jpeg"
+                        "image/jpeg",
+                        0.95
                     );
                 };
 
@@ -88,6 +106,9 @@ export function initImageModule({ els, state, createEl, openModal }) {
         });
     }
 
+    // =========================
+    // Render Preview
+    // =========================
     function renderPreview(blob, label) {
         const url = URL.createObjectURL(blob);
 
@@ -111,6 +132,11 @@ export function initImageModule({ els, state, createEl, openModal }) {
             }
         });
 
+        // Cleanup URL after load (prevents memory leaks)
+        img.onload = () => {
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+        };
+
         wrapper.appendChild(img);
         wrapper.appendChild(document.createElement("br"));
         wrapper.appendChild(downloadLink);
@@ -118,6 +144,9 @@ export function initImageModule({ els, state, createEl, openModal }) {
         els.previewSection.appendChild(wrapper);
     }
 
+    // =========================
+    // Generate Image
+    // =========================
     async function generate() {
         const first = els.siteNumber.value.trim();
         const second = els.secondPart.value.trim();
@@ -141,7 +170,16 @@ export function initImageModule({ els, state, createEl, openModal }) {
                 blob = await addTextToImage(blob, label);
             }
 
+            // 🔥 Prevent duplicate images
+            const exists = state.allImages.some(img => img.label === label);
+            if (exists) {
+                alert("Image with this label already exists.");
+                return;
+            }
+
             state.allImages.push({ blob, label });
+            state.hasUnsavedImages = true;
+
             renderPreview(blob, label);
 
         } catch (err) {
@@ -150,6 +188,9 @@ export function initImageModule({ els, state, createEl, openModal }) {
         }
     }
 
+    // =========================
+    // Download All
+    // =========================
     function downloadAll() {
         if (!state.allImages.length) {
             alert("No images to download.");
@@ -169,8 +210,14 @@ export function initImageModule({ els, state, createEl, openModal }) {
 
             setTimeout(() => URL.revokeObjectURL(url), 0);
         });
+
+        // 🔥 mark as saved
+        state.hasUnsavedImages = false;
     }
 
+    // =========================
+    // Bind Events
+    // =========================
     function bindEvents() {
         els.generateBtn.addEventListener("click", generate);
         els.downloadAllBtn.addEventListener("click", downloadAll);
