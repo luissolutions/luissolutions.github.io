@@ -698,7 +698,8 @@
             }
 
             function getTotalNights(data = null) {
-                const fromData = data?.sections?.site_info?.fields?.totalNights;
+                const raw = data?.sections?.site_info?.fields?.totalNights;
+                const fromData = (raw && typeof raw === "object") ? raw.value : raw;
                 if (fromData != null && fromData !== "") {
                     return normalizeNightCount(fromData, DEFAULT_NIGHTS);
                 }
@@ -1146,7 +1147,13 @@
                     if (sectionData.fields) {
                         Object.entries(sectionData.fields).forEach(([key, value]) => {
                             const fieldEl = byId(`field_${key}`);
-                            if (fieldEl) fieldEl.value = value;
+                            if (!fieldEl) return;
+
+                            if (value && typeof value === "object" && "value" in value) {
+                                fieldEl.value = value.value;
+                            } else {
+                                fieldEl.value = value ?? "";
+                            }
                         });
                     }
 
@@ -1199,7 +1206,10 @@
 
                     if (sectionId === "site_info" && sectionData.fields?.totalNights) {
                         const el = byId("field_totalNights");
-                        if (el) el.value = sectionData.fields.totalNights;
+                        const raw = sectionData.fields.totalNights;
+                        const value = (raw && typeof raw === "object" && "value" in raw) ? raw.value : raw;
+
+                        if (el) el.value = value ?? "";
                     }
                 });
 
@@ -1241,8 +1251,14 @@
                             return;
                         }
 
+                        const emptyData = { sections: {} };
+
+                        await set(siteRef, emptyData); // 🔥 ACTUALLY CREATE IT
+
                         clearAppInputs();
-                        showStatus("New site ready.");
+                        buildApp(emptyData);
+
+                        showStatus("New site created.");
                         return;
                     }
 
@@ -1912,8 +1928,14 @@
                     if (!(target instanceof HTMLElement)) return;
 
                     if (target.id === "field_totalNights") {
-                        const value = Number(target.value);
-                        if (!value || value < 1 || value > MAX_NIGHTS) return;
+                        let value = Number(target.value);
+
+                        if (isNaN(value)) return;
+
+                        if (value < 1) value = 1;
+                        if (value > MAX_NIGHTS) value = MAX_NIGHTS;
+
+                        target.value = value;
 
                         updateNightDependentSections();
                         debouncedAutoSave();
