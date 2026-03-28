@@ -309,20 +309,35 @@
 <body>
     <header>
         <h1>Radar Job Reference</h1>
+        <span id="logins-section" class="logins-section">
+            <section>
+                <form id="login-form">
+                    <label for="username">Email:</label>
+                    <input type="email" id="username" required>
+                    <br>
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" required>
+                    <br>
+                    <button type="submit">Sign in</button>
+                </form>
+                <button id="logout" style="display:none;">Logout</button>
+            </section>
 
-        <section id="login-section">
-            <form id="login-form">
-                <label for="username">Email:</label>
-                <input type="email" id="username" required />
+            <div class="ms">
+                <br>
+                <button id="loginButton">Login to MS</button>
+                <button id="logoutButton">Logout of MS</button>
+                <p id="loginStatus">Login status...</p>
+            </div>
+        </span>
 
-                <label for="password">Password:</label>
-                <input type="password" id="password" required />
-
-                <button type="submit">Sign in</button>
-            </form>
-
-            <button id="logout" style="display:none;">Logout</button>
+        <section id="adminSection" style="display: none;">
+            <label>
+                <input type="checkbox" id="adminToggle" checked />
+                Admin Mode
+            </label>
         </section>
+
     </header>
 
     <div class="topnav">
@@ -398,6 +413,7 @@
             <button id="compareBtn" type="button">Generate Report</button>
             <button id="exportFullBtn" type="button">Export Full CSV</button>
             <button id="exportReportBtn" type="button">Export Report CSV</button>
+            <button id="saveToOneDriveBtn">Save to OneDrive</button>
 
             <div id="comparisonResults"></div>
         </section>
@@ -421,6 +437,9 @@
         import { initToolsModule } from './assets/js/toolsModule.js';
         import { initLinksModule } from './assets/js/linksModule.js';
         import { initImageModule } from './assets/js/imageModule.js';
+
+        import { accessToken, isTokenExpired } from '../apps/assets/js/microsoftAuth.js';
+
 
         const MAX_NIGHTS = 10;
         const DEFAULT_NIGHTS = 5;
@@ -2051,6 +2070,9 @@
                     const key = `section_main_${section.dataset.id || index}_${header.textContent.trim()}`;
                     bindCollapsible(header, section, key);
                 });
+
+                document.getElementById("saveToOneDriveBtn")
+                    ?.addEventListener("click", saveAllToOneDrive);
             }
 
             window.loadFirebase = loadFirebase;
@@ -2111,6 +2133,74 @@
                 showStatus("App failed to initialize.", true);
             });
         })();
+
+
+        async function uploadToOneDrive(filename, content, mimeType = "text/plain") {
+            if (!accessToken || isTokenExpired(accessToken)) {
+                alert("Please login to Microsoft first");
+                return;
+            }
+
+            const res = await fetch(
+                `https://graph.microsoft.com/v1.0/me/drive/root:/${filename}:/content`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`,
+                        "Content-Type": mimeType
+                    },
+                    body: content
+                }
+            );
+
+            if (!res.ok) {
+                const err = await res.text();
+                console.error("Upload failed:", err);
+                throw new Error("Upload failed");
+            }
+
+            return await res.json();
+        }
+
+        async function saveAllToOneDrive() {
+            try {
+                if (!isLoggedIn()) {
+                    alert("Login to Microsoft first");
+                    return;
+                }
+
+                const site = document.getElementById("siteNumber")?.value || "unknown";
+                const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+                const data = collectData();
+
+                // 🔹 CSV
+                const rows = [["Section", "Field", "Value"]];
+                Object.entries(data.sections || {}).forEach(([sectionId, sec]) => {
+                    if (sec.fields) {
+                        Object.entries(sec.fields).forEach(([k, v]) => {
+                            const value = (v && typeof v === "object" && "value" in v) ? v.value : v;
+                            rows.push([sectionId, k, value]);
+                        });
+                    }
+                });
+
+                const csv = toCSV(rows);
+
+                // 🔹 TXT report
+                const report = generateCertificationReport();
+
+                // 🔥 Upload BOTH
+                await uploadToOneDrive(`QC_${site}_${timestamp}.csv`, csv, "text/csv");
+                await uploadToOneDrive(`QC_${site}_${timestamp}.txt`, report, "text/plain");
+
+                alert("Saved to OneDrive ✅");
+
+            } catch (err) {
+                console.error(err);
+                alert("Upload failed ❌");
+            }
+        }
     </script>
 </body>
 
