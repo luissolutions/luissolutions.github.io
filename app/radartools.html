@@ -1773,8 +1773,12 @@
                 getTotalNights(data) // ← NOT UI
             );
 
+            const rawSensor = data?.sections?.site_info?.fields?.sensorTotal;
+
             const sensorTotal = Number(
-                data?.sections?.site_info?.fields?.sensorTotal || 0
+                rawSensor && typeof rawSensor === "object" && "value" in rawSensor
+                    ? rawSensor.value
+                    : rawSensor || 0
             );
 
             const result = [];
@@ -1808,8 +1812,8 @@
             };
         }
 
-        function generateCertificationReport() {
-            const data = collectData();
+        function generateCertificationReport(inputData = null) {
+            const data = inputData || collectData();
             const output = [];
 
             const scoring = data.sections.final_scoring || {};
@@ -2188,26 +2192,13 @@
                     const site = siteObj.site;
                     const data = siteObj.data;
 
-                    // 🔹 CSV
-                    const rows = [["Section", "Field", "Value"]];
-
-                    Object.entries(data.sections || {}).forEach(([sectionId, sec]) => {
-                        if (sec.fields) {
-                            Object.entries(sec.fields).forEach(([k, v]) => {
-                                const value = (v && typeof v === "object" && "value" in v) ? v.value : v;
-                                rows.push([sectionId, k, value]);
-                            });
-                        }
-                    });
-
+                    const rows = buildFullSiteRows(data);
                     const csv = toCSV(rows);
 
-                    // 🔹 TXT report
-                    const report = generateCertificationReport();
+                    const report = generateCertificationReport(data);
 
-                    // 🔥 Upload per site
-                    await uploadToOneDrive(`QC_${site}_${timestamp}.csv`, csv, "text/csv");
-                    await uploadToOneDrive(`QC_${site}_${timestamp}.txt`, report, "text/plain");
+                    await uploadToOneDrive(`Jobs/Radar/QC_${site}_${timestamp}.csv`, csv, "text/csv");
+                    await uploadToOneDrive(`Jobs/Radar/QC_${site}_${timestamp}.txt`, report, "text/plain");
                 }
 
                 alert("All sites saved to OneDrive ✅");
@@ -2245,14 +2236,14 @@
 
                     const row = document.createElement("div");
                     row.style.cssText = `
-                padding:10px;
-                border:1px solid #ccc;
-                margin-bottom:6px;
-                display:flex;
-                justify-content:space-between;
-                align-items:center;
-                border-radius:8px;
-            `;
+                        padding:10px;
+                        border:1px solid #ccc;
+                        margin-bottom:6px;
+                        display:flex;
+                        justify-content:space-between;
+                        align-items:center;
+                        border-radius:8px;
+                    `;
 
                     if (site === currentSite) {
                         row.style.background = "rgba(0,230,118,0.1)";
@@ -2261,9 +2252,9 @@
 
                     const left = document.createElement("div");
                     left.innerHTML = `
-                <strong>Site ${site}</strong><br>
-                <span style="font-size:0.85rem;opacity:0.7;">Score: ${score}</span>
-            `;
+                        <strong>Site ${site}</strong><br>
+                        <span style="font-size:0.85rem;opacity:0.7;">Score: ${score}</span>
+                    `;
 
                     const right = document.createElement("div");
 
@@ -2301,7 +2292,86 @@
                 console.error(err);
                 container.textContent = "Failed to load sites";
             }
-        }    </script>
+        }
+
+        function buildFullSiteRows(data) {
+            const rows = [["Section", "Field", "Value"]];
+
+            if (!state.config?.sections) return rows;
+
+            state.config.sections.forEach(section => {
+                const sectionData = data.sections[section.id] || {};
+
+                // Fields
+                if (section.type === "fields" && section.fields) {
+                    section.fields.forEach(field => {
+                        const value = sectionData.fields?.[field.id]?.value || "";
+                        rows.push([section.title, field.label, value]);
+                    });
+                }
+
+                // Checklist
+                if (section.type === "checklist" && section.items) {
+                    section.items.forEach((item, index) => {
+                        const checked = sectionData.items?.[index]?.checked;
+                        rows.push([
+                            section.title,
+                            item.text,
+                            checked ? "Yes" : "No"
+                        ]);
+                    });
+
+                    if (section.notes) {
+                        rows.push([section.title, "Notes", sectionData.notes || ""]);
+                    }
+                }
+
+                // Multi-day
+                if (section.type === "checklistMultiDay" && section.items) {
+                    const items = sectionData.items || [];
+
+                    section.items.forEach((item, index) => {
+                        const days = items[index]?.days || [];
+
+                        days.forEach((val, dayIndex) => {
+                            rows.push([
+                                section.title,
+                                `${item.text} (Night ${dayIndex + 1})`,
+                                val ? "Yes" : "No"
+                            ]);
+                        });
+                    });
+                }
+
+                // Night production
+                if (section.type === "nightCounter" && section.fields) {
+                    section.fields.forEach(field => {
+                        const values = sectionData.fields?.[field.id] || [];
+
+                        values.forEach((val, i) => {
+                            rows.push([
+                                section.title,
+                                `${field.label} (Night ${i + 1})`,
+                                val
+                            ]);
+                        });
+                    });
+                }
+
+                // Scoring
+                if (section.type === "scoring") {
+                    Object.entries(sectionData.scores || {}).forEach(([key, val]) => {
+                        const label = section.fields.find(f => f.id === key)?.label || key;
+                        rows.push([section.title, label, val]);
+                    });
+
+                    rows.push([section.title, "Total", sectionData.total || 0]);
+                }
+            });
+
+            return rows;
+        }
+    </script>
 </body>
 
 </html>
