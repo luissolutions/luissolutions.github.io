@@ -234,7 +234,7 @@
                 <th>Posted Date</th>
                 <th>Name</th>
                 <th>Type</th>
-                <th>Amount</th>
+                <th id="tx-sort-amount" style="cursor:pointer;">Amount ▲▼</th>
                 <th>Tags</th>
                 <th>Actions</th>
               </tr>
@@ -385,7 +385,7 @@
       <p class="small">Paste bank or card exports. Preview first, then add with duplicate protection.</p>
 
       <label>Year:
-<input id="import-year" type="number" min="2000" max="2100" value="2026">
+        <input id="import-year" type="number" min="2000" max="2100" value="2026">
       </label>
 
       <label><input type="radio" name="importMode" value="bankCredit" checked> Credit card export (two dates)</label>
@@ -538,11 +538,13 @@
     let _allTx = [];   // contains ALL years for current base path
     let _engine = null;
     let _txSortAsc = true;
+    let _amtSortAsc = true;
     let carouselChart = null;
     let chartSlideIndex = 0; // 0 = Monthly Bar, 1 = Pie
     const CHART_SLIDES = ['monthly', 'pie'];
     let _openDayYMD = null;
     let _isRefreshingModal = false;
+    let _sortBy = 'date';
 
     let _showAllTx = false;
     const TX_PAGE_SIZE = 20;
@@ -927,16 +929,22 @@
         if (CHART_SLIDES[chartSlideIndex] === 'pie') renderChartSlide(chartSlideIndex);
       });
 
-      document.getElementById('tx-sort-date')?.addEventListener('dblclick', () => {
-        _txSortAsc = !_txSortAsc;
-        displayAllTransactions();
-      });
-
       document.getElementById('toggle-show-all')?.addEventListener('click', () => {
         _showAllTx = !_showAllTx;
         displayAllTransactions();
       });
 
+      document.getElementById('tx-sort-date')?.addEventListener('dblclick', () => {
+        _sortBy = 'date';
+        _txSortAsc = !_txSortAsc;
+        displayAllTransactions();
+      });
+
+      document.getElementById('tx-sort-amount')?.addEventListener('dblclick', () => {
+        _sortBy = 'amount';
+        _amtSortAsc = !_amtSortAsc;
+        displayAllTransactions();
+      });
 
       wireImportTab();
       setupPostedDateToggle();
@@ -1104,12 +1112,19 @@
 
       updateFilteredTotal(filtered);
 
-      filtered.sort((a, b) => {
-        const ad = Number(a.date) || 0;
-        const bd = Number(b.date) || 0;
-        if (_txSortAsc) return ad - bd;
-        else return bd - ad;
-      });
+      if (_sortBy === 'amount') {
+        filtered.sort((a, b) => {
+          const av = Number(a.amt) || 0;
+          const bv = Number(b.amt) || 0;
+          return _amtSortAsc ? av - bv : bv - av;
+        });
+      } else {
+        filtered.sort((a, b) => {
+          const ad = Number(a.date) || 0;
+          const bd = Number(b.date) || 0;
+          return _txSortAsc ? ad - bd : bd - ad;
+        });
+      }
 
       // ✅ limit render
       const total = filtered.length;
