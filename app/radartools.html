@@ -359,6 +359,12 @@
     </div>
 
     <main>
+        <section data-id="sites-list">
+            <h2>📁 Saved Sites</h2>
+            <button id="refreshSitesBtn">Refresh List</button>
+            <div id="sitesList"></div>
+        </section>
+
         <section data-id="site-number">
             <div>
                 <label for="siteNumber">Site Number</label>
@@ -455,1689 +461,1686 @@
             DATABASE_BASE_PATH = user ? user.uid : 'public';
         });
 
-        (() => {
-            const byId = (id) => document.getElementById(id);
+        const byId = (id) => document.getElementById(id);
 
-            const els = {
-                app: byId("app"),
-                siteStatus: byId("siteStatus"),
-                siteNumber: byId("siteNumber"),
-                secondPart: byId("secondPart"),
-                imageInput: byId("imageInput"),
-                resizeCheckbox: byId("resizeCheckbox"),
-                markupCheckbox: byId("markupCheckbox"),
-                generateBtn: byId("generateBtn"),
-                previewSection: byId("previewSection"),
-                downloadAllBtn: byId("downloadAllBtn"),
+        const els = {
+            app: byId("app"),
+            siteStatus: byId("siteStatus"),
+            siteNumber: byId("siteNumber"),
+            secondPart: byId("secondPart"),
+            imageInput: byId("imageInput"),
+            resizeCheckbox: byId("resizeCheckbox"),
+            markupCheckbox: byId("markupCheckbox"),
+            generateBtn: byId("generateBtn"),
+            previewSection: byId("previewSection"),
+            downloadAllBtn: byId("downloadAllBtn"),
 
-                toolGrid: byId("toolGrid"),
-                toolSearch: byId("toolSearch"),
-                exportTools: byId("exportTools"),
-                categoryFilter: byId("categoryFilter"),
-                subCategoryFilter: byId("subCategoryFilter"),
+            toolGrid: byId("toolGrid"),
+            toolSearch: byId("toolSearch"),
+            exportTools: byId("exportTools"),
+            categoryFilter: byId("categoryFilter"),
+            subCategoryFilter: byId("subCategoryFilter"),
 
-                compareBtn: byId("compareBtn"),
-                comparisonResults: byId("comparisonResults"),
-                exportFullBtn: byId("exportFullBtn"),
-                exportReportBtn: byId("exportReportBtn"),
+            compareBtn: byId("compareBtn"),
+            comparisonResults: byId("comparisonResults"),
+            exportFullBtn: byId("exportFullBtn"),
+            exportReportBtn: byId("exportReportBtn"),
 
-                linkBar: byId("linkBar"),
-                moreWrap: byId("moreWrap"),
-                moreBtn: byId("moreBtn"),
-                moreMenu: byId("moreMenu"),
+            linkBar: byId("linkBar"),
+            moreWrap: byId("moreWrap"),
+            moreBtn: byId("moreBtn"),
+            moreMenu: byId("moreMenu"),
 
-                imgModal: byId("imgModal"),
-                imgModalImg: byId("imgModalImg"),
-                imgModalClose: byId("imgModalClose")
+            imgModal: byId("imgModal"),
+            imgModalImg: byId("imgModalImg"),
+            imgModalClose: byId("imgModalClose")
+        };
+
+        const state = {
+            config: null,
+            isLoading: false,
+            affiliateTag: "",
+            allTools: [],
+            allImages: [],
+            lastLinks: [],
+            hasUnsavedImages: false,
+            toolsModule: null,
+            linksModule: null,
+            imageModule: null,
+            saveQueue: Promise.resolve(),
+            isSaving: false,
+            isLocalChange: false
+
+        };
+
+        function escapeHtml(value) {
+            return String(value ?? "").replace(/[&<>"']/g, (m) => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;"
+            }[m]));
+        }
+
+        function debounce(fn, delay = 150) {
+            let timeoutId;
+            return (...args) => {
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(() => fn(...args), delay);
             };
+        }
 
-            const state = {
-                config: null,
-                isLoading: false,
-                affiliateTag: "",
-                allTools: [],
-                allImages: [],
-                lastLinks: [],
-                hasUnsavedImages: false,
-                toolsModule: null,
-                linksModule: null,
-                imageModule: null,
-                saveQueue: Promise.resolve(),
-                isSaving: false,
-                isLocalChange: false
-
-            };
-
-            function escapeHtml(value) {
-                return String(value ?? "").replace(/[&<>"']/g, (m) => ({
-                    "&": "&amp;",
-                    "<": "&lt;",
-                    ">": "&gt;",
-                    '"': "&quot;",
-                    "'": "&#39;"
-                }[m]));
+        function safeJsonParse(raw, fallback = null) {
+            try {
+                return JSON.parse(raw);
+            } catch {
+                console.warn("Invalid JSON skipped");
+                return fallback;
             }
+        }
 
-            function debounce(fn, delay = 150) {
-                let timeoutId;
-                return (...args) => {
-                    clearTimeout(timeoutId);
-                    timeoutId = setTimeout(() => fn(...args), delay);
-                };
-            }
+        function createEl(tag, options = {}) {
+            const el = document.createElement(tag);
 
-            function safeJsonParse(raw, fallback = null) {
-                try {
-                    return JSON.parse(raw);
-                } catch {
-                    console.warn("Invalid JSON skipped");
-                    return fallback;
-                }
-            }
+            if (options.className) el.className = options.className;
+            if (options.text != null) el.textContent = options.text;
+            if (options.html != null) el.innerHTML = options.html;
 
-            function createEl(tag, options = {}) {
-                const el = document.createElement(tag);
-
-                if (options.className) el.className = options.className;
-                if (options.text != null) el.textContent = options.text;
-                if (options.html != null) el.innerHTML = options.html;
-
-                if (options.attrs) {
-                    Object.entries(options.attrs).forEach(([key, value]) => {
-                        if (value != null) {
-                            el.setAttribute(key, value);
-                        }
-                    });
-                }
-
-                return el;
-            }
-
-            function toCSV(rows) {
-                return rows
-                    .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
-                    .join("\n");
-            }
-
-            function downloadCSV(rows, filename) {
-                const csv = toCSV(rows);
-                const blob = new Blob([csv], { type: "text/csv" });
-                const url = URL.createObjectURL(blob);
-
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = filename;
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-
-                setTimeout(() => URL.revokeObjectURL(url), 0);
-            }
-
-            function showStatus(message = "", isError = false) {
-                if (!els.siteStatus) return;
-                els.siteStatus.textContent = message;
-                els.siteStatus.style.color = isError ? "crimson" : "";
-                els.siteStatus.dataset.state = isError ? "error" : "idle";
-            }
-
-            function setCollapsedState(container, storageKey, collapsedClass = "collapsed") {
-                if (localStorage.getItem(storageKey) === "true") {
-                    container.classList.add(collapsedClass);
-                }
-            }
-
-            function bindCollapsible(header, container, storageKey, collapsedClass = "collapsed") {
-                setCollapsedState(container, storageKey, collapsedClass);
-
-                header.addEventListener("click", () => {
-                    container.classList.toggle(collapsedClass);
-                    localStorage.setItem(
-                        storageKey,
-                        String(container.classList.contains(collapsedClass))
-                    );
+            if (options.attrs) {
+                Object.entries(options.attrs).forEach(([key, value]) => {
+                    if (value != null) {
+                        el.setAttribute(key, value);
+                    }
                 });
             }
 
-            function getStorageKey() {
-                const site = els.siteNumber?.value?.trim();
-                return site ? `qc_app_${site}` : null;
+            return el;
+        }
+
+        function toCSV(rows) {
+            return rows
+                .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
+                .join("\n");
+        }
+
+        function downloadCSV(rows, filename) {
+            const csv = toCSV(rows);
+            const blob = new Blob([csv], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+        }
+
+        function showStatus(message = "", isError = false) {
+            if (!els.siteStatus) return;
+            els.siteStatus.textContent = message;
+            els.siteStatus.style.color = isError ? "crimson" : "";
+            els.siteStatus.dataset.state = isError ? "error" : "idle";
+        }
+
+        function setCollapsedState(container, storageKey, collapsedClass = "collapsed") {
+            if (localStorage.getItem(storageKey) === "true") {
+                container.classList.add(collapsedClass);
             }
+        }
 
-            const toolSearchEngine = (window.SearchEngine && window.SearchEngine.create)
-                ? window.SearchEngine.create({
-                    fields: {
-                        name: { type: "string", resolver: (r) => r.name },
-                        category: { type: "string", resolver: (r) => r.category },
-                        component: { type: "string", resolver: (r) => r.component }
-                    },
-                    defaultFields: ["name", "category", "component"],
-                    caseSensitive: false
-                })
-                : null;
+        function bindCollapsible(header, container, storageKey, collapsedClass = "collapsed") {
+            setCollapsedState(container, storageKey, collapsedClass);
 
-            function ensureTag(url) {
-                try {
-                    if (!url) return "";
-                    const parsed = new URL(url, window.location.origin);
+            header.addEventListener("click", () => {
+                container.classList.toggle(collapsedClass);
+                localStorage.setItem(
+                    storageKey,
+                    String(container.classList.contains(collapsedClass))
+                );
+            });
+        }
 
-                    if (state.affiliateTag) {
-                        parsed.searchParams.set("tag", state.affiliateTag);
-                    }
+        function getStorageKey() {
+            const site = els.siteNumber?.value?.trim();
+            return site ? `qc_app_${site}` : null;
+        }
 
-                    return parsed.toString();
-                } catch {
-                    return url || "";
+        const toolSearchEngine = (window.SearchEngine && window.SearchEngine.create)
+            ? window.SearchEngine.create({
+                fields: {
+                    name: { type: "string", resolver: (r) => r.name },
+                    category: { type: "string", resolver: (r) => r.category },
+                    component: { type: "string", resolver: (r) => r.component }
+                },
+                defaultFields: ["name", "category", "component"],
+                caseSensitive: false
+            })
+            : null;
+
+        function ensureTag(url) {
+            try {
+                if (!url) return "";
+                const parsed = new URL(url, window.location.origin);
+
+                if (state.affiliateTag) {
+                    parsed.searchParams.set("tag", state.affiliateTag);
                 }
+
+                return parsed.toString();
+            } catch {
+                return url || "";
+            }
+        }
+
+        function rebuildCategoryDropdown() {
+            const categories = [...new Set(
+                state.allTools
+                    .map((tool) => tool.category)
+                    .filter(Boolean)
+            )].sort((a, b) => a.localeCompare(b));
+
+            const current = els.categoryFilter.value || "";
+            els.categoryFilter.innerHTML =
+                `<option value="">All Categories</option>` +
+                categories
+                    .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
+                    .join("");
+
+            if (categories.includes(current)) {
+                els.categoryFilter.value = current;
+            }
+        }
+
+        function rebuildSubCategoryDropdown() {
+            const selectedCategory = els.categoryFilter.value || "";
+
+            const components = [...new Set(
+                state.allTools
+                    .filter((tool) => !selectedCategory || tool.category === selectedCategory)
+                    .map((tool) => tool.component)
+                    .filter(Boolean)
+            )].sort((a, b) => a.localeCompare(b));
+
+            const current = els.subCategoryFilter.value || "";
+
+            els.subCategoryFilter.innerHTML =
+                `<option value="">All Sub-Categories</option>` +
+                components
+                    .map((component) => `<option value="${escapeHtml(component)}">${escapeHtml(component)}</option>`)
+                    .join("");
+
+            els.subCategoryFilter.disabled = components.length === 0;
+            els.subCategoryFilter.value = components.includes(current) ? current : "";
+        }
+
+        function refreshToolUI() {
+            if (!state.toolsModule?.loadTools) return;
+            state.toolsModule.loadTools(state.allTools);
+            rebuildCategoryDropdown();
+            rebuildSubCategoryDropdown();
+        }
+
+        function exportToolsToCsv() {
+            const shown = state.toolsModule?.applyFilters
+                ? state.toolsModule.applyFilters(state.allTools)
+                : state.allTools;
+
+            const rows = [["Name", "Category", "Component", "Link"]];
+
+            shown.forEach((tool) => {
+                rows.push([
+                    tool.name,
+                    tool.category,
+                    tool.component,
+                    ensureTag(tool.affiliateUrl)
+                ]);
+            });
+
+            downloadCSV(rows, "radar-tools.csv");
+        }
+
+        function openModal(src) {
+            els.imgModalImg.src = src;
+            els.imgModal.classList.remove("hidden");
+            els.imgModal.setAttribute("aria-hidden", "false");
+        }
+
+        function closeModal() {
+            els.imgModal.classList.add("hidden");
+            els.imgModal.setAttribute("aria-hidden", "true");
+            els.imgModalImg.src = "";
+        }
+
+        function getFieldElementId(sectionId, fieldId, day = null) {
+            return day == null
+                ? `field_${fieldId}`
+                : `field_${sectionId}_${fieldId}_${day}`;
+        }
+
+        function normalizeNightCount(value, fallback = 1) {
+            const parsed = parseInt(value, 10);
+            if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+            return Math.min(parsed, MAX_NIGHTS);
+        }
+
+        function getTotalNights(data = null) {
+            const raw = data?.sections?.site_info?.fields?.totalNights;
+            const fromData = (raw && typeof raw === "object") ? raw.value : raw;
+            if (fromData != null && fromData !== "") {
+                return normalizeNightCount(fromData, DEFAULT_NIGHTS);
             }
 
-            function rebuildCategoryDropdown() {
-                const categories = [...new Set(
-                    state.allTools
-                        .map((tool) => tool.category)
-                        .filter(Boolean)
-                )].sort((a, b) => a.localeCompare(b));
+            const el = byId("field_totalNights");
+            if (!el) return DEFAULT_NIGHTS;
 
-                const current = els.categoryFilter.value || "";
-                els.categoryFilter.innerHTML =
-                    `<option value="">All Categories</option>` +
-                    categories
-                        .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
-                        .join("");
+            return normalizeNightCount(el.value, DEFAULT_NIGHTS);
+        }
 
-                if (categories.includes(current)) {
-                    els.categoryFilter.value = current;
+        function getTotalNightsFromUI() {
+            return getTotalNights();
+        }
+
+        function getSectionConfig(sectionId) {
+            return state.config?.sections?.find((section) => section.id === sectionId) || null;
+        }
+
+        async function loadConfig() {
+            try {
+                els.app.textContent = "Loading configuration…";
+
+                const response = await fetch("./assets/js/radar_checklist.json");
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
                 }
+
+                const config = await response.json();
+                if (!config || !Array.isArray(config.sections)) {
+                    throw new Error("Invalid config format");
+                }
+
+                state.config = config;
+                buildApp({ sections: {} });
+            } catch (err) {
+                console.error("Failed to load config:", err);
+                els.app.textContent = "Config failed to load.";
+                alert("Config failed to load");
             }
+        }
 
-            function rebuildSubCategoryDropdown() {
-                const selectedCategory = els.categoryFilter.value || "";
+        function buildApp(data = { sections: {} }) {
+            els.app.innerHTML = "";
 
-                const components = [...new Set(
-                    state.allTools
-                        .filter((tool) => !selectedCategory || tool.category === selectedCategory)
-                        .map((tool) => tool.component)
-                        .filter(Boolean)
-                )].sort((a, b) => a.localeCompare(b));
+            if (!state.config?.sections?.length) return;
 
-                const current = els.subCategoryFilter.value || "";
+            const fragment = document.createDocumentFragment();
 
-                els.subCategoryFilter.innerHTML =
-                    `<option value="">All Sub-Categories</option>` +
-                    components
-                        .map((component) => `<option value="${escapeHtml(component)}">${escapeHtml(component)}</option>`)
-                        .join("");
+            state.config.sections.forEach((section, index) => {
+                const wrapper = createEl("div", { className: "section" });
+                wrapper.dataset.sectionId = section.id;
 
-                els.subCategoryFilter.disabled = components.length === 0;
-                els.subCategoryFilter.value = components.includes(current) ? current : "";
-            }
-
-            function refreshToolUI() {
-                if (!state.toolsModule?.loadTools) return;
-                state.toolsModule.loadTools(state.allTools);
-                rebuildCategoryDropdown();
-                rebuildSubCategoryDropdown();
-            }
-
-            function exportToolsToCsv() {
-                const shown = state.toolsModule?.applyFilters
-                    ? state.toolsModule.applyFilters(state.allTools)
-                    : state.allTools;
-
-                const rows = [["Name", "Category", "Component", "Link"]];
-
-                shown.forEach((tool) => {
-                    rows.push([
-                        tool.name,
-                        tool.category,
-                        tool.component,
-                        ensureTag(tool.affiliateUrl)
-                    ]);
+                const header = createEl("h2", {
+                    className: "collapsible-header",
+                    text: section.title || `Section ${index + 1}`
                 });
 
-                downloadCSV(rows, "radar-tools.csv");
-            }
+                const content = createEl("div", {
+                    attrs: { id: `section_${section.id}` }
+                });
 
-            function openModal(src) {
-                els.imgModalImg.src = src;
-                els.imgModal.classList.remove("hidden");
-                els.imgModal.setAttribute("aria-hidden", "false");
-            }
+                wrapper.appendChild(header);
+                wrapper.appendChild(content);
 
-            function closeModal() {
-                els.imgModal.classList.add("hidden");
-                els.imgModal.setAttribute("aria-hidden", "true");
-                els.imgModalImg.src = "";
-            }
+                bindCollapsible(header, wrapper, `section_dynamic_${section.id}`);
+                fragment.appendChild(wrapper);
+            });
 
-            function getFieldElementId(sectionId, fieldId, day = null) {
-                return day == null
-                    ? `field_${fieldId}`
-                    : `field_${sectionId}_${fieldId}_${day}`;
-            }
+            els.app.appendChild(fragment);
 
-            function normalizeNightCount(value, fallback = 1) {
-                const parsed = parseInt(value, 10);
-                if (Number.isNaN(parsed) || parsed <= 0) return fallback;
-                return Math.min(parsed, MAX_NIGHTS);
-            }
+            const renderData = data || collectData();
+            state.config.sections.forEach((section) => renderSection(section, renderData));
+        }
 
-            function getTotalNights(data = null) {
-                const raw = data?.sections?.site_info?.fields?.totalNights;
-                const fromData = (raw && typeof raw === "object") ? raw.value : raw;
-                if (fromData != null && fromData !== "") {
-                    return normalizeNightCount(fromData, DEFAULT_NIGHTS);
-                }
+        const sectionRenderers = {
+            nightCounter(section, data, container) {
+                const days = Math.max(1, getTotalNights(data));
+                const rawSensorTotal =
+                    data?.sections?.site_info?.fields?.sensorTotal ??
+                    byId("field_sensorTotal")?.value ??
+                    "";
 
-                const el = byId("field_totalNights");
-                if (!el) return DEFAULT_NIGHTS;
+                const sensorTotal =
+                    (rawSensorTotal && typeof rawSensorTotal === "object" && "value" in rawSensorTotal)
+                        ? rawSensorTotal.value
+                        : rawSensorTotal;
 
-                return normalizeNightCount(el.value, DEFAULT_NIGHTS);
-            }
+                section.fields.forEach((field) => {
+                    const wrapper = createEl("div", { className: "row" });
 
-            function getTotalNightsFromUI() {
-                return getTotalNights();
-            }
+                    wrapper.appendChild(createEl("strong", { text: field.label }));
+                    wrapper.appendChild(document.createElement("br"));
 
-            function getSectionConfig(sectionId) {
-                return state.config?.sections?.find((section) => section.id === sectionId) || null;
-            }
+                    for (let day = 0; day < days; day += 1) {
+                        const row = createEl("div");
 
-            async function loadConfig() {
-                try {
-                    els.app.textContent = "Loading configuration…";
+                        row.appendChild(createEl("span", {
+                            text: `Night ${day + 1}: `
+                        }));
 
-                    const response = await fetch("./assets/js/radar_checklist.json");
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
+                        const input = createEl("input", {
+                            attrs: {
+                                id: getFieldElementId(section.id, field.id, day),
+                                type: "number",
+                                placeholder: "0",
+                                style: "width:70px; margin-right:5px;"
+                            }
+                        });
+
+                        const totalSpan = createEl("span", {
+                            className: "sensor-total",
+                            text: `/ ${sensorTotal}`
+                        });
+
+                        row.appendChild(input);
+                        row.appendChild(totalSpan);
+                        wrapper.appendChild(row);
                     }
 
-                    const config = await response.json();
-                    if (!config || !Array.isArray(config.sections)) {
-                        throw new Error("Invalid config format");
-                    }
+                    container.appendChild(wrapper);
+                });
+            },
 
-                    state.config = config;
-                    buildApp({ sections: {} });
-                } catch (err) {
-                    console.error("Failed to load config:", err);
-                    els.app.textContent = "Config failed to load.";
-                    alert("Config failed to load");
-                }
-            }
-
-            function buildApp(data = { sections: {} }) {
-                els.app.innerHTML = "";
-
-                if (!state.config?.sections?.length) return;
-
+            checklist(section, _data, container) {
                 const fragment = document.createDocumentFragment();
 
-                state.config.sections.forEach((section, index) => {
-                    const wrapper = createEl("div", { className: "section" });
-                    wrapper.dataset.sectionId = section.id;
-
-                    const header = createEl("h2", {
-                        className: "collapsible-header",
-                        text: section.title || `Section ${index + 1}`
+                section.items.forEach((item, index) => {
+                    const text = typeof item === "object" ? item.text : item;
+                    const wrapper = createEl("div", { className: "checkItem" });
+                    const label = createEl("label");
+                    const checkbox = createEl("input", {
+                        attrs: {
+                            type: "checkbox",
+                            id: `${section.id}_${index}`
+                        }
                     });
 
-                    const content = createEl("div", {
-                        attrs: { id: `section_${section.id}` }
-                    });
-
-                    wrapper.appendChild(header);
-                    wrapper.appendChild(content);
-
-                    bindCollapsible(header, wrapper, `section_dynamic_${section.id}`);
+                    label.appendChild(checkbox);
+                    label.appendChild(document.createTextNode(` ${text}`));
+                    wrapper.appendChild(label);
                     fragment.appendChild(wrapper);
                 });
 
-                els.app.appendChild(fragment);
+                if (section.notes) {
+                    fragment.appendChild(createEl("label", {
+                        text: "Notes",
+                        attrs: { for: `notes_${section.id}` }
+                    }));
+                    fragment.appendChild(createEl("textarea", {
+                        attrs: { id: `notes_${section.id}` }
+                    }));
+                }
 
-                const renderData = data || collectData();
-                state.config.sections.forEach((section) => renderSection(section, renderData));
-            }
+                container.appendChild(fragment);
+            },
 
-            const sectionRenderers = {
-                nightCounter(section, data, container) {
-                    const days = Math.max(1, getTotalNights(data));
-                    const rawSensorTotal =
-                        data?.sections?.site_info?.fields?.sensorTotal ??
-                        byId("field_sensorTotal")?.value ??
-                        "";
+            checklistMultiDay(section, data, container) {
+                const days = Math.max(1, getTotalNights(data));
+                const fragment = document.createDocumentFragment();
 
-                    const sensorTotal =
-                        (rawSensorTotal && typeof rawSensorTotal === "object" && "value" in rawSensorTotal)
-                            ? rawSensorTotal.value
-                            : rawSensorTotal;
+                section.items.forEach((item, index) => {
+                    const wrapper = createEl("div", { className: "checkItem" });
+                    wrapper.appendChild(createEl("strong", { text: item.text }));
+                    wrapper.appendChild(document.createElement("br"));
 
-                    section.fields.forEach((field) => {
-                        const wrapper = createEl("div", { className: "row" });
+                    for (let day = 0; day < days; day += 1) {
+                        const label = createEl("label", { className: "checkMulti" });
+                        label.setAttribute("data-label", `Night ${day + 1}`);
 
-                        wrapper.appendChild(createEl("strong", { text: field.label }));
-                        wrapper.appendChild(document.createElement("br"));
-
-                        for (let day = 0; day < days; day += 1) {
-                            const row = createEl("div");
-
-                            row.appendChild(createEl("span", {
-                                text: `Night ${day + 1}: `
-                            }));
-
-                            const input = createEl("input", {
-                                attrs: {
-                                    id: getFieldElementId(section.id, field.id, day),
-                                    type: "number",
-                                    placeholder: "0",
-                                    style: "width:70px; margin-right:5px;"
-                                }
-                            });
-
-                            const totalSpan = createEl("span", {
-                                className: "sensor-total",
-                                text: `/ ${sensorTotal}`
-                            });
-
-                            row.appendChild(input);
-                            row.appendChild(totalSpan);
-                            wrapper.appendChild(row);
-                        }
-
-                        container.appendChild(wrapper);
-                    });
-                },
-
-                checklist(section, _data, container) {
-                    const fragment = document.createDocumentFragment();
-
-                    section.items.forEach((item, index) => {
-                        const text = typeof item === "object" ? item.text : item;
-                        const wrapper = createEl("div", { className: "checkItem" });
-                        const label = createEl("label");
-                        const checkbox = createEl("input", {
+                        label.appendChild(createEl("input", {
                             attrs: {
                                 type: "checkbox",
-                                id: `${section.id}_${index}`
+                                id: `${section.id}_${index}_${day}`
                             }
-                        });
+                        }));
 
-                        label.appendChild(checkbox);
-                        label.appendChild(document.createTextNode(` ${text}`));
                         wrapper.appendChild(label);
-                        fragment.appendChild(wrapper);
-                    });
-
-                    if (section.notes) {
-                        fragment.appendChild(createEl("label", {
-                            text: "Notes",
-                            attrs: { for: `notes_${section.id}` }
-                        }));
-                        fragment.appendChild(createEl("textarea", {
-                            attrs: { id: `notes_${section.id}` }
-                        }));
                     }
 
-                    container.appendChild(fragment);
-                },
+                    fragment.appendChild(wrapper);
+                });
 
-                checklistMultiDay(section, data, container) {
-                    const days = Math.max(1, getTotalNights(data));
-                    const fragment = document.createDocumentFragment();
-
-                    section.items.forEach((item, index) => {
-                        const wrapper = createEl("div", { className: "checkItem" });
-                        wrapper.appendChild(createEl("strong", { text: item.text }));
-                        wrapper.appendChild(document.createElement("br"));
-
-                        for (let day = 0; day < days; day += 1) {
-                            const label = createEl("label", { className: "checkMulti" });
-                            label.setAttribute("data-label", `Night ${day + 1}`);
-
-                            label.appendChild(createEl("input", {
-                                attrs: {
-                                    type: "checkbox",
-                                    id: `${section.id}_${index}_${day}`
-                                }
-                            }));
-
-                            wrapper.appendChild(label);
-                        }
-
-                        fragment.appendChild(wrapper);
-                    });
-
-                    if (section.notes) {
-                        fragment.appendChild(createEl("label", {
-                            text: "Notes",
-                            attrs: { for: `notes_${section.id}` }
-                        }));
-
-                        fragment.appendChild(createEl("textarea", {
-                            attrs: { id: `notes_${section.id}` }
-                        }));
-                    }
-
-                    container.appendChild(fragment);
-                },
-
-                fields(section, _data, container) {
-                    const fragment = document.createDocumentFragment();
-
-                    section.fields.forEach((field) => {
-                        fragment.appendChild(createEl("label", {
-                            text: field.label,
-                            attrs: { for: `field_${field.id}` }
-                        }));
-
-                        fragment.appendChild(createEl(field.type === "textarea" ? "textarea" : "input", {
-                            attrs: {
-                                id: `field_${field.id}`,
-                                type: field.type === "textarea" ? null : (field.type || "text")
-                            }
-                        }));
-                    });
-
-                    container.appendChild(fragment);
-                },
-
-                counter(section, _data, container) {
-                    const fragment = document.createDocumentFragment();
-
-                    section.fields.forEach((field) => {
-                        fragment.appendChild(createEl("label", { text: field.label }));
-
-                        const row = createEl("div");
-                        row.appendChild(createEl("input", {
-                            attrs: {
-                                id: `field_${field.id}`,
-                                type: "number",
-                                placeholder: "Done"
-                            }
-                        }));
-                        row.appendChild(document.createTextNode(" / "));
-                        row.appendChild(createEl("input", {
-                            attrs: {
-                                id: `field_${field.targetId}`,
-                                type: "number",
-                                placeholder: "Total"
-                            }
-                        }));
-
-                        fragment.appendChild(row);
-                    });
-
-                    container.appendChild(fragment);
-                },
-
-                matrix(section, _data, container) {
-                    const fragment = document.createDocumentFragment();
-
-                    section.rows.forEach((row, rowIndex) => {
-                        const rowDiv = createEl("div", { className: "row" });
-                        rowDiv.appendChild(createEl("strong", { text: row }));
-                        rowDiv.appendChild(document.createElement("br"));
-
-                        section.columns.forEach((column, colIndex) => {
-                            const label = createEl("label");
-                            const radio = createEl("input", {
-                                attrs: {
-                                    type: "radio",
-                                    name: `${section.id}_${rowIndex}`,
-                                    id: `${section.id}_${rowIndex}_${colIndex}`
-                                }
-                            });
-
-                            label.appendChild(radio);
-                            label.appendChild(document.createTextNode(` ${column}`));
-                            rowDiv.appendChild(label);
-                        });
-
-                        fragment.appendChild(rowDiv);
-                    });
-
-                    container.appendChild(fragment);
-                },
-
-                scoring(section, _data, container) {
-                    const fragment = document.createDocumentFragment();
-
-                    section.fields.forEach((field) => {
-                        fragment.appendChild(createEl("label", {
-                            text: `${field.label} (0-${field.max})`,
-                            attrs: { for: `score_${field.id}` }
-                        }));
-
-                        fragment.appendChild(createEl("input", {
-                            attrs: {
-                                id: `score_${field.id}`,
-                                type: "number",
-                                max: field.max
-                            }
-                        }));
-                    });
-
+                if (section.notes) {
                     fragment.appendChild(createEl("label", {
-                        text: "Total",
-                        attrs: { for: `score_total_${section.id}` }
+                        text: "Notes",
+                        attrs: { for: `notes_${section.id}` }
                     }));
 
-                    fragment.appendChild(createEl("input", {
+                    fragment.appendChild(createEl("textarea", {
+                        attrs: { id: `notes_${section.id}` }
+                    }));
+                }
+
+                container.appendChild(fragment);
+            },
+
+            fields(section, _data, container) {
+                const fragment = document.createDocumentFragment();
+
+                section.fields.forEach((field) => {
+                    fragment.appendChild(createEl("label", {
+                        text: field.label,
+                        attrs: { for: `field_${field.id}` }
+                    }));
+
+                    fragment.appendChild(createEl(field.type === "textarea" ? "textarea" : "input", {
                         attrs: {
-                            id: `score_total_${section.id}`,
-                            readonly: "readonly"
+                            id: `field_${field.id}`,
+                            type: field.type === "textarea" ? null : (field.type || "text")
+                        }
+                    }));
+                });
+
+                container.appendChild(fragment);
+            },
+
+            counter(section, _data, container) {
+                const fragment = document.createDocumentFragment();
+
+                section.fields.forEach((field) => {
+                    fragment.appendChild(createEl("label", { text: field.label }));
+
+                    const row = createEl("div");
+                    row.appendChild(createEl("input", {
+                        attrs: {
+                            id: `field_${field.id}`,
+                            type: "number",
+                            placeholder: "Done"
+                        }
+                    }));
+                    row.appendChild(document.createTextNode(" / "));
+                    row.appendChild(createEl("input", {
+                        attrs: {
+                            id: `field_${field.targetId}`,
+                            type: "number",
+                            placeholder: "Total"
                         }
                     }));
 
-                    container.appendChild(fragment);
-                },
+                    fragment.appendChild(row);
+                });
 
-                singleSelect(section, _data, container) {
-                    const fragment = document.createDocumentFragment();
+                container.appendChild(fragment);
+            },
 
-                    section.options.forEach((option, index) => {
+            matrix(section, _data, container) {
+                const fragment = document.createDocumentFragment();
+
+                section.rows.forEach((row, rowIndex) => {
+                    const rowDiv = createEl("div", { className: "row" });
+                    rowDiv.appendChild(createEl("strong", { text: row }));
+                    rowDiv.appendChild(document.createElement("br"));
+
+                    section.columns.forEach((column, colIndex) => {
                         const label = createEl("label");
                         const radio = createEl("input", {
                             attrs: {
                                 type: "radio",
-                                name: section.id,
-                                id: `${section.id}_${index}`
+                                name: `${section.id}_${rowIndex}`,
+                                id: `${section.id}_${rowIndex}_${colIndex}`
                             }
                         });
 
                         label.appendChild(radio);
-                        label.appendChild(document.createTextNode(` ${option}`));
-                        fragment.appendChild(label);
+                        label.appendChild(document.createTextNode(` ${column}`));
+                        rowDiv.appendChild(label);
                     });
 
-                    container.appendChild(fragment);
-                }
-            };
-
-            function renderSection(section, data) {
-                const container = byId(`section_${section.id}`);
-                if (!container) return;
-
-                container.innerHTML = "";
-
-                const renderer = sectionRenderers[section.type];
-                if (!renderer) {
-                    container.textContent = `Unsupported section type: ${section.type}`;
-                    return;
-                }
-
-                renderer(section, data, container);
-            }
-
-            function collectData() {
-                const data = { sections: {} };
-
-                if (!state.config?.sections?.length) {
-                    return data;
-                }
-
-                state.config.sections.forEach((section) => {
-                    const sectionData = {};
-
-                    if (section.type === "nightCounter") {
-                        const days = Math.max(1, getTotalNightsFromUI());
-                        sectionData.fields = {};
-
-                        section.fields.forEach((field) => {
-                            sectionData.fields[field.id] = [];
-
-                            for (let day = 0; day < days; day += 1) {
-                                const el = byId(getFieldElementId(section.id, field.id, day));
-                                sectionData.fields[field.id].push(Number(el?.value || 0));
-                            }
-                        });
-                    }
-
-                    if (section.type === "fields" || section.type === "counter") {
-                        sectionData.fields = {};
-
-                        section.fields.forEach((field) => {
-                            sectionData.fields[field.id] = {
-                                label: field.label,
-                                value: byId(`field_${field.id}`)?.value ?? ""
-                            };
-                            if (field.targetId) {
-                                sectionData.fields[field.targetId] = byId(`field_${field.targetId}`)?.value ?? "";
-                            }
-                        });
-                    }
-
-                    if (section.type === "scoring") {
-                        sectionData.scores = {};
-                        let total = 0;
-
-                        section.fields.forEach((field) => {
-                            const value = Number(byId(`score_${field.id}`)?.value || 0);
-                            sectionData.scores[field.id] = value;
-                            total += value;
-                        });
-
-                        sectionData.total = total;
-                    }
-
-                    if (section.type === "matrix") {
-                        sectionData.matrix = section.rows.map((_, rowIndex) => {
-                            const checked = document.querySelector(`input[name="${section.id}_${rowIndex}"]:checked`);
-                            return checked ? Number(checked.id.split("_").pop()) : null;
-                        });
-                    }
-
-                    if (section.type === "singleSelect") {
-                        sectionData.selected = null;
-
-                        section.options.forEach((_, index) => {
-                            if (byId(`${section.id}_${index}`)?.checked) {
-                                sectionData.selected = index;
-                            }
-                        });
-                    }
-
-                    if (section.type === "checklist") {
-                        sectionData.items = section.items.map((item, index) => {
-                            const checked = Boolean(byId(`${section.id}_${index}`)?.checked);
-
-                            return {
-                                label: typeof item === "object" ? item.text : item,
-                                checked,
-                                value: checked ? 1 : 0
-                            };
-                        });
-
-                        if (sectionData.notes !== undefined) {
-                            const notesEl = byId(`notes_${sectionId}`);
-                            if (notesEl) notesEl.value = sectionData.notes;
-                        }
-                    }
-
-                    if (section.type === "checklistMultiDay") {
-                        const days = Math.max(1, getTotalNightsFromUI());
-
-                        sectionData.items = section.items.map((_, index) => {
-                            const dayValues = [];
-
-                            for (let day = 0; day < days; day += 1) {
-                                dayValues.push(Boolean(byId(`${section.id}_${index}_${day}`)?.checked));
-                            }
-
-                            return {
-                                days: dayValues,
-                                value: dayValues.filter(Boolean).length
-                            };
-                        });
-                    }
-
-                    data.sections[section.id] = sectionData;
+                    fragment.appendChild(rowDiv);
                 });
 
+                container.appendChild(fragment);
+            },
+
+            scoring(section, _data, container) {
+                const fragment = document.createDocumentFragment();
+
+                section.fields.forEach((field) => {
+                    fragment.appendChild(createEl("label", {
+                        text: `${field.label} (0-${field.max})`,
+                        attrs: { for: `score_${field.id}` }
+                    }));
+
+                    fragment.appendChild(createEl("input", {
+                        attrs: {
+                            id: `score_${field.id}`,
+                            type: "number",
+                            max: field.max
+                        }
+                    }));
+                });
+
+                fragment.appendChild(createEl("label", {
+                    text: "Total",
+                    attrs: { for: `score_total_${section.id}` }
+                }));
+
+                fragment.appendChild(createEl("input", {
+                    attrs: {
+                        id: `score_total_${section.id}`,
+                        readonly: "readonly"
+                    }
+                }));
+
+                container.appendChild(fragment);
+            },
+
+            singleSelect(section, _data, container) {
+                const fragment = document.createDocumentFragment();
+
+                section.options.forEach((option, index) => {
+                    const label = createEl("label");
+                    const radio = createEl("input", {
+                        attrs: {
+                            type: "radio",
+                            name: section.id,
+                            id: `${section.id}_${index}`
+                        }
+                    });
+
+                    label.appendChild(radio);
+                    label.appendChild(document.createTextNode(` ${option}`));
+                    fragment.appendChild(label);
+                });
+
+                container.appendChild(fragment);
+            }
+        };
+
+        function renderSection(section, data) {
+            const container = byId(`section_${section.id}`);
+            if (!container) return;
+
+            container.innerHTML = "";
+
+            const renderer = sectionRenderers[section.type];
+            if (!renderer) {
+                container.textContent = `Unsupported section type: ${section.type}`;
+                return;
+            }
+
+            renderer(section, data, container);
+        }
+
+        function collectData() {
+            const data = { sections: {} };
+
+            if (!state.config?.sections?.length) {
                 return data;
             }
 
-            function applyData(data) {
-                const sections = data?.sections || {};
+            state.config.sections.forEach((section) => {
+                const sectionData = {};
 
-                Object.entries(sections).forEach(([sectionId, sectionData]) => {
+                if (section.type === "nightCounter") {
+                    const days = Math.max(1, getTotalNightsFromUI());
+                    sectionData.fields = {};
+
+                    section.fields.forEach((field) => {
+                        sectionData.fields[field.id] = [];
+
+                        for (let day = 0; day < days; day += 1) {
+                            const el = byId(getFieldElementId(section.id, field.id, day));
+                            sectionData.fields[field.id].push(Number(el?.value || 0));
+                        }
+                    });
+                }
+
+                if (section.type === "fields" || section.type === "counter") {
+                    sectionData.fields = {};
+
+                    section.fields.forEach((field) => {
+                        sectionData.fields[field.id] = {
+                            label: field.label,
+                            value: byId(`field_${field.id}`)?.value ?? ""
+                        };
+                        if (field.targetId) {
+                            sectionData.fields[field.targetId] = byId(`field_${field.targetId}`)?.value ?? "";
+                        }
+                    });
+                }
+
+                if (section.type === "scoring") {
+                    sectionData.scores = {};
+                    let total = 0;
+
+                    section.fields.forEach((field) => {
+                        const value = Number(byId(`score_${field.id}`)?.value || 0);
+                        sectionData.scores[field.id] = value;
+                        total += value;
+                    });
+
+                    sectionData.total = total;
+                }
+
+                if (section.type === "matrix") {
+                    sectionData.matrix = section.rows.map((_, rowIndex) => {
+                        const checked = document.querySelector(`input[name="${section.id}_${rowIndex}"]:checked`);
+                        return checked ? Number(checked.id.split("_").pop()) : null;
+                    });
+                }
+
+                if (section.type === "singleSelect") {
+                    sectionData.selected = null;
+
+                    section.options.forEach((_, index) => {
+                        if (byId(`${section.id}_${index}`)?.checked) {
+                            sectionData.selected = index;
+                        }
+                    });
+                }
+
+                if (section.type === "checklist") {
+                    sectionData.items = section.items.map((item, index) => {
+                        const checked = Boolean(byId(`${section.id}_${index}`)?.checked);
+
+                        return {
+                            label: typeof item === "object" ? item.text : item,
+                            checked,
+                            value: checked ? 1 : 0
+                        };
+                    });
+
                     if (sectionData.notes !== undefined) {
                         const notesEl = byId(`notes_${sectionId}`);
                         if (notesEl) notesEl.value = sectionData.notes;
                     }
+                }
 
-                    if (sectionData.fields) {
-                        Object.entries(sectionData.fields).forEach(([key, value]) => {
-                            const fieldEl = byId(`field_${key}`);
-                            if (!fieldEl) return;
+                if (section.type === "checklistMultiDay") {
+                    const days = Math.max(1, getTotalNightsFromUI());
 
-                            if (value && typeof value === "object" && "value" in value) {
-                                fieldEl.value = value.value;
+                    sectionData.items = section.items.map((_, index) => {
+                        const dayValues = [];
+
+                        for (let day = 0; day < days; day += 1) {
+                            dayValues.push(Boolean(byId(`${section.id}_${index}_${day}`)?.checked));
+                        }
+
+                        return {
+                            days: dayValues,
+                            value: dayValues.filter(Boolean).length
+                        };
+                    });
+                }
+
+                data.sections[section.id] = sectionData;
+            });
+
+            return data;
+        }
+
+        function applyData(data) {
+            const sections = data?.sections || {};
+
+            Object.entries(sections).forEach(([sectionId, sectionData]) => {
+                if (sectionData.notes !== undefined) {
+                    const notesEl = byId(`notes_${sectionId}`);
+                    if (notesEl) notesEl.value = sectionData.notes;
+                }
+
+                if (sectionData.fields) {
+                    Object.entries(sectionData.fields).forEach(([key, value]) => {
+                        const fieldEl = byId(`field_${key}`);
+                        if (!fieldEl) return;
+
+                        if (value && typeof value === "object" && "value" in value) {
+                            fieldEl.value = value.value;
+                        } else {
+                            fieldEl.value = value ?? "";
+                        }
+                    });
+                }
+
+                if (sectionData.scores) {
+                    Object.entries(sectionData.scores).forEach(([key, value]) => {
+                        const scoreEl = byId(`score_${key}`);
+                        if (scoreEl) scoreEl.value = value;
+                    });
+                }
+
+                if (Array.isArray(sectionData.matrix)) {
+                    sectionData.matrix.forEach((colIndex, rowIndex) => {
+                        if (colIndex != null) {
+                            const radio = byId(`${sectionId}_${rowIndex}_${colIndex}`);
+                            if (radio) radio.checked = true;
+                        }
+                    });
+                }
+
+                if (sectionData.selected != null) {
+                    const radio = byId(`${sectionId}_${sectionData.selected}`);
+                    if (radio) radio.checked = true;
+                }
+
+                if (Array.isArray(sectionData.items)) {
+                    sectionData.items.forEach((item, index) => {
+                        if (Array.isArray(item.days)) {
+                            item.days.forEach((value, dayIndex) => {
+                                const checkbox = byId(`${sectionId}_${index}_${dayIndex}`);
+                                if (checkbox) checkbox.checked = value;
+                            });
+                        } else if (item.checked !== undefined) {
+                            const checkbox = byId(`${sectionId}_${index}`);
+                            if (checkbox) checkbox.checked = item.checked;
+                        }
+                    });
+                }
+
+                const sectionConfig = getSectionConfig(sectionId);
+                if (!sectionConfig) return;
+
+                if (sectionConfig.type === "nightCounter" && sectionData.fields) {
+                    Object.entries(sectionData.fields).forEach(([fieldId, values]) => {
+                        (values || []).forEach((value, dayIndex) => {
+                            const el = byId(getFieldElementId(sectionId, fieldId, dayIndex));
+                            if (el) el.value = value;
+                        });
+                    });
+                }
+
+                if (sectionId === "site_info" && sectionData.fields?.totalNights) {
+                    const el = byId("field_totalNights");
+                    const raw = sectionData.fields.totalNights;
+                    const value = (raw && typeof raw === "object" && "value" in raw) ? raw.value : raw;
+
+                    if (el) el.value = value ?? "";
+                }
+            });
+
+            updateAllScoringTotals();
+        }
+
+        function clearAppInputs() {
+            document.querySelectorAll("#app input, #app textarea").forEach((node) => {
+                if (node.type === "checkbox" || node.type === "radio") {
+                    node.checked = false;
+                } else {
+                    node.value = "";
+                }
+            });
+        }
+
+        async function loadFirebase() {
+            state.allImages = [];
+            state.hasUnsavedImages = false;
+
+            const site = els.siteNumber?.value?.trim();
+
+            if (!site) {
+                showStatus("Enter a site number first.", true);
+                return;
+            }
+
+            showStatus("Connecting...");
+            state.isLoading = true;
+
+            try {
+                const siteRef = ref(database, `${DATABASE_BASE_PATH}/sites/${site}`);
+
+                // 🔥 REAL-TIME LISTENER
+                onValue(siteRef, (snap) => {
+                    if (state.isLocalChange) return; // prevent loop
+
+                    const data = snap.val();
+
+                    // Auto-create site if missing
+                    if (!data) {
+                        const emptyData = { sections: {} };
+                        set(siteRef, emptyData);
+                        return;
+                    }
+
+                    clearAppInputs();
+                    buildApp(data);
+                    applyData(data);
+
+                    const storageKey = getStorageKey();
+                    if (storageKey) {
+                        localStorage.setItem(storageKey, JSON.stringify(data));
+                    }
+
+                    showStatus("Live updated");
+                    state.isLoading = false;
+                });
+
+            } catch (err) {
+                console.error("Load failed:", err);
+                showStatus("Failed to load site.", true);
+                state.isLoading = false;
+            }
+        }
+
+        async function persistSiteData(site, data) {
+            const siteRef = ref(database, `${DATABASE_BASE_PATH}/sites/${site}`);
+            await set(siteRef, data);
+
+            const storageKey = getStorageKey();
+            if (storageKey) {
+                localStorage.setItem(storageKey, JSON.stringify(data));
+            }
+        }
+
+        async function saveFirebase() {
+            const site = els.siteNumber?.value?.trim();
+
+            if (!site) {
+                showStatus("Enter a site number first.", true);
+                return;
+            }
+
+            const data = collectData();
+
+            state.saveQueue = state.saveQueue.then(async () => {
+                state.isSaving = true;
+
+                try {
+                    state.isLocalChange = true;
+                    await persistSiteData(site, data);
+                    state.isLocalChange = false;
+                    showStatus(`Saved at ${new Date().toLocaleTimeString()}`);
+                } catch (err) {
+                    console.error("Save failed:", err);
+                    showStatus("Save failed.", true);
+                } finally {
+                    state.isSaving = false;
+                }
+            });
+
+            return state.saveQueue;
+        }
+
+        function getAllSites() {
+            const sites = [];
+
+            for (let i = 0; i < localStorage.length; i += 1) {
+                const key = localStorage.key(i);
+                if (!key || !key.startsWith("qc_app_")) continue;
+
+                const site = key.replace("qc_app_", "");
+                const parsed = safeJsonParse(localStorage.getItem(key), null);
+
+                if (parsed && typeof parsed === "object") {
+                    sites.push({ site, data: parsed });
+                }
+            }
+
+            return sites;
+        }
+
+        function compareSitesDetailed() {
+            const sites = getAllSites();
+            const results = [];
+
+            if (sites.length < 2) return results;
+
+            for (let i = 0; i < sites.length; i += 1) {
+                for (let j = i + 1; j < sites.length; j += 1) {
+                    const aSite = sites[i];
+                    const bSite = sites[j];
+
+                    const sectionsA = aSite.data?.sections || {};
+                    const sectionsB = bSite.data?.sections || {};
+                    const allSectionIds = [...new Set([
+                        ...Object.keys(sectionsA),
+                        ...Object.keys(sectionsB)
+                    ])];
+
+                    const diff = {
+                        siteA: aSite.site,
+                        siteB: bSite.site,
+                        differences: []
+                    };
+
+                    allSectionIds.forEach((sectionId) => {
+                        const a = sectionsA[sectionId];
+                        const b = sectionsB[sectionId];
+
+                        if (a?.items && b?.items) {
+                            const maxLen = Math.max(a.items.length, b.items.length);
+
+                            for (let index = 0; index < maxLen; index += 1) {
+                                const aVal = a.items[index]?.value ?? null;
+                                const bVal = b.items[index]?.value ?? null;
+
+                                if (aVal !== bVal) {
+                                    diff.differences.push(
+                                        `${sectionId} item ${index + 1} differs (${aVal} vs ${bVal})`
+                                    );
+                                }
+                            }
+                        }
+
+                        if (a?.scores && b?.scores) {
+                            const scoreKeys = [...new Set([
+                                ...Object.keys(a.scores),
+                                ...Object.keys(b.scores)
+                            ])];
+
+                            scoreKeys.forEach((key) => {
+                                const aScore = a.scores[key] ?? null;
+                                const bScore = b.scores[key] ?? null;
+
+                                if (aScore !== bScore) {
+                                    diff.differences.push(
+                                        `${sectionId} score "${key}" differs (${aScore} vs ${bScore})`
+                                    );
+                                }
+                            });
+                        }
+
+                        if (a?.selected !== b?.selected && (a?.selected != null || b?.selected != null)) {
+                            diff.differences.push(
+                                `${sectionId} selection differs (${a?.selected ?? null} vs ${b?.selected ?? null})`
+                            );
+                        }
+                    });
+
+                    results.push(diff);
+                }
+            }
+
+            return results;
+        }
+
+        async function exportAllSitesToExcel() {
+            const sites = getAllSites();
+
+            if (!sites.length) {
+                alert("No saved sites found");
+                return;
+            }
+
+            const workbook = new window.ExcelJS.Workbook(); // if using ExcelJS
+            // OR we’ll do python version if needed
+
+            for (const site of sites) {
+                const sheet = workbook.addWorksheet(`Site ${site.site}`);
+
+                sheet.addRow(["Section", "Field", "Value"]);
+
+                const sections = site.data?.sections || {};
+
+                Object.entries(sections).forEach(([sectionId, sec]) => {
+                    if (sec.fields) {
+                        Object.entries(sec.fields).forEach(([k, v]) => {
+                            sheet.addRow([
+                                sectionId,
+                                formatFieldName(sectionId, k),
+                                formatNightValues(v)
+                            ]);
+                        });
+                    }
+
+                    if (sec.items) {
+                        sec.items.forEach((item, i) => {
+                            if (item.days) {
+                                item.days.forEach((val, d) => {
+                                    sheet.addRow([
+                                        sectionId,
+                                        `Item ${i + 1} (Night ${d + 1})`,
+                                        val ? "Yes" : "No"
+                                    ]);
+                                });
                             } else {
-                                fieldEl.value = value ?? "";
+                                sheet.addRow([
+                                    sectionId,
+                                    `Item ${i + 1}`,
+                                    item.checked ? "Yes" : "No"
+                                ]);
                             }
                         });
+                    }
+
+                    if (sec.notes) {
+                        sheet.addRow([
+                            sectionId,
+                            "Notes",
+                            sec.notes
+                        ]);
+                    }
+                });
+            }
+
+            const buffer = await workbook.xlsx.writeBuffer();
+
+            const blob = new Blob([buffer], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            });
+
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "all_sites.xlsx";
+            a.click();
+
+            URL.revokeObjectURL(url);
+        }
+
+        function formatNightValues(value) {
+            if (typeof value !== "string") return value;
+
+            const parts = value.split(",");
+            return parts
+                .map((v, i) => `Night ${i + 1}: ${v.trim()}`)
+                .join(", ");
+        }
+
+        function exportFullSiteCSV() {
+            const data = collectData();
+
+            if (!state.config?.sections) {
+                alert("Config not loaded");
+                return;
+            }
+
+            const rows = [["Section", "Field", "Value"]];
+
+            state.config.sections.forEach(section => {
+                const sectionData = data.sections[section.id] || {};
+
+                // 🔹 Fields
+                if (section.type === "fields" && section.fields) {
+                    section.fields.forEach(field => {
+                        const value = sectionData.fields?.[field.id]?.value || "";
+                        rows.push([section.title, field.label, value]);
+                    });
+                }
+
+                // 🔹 Checklist
+                if (section.type === "checklist" && section.items) {
+                    section.items.forEach((item, index) => {
+                        const checked = sectionData.items?.[index]?.checked;
+                        rows.push([
+                            section.title,
+                            item.text,
+                            checked ? "Yes" : "No"
+                        ]);
+                    });
+
+                    if (section.notes) {
+                        rows.push([
+                            section.title,
+                            "Notes",
+                            sectionData.notes || ""
+                        ]);
+                    }
+                }
+
+                // 🔹 Multi-day checklist
+                if (section.type === "checklistMultiDay" && section.items) {
+                    const items = sectionData.items || [];
+
+                    section.items.forEach((item, index) => {
+                        const days = items[index]?.days || [];
+
+                        days.forEach((val, dayIndex) => {
+                            rows.push([
+                                section.title,
+                                `${item.text} (Night ${dayIndex + 1})`,
+                                val ? "Yes" : "No"
+                            ]);
+                        });
+                    });
+                }
+
+                // 🔹 Night counters (production)
+                if (section.type === "nightCounter" && section.fields) {
+                    section.fields.forEach(field => {
+                        const values = sectionData.fields?.[field.id] || [];
+
+                        values.forEach((val, i) => {
+                            rows.push([
+                                section.title,
+                                `${field.label} (Night ${i + 1})`,
+                                val
+                            ]);
+                        });
+                    });
+                }
+
+                // 🔹 Scoring
+                if (section.type === "scoring") {
+                    Object.entries(sectionData.scores || {}).forEach(([key, val]) => {
+                        const label = section.fields.find(f => f.id === key)?.label || key;
+                        rows.push([section.title, label, val]);
+                    });
+
+                    rows.push([section.title, "Total", sectionData.total || 0]);
+                }
+
+                // 🔹 Single select
+                if (section.type === "singleSelect") {
+                    const selectedIndex = sectionData.selected;
+                    const value = section.options?.[selectedIndex] || "";
+                    rows.push([section.title, "Selection", value]);
+                }
+
+            });
+
+            downloadCSV(rows, "qc_grouped_export.csv");
+        }
+        function exportCertificationCSV() {
+            const data = collectData();
+            const rows = [];
+
+            const scoring = data.sections.final_scoring || {};
+            const total = scoring.total || 0;
+
+            let result = "PASS";
+            if (total < 70) result = "FAIL";
+            else if (total < 85) result = "NEEDS IMPROVEMENT";
+
+            rows.push(["Metric", "Value"]);
+            rows.push(["Total Score", total]);
+            rows.push(["Result", result]);
+
+            if (scoring.scores) {
+                Object.entries(scoring.scores).forEach(([key, value]) => {
+                    rows.push([key, value]);
+                });
+            }
+
+            rows.push([]);
+            rows.push(["Night Progress"]);
+
+            const production = getNightlyProductionStats(data);
+            if (production) {
+                production.nights.forEach((night) => {
+                    rows.push([`Night ${night.night}`, `${night.done}/${night.total} (${night.pct}%)`]);
+                });
+
+                rows.push(["Overall Completion", `${production.overall}%`]);
+            }
+
+            downloadCSV(rows, "certification_report.csv");
+        }
+
+        function calculateSiteAverages() {
+            const sites = getAllSites();
+            if (!sites.length) return null;
+
+            const totals = {};
+            const count = sites.length;
+
+            sites.forEach((site) => {
+                const sections = site.data?.sections || {};
+
+                Object.entries(sections).forEach(([sectionId, sectionData]) => {
+                    if (!totals[sectionId]) {
+                        totals[sectionId] = {
+                            scores: {},
+                            checklist: [],
+                            selected: {}
+                        };
                     }
 
                     if (sectionData.scores) {
                         Object.entries(sectionData.scores).forEach(([key, value]) => {
-                            const scoreEl = byId(`score_${key}`);
-                            if (scoreEl) scoreEl.value = value;
+                            totals[sectionId].scores[key] =
+                                (totals[sectionId].scores[key] || 0) + Number(value || 0);
                         });
                     }
 
-                    if (Array.isArray(sectionData.matrix)) {
-                        sectionData.matrix.forEach((colIndex, rowIndex) => {
-                            if (colIndex != null) {
-                                const radio = byId(`${sectionId}_${rowIndex}_${colIndex}`);
-                                if (radio) radio.checked = true;
+                    if (sectionData.items) {
+                        sectionData.items.forEach((item, index) => {
+                            if (totals[sectionId].checklist[index] == null) {
+                                totals[sectionId].checklist[index] = 0;
                             }
+                            totals[sectionId].checklist[index] += Number(item.value || 0);
                         });
                     }
 
                     if (sectionData.selected != null) {
-                        const radio = byId(`${sectionId}_${sectionData.selected}`);
-                        if (radio) radio.checked = true;
-                    }
-
-                    if (Array.isArray(sectionData.items)) {
-                        sectionData.items.forEach((item, index) => {
-                            if (Array.isArray(item.days)) {
-                                item.days.forEach((value, dayIndex) => {
-                                    const checkbox = byId(`${sectionId}_${index}_${dayIndex}`);
-                                    if (checkbox) checkbox.checked = value;
-                                });
-                            } else if (item.checked !== undefined) {
-                                const checkbox = byId(`${sectionId}_${index}`);
-                                if (checkbox) checkbox.checked = item.checked;
-                            }
-                        });
-                    }
-
-                    const sectionConfig = getSectionConfig(sectionId);
-                    if (!sectionConfig) return;
-
-                    if (sectionConfig.type === "nightCounter" && sectionData.fields) {
-                        Object.entries(sectionData.fields).forEach(([fieldId, values]) => {
-                            (values || []).forEach((value, dayIndex) => {
-                                const el = byId(getFieldElementId(sectionId, fieldId, dayIndex));
-                                if (el) el.value = value;
-                            });
-                        });
-                    }
-
-                    if (sectionId === "site_info" && sectionData.fields?.totalNights) {
-                        const el = byId("field_totalNights");
-                        const raw = sectionData.fields.totalNights;
-                        const value = (raw && typeof raw === "object" && "value" in raw) ? raw.value : raw;
-
-                        if (el) el.value = value ?? "";
+                        totals[sectionId].selected[sectionData.selected] =
+                            (totals[sectionId].selected[sectionData.selected] || 0) + 1;
                     }
                 });
+            });
 
-                updateAllScoringTotals();
-            }
+            const averages = {};
 
-            function clearAppInputs() {
-                document.querySelectorAll("#app input, #app textarea").forEach((node) => {
-                    if (node.type === "checkbox" || node.type === "radio") {
-                        node.checked = false;
-                    } else {
-                        node.value = "";
-                    }
-                });
-            }
+            Object.entries(totals).forEach(([sectionId, data]) => {
+                averages[sectionId] = {};
 
-            async function loadFirebase() {
-                state.allImages = [];
-                state.hasUnsavedImages = false;
-
-                const site = els.siteNumber?.value?.trim();
-
-                if (!site) {
-                    showStatus("Enter a site number first.", true);
-                    return;
-                }
-
-                showStatus("Connecting...");
-                state.isLoading = true;
-
-                try {
-                    const siteRef = ref(database, `${DATABASE_BASE_PATH}/sites/${site}`);
-
-                    // 🔥 REAL-TIME LISTENER
-                    onValue(siteRef, (snap) => {
-                        if (state.isLocalChange) return; // prevent loop
-
-                        const data = snap.val();
-
-                        // Auto-create site if missing
-                        if (!data) {
-                            const emptyData = { sections: {} };
-                            set(siteRef, emptyData);
-                            return;
-                        }
-
-                        clearAppInputs();
-                        buildApp(data);
-                        applyData(data);
-
-                        const storageKey = getStorageKey();
-                        if (storageKey) {
-                            localStorage.setItem(storageKey, JSON.stringify(data));
-                        }
-
-                        showStatus("Live updated");
-                        state.isLoading = false;
-                    });
-
-                } catch (err) {
-                    console.error("Load failed:", err);
-                    showStatus("Failed to load site.", true);
-                    state.isLoading = false;
-                }
-            }
-
-            async function persistSiteData(site, data) {
-                const siteRef = ref(database, `${DATABASE_BASE_PATH}/sites/${site}`);
-                await set(siteRef, data);
-
-                const storageKey = getStorageKey();
-                if (storageKey) {
-                    localStorage.setItem(storageKey, JSON.stringify(data));
-                }
-            }
-
-            async function saveFirebase() {
-                const site = els.siteNumber?.value?.trim();
-
-                if (!site) {
-                    showStatus("Enter a site number first.", true);
-                    return;
-                }
-
-                const data = collectData();
-
-                state.saveQueue = state.saveQueue.then(async () => {
-                    state.isSaving = true;
-
-                    try {
-                        state.isLocalChange = true;
-                        await persistSiteData(site, data);
-                        state.isLocalChange = false;
-                        showStatus(`Saved at ${new Date().toLocaleTimeString()}`);
-                    } catch (err) {
-                        console.error("Save failed:", err);
-                        showStatus("Save failed.", true);
-                    } finally {
-                        state.isSaving = false;
-                    }
-                });
-
-                return state.saveQueue;
-            }
-
-            function getAllSites() {
-                const sites = [];
-
-                for (let i = 0; i < localStorage.length; i += 1) {
-                    const key = localStorage.key(i);
-                    if (!key || !key.startsWith("qc_app_")) continue;
-
-                    const site = key.replace("qc_app_", "");
-                    const parsed = safeJsonParse(localStorage.getItem(key), null);
-
-                    if (parsed && typeof parsed === "object") {
-                        sites.push({ site, data: parsed });
-                    }
-                }
-
-                return sites;
-            }
-
-            function compareSitesDetailed() {
-                const sites = getAllSites();
-                const results = [];
-
-                if (sites.length < 2) return results;
-
-                for (let i = 0; i < sites.length; i += 1) {
-                    for (let j = i + 1; j < sites.length; j += 1) {
-                        const aSite = sites[i];
-                        const bSite = sites[j];
-
-                        const sectionsA = aSite.data?.sections || {};
-                        const sectionsB = bSite.data?.sections || {};
-                        const allSectionIds = [...new Set([
-                            ...Object.keys(sectionsA),
-                            ...Object.keys(sectionsB)
-                        ])];
-
-                        const diff = {
-                            siteA: aSite.site,
-                            siteB: bSite.site,
-                            differences: []
-                        };
-
-                        allSectionIds.forEach((sectionId) => {
-                            const a = sectionsA[sectionId];
-                            const b = sectionsB[sectionId];
-
-                            if (a?.items && b?.items) {
-                                const maxLen = Math.max(a.items.length, b.items.length);
-
-                                for (let index = 0; index < maxLen; index += 1) {
-                                    const aVal = a.items[index]?.value ?? null;
-                                    const bVal = b.items[index]?.value ?? null;
-
-                                    if (aVal !== bVal) {
-                                        diff.differences.push(
-                                            `${sectionId} item ${index + 1} differs (${aVal} vs ${bVal})`
-                                        );
-                                    }
-                                }
-                            }
-
-                            if (a?.scores && b?.scores) {
-                                const scoreKeys = [...new Set([
-                                    ...Object.keys(a.scores),
-                                    ...Object.keys(b.scores)
-                                ])];
-
-                                scoreKeys.forEach((key) => {
-                                    const aScore = a.scores[key] ?? null;
-                                    const bScore = b.scores[key] ?? null;
-
-                                    if (aScore !== bScore) {
-                                        diff.differences.push(
-                                            `${sectionId} score "${key}" differs (${aScore} vs ${bScore})`
-                                        );
-                                    }
-                                });
-                            }
-
-                            if (a?.selected !== b?.selected && (a?.selected != null || b?.selected != null)) {
-                                diff.differences.push(
-                                    `${sectionId} selection differs (${a?.selected ?? null} vs ${b?.selected ?? null})`
-                                );
-                            }
-                        });
-
-                        results.push(diff);
-                    }
-                }
-
-                return results;
-            }
-
-            async function exportAllSitesToExcel() {
-                const sites = getAllSites();
-
-                if (!sites.length) {
-                    alert("No saved sites found");
-                    return;
-                }
-
-                const workbook = new window.ExcelJS.Workbook(); // if using ExcelJS
-                // OR we’ll do python version if needed
-
-                for (const site of sites) {
-                    const sheet = workbook.addWorksheet(`Site ${site.site}`);
-
-                    sheet.addRow(["Section", "Field", "Value"]);
-
-                    const sections = site.data?.sections || {};
-
-                    Object.entries(sections).forEach(([sectionId, sec]) => {
-                        if (sec.fields) {
-                            Object.entries(sec.fields).forEach(([k, v]) => {
-                                sheet.addRow([
-                                    sectionId,
-                                    formatFieldName(sectionId, k),
-                                    formatNightValues(v)
-                                ]);
-                            });
-                        }
-
-                        if (sec.items) {
-                            sec.items.forEach((item, i) => {
-                                if (item.days) {
-                                    item.days.forEach((val, d) => {
-                                        sheet.addRow([
-                                            sectionId,
-                                            `Item ${i + 1} (Night ${d + 1})`,
-                                            val ? "Yes" : "No"
-                                        ]);
-                                    });
-                                } else {
-                                    sheet.addRow([
-                                        sectionId,
-                                        `Item ${i + 1}`,
-                                        item.checked ? "Yes" : "No"
-                                    ]);
-                                }
-                            });
-                        }
-
-                        if (sec.notes) {
-                            sheet.addRow([
-                                sectionId,
-                                "Notes",
-                                sec.notes
-                            ]);
-                        }
+                if (Object.keys(data.scores).length) {
+                    averages[sectionId].scores = {};
+                    Object.entries(data.scores).forEach(([key, value]) => {
+                        averages[sectionId].scores[key] = (value / count).toFixed(2);
                     });
                 }
 
-                const buffer = await workbook.xlsx.writeBuffer();
-
-                const blob = new Blob([buffer], {
-                    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                });
-
-                const url = URL.createObjectURL(blob);
-
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = "all_sites.xlsx";
-                a.click();
-
-                URL.revokeObjectURL(url);
-            }
-
-            function formatNightValues(value) {
-                if (typeof value !== "string") return value;
-
-                const parts = value.split(",");
-                return parts
-                    .map((v, i) => `Night ${i + 1}: ${v.trim()}`)
-                    .join(", ");
-            }
-
-            function exportFullSiteCSV() {
-                const data = collectData();
-
-                if (!state.config?.sections) {
-                    alert("Config not loaded");
-                    return;
+                if (data.checklist.length) {
+                    averages[sectionId].checklist = data.checklist.map((value) =>
+                        ((value / count) * 100).toFixed(1) + "%"
+                    );
                 }
 
-                const rows = [["Section", "Field", "Value"]];
-
-                state.config.sections.forEach(section => {
-                    const sectionData = data.sections[section.id] || {};
-
-                    // 🔹 Fields
-                    if (section.type === "fields" && section.fields) {
-                        section.fields.forEach(field => {
-                            const value = sectionData.fields?.[field.id]?.value || "";
-                            rows.push([section.title, field.label, value]);
-                        });
-                    }
-
-                    // 🔹 Checklist
-                    if (section.type === "checklist" && section.items) {
-                        section.items.forEach((item, index) => {
-                            const checked = sectionData.items?.[index]?.checked;
-                            rows.push([
-                                section.title,
-                                item.text,
-                                checked ? "Yes" : "No"
-                            ]);
-                        });
-
-                        if (section.notes) {
-                            rows.push([
-                                section.title,
-                                "Notes",
-                                sectionData.notes || ""
-                            ]);
-                        }
-                    }
-
-                    // 🔹 Multi-day checklist
-                    if (section.type === "checklistMultiDay" && section.items) {
-                        const items = sectionData.items || [];
-
-                        section.items.forEach((item, index) => {
-                            const days = items[index]?.days || [];
-
-                            days.forEach((val, dayIndex) => {
-                                rows.push([
-                                    section.title,
-                                    `${item.text} (Night ${dayIndex + 1})`,
-                                    val ? "Yes" : "No"
-                                ]);
-                            });
-                        });
-                    }
-
-                    // 🔹 Night counters (production)
-                    if (section.type === "nightCounter" && section.fields) {
-                        section.fields.forEach(field => {
-                            const values = sectionData.fields?.[field.id] || [];
-
-                            values.forEach((val, i) => {
-                                rows.push([
-                                    section.title,
-                                    `${field.label} (Night ${i + 1})`,
-                                    val
-                                ]);
-                            });
-                        });
-                    }
-
-                    // 🔹 Scoring
-                    if (section.type === "scoring") {
-                        Object.entries(sectionData.scores || {}).forEach(([key, val]) => {
-                            const label = section.fields.find(f => f.id === key)?.label || key;
-                            rows.push([section.title, label, val]);
-                        });
-
-                        rows.push([section.title, "Total", sectionData.total || 0]);
-                    }
-
-                    // 🔹 Single select
-                    if (section.type === "singleSelect") {
-                        const selectedIndex = sectionData.selected;
-                        const value = section.options?.[selectedIndex] || "";
-                        rows.push([section.title, "Selection", value]);
-                    }
-
-                });
-
-                downloadCSV(rows, "qc_grouped_export.csv");
-            }
-            function exportCertificationCSV() {
-                const data = collectData();
-                const rows = [];
-
-                const scoring = data.sections.final_scoring || {};
-                const total = scoring.total || 0;
-
-                let result = "PASS";
-                if (total < 70) result = "FAIL";
-                else if (total < 85) result = "NEEDS IMPROVEMENT";
-
-                rows.push(["Metric", "Value"]);
-                rows.push(["Total Score", total]);
-                rows.push(["Result", result]);
-
-                if (scoring.scores) {
-                    Object.entries(scoring.scores).forEach(([key, value]) => {
-                        rows.push([key, value]);
-                    });
-                }
-
-                rows.push([]);
-                rows.push(["Night Progress"]);
-
-                const production = getNightlyProductionStats(data);
-                if (production) {
-                    production.nights.forEach((night) => {
-                        rows.push([`Night ${night.night}`, `${night.done}/${night.total} (${night.pct}%)`]);
-                    });
-
-                    rows.push(["Overall Completion", `${production.overall}%`]);
-                }
-
-                downloadCSV(rows, "certification_report.csv");
-            }
-
-            function calculateSiteAverages() {
-                const sites = getAllSites();
-                if (!sites.length) return null;
-
-                const totals = {};
-                const count = sites.length;
-
-                sites.forEach((site) => {
-                    const sections = site.data?.sections || {};
-
-                    Object.entries(sections).forEach(([sectionId, sectionData]) => {
-                        if (!totals[sectionId]) {
-                            totals[sectionId] = {
-                                scores: {},
-                                checklist: [],
-                                selected: {}
-                            };
-                        }
-
-                        if (sectionData.scores) {
-                            Object.entries(sectionData.scores).forEach(([key, value]) => {
-                                totals[sectionId].scores[key] =
-                                    (totals[sectionId].scores[key] || 0) + Number(value || 0);
-                            });
-                        }
-
-                        if (sectionData.items) {
-                            sectionData.items.forEach((item, index) => {
-                                if (totals[sectionId].checklist[index] == null) {
-                                    totals[sectionId].checklist[index] = 0;
-                                }
-                                totals[sectionId].checklist[index] += Number(item.value || 0);
-                            });
-                        }
-
-                        if (sectionData.selected != null) {
-                            totals[sectionId].selected[sectionData.selected] =
-                                (totals[sectionId].selected[sectionData.selected] || 0) + 1;
-                        }
-                    });
-                });
-
-                const averages = {};
-
-                Object.entries(totals).forEach(([sectionId, data]) => {
-                    averages[sectionId] = {};
-
-                    if (Object.keys(data.scores).length) {
-                        averages[sectionId].scores = {};
-                        Object.entries(data.scores).forEach(([key, value]) => {
-                            averages[sectionId].scores[key] = (value / count).toFixed(2);
-                        });
-                    }
-
-                    if (data.checklist.length) {
-                        averages[sectionId].checklist = data.checklist.map((value) =>
-                            ((value / count) * 100).toFixed(1) + "%"
-                        );
-                    }
-
-                    if (Object.keys(data.selected).length) {
-                        const top = Object.entries(data.selected)
-                            .sort((a, b) => b[1] - a[1])[0];
-
-                        averages[sectionId].mostCommon = {
-                            optionIndex: top[0],
-                            count: top[1]
-                        };
-                    }
-                });
-
-                return averages;
-            }
-
-            function getNightlyProductionStats(data) {
-                const section = data.sections.nightly_production;
-                if (!section?.fields) return null;
-
-                const fields = section.fields;
-
-                function parseValues(val) {
-                    if (!val) return [];
-
-                    // Already array → normalize
-                    if (Array.isArray(val)) {
-                        return val.map(v => Number(v) || 0);
-                    }
-
-                    // String → "1,3"
-                    if (typeof val === "string") {
-                        return val.split(",").map(v => Number(v.trim()) || 0);
-                    }
-
-                    return [];
-                }
-
-                const sensors = parseValues(fields.sensors);
-
-                // 🔥 KEY FIX: always use DATA first
-                const nights = Math.max(
-                    sensors.length,
-                    getTotalNights(data) // ← NOT UI
-                );
-
-                const sensorTotal = Number(
-                    data?.sections?.site_info?.fields?.sensorTotal || 0
-                );
-
-                const result = [];
-                let totalDone = 0;
-                let totalTarget = 0;
-
-                for (let i = 0; i < nights; i++) {
-                    const done = Number(sensors[i] ?? 0);
-                    const total = sensorTotal;
-
-                    totalDone += done;
-                    totalTarget += total;
-
-                    const pct = total > 0
-                        ? Math.round((done / total) * 100)
-                        : 0;
-
-                    result.push({
-                        night: i + 1,
-                        done,
-                        total,
-                        pct
-                    });
-                }
-
-                return {
-                    nights: result,
-                    overall: totalTarget > 0
-                        ? Math.round((totalDone / totalTarget) * 100)
-                        : 0
-                };
-            }
-
-            function generateCertificationReport() {
-                const data = collectData();
-                const output = [];
-
-                const scoring = data.sections.final_scoring || {};
-                const total = scoring.total || 0;
-
-                output.push(`🎯 TOTAL SCORE: ${total}/100`);
-
-                let rating = "✅ PASS";
-                if (total < 70) rating = "❌ FAIL";
-                else if (total < 85) rating = "⚠️ NEEDS IMPROVEMENT";
-
-                output.push(`📊 RESULT: ${rating}`);
-                output.push("");
-
-                const production = getNightlyProductionStats(data);
-                if (production) {
-                    output.push("📦 NIGHTLY PRODUCTION:");
-                    production.nights.forEach((night) => {
-                        output.push(`Night ${night.night}: ${night.done}/${night.total} (${night.pct}%)`);
-                    });
-                    output.push(`Overall Completion: ${production.overall}%`);
-                    output.push("");
-                }
-
-                if (scoring.scores) {
-                    output.push("📋 SCORE BREAKDOWN:");
-                    Object.entries(scoring.scores).forEach(([key, value]) => {
-                        output.push(`- ${key}: ${value}`);
-                    });
-                    output.push("");
-                }
-
-                const criticalIssues = [];
-
-                state.config?.sections?.forEach((section) => {
-                    if (!["checklist", "checklistMultiDay"].includes(section.type)) return;
-
-                    section.items.forEach((item, index) => {
-                        if (!item?.critical) return;
-
-                        const saved = data.sections[section.id]?.items?.[index];
-                        if (!saved) return;
-
-                        if (Array.isArray(saved.days) && !saved.days.some(Boolean)) {
-                            criticalIssues.push(item.text);
-                        }
-
-                        if (saved.checked === false) {
-                            criticalIssues.push(item.text);
-                        }
-                    });
-                });
-
-                if (criticalIssues.length) {
-                    output.push("🚨 CRITICAL FAILURES:");
-                    criticalIssues.forEach((issue) => output.push(`- ${issue}`));
-                    output.push("");
-                }
-
-                let recommendation = "Fully Certified";
-                if (criticalIssues.length) {
-                    recommendation = "❌ Not Approved";
-                } else if (total < 85) {
-                    recommendation = "⚠️ Certified – Minor Coaching";
-                }
-
-                output.push("📌 RECOMMENDATION:");
-                output.push(recommendation);
-
-                return output.join("\n");
-            }
-
-            function showComparison() {
-                console.table(compareSitesDetailed());
-            }
-
-            function updateAllScoringTotals() {
-                if (!state.config?.sections?.length) return;
-
-                state.config.sections.forEach((section) => {
-                    if (section.type !== "scoring") return;
-
-                    let total = 0;
-                    section.fields.forEach((field) => {
-                        total += Number(byId(`score_${field.id}`)?.value || 0);
-                    });
-
-                    const totalEl = byId(`score_total_${section.id}`);
-                    if (totalEl) {
-                        totalEl.value = total;
-                    }
-                });
-            }
-
-            async function loadSettings() {
-                try {
-                    const snap = await get(ref(database, "public/settings/affiliateTag"));
-                    state.affiliateTag = snap.val() || "";
-                } catch (err) {
-                    console.error("Failed to load affiliate tag:", err);
-                }
-            }
-
-            async function loadInventory() {
-                try {
-                    const snap = await get(ref(database, "public/inventory"));
-                    const inventory = snap.val() || {};
-                    state.allTools = Array.isArray(inventory) ? inventory : Object.values(inventory);
-                    refreshToolUI();
-                } catch (err) {
-                    console.error("Inventory load failed:", err);
-                }
-            }
-
-            function bindLinksListener() {
-                onValue(ref(database, "public/links"), (snap) => {
-                    const data = snap.val() || {};
-                    state.lastLinks = Object.values(data)
-                        .filter((link) => link && link.url)
-                        .sort((a, b) => String(a.title || a.url).localeCompare(String(b.title || b.url)));
-
-                    relayoutLinksSoon();
-                }, (err) => {
-                    console.error("Links listener failed:", err);
-                });
-            }
-
-            async function autoSaveNow() {
-                const site = els.siteNumber?.value?.trim();
-                if (!site || state.isLoading) return;
-
-                await saveFirebase();
-            }
-
-            const debouncedAutoSave = debounce(autoSaveNow, AUTOSAVE_DELAY);
-
-            function relayoutLinksSoon() {
-                if (!state.linksModule?.layoutLinks) return;
-                state.linksModule.layoutLinks(state.lastLinks || []);
-            }
-
-            function updateNightDependentSections() {
-                const data = collectData();
-
-                state.config?.sections?.forEach((section) => {
-                    if (section.type === "nightCounter" || section.type === "checklistMultiDay") {
-                        renderSection(section, data);
-                    }
-                });
-
-                applyData(data);
-                updateAllScoringTotals();
-            }
-
-            function bindEvents() {
-                document.addEventListener("input", (event) => {
-                    if (state.isLoading) return;
-
-                    const target = event.target;
-                    if (!(target instanceof HTMLElement)) return;
-
-                    if (target.id === "field_totalNights") {
-                        let value = Number(target.value);
-
-                        if (isNaN(value)) return;
-
-                        if (value < 1) value = 1;
-                        if (value > MAX_NIGHTS) value = MAX_NIGHTS;
-
-                        target.value = value;
-
-                        updateNightDependentSections();
-                        debouncedAutoSave();
-                        return;
-                    }
-
-                    if (target.id === "field_sensorTotal") {
-                        const total = target.value;
-
-                        document.querySelectorAll('[id^="field_nightly_production_"]').forEach((input) => {
-                            const span = input.parentElement?.querySelector(".sensor-total");
-                            if (span) span.textContent = `/ ${total}`;
-                        });
-
-                        debouncedAutoSave();
-                        return;
-                    }
-
-                    if (target.id !== "siteNumber") {
-                        updateAllScoringTotals();
-                        debouncedAutoSave();
-                    }
-                });
-
-                els.exportTools?.addEventListener("click", exportToolsToCsv);
-
-                document.addEventListener("click", (event) => {
-                    if (els.moreWrap && !els.moreWrap.contains(event.target)) {
-                        els.moreMenu.classList.remove("open");
-                    }
-                });
-
-                els.app.addEventListener("click", (event) => {
-                    const target = event.target;
-
-                    if (target instanceof HTMLImageElement && target.classList.contains("tool-image")) {
-                        openModal(target.src);
-                    }
-                });
-
-                document.addEventListener("keydown", (event) => {
-                    if (event.key === "Escape") {
-                        els.moreMenu.classList.remove("open");
-                        closeModal();
-                    }
-
-                    if ((event.key === "Enter" || event.key === " ") && document.activeElement === els.imgModalClose) {
-                        closeModal();
-                    }
-                });
-
-                els.imgModalClose?.addEventListener("click", closeModal);
-                els.imgModal?.addEventListener("click", (event) => {
-                    if (event.target === els.imgModal) {
-                        closeModal();
-                    }
-                });
-
-                const handleSiteNumberCommit = () => {
-                    loadFirebase().catch((err) => {
-                        console.error("Failed to load data:", err);
-                        showStatus("Failed to load site.", true);
-                    });
-                };
-
-                els.siteNumber?.addEventListener("change", handleSiteNumberCommit);
-                els.siteNumber?.addEventListener("keydown", (event) => {
-                    if (event.key === "Enter") {
-                        event.preventDefault();
-                        handleSiteNumberCommit();
-                    }
-                });
-
-                els.compareBtn?.addEventListener("click", () => {
-                    const report = generateCertificationReport() || "No report available";
-                    els.comparisonResults.innerHTML = `<pre>${escapeHtml(report)}</pre>`;
-                });
-
-                els.exportFullBtn?.addEventListener("click", exportFullSiteCSV);
-                els.exportReportBtn?.addEventListener("click", exportCertificationCSV);
-
-                const debouncedRelayout = debounce(relayoutLinksSoon, 150);
-                window.addEventListener("resize", debouncedRelayout);
-
-                window.addEventListener("beforeunload", (event) => {
-                    if (state.hasUnsavedImages) {
-                        event.preventDefault();
-                        event.returnValue = "If you reload, unsaved generated images will be lost.";
-                    }
-                });
-
-                document.querySelectorAll("main > section").forEach((section, index) => {
-                    const header = section.querySelector("h2");
-                    if (!header) return;
-
-                    header.classList.add("collapsible-header");
-                    const key = `section_main_${section.dataset.id || index}_${header.textContent.trim()}`;
-                    bindCollapsible(header, section, key);
-                });
-
-                document.getElementById("saveToOneDriveBtn")
-                    ?.addEventListener("click", saveAllToOneDrive);
-            }
-
-            window.loadFirebase = loadFirebase;
-            window.saveFirebase = saveFirebase;
-            window.showComparison = showComparison;
-            window.compareSitesDetailed = compareSitesDetailed;
-            window.calculateSiteAverages = calculateSiteAverages;
-
-            function waitForAuth() {
-                return new Promise((resolve) => {
-                    const unsubscribe = onAuthStateChanged(auth, (user) => {
-                        DATABASE_BASE_PATH = user ? user.uid : 'public';
-                        unsubscribe?.();
-                        resolve(user);
-                    });
-                });
-            }
-
-            async function init() {
-                await waitForAuth();
-
-                state.toolsModule = initToolsModule({ els, state, createEl, ensureTag, toolSearchEngine });
-                state.linksModule = initLinksModule({ els, createEl });
-                state.imageModule = initImageModule({ els, state, createEl, openModal });
-
-                state.toolsModule?.bindEvents?.();
-                state.linksModule?.bindEvents?.();
-
-                const originalImageBindEvents = state.imageModule?.bindEvents?.bind(state.imageModule);
-                if (originalImageBindEvents) {
-                    state.imageModule.bindEvents = () => {
-                        originalImageBindEvents();
-
-                        els.generateBtn?.addEventListener("click", () => {
-                            state.hasUnsavedImages = true;
-                        });
-
-                        els.downloadAllBtn?.addEventListener("click", () => {
-                            state.hasUnsavedImages = false;
-                        });
+                if (Object.keys(data.selected).length) {
+                    const top = Object.entries(data.selected)
+                        .sort((a, b) => b[1] - a[1])[0];
+
+                    averages[sectionId].mostCommon = {
+                        optionIndex: top[0],
+                        count: top[1]
                     };
                 }
+            });
 
-                state.imageModule?.bindEvents?.();
-                bindEvents();
+            return averages;
+        }
 
-                await Promise.all([
-                    loadConfig(),
-                    loadSettings(),
-                    loadInventory()
-                ]);
+        function getNightlyProductionStats(data) {
+            const section = data.sections.nightly_production;
+            if (!section?.fields) return null;
 
-                bindLinksListener();
+            const fields = section.fields;
+
+            function parseValues(val) {
+                if (!val) return [];
+
+                // Already array → normalize
+                if (Array.isArray(val)) {
+                    return val.map(v => Number(v) || 0);
+                }
+
+                // String → "1,3"
+                if (typeof val === "string") {
+                    return val.split(",").map(v => Number(v.trim()) || 0);
+                }
+
+                return [];
             }
 
-            init().catch((err) => {
-                console.error("Initialization failed:", err);
-                showStatus("App failed to initialize.", true);
-            });
-        })();
+            const sensors = parseValues(fields.sensors);
 
+            // 🔥 KEY FIX: always use DATA first
+            const nights = Math.max(
+                sensors.length,
+                getTotalNights(data) // ← NOT UI
+            );
+
+            const sensorTotal = Number(
+                data?.sections?.site_info?.fields?.sensorTotal || 0
+            );
+
+            const result = [];
+            let totalDone = 0;
+            let totalTarget = 0;
+
+            for (let i = 0; i < nights; i++) {
+                const done = Number(sensors[i] ?? 0);
+                const total = sensorTotal;
+
+                totalDone += done;
+                totalTarget += total;
+
+                const pct = total > 0
+                    ? Math.round((done / total) * 100)
+                    : 0;
+
+                result.push({
+                    night: i + 1,
+                    done,
+                    total,
+                    pct
+                });
+            }
+
+            return {
+                nights: result,
+                overall: totalTarget > 0
+                    ? Math.round((totalDone / totalTarget) * 100)
+                    : 0
+            };
+        }
+
+        function generateCertificationReport() {
+            const data = collectData();
+            const output = [];
+
+            const scoring = data.sections.final_scoring || {};
+            const total = scoring.total || 0;
+
+            output.push(`🎯 TOTAL SCORE: ${total}/100`);
+
+            let rating = "✅ PASS";
+            if (total < 70) rating = "❌ FAIL";
+            else if (total < 85) rating = "⚠️ NEEDS IMPROVEMENT";
+
+            output.push(`📊 RESULT: ${rating}`);
+            output.push("");
+
+            const production = getNightlyProductionStats(data);
+            if (production) {
+                output.push("📦 NIGHTLY PRODUCTION:");
+                production.nights.forEach((night) => {
+                    output.push(`Night ${night.night}: ${night.done}/${night.total} (${night.pct}%)`);
+                });
+                output.push(`Overall Completion: ${production.overall}%`);
+                output.push("");
+            }
+
+            if (scoring.scores) {
+                output.push("📋 SCORE BREAKDOWN:");
+                Object.entries(scoring.scores).forEach(([key, value]) => {
+                    output.push(`- ${key}: ${value}`);
+                });
+                output.push("");
+            }
+
+            const criticalIssues = [];
+
+            state.config?.sections?.forEach((section) => {
+                if (!["checklist", "checklistMultiDay"].includes(section.type)) return;
+
+                section.items.forEach((item, index) => {
+                    if (!item?.critical) return;
+
+                    const saved = data.sections[section.id]?.items?.[index];
+                    if (!saved) return;
+
+                    if (Array.isArray(saved.days) && !saved.days.some(Boolean)) {
+                        criticalIssues.push(item.text);
+                    }
+
+                    if (saved.checked === false) {
+                        criticalIssues.push(item.text);
+                    }
+                });
+            });
+
+            if (criticalIssues.length) {
+                output.push("🚨 CRITICAL FAILURES:");
+                criticalIssues.forEach((issue) => output.push(`- ${issue}`));
+                output.push("");
+            }
+
+            let recommendation = "Fully Certified";
+            if (criticalIssues.length) {
+                recommendation = "❌ Not Approved";
+            } else if (total < 85) {
+                recommendation = "⚠️ Certified – Minor Coaching";
+            }
+
+            output.push("📌 RECOMMENDATION:");
+            output.push(recommendation);
+
+            return output.join("\n");
+        }
+
+        function showComparison() {
+            console.table(compareSitesDetailed());
+        }
+
+        function updateAllScoringTotals() {
+            if (!state.config?.sections?.length) return;
+
+            state.config.sections.forEach((section) => {
+                if (section.type !== "scoring") return;
+
+                let total = 0;
+                section.fields.forEach((field) => {
+                    total += Number(byId(`score_${field.id}`)?.value || 0);
+                });
+
+                const totalEl = byId(`score_total_${section.id}`);
+                if (totalEl) {
+                    totalEl.value = total;
+                }
+            });
+        }
+
+        async function loadSettings() {
+            try {
+                const snap = await get(ref(database, "public/settings/affiliateTag"));
+                state.affiliateTag = snap.val() || "";
+            } catch (err) {
+                console.error("Failed to load affiliate tag:", err);
+            }
+        }
+
+        async function loadInventory() {
+            try {
+                const snap = await get(ref(database, "public/inventory"));
+                const inventory = snap.val() || {};
+                state.allTools = Array.isArray(inventory) ? inventory : Object.values(inventory);
+                refreshToolUI();
+            } catch (err) {
+                console.error("Inventory load failed:", err);
+            }
+        }
+
+        function bindLinksListener() {
+            onValue(ref(database, "public/links"), (snap) => {
+                const data = snap.val() || {};
+                state.lastLinks = Object.values(data)
+                    .filter((link) => link && link.url)
+                    .sort((a, b) => String(a.title || a.url).localeCompare(String(b.title || b.url)));
+
+                relayoutLinksSoon();
+            }, (err) => {
+                console.error("Links listener failed:", err);
+            });
+        }
+
+        async function autoSaveNow() {
+            const site = els.siteNumber?.value?.trim();
+            if (!site || state.isLoading) return;
+
+            await saveFirebase();
+        }
+
+        const debouncedAutoSave = debounce(autoSaveNow, AUTOSAVE_DELAY);
+
+        function relayoutLinksSoon() {
+            if (!state.linksModule?.layoutLinks) return;
+            state.linksModule.layoutLinks(state.lastLinks || []);
+        }
+
+        function updateNightDependentSections() {
+            const data = collectData();
+
+            state.config?.sections?.forEach((section) => {
+                if (section.type === "nightCounter" || section.type === "checklistMultiDay") {
+                    renderSection(section, data);
+                }
+            });
+
+            applyData(data);
+            updateAllScoringTotals();
+        }
+
+        function bindEvents() {
+            document.addEventListener("input", (event) => {
+                if (state.isLoading) return;
+
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) return;
+
+                if (target.id === "field_totalNights") {
+                    let value = Number(target.value);
+
+                    if (isNaN(value)) return;
+
+                    if (value < 1) value = 1;
+                    if (value > MAX_NIGHTS) value = MAX_NIGHTS;
+
+                    target.value = value;
+
+                    updateNightDependentSections();
+                    debouncedAutoSave();
+                    return;
+                }
+
+                if (target.id === "field_sensorTotal") {
+                    const total = target.value;
+
+                    document.querySelectorAll('[id^="field_nightly_production_"]').forEach((input) => {
+                        const span = input.parentElement?.querySelector(".sensor-total");
+                        if (span) span.textContent = `/ ${total}`;
+                    });
+
+                    debouncedAutoSave();
+                    return;
+                }
+
+                if (target.id !== "siteNumber") {
+                    updateAllScoringTotals();
+                    debouncedAutoSave();
+                }
+            });
+
+            els.exportTools?.addEventListener("click", exportToolsToCsv);
+
+            document.addEventListener("click", (event) => {
+                if (els.moreWrap && !els.moreWrap.contains(event.target)) {
+                    els.moreMenu.classList.remove("open");
+                }
+            });
+
+            els.app.addEventListener("click", (event) => {
+                const target = event.target;
+
+                if (target instanceof HTMLImageElement && target.classList.contains("tool-image")) {
+                    openModal(target.src);
+                }
+            });
+
+            document.addEventListener("keydown", (event) => {
+                if (event.key === "Escape") {
+                    els.moreMenu.classList.remove("open");
+                    closeModal();
+                }
+
+                if ((event.key === "Enter" || event.key === " ") && document.activeElement === els.imgModalClose) {
+                    closeModal();
+                }
+            });
+
+            els.imgModalClose?.addEventListener("click", closeModal);
+            els.imgModal?.addEventListener("click", (event) => {
+                if (event.target === els.imgModal) {
+                    closeModal();
+                }
+            });
+
+            const handleSiteNumberCommit = () => {
+                loadFirebase().catch((err) => {
+                    console.error("Failed to load data:", err);
+                    showStatus("Failed to load site.", true);
+                });
+            };
+
+            els.siteNumber?.addEventListener("change", handleSiteNumberCommit);
+            els.siteNumber?.addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleSiteNumberCommit();
+                }
+            });
+
+            els.compareBtn?.addEventListener("click", () => {
+                const report = generateCertificationReport() || "No report available";
+                els.comparisonResults.innerHTML = `<pre>${escapeHtml(report)}</pre>`;
+            });
+
+            els.exportFullBtn?.addEventListener("click", exportFullSiteCSV);
+            els.exportReportBtn?.addEventListener("click", exportCertificationCSV);
+
+            const debouncedRelayout = debounce(relayoutLinksSoon, 150);
+            window.addEventListener("resize", debouncedRelayout);
+
+            window.addEventListener("beforeunload", (event) => {
+                if (state.hasUnsavedImages) {
+                    event.preventDefault();
+                    event.returnValue = "If you reload, unsaved generated images will be lost.";
+                }
+            });
+
+            document.querySelectorAll("main > section").forEach((section, index) => {
+                const header = section.querySelector("h2");
+                if (!header) return;
+
+                header.classList.add("collapsible-header");
+                const key = `section_main_${section.dataset.id || index}_${header.textContent.trim()}`;
+                bindCollapsible(header, section, key);
+            });
+
+            document.getElementById("saveToOneDriveBtn")
+                ?.addEventListener("click", saveAllToOneDrive);
+
+            document.getElementById("refreshSitesBtn")
+                ?.addEventListener("click", renderSitesList);
+
+            // auto-load on page load
+            setTimeout(renderSitesList, 500);
+        }
+
+        function waitForAuth() {
+            return new Promise((resolve) => {
+                const unsubscribe = onAuthStateChanged(auth, (user) => {
+                    DATABASE_BASE_PATH = user ? user.uid : 'public';
+                    unsubscribe?.();
+                    resolve(user);
+                });
+            });
+        }
+
+        async function init() {
+            await waitForAuth();
+
+            state.toolsModule = initToolsModule({ els, state, createEl, ensureTag, toolSearchEngine });
+            state.linksModule = initLinksModule({ els, createEl });
+            state.imageModule = initImageModule({ els, state, createEl, openModal });
+
+            state.toolsModule?.bindEvents?.();
+            state.linksModule?.bindEvents?.();
+
+            const originalImageBindEvents = state.imageModule?.bindEvents?.bind(state.imageModule);
+            if (originalImageBindEvents) {
+                state.imageModule.bindEvents = () => {
+                    originalImageBindEvents();
+
+                    els.generateBtn?.addEventListener("click", () => {
+                        state.hasUnsavedImages = true;
+                    });
+
+                    els.downloadAllBtn?.addEventListener("click", () => {
+                        state.hasUnsavedImages = false;
+                    });
+                };
+            }
+
+            state.imageModule?.bindEvents?.();
+            bindEvents();
+
+            await Promise.all([
+                loadConfig(),
+                loadSettings(),
+                loadInventory()
+            ]);
+
+            bindLinksListener();
+        }
+
+        init().catch((err) => {
+            console.error("Initialization failed:", err);
+            showStatus("App failed to initialize.", true);
+        });
 
         async function uploadToOneDrive(filename, content, mimeType = "text/plain") {
             if (!accessToken || isTokenExpired(accessToken)) {
@@ -2168,44 +2171,137 @@
 
         async function saveAllToOneDrive() {
             try {
-                if (!isLoggedIn()) {
+                if (!accessToken || isTokenExpired(accessToken)) {
                     alert("Login to Microsoft first");
                     return;
                 }
 
-                const site = document.getElementById("siteNumber")?.value || "unknown";
+                const sites = getAllSites();
+                if (!sites.length) {
+                    alert("No sites found");
+                    return;
+                }
+
                 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 
-                const data = collectData();
+                for (const siteObj of sites) {
+                    const site = siteObj.site;
+                    const data = siteObj.data;
 
-                // 🔹 CSV
-                const rows = [["Section", "Field", "Value"]];
-                Object.entries(data.sections || {}).forEach(([sectionId, sec]) => {
-                    if (sec.fields) {
-                        Object.entries(sec.fields).forEach(([k, v]) => {
-                            const value = (v && typeof v === "object" && "value" in v) ? v.value : v;
-                            rows.push([sectionId, k, value]);
-                        });
-                    }
-                });
+                    // 🔹 CSV
+                    const rows = [["Section", "Field", "Value"]];
 
-                const csv = toCSV(rows);
+                    Object.entries(data.sections || {}).forEach(([sectionId, sec]) => {
+                        if (sec.fields) {
+                            Object.entries(sec.fields).forEach(([k, v]) => {
+                                const value = (v && typeof v === "object" && "value" in v) ? v.value : v;
+                                rows.push([sectionId, k, value]);
+                            });
+                        }
+                    });
 
-                // 🔹 TXT report
-                const report = generateCertificationReport();
+                    const csv = toCSV(rows);
 
-                // 🔥 Upload BOTH
-                await uploadToOneDrive(`QC_${site}_${timestamp}.csv`, csv, "text/csv");
-                await uploadToOneDrive(`QC_${site}_${timestamp}.txt`, report, "text/plain");
+                    // 🔹 TXT report
+                    const report = generateCertificationReport();
 
-                alert("Saved to OneDrive ✅");
+                    // 🔥 Upload per site
+                    await uploadToOneDrive(`QC_${site}_${timestamp}.csv`, csv, "text/csv");
+                    await uploadToOneDrive(`QC_${site}_${timestamp}.txt`, report, "text/plain");
+                }
+
+                alert("All sites saved to OneDrive ✅");
 
             } catch (err) {
                 console.error(err);
                 alert("Upload failed ❌");
             }
         }
-    </script>
+
+        async function renderSitesList() {
+            const container = document.getElementById("sitesList");
+            if (!container) return;
+
+            container.innerHTML = "Loading sites...";
+
+            try {
+                const sitesRef = ref(database, `${DATABASE_BASE_PATH}/sites`);
+                const snap = await get(sitesRef);
+
+                const data = snap.val();
+
+                container.innerHTML = "";
+
+                if (!data) {
+                    container.textContent = "No sites found in Firebase";
+                    return;
+                }
+
+                const currentSite = document.getElementById("siteNumber")?.value;
+
+                Object.entries(data).forEach(([site, siteData]) => {
+
+                    const score = siteData?.sections?.final_scoring?.total ?? "—";
+
+                    const row = document.createElement("div");
+                    row.style.cssText = `
+                padding:10px;
+                border:1px solid #ccc;
+                margin-bottom:6px;
+                display:flex;
+                justify-content:space-between;
+                align-items:center;
+                border-radius:8px;
+            `;
+
+                    if (site === currentSite) {
+                        row.style.background = "rgba(0,230,118,0.1)";
+                        row.style.border = "1px solid #00e676";
+                    }
+
+                    const left = document.createElement("div");
+                    left.innerHTML = `
+                <strong>Site ${site}</strong><br>
+                <span style="font-size:0.85rem;opacity:0.7;">Score: ${score}</span>
+            `;
+
+                    const right = document.createElement("div");
+
+                    // 🔹 LOAD BUTTON
+                    const loadBtn = document.createElement("button");
+                    loadBtn.textContent = "Load";
+                    loadBtn.onclick = () => {
+                        document.getElementById("siteNumber").value = site;
+                        loadFirebase();
+                        renderSitesList();
+                    };
+
+                    // 🔹 DELETE BUTTON (Firebase + local)
+                    const deleteBtn = document.createElement("button");
+                    deleteBtn.textContent = "Delete";
+                    deleteBtn.style.marginLeft = "8px";
+                    deleteBtn.onclick = async () => {
+                        if (!confirm(`Delete site ${site}?`)) return;
+
+                        await set(ref(database, `${DATABASE_BASE_PATH}/sites/${site}`), null);
+                        localStorage.removeItem(`qc_app_${site}`);
+                        renderSitesList();
+                    };
+
+                    right.appendChild(loadBtn);
+                    right.appendChild(deleteBtn);
+
+                    row.appendChild(left);
+                    row.appendChild(right);
+
+                    container.appendChild(row);
+                });
+
+            } catch (err) {
+                console.error(err);
+                container.textContent = "Failed to load sites";
+            }
+        }    </script>
 </body>
 
 </html>
