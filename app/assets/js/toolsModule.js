@@ -1,5 +1,5 @@
 export function initToolsModule({ els, state, createEl, ensureTag, toolSearchEngine }) {
-    
+
     function normalizeTools(data) {
         const items = [];
 
@@ -76,6 +76,7 @@ export function initToolsModule({ els, state, createEl, ensureTag, toolSearchEng
             const card = createEl("div", { className: "product" });
 
             const img = createEl("img", {
+                className: "tool-image",
                 attrs: { src: tool.imageUrl }
             });
 
@@ -86,6 +87,14 @@ export function initToolsModule({ els, state, createEl, ensureTag, toolSearchEng
             const meta = createEl("div", {
                 text: `${tool.category} • ${tool.component}`
             });
+
+            if (link) {
+                card.style.cursor = "pointer";
+
+                card.addEventListener("click", () => {
+                    window.open(link, "_blank");
+                });
+            }
 
             card.appendChild(img);
             card.appendChild(title);
