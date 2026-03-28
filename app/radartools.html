@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>Radar Job Reference</title>
+    <title>Radar - Old Navy Deployments</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
 
     <link rel="stylesheet" href="../assets/css/app-styles.css" />
@@ -312,7 +312,7 @@
 
 <body>
     <header>
-        <h1>Radar Job Reference</h1>
+        <h1>Radar - Old Navy Deployments</h1>
         <span id="login-section" class="logins-section">
             <section>
                 <form id="login-form">
@@ -867,6 +867,13 @@
                         }
                     });
 
+                    checkbox.addEventListener("change", () => {
+                        if (item.type === "negative" && checkbox.checked) {
+                            checkbox.parentElement.style.background = "rgba(255,0,0,0.2)";
+                        } else {
+                            checkbox.parentElement.style.background = "";
+                        }
+                    });
                     label.appendChild(checkbox);
                     label.appendChild(document.createTextNode(` ${text}`));
                     wrapper.appendChild(label);
@@ -1114,15 +1121,25 @@
 
                 if (section.type === "scoring") {
                     sectionData.scores = {};
-                    let total = 0;
+
+                    let manualScore = 0;
 
                     section.fields.forEach((field) => {
                         const value = Number(byId(`score_${field.id}`)?.value || 0);
                         sectionData.scores[field.id] = value;
-                        total += value;
+                        manualScore += value;
                     });
 
-                    sectionData.total = total;
+                    // 🔥 ADD THIS (CORE FIX)
+                    const checklistScore = calculateChecklistScoreAll();
+
+                    const finalScore = checklistScore.percent;
+
+                    sectionData.total = finalScore;
+
+                    // 🔥 STORE EXTRA DATA FOR REPORT
+                    sectionData.checklistPercent = checklistScore.percent;
+                    sectionData.manualScore = manualScore;
                 }
 
                 if (section.type === "matrix") {
@@ -1639,6 +1656,8 @@
 
             const scoring = data.sections.final_scoring || {};
             const total = scoring.total || 0;
+            const checklistPercent = scoring.checklistPercent || 0;
+            const manualScore = scoring.manualScore || 0;
 
             let result = "PASS";
             if (total < 70) result = "FAIL";
@@ -1789,8 +1808,32 @@
                 const done = Number(sensors[i] ?? 0);
                 const total = sensorTotal;
 
-                totalDone += done;
-                totalTarget += total;
+                let maxDone = 0;
+
+                for (let i = 0; i < nights; i++) {
+                    const done = Number(sensors[i] ?? 0);
+                    const total = sensorTotal;
+
+                    maxDone = Math.max(maxDone, done);
+
+                    const pct = total > 0
+                        ? Math.round((done / total) * 100)
+                        : 0;
+
+                    result.push({
+                        night: i + 1,
+                        done,
+                        total,
+                        pct
+                    });
+                }
+
+                return {
+                    nights: result,
+                    overall: sensorTotal > 0
+                        ? Math.round((maxDone / sensorTotal) * 100)
+                        : 0
+                };
 
                 const pct = total > 0
                     ? Math.round((done / total) * 100)
@@ -1818,8 +1861,12 @@
 
             const scoring = data.sections.final_scoring || {};
             const total = scoring.total || 0;
+            const checklistPercent = scoring.checklistPercent || 0;
+            const manualScore = scoring.manualScore || 0;
 
             output.push(`🎯 TOTAL SCORE: ${total}/100`);
+            output.push(`📋 CHECKLIST SCORE: ${checklistPercent}%`);
+            output.push(`🧮 MANUAL SCORE: ${manualScore}`);
 
             let rating = "✅ PASS";
             if (total < 70) rating = "❌ FAIL";
@@ -1891,21 +1938,37 @@
         }
 
         function updateAllScoringTotals() {
-            if (!state.config?.sections?.length) return;
+            const checklistScore = calculateChecklistScoreAll();
 
-            state.config.sections.forEach((section) => {
+            // OPTIONAL: keep manual scoring too
+            let manualScore = 0;
+
+            state.config.sections.forEach(section => {
                 if (section.type !== "scoring") return;
 
-                let total = 0;
-                section.fields.forEach((field) => {
-                    total += Number(byId(`score_${field.id}`)?.value || 0);
+                section.fields.forEach(field => {
+                    manualScore += Number(byId(`score_${field.id}`)?.value || 0);
                 });
-
-                const totalEl = byId(`score_total_${section.id}`);
-                if (totalEl) {
-                    totalEl.value = total;
-                }
             });
+
+            const finalScore = checklistScore.percent;
+
+            const totalEl = byId(`score_total_final_scoring`);
+            if (totalEl) totalEl.value = finalScore;
+
+            // 🔥 Show breakdown
+            let breakdown = byId("score_breakdown");
+            if (!breakdown) {
+                breakdown = document.createElement("div");
+                breakdown.id = "score_breakdown";
+                byId("section_final_scoring")?.appendChild(breakdown);
+            }
+
+            breakdown.innerHTML = `
+                Checklist Score: ${checklistScore.percent}%<br>
+                Manual Score: ${manualScore}<br>
+                Final Score: <strong>${finalScore}</strong>
+            `;
         }
 
         async function loadSettings() {
@@ -2180,17 +2243,18 @@
                     return;
                 }
 
-                const sites = getAllSites();
-                if (!sites.length) {
-                    alert("No sites found");
+                const sitesRef = ref(database, `${DATABASE_BASE_PATH}/sites`);
+                const snap = await get(sitesRef);
+                const firebaseSites = snap.val();
+
+                if (!firebaseSites) {
+                    alert("No sites found in Firebase");
                     return;
                 }
 
                 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 
-                for (const siteObj of sites) {
-                    const site = siteObj.site;
-                    const data = siteObj.data;
+                for (const [site, data] of Object.entries(firebaseSites)) {
 
                     const rows = buildFullSiteRows(data);
                     const csv = toCSV(rows);
@@ -2201,7 +2265,7 @@
                     await uploadToOneDrive(`Jobs/Radar/QC_${site}_${timestamp}.txt`, report, "text/plain");
                 }
 
-                alert("All sites saved to OneDrive ✅");
+                alert("All Firebase sites saved to OneDrive ✅");
 
             } catch (err) {
                 console.error(err);
@@ -2370,6 +2434,64 @@
             });
 
             return rows;
+        }
+
+        function calculateChecklistPenalty(sectionId) {
+            const section = getSectionConfig(sectionId);
+            if (!section) return 0;
+
+            let penalty = 0;
+
+            section.items.forEach((item, index) => {
+                const checkbox = byId(`${sectionId}_${index}`);
+                const checked = checkbox?.checked;
+
+                if (item.type === "negative" && checked) {
+                    penalty += item.weight || 5;
+                }
+            });
+
+            return penalty;
+        }
+
+        function calculateChecklistScoreAll() {
+            let earned = 0;
+            let total = 0;
+
+            state.config.sections.forEach(section => {
+                if (!["checklist", "checklistMultiDay"].includes(section.type)) return;
+
+                section.items.forEach((item, index) => {
+                    const weight = item.weight || 1;
+                    const type = item.type || "positive";
+
+                    if (section.type === "checklist") {
+                        const checked = byId(`${section.id}_${index}`)?.checked;
+
+                        total += weight;
+
+                        if (type === "positive" && checked) earned += weight;
+                        if (type === "negative" && !checked) earned += weight;
+                    }
+
+                    if (section.type === "checklistMultiDay") {
+                        const days = getTotalNightsFromUI();
+
+                        for (let d = 0; d < days; d++) {
+                            const checked = byId(`${section.id}_${index}_${d}`)?.checked;
+
+                            total += weight;
+
+                            if (type === "positive" && checked) earned += weight;
+                            if (type === "negative" && !checked) earned += weight;
+                        }
+                    }
+                });
+            });
+
+            const percent = total > 0 ? Math.round((earned / total) * 100) : 0;
+
+            return { earned, total, percent };
         }
     </script>
 </body>
