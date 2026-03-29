@@ -121,7 +121,7 @@
 
         <label title="Gross income you expect for this year">
           Expected Yearly Income:
-          <input id="incomeYear" type="number" min="0" step="0.01" style="width:12ch;" />
+          <input id="incomeYear" type="number" min="0" style="width:12ch;" />
         </label>
 
         <button id="save">Save now</button>
@@ -149,6 +149,12 @@
 
     <section class="table">
       <h2>Budget vs Actual (by Month)</h2>
+
+      <label>
+        <input type="checkbox" id="toggle-past-months" checked />
+        Show current months
+      </label>
+
       <table id="budget-table">
         <thead>
           <tr id="budget-header-row">
@@ -536,7 +542,7 @@
         </div>
         <div>
           <label class="small">Monthly Budget</label>
-          <input type="number" min="0" step="0.01" value="${c.monthly}" />
+          <input type="number" min="0" value="${c.monthly}" />
         </div>
         <button type="button" class="btn clear-button small del-cat" title="Delete category">X</button>
       `;
@@ -570,6 +576,7 @@
         renderBudgetTable();
         renderMonthTotals();
         renderYearTotals();
+        applyMonthVisibility();
       });
 
       const delBtn = row.querySelector('.del-cat');
@@ -609,7 +616,6 @@
       months.forEach((m, mi) => {
         const td = document.createElement('td');
         const input = document.createElement('input');
-        input.type = 'number'; input.min = '0'; input.step = '0.01';
         input.value = planForMonth(c.name, mi);
         input.title = 'Budget (override this month). Leave blank to use category monthly.';
         input.addEventListener('input', () => {
@@ -621,6 +627,7 @@
           if (actualCell) setActualCellColor(actualCell, c.name, mi);
           renderMonthTotals();
           renderYearTotals();
+          applyMonthVisibility();
           avgBudTd.textContent = fmt.format(avgBudgetForCategory(c.name));
           const avgActTdRef = tbody.querySelector(`tr[data-idx="${idx}"][data-kind="actual"] td:last-child`);
           if (avgActTdRef) setAvgActualCellColor(avgActTdRef, c.name);
@@ -666,6 +673,7 @@
           updateCategoryLabelByIndex(idx);
           renderMonthTotals();
           renderYearTotals();
+          applyMonthVisibility();
           const a = avgActualForCategory(c.name);
           avgActTd.textContent = (a == null) ? '—' : fmt.format(a);
           setAvgActualCellColor(avgActTd, c.name);
@@ -725,6 +733,13 @@
     tfoot.appendChild(trVar);
   }
 
+  function ytdIncome() {
+    const monthsElapsed = monthsElapsedForYear(Number(STATE.year));
+    return monthsElapsed > 0
+      ? (STATE.incomeYear / 12) * monthsElapsed
+      : 0;
+  }
+
   function renderYearTotals() {
     const box = document.getElementById('yearTotals');
     if (!box) return;
@@ -732,29 +747,40 @@
     const { yearBudget, yearActual } = totals();
     const income = Math.max(0, toMoney(STATE.incomeYear));
 
-    const grossIncome = income;
+    const grossIncome = income; // full year (keep for projections)
     const totalSpendingCashOut = yearActual;
     const plannedSpendingBudget = yearBudget;
 
-    // Option B
-    const categoryNet = grossIncome - totalSpendingCashOut; // Income − Spending
+    const plannedSavings = grossIncome - plannedSpendingBudget;
+    const plannedSavingsMonthly = plannedSavings / 12;
 
     // Variances
-    const spendingVariance = totalSpendingCashOut - plannedSpendingBudget; // Actual − Budget
-    const projectedNet = grossIncome - plannedSpendingBudget;              // Income − Budget
-    const actualNetCashFlow = categoryNet;                                  // same number
+    const { budget: ytdBudget, actual: ytdActual, variance: ytdVariance } = ytdTotals();
 
-    // Extra useful metrics
-    const budgetHitPct = plannedSpendingBudget > 0
-      ? (totalSpendingCashOut / plannedSpendingBudget) * 100
+    const ytdInc = ytdIncome();
+    const ytdNet = ytdInc - ytdActual;
+
+    const overPct = ytdBudget > 0
+      ? ((ytdActual / ytdBudget) * 100 - 100)
       : null;
 
-    const savingsRatePct = grossIncome > 0
-      ? (actualNetCashFlow / grossIncome) * 100
+    const monthsElapsed = monthsElapsedForYear(Number(STATE.year));
+    const projectedSpending = monthsElapsed > 0
+      ? (ytdActual / monthsElapsed) * 12
+      : 0;
+
+    const projectedNet = grossIncome - projectedSpending;
+    const budgetHitPct = ytdBudget > 0
+      ? (ytdActual / ytdBudget) * 100
       : null;
 
-    const avgMonthlySpend = totalSpendingCashOut / 12;
-    const avgMonthlyBudget = plannedSpendingBudget / 12;
+    const savingsRatePct = ytdInc > 0
+      ? (ytdNet / ytdInc) * 100
+      : null;
+
+    const avgMonthlySpend = monthsElapsed > 0
+      ? totalSpendingCashOut / monthsElapsed
+      : 0; const avgMonthlyBudget = plannedSpendingBudget / 12;
 
     const fmtPct = (n) => (n == null || !Number.isFinite(n)) ? '—' : `${n.toFixed(1)}%`;
 
@@ -780,26 +806,50 @@
         <span class="muted small">(${fmt.format(avgMonthlyBudget)}/mo)</span>
       </div>
 
-      <div>Over / Under Budget (Actual − Budget):
-        <strong class="${cls(-spendingVariance, true)}">${fmt.format(spendingVariance)}</strong>
-        <span class="muted small">(${fmtPct(budgetHitPct)} of budget)</span>
+      <div>Planned Savings (Budget):
+        <strong>${fmt.format(plannedSavings)}</strong>
+        <span class="muted small">(${fmt.format(plannedSavingsMonthly)}/mo)</span>
+      </div>
+
+      <div>Budget (YTD):
+        <strong class="${cls(-ytdVariance, true)}">${fmt.format(ytdVariance)}</strong>
+        <span class="muted small">
+          (${fmtPct(overPct)} over)
+        </span>
       </div>
 
       <hr>
 
-      <div>Category Net (Income − Spending):
-        <strong class="${cls(categoryNet, true)}">${fmt.format(categoryNet)}</strong>
+      <div>Net (YTD):
+        <strong class="${cls(ytdNet, true)}">${fmt.format(ytdNet)}</strong>
         <span class="muted small">(Savings rate: ${fmtPct(savingsRatePct)})</span>
       </div>
 
-      <div>Projected Net (Income − Budget):
+      <div>Projected Net (Full Year):
         <strong class="${cls(projectedNet, true)}">${fmt.format(projectedNet)}</strong>
       </div>
 
-      <div>Actual Net Cash Flow (Income − Actual Spend):
-        <strong class="${cls(actualNetCashFlow, true)}">${fmt.format(actualNetCashFlow)}</strong>
-      </div>
     `;
+  }
+
+  function ytdTotals() {
+    const limit = monthsElapsedForYear(Number(STATE.year));
+
+    let budget = 0;
+    let actual = 0;
+
+    for (let mi = 0; mi < limit; mi++) {
+      for (const c of STATE.categories) {
+        budget += planForMonth(c.name, mi);
+        actual += actualForMonth(c.name, mi);
+      }
+    }
+
+    return {
+      budget,
+      actual,
+      variance: actual - budget
+    };
   }
 
   function renderAll() {
@@ -814,6 +864,7 @@
     renderBudgetTable();
     renderMonthTotals();
     renderYearTotals();
+    applyMonthVisibility();
   }
 
   /* ============ Year management ============ */
@@ -1134,6 +1185,14 @@
       incomeEl._wired = true;
     }
 
+    const toggle = document.getElementById('toggle-past-months');
+    if (toggle && !toggle._wired) {
+      toggle.addEventListener('change', () => {
+        applyMonthVisibility();
+      });
+      toggle._wired = true;
+    }
+
     // buttons
     document.addEventListener('click', async (e) => {
       const t = e.target;
@@ -1182,6 +1241,35 @@
     AUTH_READY = true;
     maybeInit();
   });
+
+
+  function applyMonthVisibility() {
+    const table = document.getElementById('budget-table');
+    if (!table) return;
+
+    const limit = monthsElapsedForYear(Number(STATE.year));
+    const showOnlyPast = document.getElementById('toggle-past-months')?.checked;
+
+    // +1 because first column is "Category"
+    const offset = 1;
+
+    // loop through all rows (header, body, footer)
+    table.querySelectorAll('tr').forEach(row => {
+      const cells = row.children;
+
+      for (let mi = 0; mi < 12; mi++) {
+        const cellIndex = mi + offset;
+
+        if (!cells[cellIndex]) continue;
+
+        if (showOnlyPast && mi >= limit) {
+          cells[cellIndex].style.display = 'none';
+        } else {
+          cells[cellIndex].style.display = '';
+        }
+      }
+    });
+  }
 </script>
 
 </html>
