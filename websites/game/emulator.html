@@ -203,6 +203,13 @@
             const script = document.createElement("script");
             script.src = "data/loader.js";
             document.body.appendChild(script);
+
+            window.EJS_onGameStart = function () {
+                console.log("Game fully ready");
+
+                startAutoSave();
+                autoLoadState();
+            };
         }
 
         /* ================= INJECT BATTERY ================= */
@@ -254,7 +261,7 @@
                 const bytes = await getBytes(storageRef(storage, path));
 
                 try {
-                    window.EJS_emulator?.gameManager?.loadState(
+                    (window.EJS_emulator?.gameManager || window.EJS_emulator)?.loadState(
                         new Uint8Array(bytes)
                     );
                     alert("Cloud save state loaded.");
@@ -271,13 +278,14 @@
         /* ================= SAVE & QUIT ================= */
 
         document.getElementById("save-quit").onclick = async () => {
+            stopAutoSave(); // 🔴 IMPORTANT
 
             if (!window.EJS_core) {
                 alert("No game loaded.");
                 return;
             }
 
-            const gm = window.EJS_emulator?.gameManager;
+            const gm = window.EJS_emulator?.gameManager || window.EJS_emulator;
             const path = getStatePath();
 
             try {
@@ -313,6 +321,58 @@
             input.value = "";
         };
 
+        /* ================= AUTO SAVE LOOP ================= */
+
+        let autoSaveInterval = null;
+        /* ================= AUTO LOAD STATE ================= */
+
+        async function autoLoadState() {
+            const path = getStatePath();
+            if (!path) return;
+
+            try {
+                const bytes = await getBytes(storageRef(storage, path));
+
+                window.EJS_emulator?.gameManager?.loadState(
+                    new Uint8Array(bytes)
+                );
+
+                console.log("Auto-loaded cloud state.");
+            } catch {
+                console.log("No previous state found.");
+            }
+        }
+        function startAutoSave() {
+            stopAutoSave();
+
+            autoSaveInterval = setInterval(async () => {
+                try {
+                    const gm = window.EJS_emulator?.gameManager || window.EJS_emulator; const path = getStatePath();
+
+                    if (!gm || !gm.getState || !path) return;
+
+                    const state = gm.getState();
+                    if (!state) return;
+
+                    await uploadBytes(
+                        storageRef(storage, path),
+                        new Blob([new Uint8Array(state)]),
+                        { contentType: "application/octet-stream" }
+                    );
+
+                    console.log("Auto state saved...");
+                } catch (err) {
+                    console.error("Auto-save failed:", err);
+                }
+            }, 5000); // ⏱ every 5 seconds (adjust if needed)
+        }
+
+        function stopAutoSave() {
+            if (autoSaveInterval) {
+                clearInterval(autoSaveInterval);
+                autoSaveInterval = null;
+            }
+        }
     </script>
 
 </body>
