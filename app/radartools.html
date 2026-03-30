@@ -1715,7 +1715,12 @@
 
         const saveQCData = debounce(async () => {
             if (!state.currentProject || !state.qcConfig?.sections?.length) return;
-            await patch(getQCPath(), collectData());
+
+            const data = collectData();
+
+            if (!data || !Object.keys(data.sections || {}).length) return;
+
+            await patch(getQCPath(), data);
         }, 800);
 
         function applyTaskToSiteInfo(taskData) {
@@ -1796,6 +1801,8 @@
         async function loadQCChecklist(projectId) {
             await initQCConfig();
             if (!state.qcConfig?.sections?.length) return;
+
+            if ($('app')) $('app').innerHTML = '';
 
             const taskData = await readOnce(getTaskPath(projectId)) || {};
             const qcData = await readOnce(getQCPath()) || { sections: {} };
@@ -2156,16 +2163,18 @@
 
             $$('input[name="checklistType"]').forEach(radio => {
                 radio.addEventListener('change', async () => {
-                    state.currentChecklistType = radio.value;
 
-                    // clear old config
+                    // 🚫 STOP autosave temporarily
+                    stopAutosaveLoop();
+
+                    state.currentChecklistType = radio.value;
                     state.qcConfig = null;
 
-                    // reload with FORCE
                     await initQCConfig(true);
-
-                    // rebuild UI
                     await loadQCChecklist(state.currentProject);
+
+                    // ✅ restart autosave AFTER load
+                    startAutosaveLoop();
                 });
             });
         }
