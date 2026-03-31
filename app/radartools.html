@@ -1883,6 +1883,11 @@
             return lines.join('\n');
         }
 
+        function buildReportFile() {
+            const reportText = generateCertificationReport();
+            return new Blob([reportText], { type: "text/plain" });
+        }
+
         function buildReportCSVRows() {
             const data = collectData();
             const rows = [['Metric', 'Value']];
@@ -2084,7 +2089,7 @@
                 });
             });
 
-            $('uploadQCBtn')?.addEventListener('click', uploadQCChecklistToOneDrive);
+            $('uploadQCBtn')?.addEventListener('click', uploadReportsToOneDrive);
 
             $('uploadImagesToOneDriveBtn')?.addEventListener('click', uploadAllImagesToOneDrive);
         }
@@ -2112,9 +2117,6 @@
             state.basePath = user ? user.uid : 'public';
             await populateProjects();
         });
-
-
-
 
         async function uploadAllImagesToOneDrive() {
             if (!state.currentProject) {
@@ -2243,6 +2245,77 @@
             return rows;
         }
 
+        function buildQCChecklistBlob() {
+            const rows = buildQCChecklistCSV();
+
+            const csv = rows.map(row =>
+                row.map(cell => {
+                    const text = String(cell ?? '');
+                    return /[",\n]/.test(text)
+                        ? `"${text.replace(/"/g, '""')}"`
+                        : text;
+                }).join(',')
+            ).join('\n');
+
+            return new Blob([csv], { type: "text/csv" });
+        }
+
+        async function uploadReportsToOneDrive() {
+            if (!state.currentProject) {
+                alert("No project selected");
+                return;
+            }
+
+            const site = sanitize(state.currentProjectName || state.currentProject);
+            const basePath = `Jobs/Radar/${site}`;
+
+            const accessToken = localStorage.getItem("accessToken");
+            if (!accessToken) {
+                alert("Not logged into Microsoft");
+                return;
+            }
+
+            try {
+                // 📄 Build files
+                const qcBlob = buildQCChecklistBlob();
+                const reportBlob = buildReportFile();
+
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+                // 📤 Upload QC Checklist
+                await fetch(
+                    `https://graph.microsoft.com/v1.0/me/drive/root:/${basePath}/qc_${timestamp}.csv:/content`,
+                    {
+                        method: "PUT",
+                        headers: {
+                            "Authorization": `Bearer ${accessToken}`,
+                            "Content-Type": "text/csv"
+                        },
+                        body: qcBlob
+                    }
+                );
+
+                // 📤 Upload Report
+                await fetch(
+                    `https://graph.microsoft.com/v1.0/me/drive/root:/${basePath}/report_${timestamp}.txt:/content`,
+                    {
+                        method: "PUT",
+                        headers: {
+                            "Authorization": `Bearer ${accessToken}`,
+                            "Content-Type": "text/plain"
+                        },
+                        body: reportBlob
+                    }
+                );
+
+                alert("QC Checklist + Report uploaded ✅");
+
+            } catch (err) {
+                console.error(err);
+                alert("Upload failed.");
+            }
+        }
+
         async function uploadQCChecklistToOneDrive() {
             if (!state.currentProject) {
                 alert("No project selected");
@@ -2318,15 +2391,6 @@
 
             return await res.json();
         }
-
-
-
-
-
-
-
-
-
 
         initModalEvents();
         initProjectEvents();
