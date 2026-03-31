@@ -745,7 +745,36 @@
                 }
             }
         }
+        async function ensureOneDriveFolder(path) {
+            const accessToken = localStorage.getItem("accessToken");
 
+            const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${path}`;
+
+            const res = await fetch(url, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+
+            if (res.ok) return; // already exists
+
+            const parts = path.split('/');
+            let current = "";
+
+            for (const part of parts) {
+                current += (current ? "/" : "") + part;
+
+                await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${current}`, {
+                    method: "PUT",
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        folder: {},
+                        "@microsoft.graph.conflictBehavior": "replace"
+                    })
+                }).catch(() => { });
+            }
+        }
         async function uploadDeliverableImage() {
             const file = $('fileUploader')?.files?.[0];
             const imageName = sanitize($('imageNameInput')?.value);
@@ -2222,48 +2251,39 @@
         }
 
         async function uploadToOneDrive(filePath, blob) {
-            try {
-                const accessToken = localStorage.getItem("accessToken");
-                if (!accessToken) {
-                    alert("Please login to Microsoft first.");
-                    document.getElementById("loginButton")?.click();
-                    return;
-                }
+            const accessToken = localStorage.getItem("accessToken");
 
-                // Base folder in OneDrive
-                const baseFolder = "JobPhotos";
+            if (!accessToken) {
+                alert("Please login to Microsoft first.");
+                return;
+            }
 
-                // Clean path (remove leading slashes if any)
-                const cleanPath = filePath.replace(/^\/+/, '');
+            const baseFolder = "JobPhotos";
 
-                // Final path in OneDrive
-                const fullPath = `${baseFolder}/${cleanPath}`;
+            let cleanPath = filePath.replace(/^\/+/, '');
+            cleanPath = cleanPath.replace(/^JobPhotos\//i, '');
 
-                const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${fullPath}:/content`;
+            const fullPath = `${baseFolder}/${cleanPath}`;
 
-                const response = await fetch(url, {
-                    method: "PUT",
-                    headers: {
-                        "Authorization": `Bearer ${accessToken}`,
-                        "Content-Type": "application/octet-stream"
-                    },
-                    body: blob
-                });
+            // ✅ ensure folder exists FIRST
+            const folderPath = fullPath.split('/').slice(0, -1).join('/');
+            await ensureOneDriveFolder(folderPath);
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error("OneDrive upload error:", errorText);
-                    throw new Error(errorText);
-                }
+            const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${fullPath}:/content`;
 
-                const data = await response.json();
-                console.log("Uploaded to OneDrive:", fullPath);
+            const response = await fetch(url, {
+                method: "PUT",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/octet-stream"
+                },
+                body: blob
+            });
 
-                return data;
-
-            } catch (err) {
-                console.error("uploadToOneDrive failed:", err);
-                throw err;
+            if (!response.ok) {
+                const err = await response.text();
+                console.error("Upload failed:", err);
+                throw new Error(err);
             }
         }
 
