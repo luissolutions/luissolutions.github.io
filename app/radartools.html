@@ -2223,90 +2223,89 @@
         }
 
         async function uploadToOneDrive(filePath, blob) {
-    try {
-        const accessToken = sessionStorage.getItem("accessToken");
+            try {
+                const accessToken = localStorage.getItem("accessToken");
+                if (!accessToken) {
+                    throw new Error("No Microsoft access token. Please login.");
+                }
 
-        if (!accessToken) {
-            throw new Error("No Microsoft access token. Please login.");
+                // Base folder in OneDrive
+                const baseFolder = "JobPhotos";
+
+                // Clean path (remove leading slashes if any)
+                const cleanPath = filePath.replace(/^\/+/, '');
+
+                // Final path in OneDrive
+                const fullPath = `${baseFolder}/${cleanPath}`;
+
+                const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${fullPath}:/content`;
+
+                const response = await fetch(url, {
+                    method: "PUT",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`,
+                        "Content-Type": "application/octet-stream"
+                    },
+                    body: blob
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error("OneDrive upload error:", errorText);
+                    throw new Error(errorText);
+                }
+
+                const data = await response.json();
+                console.log("Uploaded to OneDrive:", fullPath);
+
+                return data;
+
+            } catch (err) {
+                console.error("uploadToOneDrive failed:", err);
+                throw err;
+            }
         }
 
-        // Base folder in OneDrive
-        const baseFolder = "JobPhotos";
+        async function uploadReportToOneDrive(type = 'full') {
+            try {
+                const safeProjectName = sanitize(state.currentProjectName || state.currentProject);
 
-        // Clean path (remove leading slashes if any)
-        const cleanPath = filePath.replace(/^\/+/, '');
+                let rows = [];
+                let fileName = '';
 
-        // Final path in OneDrive
-        const fullPath = `${baseFolder}/${cleanPath}`;
+                if (type === 'full') {
+                    rows = buildFullCSVRows();
+                    fileName = `${safeProjectName}_full.csv`;
+                } else {
+                    rows = buildReportCSVRows();
+                    fileName = `${safeProjectName}_report.csv`;
+                }
 
-        const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${fullPath}:/content`;
+                // Convert to CSV
+                const csv = rows.map(row =>
+                    row.map(cell => {
+                        const text = String(cell ?? '');
+                        return /[",\n]/.test(text)
+                            ? `"${text.replace(/"/g, '""')}"`
+                            : text;
+                    }).join(',')
+                ).join('\n');
 
-        const response = await fetch(url, {
-            method: "PUT",
-            headers: {
-                "Authorization": `Bearer ${accessToken}`,
-                "Content-Type": "application/octet-stream"
-            },
-            body: blob
-        });
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error("OneDrive upload error:", errorText);
-            throw new Error(errorText);
+                // ✅ THIS LINE WAS MISSING
+                const path = `JobPhotos/${safeProjectName}/reports/${fileName}`;
+
+                // ✅ THIS LINE IS CRITICAL
+                await uploadToOneDrive(path, blob);
+
+                console.log("Uploaded report:", path);
+
+            } catch (err) {
+                console.error("Report upload failed:", err);
+                alert("Report upload failed");
+            }
         }
-
-        const data = await response.json();
-        console.log("Uploaded to OneDrive:", fullPath);
-
-        return data;
-
-    } catch (err) {
-        console.error("uploadToOneDrive failed:", err);
-        throw err;
-    }
-}
-
-async function uploadReportToOneDrive(type = 'full') {
-    try {
-        const safeProjectName = sanitize(state.currentProjectName || state.currentProject);
-
-        let rows = [];
-        let fileName = '';
-
-        if (type === 'full') {
-            rows = buildFullCSVRows();
-            fileName = `${safeProjectName}_full.csv`;
-        } else {
-            rows = buildReportCSVRows();
-            fileName = `${safeProjectName}_report.csv`;
-        }
-
-        // Convert to CSV
-        const csv = rows.map(row =>
-            row.map(cell => {
-                const text = String(cell ?? '');
-                return /[",\n]/.test(text)
-                    ? `"${text.replace(/"/g, '""')}"`
-                    : text;
-            }).join(',')
-        ).join('\n');
-
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-
-        // ✅ THIS LINE WAS MISSING
-        const path = `JobPhotos/${safeProjectName}/reports/${fileName}`;
-
-        // ✅ THIS LINE IS CRITICAL
-        await uploadToOneDrive(path, blob);
-
-        console.log("Uploaded report:", path);
-
-    } catch (err) {
-        console.error("Report upload failed:", err);
-        alert("Report upload failed");
-    }
-}
 
         onAuthStateChanged(auth, async (user) => {
             state.basePath = user ? user.uid : 'public';
