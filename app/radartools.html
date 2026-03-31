@@ -13,7 +13,7 @@
 
 <body>
     <header>
-        <h1><img src="assets/img/telaid_logo.png" alt=""> Radar - Old Navy Deployments</h1>
+        <h1><img src="assets/img/telaid_logo.png" alt=""> Radar</h1>
 
         <section id="login-section" class="logins-section">
             <form id="login-form">
@@ -112,6 +112,7 @@
 
             <button id="saveSensorMeta">Save Device Info</button>
             <button id="exportCSV">Export Device Data</button>
+            <div><br></div>
 
             <section id="radio-group">
                 <h3>🖼️ Device Images</h3>
@@ -798,47 +799,24 @@
 
         async function populateProjects() {
             const tasks = await readOnce(`${state.basePath}/tasks`) || {};
-            const byCustomer = new Map();
 
-            Object.entries(tasks).forEach(([id, task]) => {
-                const customerRaw = (task.customerName || '').trim();
-                const projectRaw = (task.project || '').trim();
+            state.allProjects = Object.entries(tasks)
+                .map(([id, task]) => {
+                    const customer = (task.customerName || '').trim();
+                    const project = (task.project || '').trim();
 
-                if (!customerRaw && !projectRaw) return; // only skip truly empty entries
+                    if (!customer && !project) return null;
 
-                const customerKey = customerRaw.toLowerCase();
-                const time = bestTime(task, id);
-                const existing = byCustomer.get(customerKey);
-
-                if (!existing) {
-                    byCustomer.set(customerKey, {
-                        ownerId: id,
-                        ownerTask: task,
-                        ownerTime: time,
-                        newestTime: time
-                    });
-                } else {
-                    existing.newestTime = Math.max(existing.newestTime, time);
-                    if (time < existing.ownerTime) {
-                        existing.ownerTime = time;
-                        existing.ownerId = id;
-                        existing.ownerTask = task;
-                    }
-                }
-            });
-
-            state.allProjects = [...byCustomer.values()]
-                .sort((a, b) => b.newestTime - a.newestTime)
-                .map((entry) => {
-                    const customer = entry.ownerTask.customerName?.trim() || '';
-                    const project = entry.ownerTask.project?.trim() || '';
                     return {
-                        id: entry.ownerId,
+                        id,
                         customer,
                         project,
-                        label: `${customer || '(No Customer)'} — ${project || '(No Project)'}`
+                        label: `${customer || '(No Customer)'} — ${project || '(No Project)'}`,
+                        time: bestTime(task, id)
                     };
-                });
+                })
+                .filter(Boolean)
+                .sort((a, b) => b.time - a.time);
 
             renderProjectDropdown(state.allProjects);
         }
@@ -1376,6 +1354,7 @@
             applyData(data);
             updateAllScoringTotals();
             syncSensorTotalToQC();
+            initCollapsibles();
         }
 
         function collectData() {
@@ -1567,21 +1546,6 @@
             updateAllScoringTotals();
         }
 
-        function calculateChecklistPenalty(sectionId) {
-            const section = getSectionConfig(sectionId);
-            if (!section) return 0;
-
-            let penalty = 0;
-            section.items?.forEach((item, index) => {
-                const checked = Boolean($(`${sectionId}_${index}`)?.checked);
-                if (item.type === 'negative' && checked) {
-                    penalty += item.weight || 5;
-                }
-            });
-
-            return penalty;
-        }
-
         function calculateChecklistScoreAll() {
             let earned = 0;
             let total = 0;
@@ -1589,26 +1553,30 @@
             state.qcConfig?.sections?.forEach((section) => {
                 if (section.type === 'checklist') {
                     section.items.forEach((item, index) => {
-                        const weight = Number(item.weight || 1);
-                        total += weight;
 
+                        const weight = item.weight != null ? Number(item.weight) : 1;
                         const checked = Boolean($(`${section.id}_${index}`)?.checked);
 
                         if (item.type === 'negative') {
-                            if (!checked) earned += weight;
-                        } else if (checked) {
-                            earned += weight;
-                        }
-                    });
+                            if (checked) {
+                                earned -= weight;
+                            }
+                        } else {
+                            total += weight;
 
-                    earned -= calculateChecklistPenalty(section.id);
+                            if (checked) {
+                                earned += weight;
+                            }
+                        }
+
+                    });
                 }
 
                 if (section.type === 'checklistMultiDay') {
                     const days = Math.max(1, getTotalNights());
 
                     section.items.forEach((item, index) => {
-                        const weight = Number(item.weight || 1);
+                        const weight = item.weight != null ? Number(item.weight) : 1;
 
                         for (let day = 0; day < days; day += 1) {
                             total += weight;
