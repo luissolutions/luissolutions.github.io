@@ -2125,7 +2125,6 @@
                     `<pre style="white-space: pre-wrap;">${escapeHtml(report || 'No report available')}</pre>`;
             });
 
-            $('exportFullBtn')?.addEventListener('click', exportFullSiteCSV);
             $('exportReportBtn')?.addEventListener('click', exportCertificationCSV);
 
             $('saveToOneDriveBtn')?.addEventListener('click', async () => {
@@ -2136,7 +2135,6 @@
             $$('input[name="checklistType"]').forEach(radio => {
                 radio.addEventListener('change', async () => {
 
-                    // 🚫 STOP autosave temporarily
                     stopAutosaveLoop();
 
                     state.currentChecklistType = radio.value;
@@ -2145,7 +2143,6 @@
                     await initQCConfig(true);
                     await loadQCChecklist(state.currentProject);
 
-                    // ✅ restart autosave AFTER load
                     startAutosaveLoop();
                 });
             });
@@ -2225,46 +2222,91 @@
             }
         }
 
-        async function uploadReportToOneDrive(type = 'full') {
-            try {
-                const safeProjectName = sanitize(state.currentProjectName || state.currentProject);
+        async function uploadToOneDrive(filePath, blob) {
+    try {
+        const accessToken = sessionStorage.getItem("accessToken");
 
-                let rows = [];
-                let fileName = '';
-
-                if (type === 'full') {
-                    rows = buildFullCSVRows(); // we'll create this
-                    fileName = `${safeProjectName}_full.csv`;
-                } else {
-                    rows = buildReportCSVRows();
-                    fileName = `${safeProjectName}_report.csv`;
-                }
-
-                // Convert to CSV blob
-                const csv = rows.map(row =>
-                    row.map(cell => {
-                        const text = String(cell ?? '');
-                        return /[",\n]/.test(text)
-                            ? `"${text.replace(/"/g, '""')}"`
-                            : text;
-                    }).join(',')
-                ).join('\n');
-
-                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-
-                // ✅ SAME STRUCTURE AS IMAGES
-                const path = `JobPhotos/${safeProjectName}/reports/${fileName}`;
-
-                await uploadToOneDrive(path, blob);
-
-                alert(`Report uploaded ✅\n${fileName}`);
-
-            } catch (err) {
-                console.error(err);
-                alert("Report upload failed");
-            }
+        if (!accessToken) {
+            throw new Error("No Microsoft access token. Please login.");
         }
 
+        // Base folder in OneDrive
+        const baseFolder = "JobPhotos";
+
+        // Clean path (remove leading slashes if any)
+        const cleanPath = filePath.replace(/^\/+/, '');
+
+        // Final path in OneDrive
+        const fullPath = `${baseFolder}/${cleanPath}`;
+
+        const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${fullPath}:/content`;
+
+        const response = await fetch(url, {
+            method: "PUT",
+            headers: {
+                "Authorization": `Bearer ${accessToken}`,
+                "Content-Type": "application/octet-stream"
+            },
+            body: blob
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error("OneDrive upload error:", errorText);
+            throw new Error(errorText);
+        }
+
+        const data = await response.json();
+        console.log("Uploaded to OneDrive:", fullPath);
+
+        return data;
+
+    } catch (err) {
+        console.error("uploadToOneDrive failed:", err);
+        throw err;
+    }
+}
+
+async function uploadReportToOneDrive(type = 'full') {
+    try {
+        const safeProjectName = sanitize(state.currentProjectName || state.currentProject);
+
+        let rows = [];
+        let fileName = '';
+
+        if (type === 'full') {
+            rows = buildFullCSVRows();
+            fileName = `${safeProjectName}_full.csv`;
+        } else {
+            rows = buildReportCSVRows();
+            fileName = `${safeProjectName}_report.csv`;
+        }
+
+        // Convert to CSV
+        const csv = rows.map(row =>
+            row.map(cell => {
+                const text = String(cell ?? '');
+                return /[",\n]/.test(text)
+                    ? `"${text.replace(/"/g, '""')}"`
+                    : text;
+            }).join(',')
+        ).join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+
+        // ✅ THIS LINE WAS MISSING
+        const path = `JobPhotos/${safeProjectName}/reports/${fileName}`;
+
+        // ✅ THIS LINE IS CRITICAL
+        await uploadToOneDrive(path, blob);
+
+        console.log("Uploaded report:", path);
+
+    } catch (err) {
+        console.error("Report upload failed:", err);
+        alert("Report upload failed");
+    }
+}
 
         onAuthStateChanged(auth, async (user) => {
             state.basePath = user ? user.uid : 'public';
