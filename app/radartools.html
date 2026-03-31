@@ -75,9 +75,8 @@
         <section class="collapsible-section" id="site-analysis">
             <h2 class="collapsible-header">📋 Site Analysis</h2>
             <button id="compareBtn" type="button">Generate Report</button>
-            <button id="exportFullBtn" type="button">Export Full CSV</button>
             <button id="exportReportBtn" type="button">Export Report CSV</button>
-            <button id="saveToOneDriveBtn">Save to OneDrive</button>
+            <button id="uploadQCBtn">Upload QC Checklist</button>
             <div id="comparisonResults"></div>
         </section>
 
@@ -177,7 +176,6 @@
                     <div id="gallery"></div>
                 </div>
 
-                <button id="uploadFolderToOneDrive">Upload to OneDrive</button>
             </section>
         </section>
 
@@ -374,10 +372,6 @@
 
         async function patch(path, payload) {
             await update(dbRef(database, path), payload);
-        }
-
-        async function write(path, payload) {
-            await set(dbRef(database, path), payload);
         }
 
         async function listStorageItems(path) {
@@ -745,36 +739,6 @@
                 }
             }
         }
-        async function ensureOneDriveFolder(path) {
-            const accessToken = localStorage.getItem("accessToken");
-
-            const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${path}`;
-
-            const res = await fetch(url, {
-                headers: { Authorization: `Bearer ${accessToken}` }
-            });
-
-            if (res.ok) return; // already exists
-
-            const parts = path.split('/');
-            let current = "";
-
-            for (const part of parts) {
-                current += (current ? "/" : "") + part;
-
-                await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${current}`, {
-                    method: "PUT",
-                    headers: {
-                        Authorization: `Bearer ${accessToken}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        folder: {},
-                        "@microsoft.graph.conflictBehavior": "replace"
-                    })
-                }).catch(() => { });
-            }
-        }
         async function uploadDeliverableImage() {
             const file = $('fileUploader')?.files?.[0];
             const imageName = sanitize($('imageNameInput')?.value);
@@ -958,9 +922,6 @@
         async function startApp(projectId) {
             state.validated = true;
             localStorage.setItem('lastProject', projectId);
-
-            $('authScreen')?.remove();
-            $('mainApp')?.classList.remove('hidden');
 
             await populateProjects();
             if ($('projectList')) $('projectList').value = projectId;
@@ -1922,28 +1883,6 @@
             return lines.join('\n');
         }
 
-        function buildFullCSVRows() {
-            const data = collectData();
-            const rows = [['Section', 'Field', 'Value']];
-
-            state.qcConfig.sections.forEach(section => {
-                const sectionData = data.sections[section.id] || {};
-
-                if (section.type === 'fields') {
-                    section.fields.forEach(field => {
-                        rows.push([
-                            section.title,
-                            field.label,
-                            sectionData.fields?.[field.id]?.value || ''
-                        ]);
-                    });
-                }
-
-                // keep rest EXACT same logic you already have
-            });
-
-            return rows;
-        }
         function buildReportCSVRows() {
             const data = collectData();
             const rows = [['Metric', 'Value']];
@@ -2056,32 +1995,6 @@
         }
 
         function initProjectEvents() {
-            $('submitCode')?.addEventListener('click', validateCode);
-
-            $('accessCode')?.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    validateCode();
-                }
-            });
-
-            $('autoValidateBtn')?.addEventListener('click', async () => {
-                const tasks = await readOnce(`${state.basePath}/tasks`) || {};
-                const ids = Object.keys(tasks);
-
-                if (!ids.length) {
-                    alert('No projects available.');
-                    return;
-                }
-
-                const lastProjectID = localStorage.getItem('lastProject');
-                const selectedID =
-                    lastProjectID && tasks[lastProjectID]
-                        ? lastProjectID
-                        : ids[Math.floor(Math.random() * ids.length)];
-
-                startApp(selectedID);
-            });
 
             $('projectList')?.addEventListener('change', async () => {
                 const id = $('projectList')?.value;
@@ -2156,11 +2069,6 @@
 
             $('exportReportBtn')?.addEventListener('click', exportCertificationCSV);
 
-            $('saveToOneDriveBtn')?.addEventListener('click', async () => {
-                await uploadReportToOneDrive('full');
-                await uploadReportToOneDrive('report');
-            });
-
             $$('input[name="checklistType"]').forEach(radio => {
                 radio.addEventListener('change', async () => {
 
@@ -2175,6 +2083,10 @@
                     startAutosaveLoop();
                 });
             });
+
+            $('uploadQCBtn')?.addEventListener('click', uploadQCChecklistToOneDrive);
+
+            $('uploadImagesToOneDriveBtn')?.addEventListener('click', uploadAllImagesToOneDrive);
         }
 
         function getQCPath() {
@@ -2196,142 +2108,225 @@
             return localStorage.getItem("accessToken");
         }
 
-        function initModules() {
-            try {
-                state.imageModule = initImageModule?.({
-                    state,
-                    getEl: $,
-                    resizeImage,
-                    addTextToImage
-                }) || null;
-            } catch (err) {
-                console.warn('image module init skipped', err);
-            }
-        }
-
-        async function uploadFolderToOneDrive() {
-            try {
-                const mode = document.querySelector('input[name="viewMode"]:checked')?.value || 'sensors';
-                const items = await listStorageItems(getImagesPath(mode));
-
-                if (!items.length) {
-                    alert("No images to upload");
-                    return;
-                }
-
-                let success = 0;
-                let failed = 0;
-
-                for (const item of items) {
-                    try {
-                        const res = await fetch(item.url);
-                        if (!res.ok) throw new Error("Fetch failed");
-
-                        const blob = await res.blob();
-
-                        // ✅ EXACT SAME STRUCTURE AS WORKING APP
-                        const safeProjectName = sanitize(state.currentProjectName || state.currentProject);
-                        const fileName = `${safeProjectName}/${mode}/${item.name}`;
-                        await uploadToOneDrive(fileName, blob);
-
-                        success++;
-
-                    } catch (err) {
-                        console.warn("Failed:", item.name, err);
-                        failed++;
-                    }
-                }
-
-                alert(`Upload complete ✅\nSuccess: ${success}\nFailed: ${failed}`);
-
-            } catch (err) {
-                console.error(err);
-                alert("Upload failed completely");
-            }
-        }
-
-        async function uploadToOneDrive(filePath, blob) {
-            const accessToken = localStorage.getItem("accessToken");
-
-            if (!accessToken) {
-                alert("Please login to Microsoft first.");
-                return;
-            }
-
-            const baseFolder = "JobPhotos";
-
-            let cleanPath = filePath.replace(/^\/+/, '');
-            cleanPath = cleanPath.replace(/^JobPhotos\//i, '');
-
-            const fullPath = `${baseFolder}/${cleanPath}`;
-
-            // ✅ ensure folder exists FIRST
-            const folderPath = fullPath.split('/').slice(0, -1).join('/');
-            await ensureOneDriveFolder(folderPath);
-
-            const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${fullPath}:/content`;
-
-            const response = await fetch(url, {
-                method: "PUT",
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    "Content-Type": "application/octet-stream"
-                },
-                body: blob
-            });
-
-            if (!response.ok) {
-                const err = await response.text();
-                console.error("Upload failed:", err);
-                throw new Error(err);
-            }
-        }
-
-        async function uploadReportToOneDrive(type = 'full') {
-            try {
-                const safeProjectName = sanitize(state.currentProjectName || state.currentProject);
-
-                let rows = [];
-                let fileName = '';
-
-                if (type === 'full') {
-                    rows = buildFullCSVRows();
-                    fileName = `${safeProjectName}_full.csv`;
-                } else {
-                    rows = buildReportCSVRows();
-                    fileName = `${safeProjectName}_report.csv`;
-                }
-
-                // Convert to CSV
-                const csv = rows.map(row =>
-                    row.map(cell => {
-                        const text = String(cell ?? '');
-                        return /[",\n]/.test(text)
-                            ? `"${text.replace(/"/g, '""')}"`
-                            : text;
-                    }).join(',')
-                ).join('\n');
-
-                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-
-                // ✅ THIS LINE WAS MISSING
-                const path = `JobPhotos/${safeProjectName}/reports/${fileName}`;
-
-                // ✅ THIS LINE IS CRITICAL
-                await uploadToOneDrive(path, blob);
-
-                console.log("Uploaded report:", path);
-
-            } catch (err) {
-                console.error("Report upload failed:", err);
-                alert("Report upload failed");
-            }
-        }
-
         onAuthStateChanged(auth, async (user) => {
             state.basePath = user ? user.uid : 'public';
             await populateProjects();
         });
+
+
+
+
+        async function uploadAllImagesToOneDrive() {
+            if (!state.currentProject) {
+                alert("No project selected");
+                return;
+            }
+
+            const site = sanitize(state.currentProjectName || state.currentProject);
+            const basePath = `JobPhotos/${site}`;
+
+            const accessToken = localStorage.getItem("accessToken");
+            if (!accessToken) {
+                alert("Not logged into Microsoft");
+                return;
+            }
+
+            let totalUploaded = 0;
+
+            try {
+                const modes = [
+                    { mode: 'sensors', subFolder: 'sensors' },
+                    { mode: 'deliverables', subFolder: 'deliverables' }
+                ];
+
+                for (const { mode, subFolder } of modes) {
+                    const firebasePath = getImagesPath(mode);
+                    const oneDrivePath = `${basePath}/${subFolder}`;
+
+                    let items = [];
+                    try {
+                        items = await listStorageItems(firebasePath);
+                    } catch {
+                        continue;
+                    }
+
+                    for (const item of items) {
+                        try {
+                            // 📥 Download from Firebase
+                            const res = await fetch(item.url);
+                            const blob = await res.blob();
+
+                            // 📤 Upload to correct subfolder
+                            await fetch(
+                                `https://graph.microsoft.com/v1.0/me/drive/root:/${oneDrivePath}/${item.name}:/content`,
+                                {
+                                    method: "PUT",
+                                    headers: {
+                                        "Authorization": `Bearer ${accessToken}`,
+                                        "Content-Type": blob.type || "image/jpeg"
+                                    },
+                                    body: blob
+                                }
+                            );
+
+                            totalUploaded++;
+                            console.log(`Uploaded (${subFolder}): ${item.name}`);
+                        } catch (err) {
+                            console.error(`Failed (${subFolder}): ${item.name}`, err);
+                        }
+                    }
+                }
+
+                alert(`Uploaded ${totalUploaded} images to OneDrive ✅`);
+            } catch (err) {
+                console.error(err);
+                alert("Image upload failed.");
+            }
+        }
+
+        function buildQCChecklistCSV() {
+            const data = collectData();
+            const rows = [["Section", "Field", "Value"]];
+
+            Object.entries(data.sections || {}).forEach(([sectionId, section]) => {
+
+                // 🧾 Fields
+                if (section.fields) {
+                    Object.entries(section.fields).forEach(([key, val]) => {
+                        const value = (val && typeof val === "object" && "value" in val)
+                            ? val.value
+                            : val;
+
+                        rows.push([sectionId, key, normalizeText(value)]);
+                    });
+                }
+
+                // ✅ Checklist
+                if (Array.isArray(section.items)) {
+                    section.items.forEach((item, i) => {
+                        if (item.label) {
+                            rows.push([
+                                sectionId,
+                                item.label,
+                                item.checked ?? item.value ?? ""
+                            ]);
+                        }
+
+                        // multi-day
+                        if (Array.isArray(item.days)) {
+                            item.days.forEach((dayVal, d) => {
+                                rows.push([
+                                    sectionId,
+                                    `${item.label} (Night ${d + 1})`,
+                                    dayVal
+                                ]);
+                            });
+                        }
+                    });
+                }
+
+                // 📊 Scores
+                if (section.scores) {
+                    Object.entries(section.scores).forEach(([k, v]) => {
+                        rows.push([sectionId, k, v]);
+                    });
+
+                    rows.push([sectionId, "Total Score", section.total || 0]);
+                }
+
+                // 🧠 Notes
+                if (section.notes) {
+                    rows.push([sectionId, "Notes", normalizeText(section.notes)]);
+                }
+            });
+
+            return rows;
+        }
+
+        async function uploadQCChecklistToOneDrive() {
+            if (!state.currentProject) {
+                alert("No project selected");
+                return;
+            }
+
+            const site = sanitize(state.currentProjectName || state.currentProject);
+            const path = `Jobs/Radar/${site}`;
+
+            const accessToken = localStorage.getItem("accessToken");
+            if (!accessToken) {
+                alert("Not logged into Microsoft");
+                return;
+            }
+
+            try {
+                const rows = buildQCChecklistCSV();
+
+                const csv = rows.map(r => r.map(cell => {
+                    const text = String(cell ?? "");
+                    return /[",\n]/.test(text)
+                        ? `"${text.replace(/"/g, '""')}"`
+                        : text;
+                }).join(",")).join("\n");
+
+                const blob = new Blob([csv], { type: "text/csv" });
+
+                await fetch(
+                    `https://graph.microsoft.com/v1.0/me/drive/root:/${path}/qc_checklist.csv:/content`,
+                    {
+                        method: "PUT",
+                        headers: {
+                            "Authorization": `Bearer ${accessToken}`,
+                            "Content-Type": "text/csv"
+                        },
+                        body: blob
+                    }
+                );
+
+                alert("QC Checklist uploaded ✅");
+            } catch (err) {
+                console.error(err);
+                alert("QC upload failed.");
+            }
+        }
+
+        async function uploadToOneDrive(path, fileBlob, filename, contentType = "application/octet-stream") {
+            const accessToken = localStorage.getItem("accessToken");
+            if (!accessToken) {
+                alert("Not logged into Microsoft");
+                return;
+            }
+
+            const fullPath = `${path}/${filename}`;
+
+            const res = await fetch(
+                `https://graph.microsoft.com/v1.0/me/drive/root:/${fullPath}:/content`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`,
+                        "Content-Type": contentType
+                    },
+                    body: fileBlob
+                }
+            );
+
+            if (!res.ok) {
+                const err = await res.text();
+                console.error("Upload failed:", err);
+                throw new Error("OneDrive upload failed");
+            }
+
+            return await res.json();
+        }
+
+
+
+
+
+
+
+
+
 
         initModalEvents();
         initProjectEvents();
