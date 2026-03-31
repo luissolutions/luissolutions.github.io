@@ -328,16 +328,24 @@
             }
 
             // ➕ CREATE NEW
+            const customerName = prompt("Enter Customer Name:");
+            if (!customerName) {
+                alert("Customer name is required.");
+                return;
+            }
+
             const id = Date.now().toString();
 
             await set(dbRef(database, `${state.basePath}/tasks/${id}`), {
                 id,
                 project: input,
+                customerName: customerName.trim(),
                 createdAt: Date.now(),
                 updatedAt: Date.now()
             });
 
             await loadProject(id);
+            await populateProjects();
         }
 
         function getTaskPath(taskId = state.currentProject) {
@@ -872,51 +880,6 @@
             matches.sort((a, b) => bestTime(a[1], a[0]) - bestTime(b[1], b[0]));
             state.metaOwnerTaskId = matches[0][0];
             return state.metaOwnerTaskId;
-        }
-
-        async function validateCode() {
-            const input = $('accessCode')?.value.trim().toLowerCase();
-
-            if (!input) {
-                alert('Project ID cannot be blank.');
-                return;
-            }
-
-            const tasks = await readOnce(`${state.basePath}/tasks`) || {};
-
-            if (/^\d+$/.test(input) && tasks[input]) {
-                return startApp(input);
-            }
-
-            const matches = Object.entries(tasks).filter(([, data]) =>
-                (data.project || '').trim().toLowerCase() === input
-            );
-
-            if (matches.length) {
-                matches.sort((a, b) => bestTime(b[1], b[0]) - bestTime(a[1], a[0]));
-                return startApp(matches[0][0]);
-            }
-
-            const shouldCreate = confirm(`Project "${input}" not found. Would you like to create it?`);
-            if (!shouldCreate) return;
-
-            const pw = prompt('Enter password to create a new project:');
-            if (pw !== CONFIG.ADMIN_PASSWORD) {
-                alert('Incorrect password.');
-                return;
-            }
-
-            const id = Date.now().toString();
-            await patch(`${state.basePath}/tasks/${id}`, {
-                id,
-                project: input,
-                sensorCount: 0,
-                createdAt: Date.now(),
-                updatedAt: Date.now()
-            });
-
-            alert('New project created. Please enter the total sensors and save.');
-            return startApp(id);
         }
 
         async function startApp(projectId) {
@@ -2010,10 +1973,12 @@
 
             $('projectSearch')?.addEventListener('input', filterProjects);
 
-            $('sensorCount')?.addEventListener('input', () => {
+            $('sensorCount')?.addEventListener('input', async () => {
                 state.expectedSensors = Math.max(0, Number($('sensorCount')?.value) || 0);
+
                 populateSensorDropdown(state.expectedSensors);
                 syncSensorTotalToQC();
+                await updateGallery();
                 debouncedSaveProjectFields();
             });
 
