@@ -796,7 +796,7 @@
 
                 const blob = new Blob([report], { type: "text/plain" });
 
-                const fileName = `${sanitize(state.currentProjectName || state.currentProject)}_report.txt`;
+                const fileName = `${sanitize(state.currentProjectName || state.currentProject)}/checklist/${sanitize(state.currentProjectName || state.currentProject)}_report.txt`;
 
                 await uploadToOneDrive(fileName, blob);
 
@@ -818,20 +818,32 @@
                     return;
                 }
 
+                let success = 0;
+                let failed = 0;
+
                 for (const item of items) {
-                    const res = await fetch(item.url);
-                    const blob = await res.blob();
+                    try {
+                        const res = await fetch(item.url);
+                        if (!res.ok) throw new Error("Fetch failed");
 
-                    const fileName = `${sanitize(state.currentProjectName || state.currentProject)}/${item.name}`;
+                        const blob = await res.blob();
 
-                    await uploadToOneDrive(fileName, blob);
+const fileName = `${sanitize(state.currentProjectName)}/checklist/qc_full_export.csv`;
+                        await uploadToOneDrive(fileName, blob);
+
+                        success++;
+
+                    } catch (err) {
+                        console.warn("Failed:", item.name, err);
+                        failed++;
+                    }
                 }
 
-                alert("All images uploaded to OneDrive ✅");
+                alert(`Upload complete ✅\nSuccess: ${success}\nFailed: ${failed}`);
 
             } catch (err) {
                 console.error(err);
-                alert("Upload failed");
+                alert("Upload failed completely");
             }
         }
 
@@ -2256,52 +2268,36 @@
         }
 
         async function uploadToOneDrive(filePath, blob) {
-            try {
-                // 🔐 Get access token (you should already have this from microsoftAuth.js)
-                const accessToken = sessionStorage.getItem("accessToken");
+            const accessToken = sessionStorage.getItem("accessToken");
 
-                if (!accessToken) {
-                    alert("Not logged into Microsoft");
-                    return;
-                }
-
-                // 📁 Base OneDrive path
-                const baseFolder = "JobPhotos";
-
-                // Normalize path (remove leading slashes)
-                const cleanPath = filePath.replace(/^\/+/, '');
-
-                // Full upload path
-                const fullPath = `${baseFolder}/${cleanPath}`;
-
-                // 🚀 Upload via Microsoft Graph
-                const response = await fetch(
-                    `https://graph.microsoft.com/v1.0/me/drive/root:/${fullPath}:/content`,
-                    {
-                        method: "PUT",
-                        headers: {
-                            "Authorization": `Bearer ${accessToken}`,
-                            "Content-Type": "application/octet-stream"
-                        },
-                        body: blob
-                    }
-                );
-
-                if (!response.ok) {
-                    const err = await response.text();
-                    throw new Error(err);
-                }
-
-                const data = await response.json();
-                console.log("Uploaded:", data);
-
-                return data;
-
-            } catch (err) {
-                console.error("OneDrive upload error:", err);
-                alert("Upload to OneDrive failed");
-                throw err;
+            if (!accessToken) {
+                throw new Error("No access token");
             }
+
+            const baseFolder = "JobPhotos";
+            const cleanPath = filePath.replace(/^\/+/, '');
+            const fullPath = `${baseFolder}/${cleanPath}`;
+
+            const response = await fetch(
+                `https://graph.microsoft.com/v1.0/me/drive/root:/${fullPath}:/content`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`,
+                        "Content-Type": "application/octet-stream"
+                    },
+                    body: blob
+                }
+            );
+
+            // 🔥 IMPORTANT: log instead of instantly throwing
+            if (!response.ok) {
+                const errText = await response.text();
+                console.error("Graph error:", errText);
+                throw new Error(errText);
+            }
+
+            return await response.json();
         }
 
         function initModules() {
