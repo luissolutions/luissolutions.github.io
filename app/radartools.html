@@ -309,6 +309,39 @@
             currentChecklistType: 'radar'
         };
 
+        async function loadOrCreateProject() {
+            const input = $('project')?.value.trim();
+            if (!input) return;
+
+            const key = input.toLowerCase();
+
+            const tasks = await readOnce(`${state.basePath}/tasks`) || {};
+
+            // 🔍 Find existing project
+            const match = Object.entries(tasks).find(([id, data]) =>
+                (data.project || '').trim().toLowerCase() === key
+            );
+
+            if (match) {
+                // ✅ LOAD EXISTING
+                const [id] = match;
+                await loadProject(id);
+                return;
+            }
+
+            // ➕ CREATE NEW
+            const id = Date.now().toString();
+
+            await set(dbRef(database, `${state.basePath}/tasks/${id}`), {
+                id,
+                project: input,
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            });
+
+            await loadProject(id);
+        }
+
         function getTaskPath(taskId = state.currentProject) {
             return `${state.basePath}/tasks/${taskId}`;
         }
@@ -757,12 +790,49 @@
             await updateGallery();
         }
 
-        async function uploadFolderToOneDrive() {
-            alert('OneDrive upload hook kept in place. Reconnect this to your existing Microsoft Graph helper if needed.');
+        async function saveReportToOneDrive() {
+            try {
+                const report = generateCertificationReport();
+
+                const blob = new Blob([report], { type: "text/plain" });
+
+                const fileName = `${sanitize(state.currentProjectName || state.currentProject)}_report.txt`;
+
+                await uploadToOneDrive(fileName, blob);
+
+                alert("Report uploaded to OneDrive ✅");
+
+            } catch (err) {
+                console.error(err);
+                alert("Upload failed");
+            }
         }
 
-        async function saveReportToOneDrive() {
-            alert('OneDrive report export hook kept in place. Reconnect this to your existing Microsoft Graph helper if needed.');
+        async function uploadFolderToOneDrive() {
+            try {
+                const mode = document.querySelector('input[name="viewMode"]:checked')?.value || 'sensors';
+                const items = await listStorageItems(getImagesPath(mode));
+
+                if (!items.length) {
+                    alert("No images to upload");
+                    return;
+                }
+
+                for (const item of items) {
+                    const res = await fetch(item.url);
+                    const blob = await res.blob();
+
+                    const fileName = `${sanitize(state.currentProjectName || state.currentProject)}/${item.name}`;
+
+                    await uploadToOneDrive(fileName, blob);
+                }
+
+                alert("All images uploaded to OneDrive ✅");
+
+            } catch (err) {
+                console.error(err);
+                alert("Upload failed");
+            }
         }
 
         function confirmWithPassword(actionDescription = 'this action') {
@@ -776,7 +846,9 @@
 
             Object.entries(tasks).forEach(([id, task]) => {
                 const customerRaw = (task.customerName || '').trim();
-                if (!customerRaw) return;
+                const projectRaw = (task.project || '').trim();
+
+                if (!customerRaw && !projectRaw) return; // only skip truly empty entries
 
                 const customerKey = customerRaw.toLowerCase();
                 const time = bestTime(task, id);
@@ -2076,7 +2148,6 @@
             });
 
             $('projectSearch')?.addEventListener('input', filterProjects);
-            $('project')?.addEventListener('input', debouncedSaveProjectFields);
 
             $('sensorCount')?.addEventListener('input', () => {
                 state.expectedSensors = Math.max(0, Number($('sensorCount')?.value) || 0);
@@ -2086,6 +2157,13 @@
             });
 
             $('saveProject')?.addEventListener('click', saveProjectBasics);
+
+            $('project')?.addEventListener('keydown', async (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    await loadOrCreateProject();
+                }
+            });
         }
 
         function initFeatureEvents() {
@@ -2171,6 +2249,10 @@
             $$('.sensor-total').forEach((el) => {
                 el.textContent = `/ ${total}`;
             });
+        }
+
+        export function getAccessToken() {
+            return sessionStorage.getItem("accessToken");
         }
 
         function initModules() {
