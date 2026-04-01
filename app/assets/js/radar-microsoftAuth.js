@@ -16,9 +16,9 @@ let accessToken = null;
 // Local Storage Helpers
 // ============================
 const storage = {
-    set: (token) => localStorage.setItem("ms_access_token", token),
-    get: () => localStorage.getItem("ms_access_token"),
-    clear: () => localStorage.removeItem("ms_access_token")
+    set: (token) => localStorage.setItem("accessToken", token),
+    get: () => localStorage.getItem("accessToken"),
+    clear: () => localStorage.removeItem("accessToken")
 };
 
 // ============================
