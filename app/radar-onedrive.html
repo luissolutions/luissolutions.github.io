@@ -277,11 +277,9 @@
         );
 
         const state = {
-            basePath: 'public',
             currentProject: '',
             currentProjectName: '',
             currentCustomerName: '',
-            metaOwnerTaskId: '',
             expectedSensors: 0,
             allProjects: [],
             validated: false,
@@ -297,6 +295,62 @@
             imageModule: null,
             currentChecklistType: 'radar'
         };
+
+
+        // =======================
+        // PROJECT-SCOPED DATABASE
+        // =======================
+
+        function getProjectFolder() {
+            return sanitize(state.currentProjectName || state.currentProject || 'unknown');
+        }
+
+        function getProjectDataPath() {
+            return `${getProjectFolder()}/data.json`;
+        }
+
+        async function loadProjectDB() {
+            try {
+                const res = await graphFetch(graphContentUrl(getProjectDataPath()));
+                return await res.json();
+            } catch (err) {
+                if (/404/i.test(String(err))) {
+                    const empty = {};
+                    await graphFetch(graphContentUrl(getProjectDataPath()), {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(empty)
+                    });
+                    return empty;
+                }
+                throw err;
+            }
+        }
+
+        async function saveProjectDB(db) {
+            await graphFetch(graphContentUrl(getProjectDataPath()), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(db, null, 2)
+            });
+        }
+
+        async function readOnce(path = '') {
+            const db = await loadProjectDB();
+            return path ? getByPath(db, path) : db;
+        }
+
+        async function patch(path, payload) {
+            const db = await loadProjectDB();
+
+            const current = getByPath(db, path);
+            const merged = mergeObjects(current, payload);
+
+            setByPath(db, path, merged);
+
+            await saveProjectDB(db);
+            return merged;
+        }
 
         function getDrivePrefix() {
             return CONFIG.SHARED_DRIVE_ID
@@ -361,55 +415,9 @@
             return response.status === 204 ? null : response.json();
         }
 
-        let dbCache = null;
-        let dbLastLoaded = 0;
 
-        async function loadDatabase() {
-            if (dbCache && Date.now() - dbLastLoaded < 5000) {
-                return dbCache;
-            }
 
-            try {
-                const response = await graphFetch(graphContentUrl('data/db.json'));
-                dbCache = await response.json();
-                dbLastLoaded = Date.now();
-                return dbCache;
 
-            } catch (err) {
-                if (/404/i.test(String(err))) {
-                    const empty = {};
-                    await graphFetch(graphContentUrl('data/db.json'), {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(empty)
-                    });
-                    dbCache = empty;
-                    return empty;
-                }
-                throw err;
-            }
-        }
-
-        async function saveDatabase(db, retries = 3) {
-            try {
-                await graphFetch(graphContentUrl('data/db.json'), {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(db, null, 2)
-                });
-            } catch (err) {
-                if (/409/.test(String(err)) && retries > 0) {
-                    console.warn("Retrying save due to conflict...");
-                    await new Promise(r => setTimeout(r, 500));
-
-                    const fresh = await loadDatabase(true); // force reload
-                    const merged = mergeObjects(fresh, db);
-
-                    return saveDatabase(merged, retries - 1);
-                }
-                throw err;
-            }
-        }
 
         function getByPath(obj, path) {
             return String(path || '')
@@ -469,12 +477,6 @@
             return `users/${sanitize(principal)}`;
         }
 
-        async function setPath(path, value) {
-            const db = await loadDatabase();
-            setByPath(db, path, value);
-            await saveDatabase(db);
-            return deepClone(value);
-        }
 
         async function graphUploadFile(path, fileBlob, contentType = 'application/octet-stream') {
             await graphFetch(graphContentUrl(path), {
@@ -520,7 +522,6 @@
         async function refreshAccessState() {
 
             state.currentUser = await getUserInfo().catch(() => null);
-            state.basePath = getCurrentUserBasePath(state.currentUser);
             if ($('mainApp')) $('mainApp').style.display = 'block';
 
             const readOnly = state.currentUser && !isAdminUser(state.currentUser);
@@ -536,36 +537,28 @@
             const input = $('project')?.value.trim();
             if (!input) return;
 
-            const key = input.toLowerCase();
-            const tasks = await readOnce(`${state.basePath}/tasks`) || {};
-
-            const match = Object.entries(tasks).find(([id, data]) =>
-                (data.project || '').trim().toLowerCase() === key
-            );
-
-            if (match) {
-                const [id] = match;
-                await loadProject(id);
-                return;
-            }
-
             const customerName = prompt("Enter Customer Name:");
-            if (!customerName) {
-                alert("Customer name is required.");
-                return;
-            }
+            if (!customerName) return alert("Customer required");
 
-            // ✅ NEW CLEAN ID
             const projectKey = sanitize(input);
             const customerKey = sanitize(customerName);
-            const shortId = Date.now().toString().slice(-4);
+            const id = `${customerKey}_${projectKey}`;
 
-            const id = `${customerKey}_${projectKey}_${shortId}`;
+            state.currentProject = id;
+            state.currentProjectName = input;
+            state.currentCustomerName = customerName;
 
-            await setPath(`${state.basePath}/tasks/${id}`, {
+            const base = getProjectFolder();
+
+            await ensureFolderExists(base);
+            await ensureFolderExists(`${base}/Sensors`);
+            await ensureFolderExists(`${base}/Deliverables`);
+            await ensureFolderExists(`${base}/Data`);
+
+            await saveProjectDB({
                 id,
                 project: input,
-                customerName: customerName.trim(),
+                customerName,
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 sensorMeta: {},
@@ -576,9 +569,6 @@
             await populateProjects();
         }
 
-        function getTaskPath(taskId = state.currentProject) {
-            return `${state.basePath}/tasks/${taskId}`;
-        }
 
         function getSiteBasePath() {
             const site = sanitize(state.currentProjectName || 'unknown');
@@ -626,9 +616,7 @@
             return listStorageItems(path);
         }
 
-        function sensorMetaBasePath() {
-            return `${state.basePath}/tasks/${state.metaOwnerTaskId}/sensorMeta`;
-        }
+
 
         function getFavorites() {
             try {
@@ -642,20 +630,7 @@
             localStorage.setItem('favorites', JSON.stringify(favorites));
         }
 
-        async function readOnce(path) {
-            const db = await loadDatabase();
-            const value = getByPath(db, path);
-            return value == null ? null : deepClone(value);
-        }
 
-        async function patch(path, payload) {
-            const db = await loadDatabase();
-            const current = getByPath(db, path);
-            const merged = mergeObjects(current, payload);
-            setByPath(db, path, merged);
-            await saveDatabase(db);
-            return deepClone(merged);
-        }
 
         async function listStorageItems(path) {
             const items = await graphListFolder(path);
@@ -721,8 +696,8 @@
         }
 
         async function loadSensorMeta(sensorNum) {
-            if (!sensorNum || !state.metaOwnerTaskId) return;
-            const data = await readOnce(`${sensorMetaBasePath()}/${sensorNum}`) || {};
+            if (!sensorNum || !state.currentProject) return;
+            const data = await readOnce(`${'sensorMeta'}/${sensorNum}`) || {};
 
             if ($('sensorMetaSerial')) $('sensorMetaSerial').value = data.serial || '';
             if ($('sensorMetaM1')) $('sensorMetaM1').value = data.m1 || '';
@@ -737,20 +712,17 @@
         async function saveSensorMeta() {
             if (!requireEditAccess()) return;
             const sensorNum = $('sensorMetaNumberDropdown')?.value;
-            if (!sensorNum || !state.metaOwnerTaskId) {
-                alert('Select a device first.');
-                return;
-            }
+            if (!sensorNum || !state.currentProject) return;
 
-            await patch(sensorMetaBasePath(), {
-                [sensorNum]: {
-                    serial: $('sensorMetaSerial')?.value.trim() || '',
-                    m1: $('sensorMetaM1')?.value.trim() || '',
-                    m2: $('sensorMetaM2')?.value.trim() || '',
-                    m3: $('sensorMetaM3')?.value.trim() || '',
-                    updatedAt: Date.now()
-                }
-            });
+                await patch('sensorMeta', {
+                    [sensorNum]: {
+                        serial: $('sensorMetaSerial')?.value.trim() || '',
+                        m1: $('sensorMetaM1')?.value.trim() || '',
+                        m2: $('sensorMetaM2')?.value.trim() || '',
+                        m3: $('sensorMetaM3')?.value.trim() || '',
+                        updatedAt: Date.now()
+                    }
+                });
 
             if ($('sensorNumberDropdown')?.value === sensorNum && $('serialNumber')) {
                 $('serialNumber').value = $('sensorMetaSerial')?.value.trim() || '';
@@ -765,7 +737,7 @@
                 return;
             }
 
-            const snapshot = await readOnce(sensorMetaBasePath());
+            const snapshot = await readOnce('sensorMeta');
             if (!snapshot) {
                 alert('No device data found.');
                 return;
@@ -927,6 +899,10 @@
             setTimeout(() => $('serialNumber')?.focus(), 250);
         }
 
+function getQCPath() {
+    return `${getProjectFolder()}/Data/qc.json`;
+}
+
         async function uploadSensor() {
             if (!requireEditAccess()) return;
             if (state.isUploading) return;
@@ -969,7 +945,7 @@
                 const filename = await getUniqueFilename(folderPath, `${prefix}_${paddedNum}-${serial}.jpg`);
                 await graphUploadFile(`${folderPath}/${filename}`, blob, 'image/jpeg');
 
-                await patch(sensorMetaBasePath(), {
+                await patch('sensorMeta', {
                     [num]: {
                         serial: $('serialNumber')?.value.trim() || '',
                         m1: $('sensorMetaM1')?.value.trim() || '',
@@ -1045,25 +1021,15 @@
         }
 
         async function populateProjects() {
-            const tasks = await readOnce(`${state.basePath}/tasks`) || {};
+            const items = await graphListFolder('');
 
-            state.allProjects = Object.entries(tasks)
-                .map(([id, task]) => {
-                    const customer = (task.customerName || '').trim();
-                    const project = (task.project || '').trim();
+            const projects = items.filter(item => item.folder);
 
-                    if (!customer && !project) return null;
-
-                    return {
-                        id,
-                        customer,
-                        project,
-                        label: `${customer || '(No Customer)'} — ${project || '(No Project)'}`,
-                        time: bestTime(task, id)
-                    };
-                })
-                .filter(Boolean)
-                .sort((a, b) => b.time - a.time);
+            state.allProjects = projects.map(p => ({
+                id: p.name,
+                label: p.name,
+                time: new Date(p.lastModifiedDateTime || 0).getTime()
+            }));
 
             renderProjectDropdown(state.allProjects);
         }
@@ -1082,30 +1048,11 @@
             }
 
             renderProjectDropdown(
-                state.allProjects.filter((p) => normKey(`${p.customer} ${p.project}`).includes(query))
+                state.allProjects.filter((p) => normKey(p.label).includes(query))
             );
         }
 
-        async function resolveMetaOwnerTaskId() {
-            state.metaOwnerTaskId = state.currentProject;
 
-            const projKey = normKey(state.currentProjectName);
-            const custKey = normKey(state.currentCustomerName);
-
-            if (!projKey && !custKey) return state.metaOwnerTaskId;
-
-            const tasks = await readOnce(`${state.basePath}/tasks`) || {};
-            const matches = Object.entries(tasks).filter(([, task]) =>
-                normKey(task.project) === projKey &&
-                normKey(task.customerName) === custKey
-            );
-
-            if (!matches.length) return state.metaOwnerTaskId;
-
-            matches.sort((a, b) => bestTime(a[1], a[0]) - bestTime(b[1], b[0]));
-            state.metaOwnerTaskId = matches[0][0];
-            return state.metaOwnerTaskId;
-        }
 
         async function startApp(projectId) {
             state.validated = true;
@@ -1125,16 +1072,14 @@
             try {
                 state.currentProject = projectId;
 
-                const data = await readOnce(getTaskPath(projectId));
+                const data = await loadProjectDB();
                 if (!data) throw new Error('No project data');
 
                 state.currentProjectName = data.project || '';
                 state.currentCustomerName = (data.customerName || '').trim();
 
-                await resolveMetaOwnerTaskId();
 
-                const owner = await readOnce(getTaskPath(state.metaOwnerTaskId)) || data;
-                state.expectedSensors = Number(owner.sensorCount) || 0;
+state.expectedSensors = Number(data.sensorCount) || 0;
 
                 syncSensorTotalToQC();
 
@@ -1181,8 +1126,7 @@
             state.currentProjectName = $('project')?.value.trim() || '';
             state.expectedSensors = Math.max(0, Number($('sensorCount')?.value) || 0);
 
-            await patch(getTaskPath(), {
-                project: state.currentProjectName,
+await patch('', {                project: state.currentProjectName,
                 sensorCount: state.expectedSensors,
                 updatedAt: Date.now()
             });
@@ -1214,7 +1158,7 @@
             state.currentProjectName = payload.project;
             state.expectedSensors = payload.sensorCount;
 
-            await patch(getTaskPath(), payload);
+            await patch('', payload);
         }, CONFIG.AUTO_SAVE_MS);
 
         function startAutosaveLoop() {
@@ -1932,7 +1876,7 @@
                         let value = target.value;
                         if (fieldKey === 'date') value = new Date(value).toISOString();
                         if (fieldKey === 'sensorTotal') value = Number(value);
-                        await patch(getTaskPath(), { [taskField]: value });
+                        await patch('', { [taskField]: value });
                     }
                 }
 
@@ -1976,7 +1920,7 @@
 
             if ($('app')) $('app').innerHTML = '';
 
-            const taskData = await readOnce(getTaskPath(projectId)) || {};
+            const taskData = await loadProjectDB() || {};
             let qcData = { sections: {} };
 
             try {
@@ -2225,7 +2169,7 @@
                 const sensorNum = $('sensorNumberDropdown')?.value;
                 if (!sensorNum) return;
 
-                const data = await readOnce(`${sensorMetaBasePath()}/${sensorNum}`) || {};
+                const data = await readOnce(`${'sensorMeta'}/${sensorNum}`) || {};
                 if (data.serial && $('serialNumber')) {
                     $('serialNumber').value = data.serial;
                 }
@@ -2282,10 +2226,6 @@
             $('uploadImagesToOneDriveBtn')?.addEventListener('click', uploadAllImagesToOneDrive);
         }
 
-        function getQCPath() {
-            const site = sanitize(state.currentProjectName || 'unknown');
-            return `${site}/Data/qc.json`;
-        }
 
         async function ensureSiteDataFolder() {
             const site = sanitize(state.currentProjectName || 'unknown');
