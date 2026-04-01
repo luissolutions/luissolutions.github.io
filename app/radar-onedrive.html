@@ -7,7 +7,6 @@
     <title>Radar App - OneDrive</title>
 
     <!-- Microsoft Auth -->
-    <script type="module" src="../apps/assets/js/login.js"></script>
     <script src="../apps/assets/js/sidebar.js"></script>
     <link rel="stylesheet" href="./assets/css/radartools.css" />
 </head>
@@ -15,14 +14,12 @@
 <body>
     <header>
         <h1><img src="assets/img/telaid_logo.png" alt=""> Radar</h1>
-        <section id="login-section" class="logins-section">
-            <div class="ms">
-                <br>
-                <button id="loginButton">Login to MS</button>
-                <button id="logoutButton">Logout of MS</button>
-                <p id="loginStatus">Login status...</p>
-            </div>
-        </section>
+        <div class="ms">
+            <br>
+            <button id="loginButton">Login to MS</button>
+            <button id="logoutButton">Logout of MS</button>
+            <p id="loginStatus">Login status...</p>
+        </div>
     </header>
 
     <main id="mainApp">
@@ -191,7 +188,8 @@
             getUserInfo,
             isLoggedIn,
             loginToMicrosoft,
-            logoutFromMicrosoft
+            logoutFromMicrosoft,
+            initMicrosoftAuth
         } from './assets/js/radar-microsoftAuth.js';
 
         const CONFIG = {
@@ -335,7 +333,12 @@
         async function graphFetch(url, options = {}) {
             const token = accessToken || localStorage.getItem('accessToken');
             if (!token) {
-                throw new Error('Microsoft login required.');
+                console.warn("No Microsoft token — skipping Graph request");
+                return {
+                    ok: false,
+                    json: async () => ({}),
+                    text: async () => ""
+                };
             }
 
             const headers = {
@@ -494,26 +497,10 @@
         }
 
         function requireEditAccess() {
-            if (!isLoggedIn()) {
-                alert('Please log into Microsoft first.');
-                return false;
-            }
-
-            if (state.currentUser && !isAdminUser(state.currentUser)) {
-                alert('Read-only mode for this Microsoft account.');
-                return false;
-            }
-
             return true;
         }
 
         async function refreshAccessState() {
-            if (!isLoggedIn()) {
-                state.currentUser = null;
-                state.basePath = 'shared';
-                if ($('mainApp')) $('mainApp').style.display = 'none';
-                return;
-            }
 
             state.currentUser = await getUserInfo().catch(() => null);
             state.basePath = getCurrentUserBasePath(state.currentUser);
@@ -2561,12 +2548,37 @@
             await refreshAccessState();
         });
 
+        $('loginButton')?.addEventListener('click', loginToMicrosoft);
+        $('logoutButton')?.addEventListener('click', logoutFromMicrosoft);
+
+        async function initApp() {
+            initMicrosoftAuth();
+
+            if (!isLoggedIn()) {
+                $('mainApp').style.display = 'none';
+                $('loginStatus').textContent = 'Not logged in';
+                return;
+            }
+
+            const user = await getUserInfo();
+
+            $('loginStatus').textContent =
+                `Logged in as: ${user?.displayName || user?.userPrincipalName}`;
+
+            $('mainApp').style.display = 'block';
+
+            await refreshAccessState(); // IMPORTANT: loads projects
+        }
+
+        document.addEventListener('DOMContentLoaded', initApp);
+
         initModalEvents();
         initProjectEvents();
         initFeatureEvents();
         updateImageModeUI();
         initCollapsibles();
         refreshAccessState();
+        initMicrosoftAuth();
     </script>
 </body>
 
