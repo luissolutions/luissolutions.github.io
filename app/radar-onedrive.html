@@ -686,12 +686,31 @@
         }
 
         function populateSensorDropdown(count) {
-            [$('sensorMetaNumberDropdown'), $('sensorNumberDropdown')].forEach((dropdown) => {
+            const dropdowns = [
+                $('sensorMetaNumberDropdown'),
+                $('sensorNumberDropdown')
+            ];
+
+            dropdowns.forEach(dropdown => {
                 if (!dropdown) return;
+
+                const currentValue = dropdown.value;
+
+                const existingCount = dropdown.options.length - 1;
+
+                // ✅ Prevent rebuild if nothing changed
+                if (existingCount === count) return;
+
                 dropdown.innerHTML = '<option value="">Select a Device</option>';
-                for (let i = 1; i <= count; i += 1) {
-                    dropdown.appendChild(new Option(String(i).padStart(2, '0'), String(i)));
+
+                for (let i = 1; i <= count; i++) {
+                    const val = String(i);
+                    const text = String(i).padStart(2, '0');
+                    dropdown.appendChild(new Option(text, val));
                 }
+
+                // ✅ restore selection
+                dropdown.value = currentValue;
             });
         }
 
@@ -1471,22 +1490,37 @@
 
         async function runSync() {
             if (!state.currentProject || state.isApplyingRemoteUpdate) return;
+
             try {
                 const remote = await loadProjectDB();
-                if (hash === state.lastLoadedHash) {
-                    return; // ✅ STOP — no changes
+                const hash = JSON.stringify(remote);
+
+                // ✅ STOP if no change
+                if (hash === state.lastLoadedHash) return;
+
+                state.isApplyingRemoteUpdate = true;
+                state.lastLoadedHash = hash;
+
+                console.log('🌍 Sync update');
+
+                // ✅ Only update what changed
+                if (remote.sensorCount !== state.expectedSensors) {
+                    state.expectedSensors = remote.sensorCount;
+                    populateSensorDropdown(state.expectedSensors);
+                    updateMissingImages();
                 }
 
-                state.lastLoadedHash = hash;
-                if (hash !== state.lastLoadedHash) {
-                    state.isApplyingRemoteUpdate = true;
-                    state.lastLoadedHash = hash;
-                    state.currentProjectData = remote;
-                    saveToLocal(remote);
-                    notifyListeners(remote);
-                    applyFullState(remote);
-                    setTimeout(() => { state.isApplyingRemoteUpdate = false; }, 200);
+                // ✅ DO NOT rebuild whole UI
+                if (remote.qcData) {
+                    applyData(remote.qcData);
                 }
+
+                updateAllScoringTotals();
+
+                setTimeout(() => {
+                    state.isApplyingRemoteUpdate = false;
+                }, 200);
+
             } catch (err) {
                 console.warn('Sync failed:', err);
             }
@@ -1700,67 +1734,80 @@
             state.modalItems = filtered;
             const gallery = $('gallery');
             const dropdown = $('imageDropdown');
+
             if (gallery) gallery.innerHTML = '';
-            if (dropdown) dropdown.innerHTML = '<option value="">-- Select an Image --</option>';
 
             filtered.forEach((item, index) => {
                 const container = createEl('div', { className: 'image-container' });
+
                 const img = createEl('img', {
                     attrs: { src: item.url, alt: item.name, loading: 'lazy' }
                 });
+
                 img.onclick = () => showModalByIndex(index);
 
-                const star = createEl('span', {
-                    className: `favorite-star ${favorites[item.fullPath] ? 'favorited' : ''}`,
-                    text: favorites[item.fullPath] ? '★' : '☆'
-                });
-                star.onclick = (e) => {
-                    e.stopPropagation();
-                    if (favorites[item.fullPath]) delete favorites[item.fullPath];
-                    else favorites[item.fullPath] = true;
-                    setFavorites(favorites);
-                    updateGallery();
-                };
-
                 container.appendChild(img);
-                container.appendChild(star);
                 gallery?.appendChild(container);
-                dropdown?.appendChild(new Option(item.name, String(index)));
             });
+
+            // ✅ ADD THIS
+            updateImageDropdown(filtered);
         }
 
-        function updateMissingImages() {
+        async function updateMissingImages() {
             const list = $('missingList');
             if (!list) return;
 
+            const mode = document.querySelector('input[name="viewMode"]:checked')?.value;
+
+            // ✅ ONLY sensors should show missing
+            if (mode !== 'sensors') {
+                list.innerHTML = '';
+                return;
+            }
+
             if (!state.currentProject || !state.expectedSensors) return;
 
-            const items = list.querySelectorAll('li');
+            try {
+                const items = await listStorageItems(getImagesPath('sensors'));
 
-            // Build expected text
-            const expected = [];
+                const map = {};
 
-            for (let i = 1; i <= state.expectedSensors; i++) {
-                expected.push(
-                    `Device ${String(i).padStart(2, '0')} missing ${CONFIG.SENSOR_IMAGE_COUNT_REQUIRED} image(s)`
-                );
+                items.forEach(item => {
+                    const match = item.name.match(/_(\d+)[-_]/);
+                    if (!match) return;
+
+                    const num = parseInt(match[1], 10);
+                    map[num] = (map[num] || 0) + 1;
+                });
+
+                const missing = [];
+
+                for (let i = 1; i <= state.expectedSensors; i++) {
+                    const count = map[i] || 0;
+
+                    if (count < CONFIG.SENSOR_IMAGE_COUNT_REQUIRED) {
+                        missing.push(
+                            `Device ${String(i).padStart(2, '0')} missing ${CONFIG.SENSOR_IMAGE_COUNT_REQUIRED - count} image(s)`
+                        );
+                    }
+                }
+
+                // ✅ prevent flicker
+                const current = Array.from(list.children).map(li => li.textContent);
+                if (JSON.stringify(current) === JSON.stringify(missing)) return;
+
+                list.innerHTML = '';
+
+                missing.forEach(text => {
+                    const li = document.createElement('li');
+                    li.textContent = text;
+                    list.appendChild(li);
+                });
+
+            } catch (err) {
+                console.warn('Missing image check failed:', err);
             }
-
-            // Compare with current DOM
-            const current = Array.from(items).map(li => li.textContent);
-
-            if (JSON.stringify(current) === JSON.stringify(expected)) {
-                return; // ✅ no change → no redraw
-            }
-
-            // Only update if different
-            list.innerHTML = '';
-
-            expected.forEach(text => {
-                const li = document.createElement('li');
-                li.textContent = text;
-                list.appendChild(li);
-            });
         }
 
         function handlePickMissing(sensorNum) {
