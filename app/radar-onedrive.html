@@ -387,12 +387,7 @@
         async function graphFetch(url, options = {}) {
             const token = accessToken || localStorage.getItem('accessToken');
             if (!token) {
-                console.warn("No Microsoft token — skipping Graph request");
-                return {
-                    ok: false,
-                    json: async () => ({}),
-                    text: async () => ""
-                };
+                throw new Error("Not authenticated with Microsoft");
             }
 
             const headers = {
@@ -562,7 +557,8 @@
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 sensorMeta: {},
-                qcData: {}
+                qcData: {},
+                sensorCount: Number($('sensorCount')?.value) || 0,
             });
 
             await loadProject(id);
@@ -570,13 +566,8 @@
         }
 
 
-        function getSiteBasePath() {
-            const site = sanitize(state.currentProjectName || 'unknown');
-            return `${site}`;
-        }
-
         function getImagesPath(mode = 'sensors') {
-            const siteBase = getSiteBasePath();
+            const siteBase = getProjectFolder();
 
             if (mode === 'sensors') {
                 return `${siteBase}/Sensors`;
@@ -714,15 +705,15 @@
             const sensorNum = $('sensorMetaNumberDropdown')?.value;
             if (!sensorNum || !state.currentProject) return;
 
-                await patch('sensorMeta', {
-                    [sensorNum]: {
-                        serial: $('sensorMetaSerial')?.value.trim() || '',
-                        m1: $('sensorMetaM1')?.value.trim() || '',
-                        m2: $('sensorMetaM2')?.value.trim() || '',
-                        m3: $('sensorMetaM3')?.value.trim() || '',
-                        updatedAt: Date.now()
-                    }
-                });
+            await patch('sensorMeta', {
+                [sensorNum]: {
+                    serial: $('sensorMetaSerial')?.value.trim() || '',
+                    m1: $('sensorMetaM1')?.value.trim() || '',
+                    m2: $('sensorMetaM2')?.value.trim() || '',
+                    m3: $('sensorMetaM3')?.value.trim() || '',
+                    updatedAt: Date.now()
+                }
+            });
 
             if ($('sensorNumberDropdown')?.value === sensorNum && $('serialNumber')) {
                 $('serialNumber').value = $('sensorMetaSerial')?.value.trim() || '';
@@ -899,9 +890,9 @@
             setTimeout(() => $('serialNumber')?.focus(), 250);
         }
 
-function getQCPath() {
-    return `${getProjectFolder()}/Data/qc.json`;
-}
+        function getQCPath() {
+            return `${getProjectFolder()}/Data/qc.json`;
+        }
 
         async function uploadSensor() {
             if (!requireEditAccess()) return;
@@ -1079,7 +1070,7 @@ function getQCPath() {
                 state.currentCustomerName = (data.customerName || '').trim();
 
 
-state.expectedSensors = Number(data.sensorCount) || 0;
+                state.expectedSensors = Number(data.sensorCount) || 0;
 
                 syncSensorTotalToQC();
 
@@ -1088,7 +1079,7 @@ state.expectedSensors = Number(data.sensorCount) || 0;
 
                 populateSensorDropdown(state.expectedSensors);
 
-                const base = getSiteBasePath();
+                const base = getProjectFolder();
 
                 await ensureFolderExists(base);
                 await ensureFolderExists(`${base}/Sensors`);
@@ -1126,7 +1117,8 @@ state.expectedSensors = Number(data.sensorCount) || 0;
             state.currentProjectName = $('project')?.value.trim() || '';
             state.expectedSensors = Math.max(0, Number($('sensorCount')?.value) || 0);
 
-await patch('', {                project: state.currentProjectName,
+            await patch('', {
+                project: state.currentProjectName,
                 sensorCount: state.expectedSensors,
                 updatedAt: Date.now()
             });
