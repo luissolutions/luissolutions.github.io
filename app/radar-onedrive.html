@@ -61,7 +61,7 @@
             <h2 class="collapsible-header">📋 Site Analysis</h2>
             <button id="compareBtn" type="button">Generate Report</button>
             <button id="exportReportBtn" type="button">Export Report CSV</button>
-            <button id="uploadQCBtn" data-requires-edit>Upload QC Checklist</button>
+            <button id="uploadQCBtn">Upload QC Checklist</button>
             <div id="comparisonResults"></div>
         </section>
 
@@ -390,12 +390,25 @@
             }
         }
 
-        async function saveDatabase(db) {
-            await graphFetch(graphContentUrl('data/db.json'), {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(db, null, 2)
-            });
+        async function saveDatabase(db, retries = 3) {
+            try {
+                await graphFetch(graphContentUrl('data/db.json'), {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(db, null, 2)
+                });
+            } catch (err) {
+                if (/409/.test(String(err)) && retries > 0) {
+                    console.warn("Retrying save due to conflict...");
+                    await new Promise(r => setTimeout(r, 500));
+
+                    const fresh = await loadDatabase(true); // force reload
+                    const merged = mergeObjects(fresh, db);
+
+                    return saveDatabase(merged, retries - 1);
+                }
+                throw err;
+            }
         }
 
         function getByPath(obj, path) {
@@ -567,11 +580,23 @@
             return `${state.basePath}/tasks/${taskId}`;
         }
 
-        function getImagesPath(mode = 'sensors') {
-            const customer = sanitize(state.currentCustomerName || 'unknown');
-            const project = sanitize(state.currentProjectName || 'unknown');
+        function getSiteBasePath() {
+            const site = sanitize(state.currentProjectName || 'unknown');
+            return `${site}`;
+        }
 
-            return `${state.basePath}/tasks/images/${customer}/${project}/${mode}`;
+        function getImagesPath(mode = 'sensors') {
+            const siteBase = getSiteBasePath();
+
+            if (mode === 'sensors') {
+                return `${siteBase}/Sensors`;
+            }
+
+            if (mode === 'deliverables') {
+                return `${siteBase}/Deliverables`;
+            }
+
+            return `${siteBase}/Other`;
         }
 
         async function ensureFolderExists(path) {
@@ -1118,7 +1143,12 @@
 
                 populateSensorDropdown(state.expectedSensors);
 
-                await ensureFolderExists(getImagesPath('sensors'));
+                const base = getSiteBasePath();
+
+                await ensureFolderExists(base);
+                await ensureFolderExists(`${base}/Sensors`);
+                await ensureFolderExists(`${base}/Deliverables`);
+                await ensureFolderExists(`${base}/Data`);
 
                 await Promise.all([
                     updateGallery(),
@@ -1134,7 +1164,6 @@
             } finally {
                 state.isLoadingProject = false;
             }
-            await ensureFolderExists(getImagesPath('sensors'));
         }
 
         function bindRealtimeProjectListener(_projectId) {
@@ -1852,13 +1881,18 @@
 
         const saveQCData = debounce(async () => {
             if (!state.currentProject || !state.qcConfig?.sections?.length) return;
-            if (!requireEditAccess()) return;
 
             const data = collectData();
-
             if (!data || !Object.keys(data.sections || {}).length) return;
 
-            await patch(getQCPath(), data);
+            await ensureSiteDataFolder();
+
+            await graphFetch(graphContentUrl(getQCPath()), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data, null, 2)
+            });
+
         }, 800);
 
         function applyTaskToSiteInfo(taskData) {
@@ -1943,8 +1977,16 @@
             if ($('app')) $('app').innerHTML = '';
 
             const taskData = await readOnce(getTaskPath(projectId)) || {};
-            const qcData = await readOnce(getQCPath()) || { sections: {} };
+            let qcData = { sections: {} };
 
+            try {
+                const res = await graphFetch(graphContentUrl(getQCPath()));
+                qcData = await res.json();
+            } catch (err) {
+                if (!/404/i.test(String(err))) {
+                    console.error("QC load error:", err);
+                }
+            }
             buildApp(qcData);
             applyTaskToSiteInfo(taskData);
             attachQCListeners();
@@ -2241,7 +2283,15 @@
         }
 
         function getQCPath() {
-            return `${getTaskPath()}/qcData_${state.currentChecklistType}`;
+            const site = sanitize(state.currentProjectName || 'unknown');
+            return `${site}/Data/qc.json`;
+        }
+
+        async function ensureSiteDataFolder() {
+            const site = sanitize(state.currentProjectName || 'unknown');
+
+            await ensureFolderExists(site);
+            await ensureFolderExists(`${site}/Data`);
         }
 
         function syncSensorTotalToQC() {
@@ -2413,60 +2463,36 @@
         }
 
         async function uploadReportsToOneDrive() {
-            if (!requireEditAccess()) return;
             if (!state.currentProject) {
                 alert("No project selected");
                 return;
             }
 
-            const site = sanitize(state.currentProjectName || state.currentProject);
-            const basePath = `Jobs/Radar/${site}`;
+            const site = sanitize(state.currentProjectName || 'unknown');
 
-            const accessToken = localStorage.getItem("accessToken");
-            if (!accessToken) {
-                alert("Not logged into Microsoft");
-                return;
-            }
+            await ensureFolderExists(site);
+            await ensureFolderExists(`${site}/Data`);
 
-            try {
-                // 📄 Build files
-                const qcBlob = buildQCChecklistBlob();
-                const reportBlob = buildReportFile();
+            const reportText = generateCertificationReport();
 
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            // TXT report
+            await graphFetch(graphContentUrl(`${site}/Data/report.txt`), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'text/plain' },
+                body: reportText
+            });
 
-                // 📤 Upload QC Checklist
-                await fetch(
-                    `https://graph.microsoft.com/v1.0/me/drive/root:/${basePath}/qc_${timestamp}.csv:/content`,
-                    {
-                        method: "PUT",
-                        headers: {
-                            "Authorization": `Bearer ${accessToken}`,
-                            "Content-Type": "text/csv"
-                        },
-                        body: qcBlob
-                    }
-                );
+            // CSV report
+            const rows = buildReportCSVRows();
+            const csv = rows.map(r => r.join(',')).join('\n');
 
-                // 📤 Upload Report
-                await fetch(
-                    `https://graph.microsoft.com/v1.0/me/drive/root:/${basePath}/report_${timestamp}.txt:/content`,
-                    {
-                        method: "PUT",
-                        headers: {
-                            "Authorization": `Bearer ${accessToken}`,
-                            "Content-Type": "text/plain"
-                        },
-                        body: reportBlob
-                    }
-                );
+            await graphFetch(graphContentUrl(`${site}/Data/report.csv`), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'text/csv' },
+                body: csv
+            });
 
-                alert("QC Checklist + Report uploaded ✅");
-
-            } catch (err) {
-                console.error(err);
-                alert("Upload failed.");
-            }
+            alert("✅ QC uploaded to site folder");
         }
 
         async function uploadQCChecklistToOneDrive() {
