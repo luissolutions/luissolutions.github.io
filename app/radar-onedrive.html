@@ -668,9 +668,9 @@
             const loggedIn = isLoggedIn();
             const readOnly = loggedIn && state.currentUser && !isAdminUser(state.currentUser);
 
-if ($('mainApp')) {
-    $('mainApp').style.display = 'block';
-}
+            if ($('mainApp')) {
+                $('mainApp').style.display = 'block';
+            }
 
             if ($('loginStatus')) {
                 if (!loggedIn) {
@@ -1534,6 +1534,36 @@ if ($('mainApp')) {
                 if (el) el.value = value;
             });
         }
+
+        document.body.addEventListener('blur', async (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+
+            // Only care about inputs / selects / textareas
+            if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+
+            if (!state.currentProject) return;
+
+            console.log('💾 Field finished:', target.id);
+
+            try {
+                // Save project basics
+                const payload = collectProjectAutosavePayload();
+                if (payload) {
+                    await patchProjectDB('', payload);
+                }
+
+                // Save QC if needed
+                if (target.closest('#qcChecklistSection')) {
+                    markQCDirty();
+                    await saveQCDataNow();
+                }
+
+            } catch (err) {
+                console.error('Save on blur failed:', err);
+            }
+
+        }, true); // 👈 IMPORTANT: use capture mode
 
         async function loadQCChecklist() {
             await initQCConfig();
