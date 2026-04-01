@@ -325,6 +325,12 @@
                 }
                 throw err;
             }
+            await patch('qcData.site_info.fields', {
+                sensorTotal: {
+                    label: 'Total Sensors',
+                    value: state.expectedSensors
+                }
+            });
         }
 
         async function saveProjectDB(db) {
@@ -586,14 +592,20 @@
 
             for (const part of parts) {
                 current += `/${part}`;
+
                 try {
-                    await graphFetch(graphChildrenUrl(current));
+                    await graphFetch(graphItemUrl(current));
                 } catch (err) {
                     if (/404|itemNotFound/i.test(String(err))) {
-                        await graphFetch(graphContentUrl(`${current}/.init`), {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'text/plain' },
-                            body: 'init'
+                        // Create folder properly (no .init file)
+                        await graphFetch(graphChildrenUrl(current.substring(0, current.lastIndexOf('/')) || ''), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                name: part,
+                                folder: {},
+                                "@microsoft.graph.conflictBehavior": "rename"
+                            })
                         });
                     } else {
                         throw err;
@@ -620,8 +632,6 @@
         function setFavorites(favorites) {
             localStorage.setItem('favorites', JSON.stringify(favorites));
         }
-
-
 
         async function listStorageItems(path) {
             const items = await graphListFolder(path);
@@ -1360,11 +1370,7 @@
 
             nightCounter(section, data, container) {
                 const days = Math.max(1, getTotalNights(data));
-                const sensorTotal = Number(
-                    data?.sections?.site_info?.fields?.sensorTotal?.value ||
-                    $('field_sensorTotal')?.value ||
-                    0
-                );
+                const sensorTotal = state.expectedSensors || 0;
 
                 section.fields.forEach((field) => {
                     const wrapper = createEl('div', { className: 'row' });
@@ -1558,13 +1564,6 @@
 
                     section.fields.forEach((field) => {
                         const value = $(`field_${field.id}`)?.value ?? '';
-
-                        if (
-                            section.id === 'site_info' &&
-                            ['date', 'siteNumber', 'sensorTotal', 'installSummary', 'location'].includes(field.id)
-                        ) {
-                            return;
-                        }
 
                         sectionData.fields[field.id] = {
                             label: field.label,
@@ -1885,12 +1884,14 @@
                 }
 
                 if (target.id === 'field_sensorTotal') {
-                    const total = target.value;
-                    $$('[id^="field_nightly_production_"]').forEach((input) => {
-                        input.parentElement?.querySelector('.sensor-total')
-                            ?.replaceChildren(document.createTextNode(`/ ${total}`));
+                    const total = Number(target.value) || 0;
+                    state.expectedSensors = total;
+
+                    $$('.sensor-total').forEach((el) => {
+                        el.textContent = `/ ${total}`;
                     });
-                    saveQCData();
+
+                    debouncedSaveProjectFields();
                     return;
                 }
 
@@ -2230,10 +2231,14 @@
             const total = state.expectedSensors;
 
             const qcField = $('field_sensorTotal');
-            if (qcField) qcField.value = total;
+            if (qcField && qcField.value != total) {
+                qcField.value = total;
+            }
 
             $$('.sensor-total').forEach((el) => {
-                el.textContent = `/ ${total}`;
+                if (el.textContent !== `/ ${total}`) {
+                    el.textContent = `/ ${total}`;
+                }
             });
         }
 
@@ -2530,7 +2535,7 @@
 
             $('mainApp').style.display = 'block';
 
-            await refreshAccessState(); // IMPORTANT: loads projects
+            await refreshAccessState();
         }
 
         document.addEventListener('DOMContentLoaded', initApp);
