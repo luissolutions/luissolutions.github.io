@@ -375,8 +375,228 @@
             saveQueue: Promise.resolve(),
             isLoadingProject: false,
             isUploading: false,
-            hasUnsavedQCChanges: false
+            hasUnsavedQCChanges: false,
+            lastLoadedHash: ''
         };
+        /* =========================
+           STATE ADDITIONS
+        ========================= */
+
+        state.lastLoadedHash = '';
+        state.isApplyingRemoteUpdate = false;
+
+
+        /* =========================
+           SAVE HELPERS
+        ========================= */
+
+        function saveToLocal(db) {
+            if (!state.currentProject) return;
+
+            localStorage.setItem(
+                `project_${state.currentProject}`,
+                JSON.stringify(db)
+            );
+        }
+
+        function getLocalProject() {
+            try {
+                return JSON.parse(
+                    localStorage.getItem(`project_${state.currentProject}`) || '{}'
+                );
+            } catch {
+                return {};
+            }
+        }
+
+
+        /* =========================
+           PATCH (MAIN SAVE ENTRY)
+        ========================= */
+
+        async function patchProjectDB(path, payload) {
+            return queueSave(async () => {
+                const db = await loadProjectDB();
+                const current = getByPath(db, path);
+                const merged = mergeObjects(current, payload);
+
+                setByPath(db, path, merged);
+
+                // ✅ SAVE LOCAL FIRST (instant)
+                saveToLocal(db);
+
+                // ✅ SAVE TO ONEDRIVE (async)
+                try {
+                    await saveProjectDB(db);
+                } catch (err) {
+                    console.warn('⚠️ Cloud save failed, local OK', err);
+                }
+
+                return merged;
+            });
+        }
+
+
+        /* =========================
+           BLUR SAVE (MAIN TRIGGER)
+        ========================= */
+
+        document.body.addEventListener('blur', async (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+
+            if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+            if (!state.currentProject) return;
+
+            console.log('💾 Field finished:', target.id);
+
+            try {
+                // Project basics
+                const payload = collectProjectAutosavePayload();
+                if (payload) {
+                    await patchProjectDB('', payload);
+                }
+
+                // QC
+                if (target.closest('#qcChecklistSection')) {
+                    markQCDirty();
+                    await saveQCDataNow();
+                }
+
+            } catch (err) {
+                console.error('Save on blur failed:', err);
+            }
+
+        }, true);
+
+
+        /* =========================
+           QC SAVE (FIXED)
+        ========================= */
+
+        async function saveQCDataNow() {
+            if (!state.currentProject || !state.qcConfig?.sections?.length) return;
+
+            const data = collectData();
+            if (!data || !Object.keys(data.sections || {}).length) return;
+
+            await ensureSiteDataFolder();
+
+            // ✅ SAVE LOCAL
+            const local = getLocalProject();
+            local.qcData = data;
+            saveToLocal(local);
+
+            // ✅ SAVE CLOUD
+            await queueSave(async () => {
+                try {
+                    await graphFetch(graphContentUrl(getQCPath()), {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data, null, 2)
+                    });
+                } catch (err) {
+                    console.warn('⚠️ QC cloud save failed', err);
+                }
+            });
+
+            state.hasUnsavedQCChanges = false;
+        }
+
+
+        /* =========================
+           SYNC (CROSS DEVICE)
+        ========================= */
+
+        async function runSync() {
+            if (!state.currentProject) return;
+            if (state.isApplyingRemoteUpdate) return;
+
+            try {
+                const remote = await loadProjectDB();
+                const hash = JSON.stringify(remote);
+
+                if (hash !== state.lastLoadedHash) {
+                    state.lastLoadedHash = hash;
+                    state.isApplyingRemoteUpdate = true;
+
+                    console.log('🌍 Remote update detected');
+
+                    // ✅ update local cache
+                    saveToLocal(remote);
+
+                    // ✅ apply WITHOUT rebuilding UI
+                    applyTaskToSiteInfo(remote);
+
+                    if (remote.qcData) {
+                        applyData(remote.qcData);
+                    }
+
+                    updateAllScoringTotals();
+                    syncSensorTotalToQC();
+                    updateMissingImages();
+
+                    setTimeout(() => {
+                        state.isApplyingRemoteUpdate = false;
+                    }, 300);
+                }
+
+            } catch (err) {
+                console.warn('Sync failed', err);
+            }
+        }
+
+
+        /* =========================
+           SYNC LOOP (SMART)
+        ========================= */
+
+        let syncInterval = null;
+
+        function startSync() {
+            if (syncInterval) return;
+
+            syncInterval = setInterval(runSync, 3000);
+        }
+
+        function stopSync() {
+            clearInterval(syncInterval);
+            syncInterval = null;
+        }
+
+        // Pause when tab inactive
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) stopSync();
+            else startSync();
+        });
+
+        // Start immediately
+        startSync();
+
+
+        /* =========================
+           SAME-BROWSER SYNC
+        ========================= */
+
+        window.addEventListener('storage', (event) => {
+            if (!state.currentProject) return;
+
+            if (event.key === `project_${state.currentProject}`) {
+                console.log('🔄 Local sync (other tab)');
+
+                const updated = JSON.parse(event.newValue || '{}');
+
+                applyTaskToSiteInfo(updated);
+
+                if (updated.qcData) {
+                    applyData(updated.qcData);
+                }
+
+                updateAllScoringTotals();
+                syncSensorTotalToQC();
+                updateMissingImages();
+            }
+        });
 
         /* =========================
            GRAPH / ONEDRIVE
@@ -623,16 +843,7 @@
             return state.saveQueue;
         }
 
-        async function patchProjectDB(path, payload) {
-            return queueSave(async () => {
-                const db = await loadProjectDB();
-                const current = getByPath(db, path);
-                const merged = mergeObjects(current, payload);
-                setByPath(db, path, merged);
-                await saveProjectDB(db);
-                return merged;
-            });
-        }
+
 
         async function ensureProjectFolders() {
             const folder = getProjectFolder();
@@ -855,33 +1066,7 @@
             };
         }
 
-        const debouncedSaveProjectFields = debounce(async () => {
-            const payload = collectProjectAutosavePayload();
-            if (!payload) return;
 
-            const comparable = JSON.stringify({ ...payload, updatedAt: 0 });
-            if (comparable === state.lastAutosavedProjectPayload) return;
-
-            state.lastAutosavedProjectPayload = comparable;
-            state.currentProjectName = payload.project;
-            state.expectedSensors = payload.sensorCount;
-
-            await patchProjectDB('', payload);
-        }, CONFIG.AUTO_SAVE_MS);
-
-        function startAutosaveLoop() {
-            stopAutosaveLoop();
-
-            state.autoSaveTimer = setInterval(async () => {
-                if (!state.currentProject) return;
-
-                debouncedSaveProjectFields();
-
-                if (state.hasUnsavedQCChanges) {
-                    await saveQCDataNow();
-                }
-            }, CONFIG.AUTO_SAVE_MS);
-        }
 
         function stopAutosaveLoop() {
             if (state.autoSaveTimer) clearInterval(state.autoSaveTimer);
@@ -1520,6 +1705,8 @@
             syncSensorTotalToQC();
         }
 
+
+
         function applyTaskToSiteInfo(projectData) {
             const map = {
                 date: projectData.startTime ? new Date(projectData.startTime).toISOString().split('T')[0] : '',
@@ -1535,35 +1722,6 @@
             });
         }
 
-        document.body.addEventListener('blur', async (event) => {
-            const target = event.target;
-            if (!(target instanceof HTMLElement)) return;
-
-            // Only care about inputs / selects / textareas
-            if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
-
-            if (!state.currentProject) return;
-
-            console.log('💾 Field finished:', target.id);
-
-            try {
-                // Save project basics
-                const payload = collectProjectAutosavePayload();
-                if (payload) {
-                    await patchProjectDB('', payload);
-                }
-
-                // Save QC if needed
-                if (target.closest('#qcChecklistSection')) {
-                    markQCDirty();
-                    await saveQCDataNow();
-                }
-
-            } catch (err) {
-                console.error('Save on blur failed:', err);
-            }
-
-        }, true); // 👈 IMPORTANT: use capture mode
 
         async function loadQCChecklist() {
             await initQCConfig();
@@ -1594,24 +1752,6 @@
             });
         }, 600);
 
-        async function saveQCDataNow() {
-            if (!state.currentProject || !state.qcConfig?.sections?.length) return;
-
-            const data = collectData();
-            if (!data || !Object.keys(data.sections || {}).length) return;
-
-            await ensureSiteDataFolder();
-
-            await queueSave(async () => {
-                await graphFetch(graphContentUrl(getQCPath()), {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data, null, 2)
-                });
-            });
-
-            state.hasUnsavedQCChanges = false;
-        }
 
         function markQCDirty() {
             state.hasUnsavedQCChanges = true;
