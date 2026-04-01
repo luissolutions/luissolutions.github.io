@@ -361,27 +361,31 @@
             return response.status === 204 ? null : response.json();
         }
 
+        let dbCache = null;
+        let dbLastLoaded = 0;
+
         async function loadDatabase() {
+            if (dbCache && Date.now() - dbLastLoaded < 5000) {
+                return dbCache;
+            }
+
             try {
                 const response = await graphFetch(graphContentUrl('data/db.json'));
-                return await response.json();
+                dbCache = await response.json();
+                dbLastLoaded = Date.now();
+                return dbCache;
 
             } catch (err) {
-
-                if (/404|itemNotFound/i.test(String(err))) {
-                    console.warn("DB not found → creating new one");
-
-                    const emptyDB = {};
-
+                if (/404/i.test(String(err))) {
+                    const empty = {};
                     await graphFetch(graphContentUrl('data/db.json'), {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(emptyDB, null, 2)
+                        body: JSON.stringify(empty)
                     });
-
-                    return emptyDB;
+                    dbCache = empty;
+                    return empty;
                 }
-
                 throw err;
             }
         }
@@ -520,29 +524,30 @@
             if (!input) return;
 
             const key = input.toLowerCase();
-
             const tasks = await readOnce(`${state.basePath}/tasks`) || {};
 
-            // 🔍 Find existing project
             const match = Object.entries(tasks).find(([id, data]) =>
                 (data.project || '').trim().toLowerCase() === key
             );
 
             if (match) {
-                // ✅ LOAD EXISTING
                 const [id] = match;
                 await loadProject(id);
                 return;
             }
 
-            // ➕ CREATE NEW
             const customerName = prompt("Enter Customer Name:");
             if (!customerName) {
                 alert("Customer name is required.");
                 return;
             }
 
-            const id = Date.now().toString();
+            // ✅ NEW CLEAN ID
+            const projectKey = sanitize(input);
+            const customerKey = sanitize(customerName);
+            const shortId = Date.now().toString().slice(-4);
+
+            const id = `${customerKey}_${projectKey}_${shortId}`;
 
             await setPath(`${state.basePath}/tasks/${id}`, {
                 id,
@@ -563,24 +568,37 @@
         }
 
         function getImagesPath(mode = 'sensors') {
-            const id = sanitize(state.currentProject || '');
-            return `${state.basePath}/tasks/images/${id}/${mode}`;
+            const customer = sanitize(state.currentCustomerName || 'unknown');
+            const project = sanitize(state.currentProjectName || 'unknown');
+
+            return `${state.basePath}/tasks/images/${customer}/${project}/${mode}`;
         }
 
         async function ensureFolderExists(path) {
-            try {
-                await graphFetch(graphChildrenUrl(path));
-            } catch (err) {
-                if (/404|itemNotFound/i.test(String(err))) {
-                    await graphFetch(graphContentUrl(`${path}/.init`), {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'text/plain' },
-                        body: 'init'
-                    });
-                } else {
-                    throw err;
+            const parts = path.split('/').filter(Boolean);
+            let current = '';
+
+            for (const part of parts) {
+                current += `/${part}`;
+                try {
+                    await graphFetch(graphChildrenUrl(current));
+                } catch (err) {
+                    if (/404|itemNotFound/i.test(String(err))) {
+                        await graphFetch(graphContentUrl(`${current}/.init`), {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'text/plain' },
+                            body: 'init'
+                        });
+                    } else {
+                        throw err;
+                    }
                 }
             }
+        }
+
+        async function safeListStorageItems(path) {
+            await ensureFolderExists(path);
+            return listStorageItems(path);
         }
 
         function sensorMetaBasePath() {
@@ -809,97 +827,62 @@
 
             const mode = document.querySelector('input[name="viewMode"]:checked')?.value || 'sensors';
             const base = getImagesPath(mode);
-await ensureFolderExists(base);
 
-                await ensureFolderExists(base);
-
-            let items = [];
-            try {
-                items = await listStorageItems(base);
-            } catch {
-                items = [];
-            }
+            const items = await safeListStorageItems(base).catch(() => []);
 
             const seen = new Set();
-            items = items.filter((item) => {
+            const filtered = items.filter((item) => {
                 if (seen.has(item.fullPath)) return false;
                 seen.add(item.fullPath);
                 return true;
             });
 
             const favorites = getFavorites();
-            items.sort((a, b) => {
+
+            filtered.sort((a, b) => {
                 const fa = favorites[a.fullPath] ? 1 : 0;
                 const fb = favorites[b.fullPath] ? 1 : 0;
                 if (fa !== fb) return fb - fa;
                 return a.name.localeCompare(b.name, undefined, { numeric: true });
             });
 
-            state.modalItems = items;
+            state.modalItems = filtered;
 
-            if ($('gallery')) $('gallery').innerHTML = '';
-            if ($('imageDropdown')) $('imageDropdown').innerHTML = '<option value="">-- Select an Image --</option>';
-            if ($('missingList')) $('missingList').innerHTML = '';
+            const gallery = $('gallery');
+            const dropdown = $('imageDropdown');
+            const missing = $('missingList');
 
-            items.forEach((item, index) => {
+            if (gallery) gallery.innerHTML = '';
+            if (dropdown) dropdown.innerHTML = '<option value="">-- Select an Image --</option>';
+            if (missing) missing.innerHTML = '';
+
+            filtered.forEach((item, index) => {
                 const container = createEl('div', { className: 'image-container' });
+
                 const img = createEl('img', {
-                    attrs: {
-                        src: item.url,
-                        loading: 'lazy',
-                        alt: item.name
-                    }
+                    attrs: { src: item.url, loading: 'lazy', alt: item.name }
                 });
 
-                img.addEventListener('click', () => showModalByIndex(index));
+                img.onclick = () => showModalByIndex(index);
 
                 const star = createEl('span', {
                     className: `favorite-star ${favorites[item.fullPath] ? 'favorited' : ''}`,
                     text: favorites[item.fullPath] ? '★' : '☆'
                 });
 
-                star.addEventListener('click', (event) => {
-                    event.stopPropagation();
+                star.onclick = (e) => {
+                    e.stopPropagation();
                     if (favorites[item.fullPath]) delete favorites[item.fullPath];
                     else favorites[item.fullPath] = true;
                     setFavorites(favorites);
                     updateGallery();
-                });
+                };
 
                 container.appendChild(img);
                 container.appendChild(star);
-                $('gallery')?.appendChild(container);
-                $('imageDropdown')?.appendChild(new Option(item.name, String(index)));
+                gallery?.appendChild(container);
+                dropdown?.appendChild(new Option(item.name, index));
             });
-
-            if (mode === 'sensors') {
-                const countMap = {};
-
-                items.forEach((item) => {
-                    const match = item.name.match(/(?:^|_)(\d{2})-/);
-                    if (match) {
-                        const idx = parseInt(match[1], 10);
-                        countMap[idx] = (countMap[idx] || 0) + 1;
-                    }
-                });
-
-                for (let i = 1; i <= state.expectedSensors; i += 1) {
-                    const have = countMap[i] || 0;
-                    if (have < CONFIG.SENSOR_IMAGE_COUNT_REQUIRED) {
-                        const padded = String(i).padStart(2, '0');
-                        const li = createEl('li', {
-                            text: `Sensor ${padded} - Missing ${CONFIG.SENSOR_IMAGE_COUNT_REQUIRED - have} image(s)`
-                        });
-
-                        li.dataset.sensor = String(i);
-                        li.className = 'missing-sensor';
-                        li.setAttribute('role', 'button');
-                        li.setAttribute('tabindex', '0');
-
-                        $('missingList')?.appendChild(li);
-                    }
-                }
-            }
         }
 
         function handlePickMissing(sensorNum) {
@@ -1134,6 +1117,8 @@ await ensureFolderExists(base);
                 if ($('sensorCount')) $('sensorCount').value = state.expectedSensors;
 
                 populateSensorDropdown(state.expectedSensors);
+
+                await ensureFolderExists(getImagesPath('sensors'));
 
                 await Promise.all([
                     updateGallery(),
