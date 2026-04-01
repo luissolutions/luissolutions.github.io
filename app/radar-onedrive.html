@@ -376,10 +376,24 @@
             try {
                 const response = await graphFetch(graphContentUrl('data/db.json'));
                 return await response.json();
+
             } catch (err) {
-                if (/404|itemNotFound/i.test(String(err))) return {};
-                console.warn('Using empty OneDrive database.', err);
-                return {};
+
+                if (/404|itemNotFound/i.test(String(err))) {
+                    console.warn("DB not found → creating new one");
+
+                    const emptyDB = {};
+
+                    await graphFetch(graphContentUrl('data/db.json'), {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(emptyDB, null, 2)
+                    });
+
+                    return emptyDB;
+                }
+
+                throw err;
             }
         }
 
@@ -476,8 +490,13 @@
             try {
                 const data = await graphFetchJson(graphChildrenUrl(path));
                 return data?.value || [];
+
             } catch (err) {
-                if (/404|itemNotFound/i.test(String(err))) return [];
+                if (/404|itemNotFound/i.test(String(err))) {
+                    console.warn("Folder not found, returning empty:", path);
+                    return [];
+                }
+
                 throw err;
             }
         }
