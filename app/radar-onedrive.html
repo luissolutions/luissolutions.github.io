@@ -3,10 +3,8 @@
 
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Radar App - OneDrive</title>
-
-    <!-- Microsoft Auth -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Radar App - OneDrive (Cleaned)</title>
     <script src="../apps/assets/js/sidebar.js"></script>
     <link rel="stylesheet" href="./assets/css/radartools.css" />
 </head>
@@ -23,7 +21,6 @@
     </header>
 
     <main id="mainApp">
-
         <section>
             <label>Project ID:
                 <input type="text" id="project" />
@@ -33,7 +30,7 @@
                 <input type="number" id="sensorCount" min="1" />
             </label>
 
-            <button id="saveProject" data-requires-edit style="display: none;">Save New Project</button>
+            <button id="saveProject" data-requires-edit style="display:none;">Save New Project</button>
 
             <label>
                 Search Projects:
@@ -192,39 +189,48 @@
             initMicrosoftAuth
         } from './assets/js/radar-microsoftAuth.js';
 
+        /* =========================
+           CONFIG
+        ========================= */
+
         const CONFIG = {
             MAX_NIGHTS: 10,
             DEFAULT_NIGHTS: 5,
             ADMIN_PASSWORD: 'telaidadmin',
-            AUTO_SAVE_MS: 2500,
             IMAGE_MAX_WIDTH: 2048,
             SENSOR_IMAGE_COUNT_REQUIRED: 2,
             ONEDRIVE_APP_ROOT: 'RadarApp',
             SHARED_DRIVE_ID: 'b!3mJ2DZSHdkmBrOccfkDkBt3Eklx5UvdMlDz0bmgGRktCiH2Pzkr5TbiD0DhegSHo',
-            USE_USER_SCOPED_DATA: false,
-            ADMIN_USERS: []
+            ADMIN_USERS: [],
+            SYNC_POLL_MS: 3000
         };
+
+        /* =========================
+           HELPERS
+        ========================= */
 
         const $ = (id) => document.getElementById(id);
         const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
-        const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (m) => ({
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#39;'
-        }[m]));
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (m) => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[m]));
+        }
 
-        const sanitize = (str) => (str || '')
-            .trim()
-            .replace(/\s+/g, '_')
-            .replace(/[\\/:*?"<>|#%{}~&]/g, '_');
+        function sanitize(str) {
+            return String(str || '').trim().replace(/\s+/g, '_').replace(/[\\/:*?"<>|#%{}~&]/g, '_');
+        }
 
-        const normalizeText = (v) => String(v ?? '').replace(/[\r\n]+/g, ' ').trim();
-        const normKey = (s) => (s || '').trim().toLowerCase();
+        function normalizeText(value) {
+            return String(value ?? '').replace(/[\r\n]+/g, ' ').trim();
+        }
 
-        const createEl = (tag, options = {}) => {
+        function normKey(value) {
+            return String(value || '').trim().toLowerCase();
+        }
+
+        function createEl(tag, options = {}) {
             const el = document.createElement(tag);
             if (options.className) el.className = options.className;
             if (options.text != null) el.textContent = options.text;
@@ -235,17 +241,59 @@
                 });
             }
             return el;
-        };
+        }
 
-        const debounce = (fn, delay = 300) => {
+        function debounce(fn, delay = 250) {
             let timer = null;
             return (...args) => {
                 clearTimeout(timer);
                 timer = setTimeout(() => fn(...args), delay);
             };
-        };
+        }
 
-        const downloadBlob = (blob, filename) => {
+        function getByPath(obj, path) {
+            return String(path || '')
+                .split('/')
+                .filter(Boolean)
+                .reduce((acc, part) => (acc == null ? undefined : acc[part]), obj);
+        }
+
+        function setByPath(obj, path, value) {
+            const parts = String(path || '').split('/').filter(Boolean);
+            if (!parts.length) return value;
+            let cursor = obj;
+            for (let i = 0; i < parts.length - 1; i += 1) {
+                const part = parts[i];
+                if (!cursor[part] || typeof cursor[part] !== 'object' || Array.isArray(cursor[part])) {
+                    cursor[part] = {};
+                }
+                cursor = cursor[part];
+            }
+            cursor[parts[parts.length - 1]] = value;
+            return obj;
+        }
+
+        function mergeObjects(base, patchValue) {
+            if (patchValue == null || typeof patchValue !== 'object' || Array.isArray(patchValue)) {
+                return patchValue;
+            }
+            const next = (base && typeof base === 'object' && !Array.isArray(base)) ? { ...base } : {};
+            Object.entries(patchValue).forEach(([key, value]) => {
+                next[key] = mergeObjects(next[key], value);
+            });
+            return next;
+        }
+
+        function rowsToCsv(rows) {
+            return rows.map((row) =>
+                row.map((cell) => {
+                    const text = String(cell ?? '');
+                    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+                }).join(',')
+            ).join('\n');
+        }
+
+        function downloadBlob(blob, filename) {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -254,62 +302,85 @@
             a.click();
             a.remove();
             URL.revokeObjectURL(url);
-        };
+        }
 
-        const downloadCSV = (rows, filename) => {
-            const csv = rows.map((row) => row.map((cell) => {
-                const text = String(cell ?? '');
-                return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-            }).join(',')).join('\n');
+        function downloadCSV(rows, filename) {
+            downloadBlob(new Blob([rowsToCsv(rows)], { type: 'text/csv;charset=utf-8' }), filename);
+        }
 
-            downloadBlob(
-                new Blob([csv], { type: 'text/csv;charset=utf-8' }),
-                filename
-            );
-        };
+        function normalizeNightCount(value, fallback = 1) {
+            const parsed = parseInt(value, 10);
+            if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+            return Math.min(parsed, CONFIG.MAX_NIGHTS);
+        }
 
-        const bestTime = (task, id) => Math.max(
-            Number(task?.updatedAt) || 0,
-            Number(task?.createdAt) || 0,
-            Number(task?.startTime) || 0,
-            Number(task?.timestamp) || 0,
-            Number(id) || 0
-        );
+        function getFavorites() {
+            try {
+                return JSON.parse(localStorage.getItem('favorites') || '{}');
+            } catch {
+                return {};
+            }
+        }
+
+        function setFavorites(favorites) {
+            localStorage.setItem('favorites', JSON.stringify(favorites));
+        }
+
+        /* =========================
+           STATE
+        ========================= */
 
         const state = {
-            basePath: 'public',
+            currentUser: null,
             currentProject: '',
             currentProjectName: '',
             currentCustomerName: '',
-            metaOwnerTaskId: '',
             expectedSensors: 0,
             allProjects: [],
-            validated: false,
-            isLoadingProject: false,
-            isUploading: false,
             modalItems: [],
             modalIndex: 0,
-            taskListenerUnsub: null,
             qcConfig: null,
-            qcListenerBound: false,
-            autoSaveTimer: null,
-            lastAutosavedPayload: '',
-            imageModule: null,
-            currentChecklistType: 'radar'
+            currentChecklistType: 'radar',
+            currentProjectData: {},
+            saveQueue: Promise.resolve(),
+            isLoadingProject: false,
+            isUploading: false,
+            isApplyingRemoteUpdate: false,
+            lastLoadedHash: '',
+            lastSavedHash: '',
+            syncInterval: null,
+            listeners: [],
+            uiListenerBound: false
         };
 
+        /* =========================
+           REACTIVE EVENTS (Firebase-like)
+        ========================= */
+
+        function onValue(callback) {
+            state.listeners.push(callback);
+        }
+
+        function notifyListeners(data) {
+            state.listeners.forEach((callback) => {
+                try {
+                    callback(data);
+                } catch (err) {
+                    console.error('Listener failed:', err);
+                }
+            });
+        }
+
+        /* =========================
+           GRAPH / ONEDRIVE
+        ========================= */
+
         function getDrivePrefix() {
-            return CONFIG.SHARED_DRIVE_ID
-                ? `/drives/${CONFIG.SHARED_DRIVE_ID}`
-                : '/me/drive';
+            return CONFIG.SHARED_DRIVE_ID ? `/drives/${CONFIG.SHARED_DRIVE_ID}` : '/me/drive';
         }
 
         function encodeGraphPath(path) {
-            return path
-                .split('/')
-                .filter(Boolean)
-                .map((part) => encodeURIComponent(part))
-                .join('/');
+            return path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
         }
 
         function appRelativePath(path = '') {
@@ -330,150 +401,30 @@
             return `https://graph.microsoft.com/v1.0${getDrivePrefix()}/root:/${encodeGraphPath(appRelativePath(path))}:/children`;
         }
 
+        function getStoredToken() {
+            return accessToken || localStorage.getItem('accessToken');
+        }
+
         async function graphFetch(url, options = {}) {
-            const token = accessToken || localStorage.getItem('accessToken');
-            if (!token) {
-                console.warn("No Microsoft token — skipping Graph request");
-                return {
-                    ok: false,
-                    json: async () => ({}),
-                    text: async () => ""
-                };
-            }
-
-            const headers = {
-                Authorization: `Bearer ${token}`,
-                ...(options.headers || {})
-            };
-
-            const response = await fetch(url, { ...options, headers });
-
+            const token = getStoredToken();
+            if (!token) throw new Error('Not authenticated with Microsoft');
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    ...(options.headers || {})
+                }
+            });
             if (!response.ok) {
                 const text = await response.text().catch(() => '');
                 throw new Error(`Graph request failed (${response.status}): ${text || response.statusText}`);
             }
-
             return response;
         }
 
         async function graphFetchJson(url, options = {}) {
             const response = await graphFetch(url, options);
             return response.status === 204 ? null : response.json();
-        }
-
-        let dbCache = null;
-        let dbLastLoaded = 0;
-
-        async function loadDatabase() {
-            if (dbCache && Date.now() - dbLastLoaded < 5000) {
-                return dbCache;
-            }
-
-            try {
-                const response = await graphFetch(graphContentUrl('data/db.json'));
-                dbCache = await response.json();
-                dbLastLoaded = Date.now();
-                return dbCache;
-
-            } catch (err) {
-                if (/404/i.test(String(err))) {
-                    const empty = {};
-                    await graphFetch(graphContentUrl('data/db.json'), {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(empty)
-                    });
-                    dbCache = empty;
-                    return empty;
-                }
-                throw err;
-            }
-        }
-
-        async function saveDatabase(db, retries = 3) {
-            try {
-                await graphFetch(graphContentUrl('data/db.json'), {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(db, null, 2)
-                });
-            } catch (err) {
-                if (/409/.test(String(err)) && retries > 0) {
-                    console.warn("Retrying save due to conflict...");
-                    await new Promise(r => setTimeout(r, 500));
-
-                    const fresh = await loadDatabase(true); // force reload
-                    const merged = mergeObjects(fresh, db);
-
-                    return saveDatabase(merged, retries - 1);
-                }
-                throw err;
-            }
-        }
-
-        function getByPath(obj, path) {
-            return String(path || '')
-                .split('/')
-                .filter(Boolean)
-                .reduce((acc, part) => (acc == null ? undefined : acc[part]), obj);
-        }
-
-        function ensureByPath(obj, path) {
-            const parts = String(path || '').split('/').filter(Boolean);
-            let cursor = obj;
-            parts.forEach((part) => {
-                if (!cursor[part] || typeof cursor[part] !== 'object' || Array.isArray(cursor[part])) {
-                    cursor[part] = {};
-                }
-                cursor = cursor[part];
-            });
-            return cursor;
-        }
-
-        function setByPath(obj, path, value) {
-            const parts = String(path || '').split('/').filter(Boolean);
-            if (!parts.length) return value;
-
-            let cursor = obj;
-            for (let i = 0; i < parts.length - 1; i += 1) {
-                const part = parts[i];
-                if (!cursor[part] || typeof cursor[part] !== 'object' || Array.isArray(cursor[part])) {
-                    cursor[part] = {};
-                }
-                cursor = cursor[part];
-            }
-
-            cursor[parts[parts.length - 1]] = value;
-            return obj;
-        }
-
-        function deepClone(value) {
-            return value == null ? value : JSON.parse(JSON.stringify(value));
-        }
-
-        function mergeObjects(base, patchValue) {
-            if (patchValue == null || typeof patchValue !== 'object' || Array.isArray(patchValue)) {
-                return patchValue;
-            }
-
-            const next = (base && typeof base === 'object' && !Array.isArray(base)) ? { ...base } : {};
-            Object.entries(patchValue).forEach(([key, value]) => {
-                next[key] = mergeObjects(next[key], value);
-            });
-            return next;
-        }
-
-        function getCurrentUserBasePath(user) {
-            if (!CONFIG.USE_USER_SCOPED_DATA) return 'shared';
-            const principal = (user?.userPrincipalName || user?.mail || 'shared').toLowerCase();
-            return `users/${sanitize(principal)}`;
-        }
-
-        async function setPath(path, value) {
-            const db = await loadDatabase();
-            setByPath(db, path, value);
-            await saveDatabase(db);
-            return deepClone(value);
         }
 
         async function graphUploadFile(path, fileBlob, contentType = 'application/octet-stream') {
@@ -496,129 +447,44 @@
             try {
                 const data = await graphFetchJson(graphChildrenUrl(path));
                 return data?.value || [];
-
             } catch (err) {
-                if (/404|itemNotFound/i.test(String(err))) {
-                    console.warn("Folder not found, returning empty:", path);
-                    return [];
-                }
-
+                if (/404|itemNotFound/i.test(String(err))) return [];
                 throw err;
             }
         }
 
-        function isAdminUser(user) {
-            const principal = (user?.userPrincipalName || user?.mail || '').toLowerCase();
-            const list = (CONFIG.ADMIN_USERS || []).map((item) => String(item).toLowerCase());
-            return !list.length || list.includes(principal);
-        }
-
-        function requireEditAccess() {
-            return true;
-        }
-
-        async function refreshAccessState() {
-
-            state.currentUser = await getUserInfo().catch(() => null);
-            state.basePath = getCurrentUserBasePath(state.currentUser);
-            if ($('mainApp')) $('mainApp').style.display = 'block';
-
-            const readOnly = state.currentUser && !isAdminUser(state.currentUser);
-            document.querySelectorAll('[data-requires-edit]').forEach((el) => {
-                el.disabled = !!readOnly;
-                el.classList.toggle('read-only-disabled', !!readOnly);
-            });
-
-            await populateProjects();
-        }
-
-        async function loadOrCreateProject() {
-            const input = $('project')?.value.trim();
-            if (!input) return;
-
-            const key = input.toLowerCase();
-            const tasks = await readOnce(`${state.basePath}/tasks`) || {};
-
-            const match = Object.entries(tasks).find(([id, data]) =>
-                (data.project || '').trim().toLowerCase() === key
-            );
-
-            if (match) {
-                const [id] = match;
-                await loadProject(id);
-                return;
-            }
-
-            const customerName = prompt("Enter Customer Name:");
-            if (!customerName) {
-                alert("Customer name is required.");
-                return;
-            }
-
-            // ✅ NEW CLEAN ID
-            const projectKey = sanitize(input);
-            const customerKey = sanitize(customerName);
-            const shortId = Date.now().toString().slice(-4);
-
-            const id = `${customerKey}_${projectKey}_${shortId}`;
-
-            await setPath(`${state.basePath}/tasks/${id}`, {
-                id,
-                project: input,
-                customerName: customerName.trim(),
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                sensorMeta: {},
-                qcData: {}
-            });
-
-            await loadProject(id);
-            await populateProjects();
-        }
-
-        function getTaskPath(taskId = state.currentProject) {
-            return `${state.basePath}/tasks/${taskId}`;
-        }
-
-        function getSiteBasePath() {
-            const site = sanitize(state.currentProjectName || 'unknown');
-            return `${site}`;
-        }
-
-        function getImagesPath(mode = 'sensors') {
-            const siteBase = getSiteBasePath();
-
-            if (mode === 'sensors') {
-                return `${siteBase}/Sensors`;
-            }
-
-            if (mode === 'deliverables') {
-                return `${siteBase}/Deliverables`;
-            }
-
-            return `${siteBase}/Other`;
-        }
-
         async function ensureFolderExists(path) {
-            const parts = path.split('/').filter(Boolean);
+            const parts = String(path || '').split('/').filter(Boolean);
             let current = '';
-
             for (const part of parts) {
                 current += `/${part}`;
                 try {
-                    await graphFetch(graphChildrenUrl(current));
+                    await graphFetch(graphItemUrl(current));
                 } catch (err) {
-                    if (/404|itemNotFound/i.test(String(err))) {
-                        await graphFetch(graphContentUrl(`${current}/.init`), {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'text/plain' },
-                            body: 'init'
-                        });
-                    } else {
-                        throw err;
-                    }
+                    if (!/404|itemNotFound/i.test(String(err))) throw err;
+                    const parentPath = current.substring(0, current.lastIndexOf('/')) || '';
+                    await graphFetch(graphChildrenUrl(parentPath), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name: part,
+                            folder: {},
+                            '@microsoft.graph.conflictBehavior': 'replace'
+                        })
+                    });
                 }
             }
+        }
+
+        async function listStorageItems(path) {
+            const items = await graphListFolder(path);
+            return items.filter((item) => !!item.file).map((item) => ({
+                id: item.id,
+                name: item.name,
+                fullPath: `${path}/${item.name}`,
+                url: item['@microsoft.graph.downloadUrl'] || item.webUrl,
+                ref: item
+            }));
         }
 
         async function safeListStorageItems(path) {
@@ -626,452 +492,177 @@
             return listStorageItems(path);
         }
 
-        function sensorMetaBasePath() {
-            return `${state.basePath}/tasks/${state.metaOwnerTaskId}/sensorMeta`;
+        async function getUniqueFilename(folderPath, filename) {
+            const existing = await listStorageItems(folderPath).catch(() => []);
+            const names = new Set(existing.map((item) => item.name));
+            const dot = filename.lastIndexOf('.');
+            const base = dot >= 0 ? filename.slice(0, dot) : filename;
+            const ext = dot >= 0 ? filename.slice(dot) : '';
+            let attempt = `${base}${ext}`;
+            let i = 1;
+            while (names.has(attempt)) {
+                attempt = `${base}_${i}${ext}`;
+                i += 1;
+            }
+            return attempt;
         }
 
-        function getFavorites() {
+        /* =========================
+           PROJECT PATHS / LOCAL CACHE
+        ========================= */
+
+        function getProjectFolder() {
+            return sanitize(state.currentProjectName || state.currentProject || 'unknown');
+        }
+
+        function getProjectDataPath() {
+            return `${getProjectFolder()}/data.json`;
+        }
+
+        function getQCPath() {
+            return `${getProjectFolder()}/Data/qc.json`;
+        }
+
+        function getImagesPath(mode = 'sensors') {
+            const base = getProjectFolder();
+            if (mode === 'sensors') return `${base}/Sensors`;
+            if (mode === 'deliverables') return `${base}/Deliverables`;
+            return `${base}/Other`;
+        }
+
+        function localKey() {
+            return `project_${state.currentProject}`;
+        }
+
+        function saveToLocal(db) {
+            if (!state.currentProject) return;
+            localStorage.setItem(localKey(), JSON.stringify(db));
+        }
+
+        function loadFromLocal() {
             try {
-                return JSON.parse(localStorage.getItem('favorites') || '{}');
+                return JSON.parse(localStorage.getItem(localKey()) || '{}');
             } catch {
                 return {};
             }
         }
 
-        function setFavorites(favorites) {
-            localStorage.setItem('favorites', JSON.stringify(favorites));
-        }
-
-        async function readOnce(path) {
-            const db = await loadDatabase();
-            const value = getByPath(db, path);
-            return value == null ? null : deepClone(value);
-        }
-
-        async function patch(path, payload) {
-            const db = await loadDatabase();
-            const current = getByPath(db, path);
-            const merged = mergeObjects(current, payload);
-            setByPath(db, path, merged);
-            await saveDatabase(db);
-            return deepClone(merged);
-        }
-
-        async function listStorageItems(path) {
-            const items = await graphListFolder(path);
-            return items
-                .filter((item) => !!item.file)
-                .map((item) => ({
-                    id: item.id,
-                    name: item.name,
-                    fullPath: `${path}/${item.name}`,
-                    url: item['@microsoft.graph.downloadUrl'] || item.webUrl,
-                    ref: item
-                }));
-        }
-
-        async function getUniqueFilename(folderPath, filename) {
-            const existing = await listStorageItems(folderPath).catch(() => []);
-            const names = new Set(existing.map((item) => item.name));
-
-            const idx = filename.lastIndexOf('.');
-            const base = idx >= 0 ? filename.slice(0, idx) : filename;
-            const ext = idx >= 0 ? filename.slice(idx) : '';
-            let attempt = `${base}${ext}`;
-            let suffix = 1;
-
-            while (names.has(attempt)) {
-                attempt = `${base}_${suffix++}${ext}`;
+        async function loadProjectDB() {
+            const local = loadFromLocal();
+            if (local && Object.keys(local).length && local.id === state.currentProject) {
+                return local;
             }
-
-            return attempt;
-        }
-
-        function populateSensorDropdown(count) {
-            [$('sensorMetaNumberDropdown'), $('sensorNumberDropdown')].forEach((dropdown) => {
-                if (!dropdown) return;
-                dropdown.innerHTML = '<option value="">Select a Device</option>';
-                for (let i = 1; i <= count; i += 1) {
-                    const padded = String(i).padStart(2, '0');
-                    dropdown.appendChild(new Option(padded, String(i)));
-                }
-            });
-        }
-
-        function updateImageModeUI() {
-            const mode = document.querySelector('input[name="viewMode"]:checked')?.value || 'sensors';
-            if ($('sensorUploadSection')) $('sensorUploadSection').style.display = mode === 'sensors' ? 'block' : 'none';
-            if ($('deliverableUploadSection')) $('deliverableUploadSection').style.display = mode === 'deliverables' ? 'block' : 'none';
-        }
-
-        function showModalByIndex(index) {
-            const item = state.modalItems[index];
-            if (!item) return;
-
-            state.modalIndex = index;
-            if ($('modalImage')) $('modalImage').src = item.url;
-            if ($('modalFileName')) $('modalFileName').textContent = item.name;
-            if ($('modal')) $('modal').style.display = 'flex';
-        }
-
-        function closeModal() {
-            if ($('modal')) $('modal').style.display = 'none';
-            if ($('modalImage')) $('modalImage').src = '';
-            if ($('modalFileName')) $('modalFileName').textContent = '';
-        }
-
-        async function loadSensorMeta(sensorNum) {
-            if (!sensorNum || !state.metaOwnerTaskId) return;
-            const data = await readOnce(`${sensorMetaBasePath()}/${sensorNum}`) || {};
-
-            if ($('sensorMetaSerial')) $('sensorMetaSerial').value = data.serial || '';
-            if ($('sensorMetaM1')) $('sensorMetaM1').value = data.m1 || '';
-            if ($('sensorMetaM2')) $('sensorMetaM2').value = data.m2 || '';
-            if ($('sensorMetaM3')) $('sensorMetaM3').value = data.m3 || '';
-
-            if ($('serialNumber') && !$('serialNumber').value && data.serial) {
-                $('serialNumber').value = data.serial;
-            }
-        }
-
-        async function saveSensorMeta() {
-            if (!requireEditAccess()) return;
-            const sensorNum = $('sensorMetaNumberDropdown')?.value;
-            if (!sensorNum || !state.metaOwnerTaskId) {
-                alert('Select a device first.');
-                return;
-            }
-
-            await patch(sensorMetaBasePath(), {
-                [sensorNum]: {
-                    serial: $('sensorMetaSerial')?.value.trim() || '',
-                    m1: $('sensorMetaM1')?.value.trim() || '',
-                    m2: $('sensorMetaM2')?.value.trim() || '',
-                    m3: $('sensorMetaM3')?.value.trim() || '',
-                    updatedAt: Date.now()
-                }
-            });
-
-            if ($('sensorNumberDropdown')?.value === sensorNum && $('serialNumber')) {
-                $('serialNumber').value = $('sensorMetaSerial')?.value.trim() || '';
-            }
-
-            alert('Device info saved.');
-        }
-
-        async function exportSensorMetaCsv() {
-            if (!state.currentProject) {
-                alert('No project selected.');
-                return;
-            }
-
-            const snapshot = await readOnce(sensorMetaBasePath());
-            if (!snapshot) {
-                alert('No device data found.');
-                return;
-            }
-
-            const rows = [['Device #', 'Serial', 'Info 1', 'Info 2', 'Info 3']];
-            Object.entries(snapshot).forEach(([sensorNum, meta]) => {
-                rows.push([
-                    normalizeText(sensorNum),
-                    normalizeText(meta.serial),
-                    normalizeText(meta.m1),
-                    normalizeText(meta.m2),
-                    normalizeText(meta.m3)
-                ]);
-            });
-
-            downloadCSV(rows, `${sanitize(state.currentProjectName || state.currentProject)}_deviceData.csv`);
-        }
-
-        const resizeImage = (file, maxWidth = CONFIG.IMAGE_MAX_WIDTH) => new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onerror = reject;
-
-            reader.onload = () => {
-                const img = new Image();
-                img.onerror = reject;
-                img.src = reader.result;
-
-                img.onload = () => {
-                    let { width, height } = img;
-                    if (width > maxWidth) {
-                        height *= maxWidth / width;
-                        width = maxWidth;
-                    }
-
-                    const canvas = document.createElement('canvas');
-                    canvas.width = width;
-                    canvas.height = height;
-                    canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-
-                    canvas.toBlob((blob) => resolve(blob || file), 'image/jpeg', 0.92);
-                };
-            };
-
-            reader.readAsDataURL(file);
-        });
-
-        const addTextToImage = (blob, text) => new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onerror = reject;
-
-            reader.onload = () => {
-                const img = new Image();
-                img.onerror = reject;
-                img.src = reader.result;
-
-                img.onload = () => {
-                    const barHeight = Math.max(72, Math.round(img.width * 0.08));
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img.width;
-                    canvas.height = img.height + barHeight;
-
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0);
-
-                    ctx.fillStyle = 'black';
-                    ctx.fillRect(0, img.height, canvas.width, barHeight);
-
-                    ctx.fillStyle = 'white';
-                    ctx.font = `bold ${Math.max(28, Math.round(img.width * 0.05))}px Arial`;
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(text, canvas.width / 2, img.height + barHeight / 2);
-
-                    canvas.toBlob((finalBlob) => resolve(finalBlob || blob), 'image/jpeg', 0.92);
-                };
-            };
-
-            reader.readAsDataURL(blob);
-        });
-
-        async function updateGallery() {
-            if (!state.currentProject) return;
-
-            const mode = document.querySelector('input[name="viewMode"]:checked')?.value || 'sensors';
-            const base = getImagesPath(mode);
-
-            const items = await safeListStorageItems(base).catch(() => []);
-
-            const seen = new Set();
-            const filtered = items.filter((item) => {
-                if (seen.has(item.fullPath)) return false;
-                seen.add(item.fullPath);
-                return true;
-            });
-
-            const favorites = getFavorites();
-
-            filtered.sort((a, b) => {
-                const fa = favorites[a.fullPath] ? 1 : 0;
-                const fb = favorites[b.fullPath] ? 1 : 0;
-                if (fa !== fb) return fb - fa;
-                return a.name.localeCompare(b.name, undefined, { numeric: true });
-            });
-
-            state.modalItems = filtered;
-
-            const gallery = $('gallery');
-            const dropdown = $('imageDropdown');
-            const missing = $('missingList');
-
-            if (gallery) gallery.innerHTML = '';
-            if (dropdown) dropdown.innerHTML = '<option value="">-- Select an Image --</option>';
-            if (missing) missing.innerHTML = '';
-
-            filtered.forEach((item, index) => {
-                const container = createEl('div', { className: 'image-container' });
-
-                const img = createEl('img', {
-                    attrs: { src: item.url, loading: 'lazy', alt: item.name }
-                });
-
-                img.onclick = () => showModalByIndex(index);
-
-                const star = createEl('span', {
-                    className: `favorite-star ${favorites[item.fullPath] ? 'favorited' : ''}`,
-                    text: favorites[item.fullPath] ? '★' : '☆'
-                });
-
-                star.onclick = (e) => {
-                    e.stopPropagation();
-                    if (favorites[item.fullPath]) delete favorites[item.fullPath];
-                    else favorites[item.fullPath] = true;
-                    setFavorites(favorites);
-                    updateGallery();
-                };
-
-                container.appendChild(img);
-                container.appendChild(star);
-                gallery?.appendChild(container);
-                dropdown?.appendChild(new Option(item.name, index));
-            });
-        }
-
-        function handlePickMissing(sensorNum) {
-            const sensorsRadio = document.querySelector('input[name="viewMode"][value="sensors"]');
-            if (sensorsRadio && !sensorsRadio.checked) {
-                sensorsRadio.checked = true;
-                updateImageModeUI();
-            }
-
-            if ($('sensorNumberDropdown')) $('sensorNumberDropdown').value = sensorNum;
-            if ($('sensorMetaNumberDropdown')) $('sensorMetaNumberDropdown').value = sensorNum;
-
-            $('sensorNumberDropdown')?.dispatchEvent(new Event('change', { bubbles: true }));
-            $('sensorMetaNumberDropdown')?.dispatchEvent(new Event('change', { bubbles: true }));
-
-            $('sensorUploadSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            setTimeout(() => $('serialNumber')?.focus(), 250);
-        }
-
-        async function uploadSensor() {
-            if (!requireEditAccess()) return;
-            if (state.isUploading) return;
-
-            const num = $('sensorNumberDropdown')?.value;
-            const serial = sanitize($('serialNumber')?.value);
-            const file = $('sensorImage')?.files?.[0];
-            const skipMarkup = $('skipMarkupCheckbox')?.checked;
-
-            if (!state.currentProject || !num || !serial || !file) {
-                alert('Fill out all fields');
-                return;
-            }
-
-            state.isUploading = true;
-            if ($('uploadImage')) {
-                $('uploadImage').disabled = true;
-                $('uploadImage').textContent = 'Uploading...';
-            }
-
             try {
-                const paddedNum = String(num).padStart(2, '0');
-                const folderPath = getImagesPath('sensors');
-                const existing = await listStorageItems(folderPath).catch(() => []);
-                const prefix = sanitize(state.currentCustomerName || state.currentProjectName || state.currentProject);
-
-                const matchCount = existing.filter((item) => item.name.startsWith(`${prefix}_${paddedNum}`)).length;
-                if (matchCount >= CONFIG.SENSOR_IMAGE_COUNT_REQUIRED) {
-                    const proceed = confirm(`Sensor ${paddedNum} already has ${CONFIG.SENSOR_IMAGE_COUNT_REQUIRED} uploads. Upload another?`);
-                    if (!proceed) return;
-                }
-
-                let blob = await resizeImage(file, CONFIG.IMAGE_MAX_WIDTH);
-
-                if (!skipMarkup) {
-                    const labelBase = (state.currentCustomerName || state.currentProjectName || state.currentProject).trim();
-                    blob = await addTextToImage(blob, `${labelBase} ${paddedNum} - ${serial}`);
-                }
-
-                const filename = await getUniqueFilename(folderPath, `${prefix}_${paddedNum}-${serial}.jpg`);
-                await graphUploadFile(`${folderPath}/${filename}`, blob, 'image/jpeg');
-
-                await patch(sensorMetaBasePath(), {
-                    [num]: {
-                        serial: $('serialNumber')?.value.trim() || '',
-                        m1: $('sensorMetaM1')?.value.trim() || '',
-                        m2: $('sensorMetaM2')?.value.trim() || '',
-                        m3: $('sensorMetaM3')?.value.trim() || '',
+                const response = await graphFetch(graphContentUrl(getProjectDataPath()));
+                const data = await response.json();
+                saveToLocal(data);
+                return data;
+            } catch (err) {
+                if (/404/i.test(String(err))) {
+                    const empty = {
+                        id: state.currentProject,
+                        project: state.currentProjectName || '',
+                        customerName: state.currentCustomerName || '',
+                        sensorCount: state.expectedSensors || 0,
+                        sensorMeta: {},
+                        qcData: { sections: {} },
+                        createdAt: Date.now(),
                         updatedAt: Date.now()
-                    }
-                });
+                    };
+                    saveToLocal(empty);
+                    return empty;
+                }
+                if (local && Object.keys(local).length) return local;
+                throw err;
+            }
+        }
 
-                if ($('sensorImage')) $('sensorImage').value = '';
-                await updateGallery();
-            } catch (err) {
-                console.error(err);
-                alert('Upload failed.');
-            } finally {
-                state.isUploading = false;
-                if ($('uploadImage')) {
-                    $('uploadImage').disabled = false;
-                    $('uploadImage').textContent = 'Upload';
+        async function saveProjectDB(db) {
+            await graphFetch(graphContentUrl(getProjectDataPath()), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(db, null, 2)
+            });
+
+            if (db.qcData) {
+                try {
+                    await ensureFolderExists(`${getProjectFolder()}/Data`);
+                    await graphFetch(graphContentUrl(getQCPath()), {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(db.qcData, null, 2)
+                    });
+                } catch (err) {
+                    console.warn('QC cloud save failed:', err);
                 }
             }
         }
-        async function uploadDeliverableImage() {
-            if (!requireEditAccess()) return;
-            const file = $('fileUploader')?.files?.[0];
-            const imageName = sanitize($('imageNameInput')?.value);
-            const markup = $('markupTextInput')?.value.trim();
 
-            if (!state.currentProject || !file || !imageName) {
-                alert('Choose a file and enter a name.');
-                return;
+        async function readProjectPath(path = '') {
+            const db = await loadProjectDB();
+            return path ? getByPath(db, path) : db;
+        }
+
+        function queueSave(work) {
+            state.saveQueue = state.saveQueue.catch(() => { }).then(work);
+            return state.saveQueue;
+        }
+
+        async function ensureProjectFolders() {
+            const folder = getProjectFolder();
+            await ensureFolderExists(folder);
+            await ensureFolderExists(`${folder}/Sensors`);
+            await ensureFolderExists(`${folder}/Deliverables`);
+            await ensureFolderExists(`${folder}/Data`);
+        }
+
+        /* =========================
+           ACCESS / AUTH
+        ========================= */
+
+        function isAdminUser(user) {
+            const principal = (user?.userPrincipalName || user?.mail || '').toLowerCase();
+            const admins = (CONFIG.ADMIN_USERS || []).map((item) => String(item).toLowerCase());
+            return !admins.length || admins.includes(principal);
+        }
+
+        function requireEditAccess() {
+            return true;
+        }
+
+        async function refreshAccessState() {
+            state.currentUser = await getUserInfo().catch(() => null);
+            const loggedIn = isLoggedIn();
+
+            if ($('mainApp')) $('mainApp').style.display = 'block';
+
+            if ($('loginStatus')) {
+                $('loginStatus').textContent = loggedIn
+                    ? `Logged in as: ${state.currentUser?.displayName || state.currentUser?.userPrincipalName || 'Microsoft User'}`
+                    : 'Not logged in';
             }
 
-            try {
-                let blob = await resizeImage(file, CONFIG.IMAGE_MAX_WIDTH);
-                if (markup) blob = await addTextToImage(blob, markup);
+            if ($('loginButton')) $('loginButton').style.display = loggedIn ? 'none' : 'inline-block';
+            if ($('logoutButton')) $('logoutButton').style.display = loggedIn ? 'inline-block' : 'none';
 
-                const folderPath = getImagesPath('deliverables');
-                const filename = await getUniqueFilename(folderPath, `${imageName}.jpg`);
-                await graphUploadFile(`${folderPath}/${filename}`, blob, 'image/jpeg');
+            const readOnly = loggedIn && state.currentUser && !isAdminUser(state.currentUser);
+            document.querySelectorAll('[data-requires-edit]').forEach((el) => {
+                el.disabled = !!readOnly;
+                el.classList.toggle('read-only-disabled', !!readOnly);
+            });
 
-                if ($('fileUploader')) $('fileUploader').value = '';
-                if ($('imageNameInput')) $('imageNameInput').value = '';
-                if ($('markupTextInput')) $('markupTextInput').value = '';
-
-                await updateGallery();
-            } catch (err) {
-                console.error(err);
-                alert('Deliverable upload failed.');
-            }
+            if (loggedIn) await populateProjects().catch(() => { });
         }
 
-        async function deleteCurrentModalImage() {
-            const item = state.modalItems[state.modalIndex];
-            if (!item) return;
-
-            const ok = await confirmWithPassword('delete this image');
-            if (!ok) {
-                alert('Incorrect password.');
-                return;
-            }
-
-            if (!requireEditAccess()) return;
-
-            await graphDeletePath(item.fullPath);
-            closeModal();
-            await updateGallery();
-        }
-
-        function confirmWithPassword(actionDescription = 'this action') {
-            const input = prompt(`Enter password to confirm ${actionDescription}:`);
-            return Promise.resolve(input === CONFIG.ADMIN_PASSWORD);
-        }
-
-        async function populateProjects() {
-            const tasks = await readOnce(`${state.basePath}/tasks`) || {};
-
-            state.allProjects = Object.entries(tasks)
-                .map(([id, task]) => {
-                    const customer = (task.customerName || '').trim();
-                    const project = (task.project || '').trim();
-
-                    if (!customer && !project) return null;
-
-                    return {
-                        id,
-                        customer,
-                        project,
-                        label: `${customer || '(No Customer)'} — ${project || '(No Project)'}`,
-                        time: bestTime(task, id)
-                    };
-                })
-                .filter(Boolean)
-                .sort((a, b) => b.time - a.time);
-
-            renderProjectDropdown(state.allProjects);
-        }
+        /* =========================
+           PROJECT LIST / BASICS
+        ========================= */
 
         function renderProjectDropdown(projects) {
-            if (!$('projectList')) return;
-            $('projectList').innerHTML = '<option value="">-- Choose a customer --</option>';
-            projects.forEach((p) => $('projectList').appendChild(new Option(p.label, p.id)));
+            const select = $('projectList');
+            if (!select) return;
+            select.innerHTML = '<option value="">-- Choose a project --</option>';
+            projects.forEach((project) => select.appendChild(new Option(project.label, project.id)));
         }
 
         function filterProjects() {
@@ -1080,211 +671,120 @@
                 renderProjectDropdown(state.allProjects);
                 return;
             }
-
-            renderProjectDropdown(
-                state.allProjects.filter((p) => normKey(`${p.customer} ${p.project}`).includes(query))
-            );
+            renderProjectDropdown(state.allProjects.filter((project) => normKey(project.label).includes(query)));
         }
 
-        async function resolveMetaOwnerTaskId() {
-            state.metaOwnerTaskId = state.currentProject;
-
-            const projKey = normKey(state.currentProjectName);
-            const custKey = normKey(state.currentCustomerName);
-
-            if (!projKey && !custKey) return state.metaOwnerTaskId;
-
-            const tasks = await readOnce(`${state.basePath}/tasks`) || {};
-            const matches = Object.entries(tasks).filter(([, task]) =>
-                normKey(task.project) === projKey &&
-                normKey(task.customerName) === custKey
-            );
-
-            if (!matches.length) return state.metaOwnerTaskId;
-
-            matches.sort((a, b) => bestTime(a[1], a[0]) - bestTime(b[1], b[0]));
-            state.metaOwnerTaskId = matches[0][0];
-            return state.metaOwnerTaskId;
+        async function populateProjects() {
+            const items = await graphListFolder('');
+            const folders = items.filter((item) => !!item.folder);
+            state.allProjects = folders.map((folder) => ({
+                id: folder.name,
+                label: folder.name,
+                time: new Date(folder.lastModifiedDateTime || 0).getTime()
+            }));
+            renderProjectDropdown(state.allProjects);
         }
 
-        async function startApp(projectId) {
-            state.validated = true;
-            localStorage.setItem('lastProject', projectId);
+        function populateSensorDropdown(count) {
+            const dropdowns = [
+                $('sensorMetaNumberDropdown'),
+                $('sensorNumberDropdown')
+            ];
 
-            await populateProjects();
-            if ($('projectList')) $('projectList').value = projectId;
+            dropdowns.forEach(dropdown => {
+                if (!dropdown) return;
 
-            await loadProject(projectId);
-            startAutosaveLoop();
-        }
+                const currentValue = dropdown.value;
 
-        async function loadProject(projectId) {
-            if (state.isLoadingProject) return;
-            state.isLoadingProject = true;
+                const existingCount = dropdown.options.length - 1;
 
-            try {
-                state.currentProject = projectId;
+                // ✅ Prevent rebuild if nothing changed
+                if (existingCount === count) return;
 
-                const data = await readOnce(getTaskPath(projectId));
-                if (!data) throw new Error('No project data');
+                dropdown.innerHTML = '<option value="">Select a Device</option>';
 
-                state.currentProjectName = data.project || '';
-                state.currentCustomerName = (data.customerName || '').trim();
+                for (let i = 1; i <= count; i++) {
+                    const val = String(i);
+                    const text = String(i).padStart(2, '0');
+                    dropdown.appendChild(new Option(text, val));
+                }
 
-                await resolveMetaOwnerTaskId();
-
-                const owner = await readOnce(getTaskPath(state.metaOwnerTaskId)) || data;
-                state.expectedSensors = Number(owner.sensorCount) || 0;
-
-                syncSensorTotalToQC();
-
-                if ($('project')) $('project').value = state.currentProjectName;
-                if ($('sensorCount')) $('sensorCount').value = state.expectedSensors;
-
-                populateSensorDropdown(state.expectedSensors);
-
-                const base = getSiteBasePath();
-
-                await ensureFolderExists(base);
-                await ensureFolderExists(`${base}/Sensors`);
-                await ensureFolderExists(`${base}/Deliverables`);
-                await ensureFolderExists(`${base}/Data`);
-
-                await Promise.all([
-                    updateGallery(),
-                    loadQCChecklist(projectId)
-                ]);
-
-                syncSensorTotalToQC();
-                initCollapsibles();
-                bindRealtimeProjectListener(projectId);
-            } catch (err) {
-                console.error('[loadProject] Failed:', err);
-                alert('Failed to load project. Check console for details.');
-            } finally {
-                state.isLoadingProject = false;
-            }
-        }
-
-        function bindRealtimeProjectListener(_projectId) {
-            if (state.taskListenerUnsub) state.taskListenerUnsub();
-            state.taskListenerUnsub = null;
-        }
-
-        async function saveProjectBasics() {
-            if (!requireEditAccess()) return;
-            if (!state.currentProject) {
-                alert('No project selected.');
-                return;
-            }
-
-            state.currentProjectName = $('project')?.value.trim() || '';
-            state.expectedSensors = Math.max(0, Number($('sensorCount')?.value) || 0);
-
-            await patch(getTaskPath(), {
-                project: state.currentProjectName,
-                sensorCount: state.expectedSensors,
-                updatedAt: Date.now()
+                // ✅ restore selection
+                dropdown.value = currentValue;
             });
-
-            populateSensorDropdown(state.expectedSensors);
-            await populateProjects();
-
-            alert('Project saved.');
         }
 
-        function collectProjectAutosavePayload() {
-            if (!state.currentProject) return null;
-
+        function collectProjectPayloadFromUi() {
             return {
-                project: $('project')?.value.trim() || '',
-                sensorCount: Math.max(0, Number($('sensorCount')?.value) || 0),
-                updatedAt: Date.now()
+                id: state.currentProject,
+                project: $('project')?.value.trim() || state.currentProjectName || '',
+                customerName: state.currentCustomerName || '',
+                sensorCount: Math.max(0, Number($('sensorCount')?.value) || 0)
             };
         }
 
-        const debouncedSaveProjectFields = debounce(async () => {
-            const payload = collectProjectAutosavePayload();
-            if (!payload) return;
-
-            const comparable = JSON.stringify({ ...payload, updatedAt: 0 });
-            if (comparable === state.lastAutosavedPayload) return;
-
-            state.lastAutosavedPayload = comparable;
-            state.currentProjectName = payload.project;
-            state.expectedSensors = payload.sensorCount;
-
-            await patch(getTaskPath(), payload);
-        }, CONFIG.AUTO_SAVE_MS);
-
-        function startAutosaveLoop() {
-            stopAutosaveLoop();
-            state.autoSaveTimer = setInterval(() => {
-                if (!state.currentProject) return;
-                debouncedSaveProjectFields();
-                saveQCData();
-            }, CONFIG.AUTO_SAVE_MS);
+        function syncSensorTotalToQC() {
+            const total = state.expectedSensors || 0;
+            const field = $('field_sensorTotal');
+            if (field && String(field.value) !== String(total)) field.value = total;
+            $$('.sensor-total').forEach((el) => {
+                if (el.textContent !== `/ ${total}`) el.textContent = `/ ${total}`;
+            });
         }
 
-        function stopAutosaveLoop() {
-            if (state.autoSaveTimer) clearInterval(state.autoSaveTimer);
-            state.autoSaveTimer = null;
+        function applyTaskToSiteInfo(projectData) {
+            state.currentProjectName = projectData.project || state.currentProjectName;
+            state.currentCustomerName = projectData.customerName || state.currentCustomerName;
+            state.expectedSensors = Math.max(0, Number(projectData.sensorCount) || 0);
+
+            const map = {
+                date: projectData.startTime ? new Date(projectData.startTime).toISOString().split('T')[0] : '',
+                siteNumber: projectData.project || '',
+                sensorTotal: projectData.sensorCount || '',
+                installSummary: projectData.notes || '',
+                location: projectData.customerAddress || ''
+            };
+
+            Object.entries(map).forEach(([key, value]) => {
+                const el = $(`field_${key}`);
+                if (el) el.value = value ?? '';
+            });
+
+            if ($('project')) $('project').value = state.currentProjectName || '';
+            if ($('sensorCount')) $('sensorCount').value = state.expectedSensors || 0;
+
+            populateSensorDropdown(state.expectedSensors);
+            syncSensorTotalToQC();
         }
+
+        /* =========================
+           QC CONFIG / RENDERING
+        ========================= */
 
         async function initQCConfig(force = false) {
             if (!force && state.qcConfig?.sections?.length) return;
-
-            try {
-                if ($('app')) $('app').textContent = 'Loading checklist configuration...';
-
-                const fileMap = {
-                    radar: './assets/js/radar_checklist.json',
-                    remote: './assets/js/remote_checklist.json',
-                    audit: './assets/js/audit_checklist.json'
-                };
-
-                const file = fileMap[state.currentChecklistType] || fileMap.radar;
-
-                const response = await fetch(file);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-                const config = await response.json();
-
-                if (!config || !Array.isArray(config.sections)) {
-                    throw new Error('Invalid config format');
-                }
-
-                state.qcConfig = config;
-
-            } catch (err) {
-                console.error('Failed to load QC config:', err);
-                if ($('app')) $('app').textContent = 'Config failed to load.';
-                alert('QC checklist config failed to load.');
-            }
+            const fileMap = {
+                radar: './assets/js/radar_checklist.json',
+                remote: './assets/js/remote_checklist.json',
+                audit: './assets/js/audit_checklist.json'
+            };
+            const file = fileMap[state.currentChecklistType] || fileMap.radar;
+            const response = await fetch(file);
+            if (!response.ok) throw new Error(`Checklist config failed (${response.status})`);
+            const config = await response.json();
+            if (!config || !Array.isArray(config.sections)) throw new Error('Invalid checklist config');
+            state.qcConfig = config;
         }
 
         function getSectionConfig(sectionId) {
             return state.qcConfig?.sections?.find((section) => section.id === sectionId) || null;
         }
 
-        function normalizeNightCount(value, fallback = 1) {
-            const parsed = parseInt(value, 10);
-            if (Number.isNaN(parsed) || parsed <= 0) return fallback;
-            return Math.min(parsed, CONFIG.MAX_NIGHTS);
-        }
-
         function getTotalNights(data = null) {
             const raw = data?.sections?.site_info?.fields?.totalNights;
-            const fromData = (raw && typeof raw === 'object') ? raw.value : raw;
-
-            if (fromData != null && fromData !== '') {
-                return normalizeNightCount(fromData, CONFIG.DEFAULT_NIGHTS);
-            }
-
-            const el = $('field_totalNights');
-            if (!el) return CONFIG.DEFAULT_NIGHTS;
-
-            return normalizeNightCount(el.value, CONFIG.DEFAULT_NIGHTS);
+            const value = (raw && typeof raw === 'object') ? raw.value : raw;
+            if (value != null && value !== '') return normalizeNightCount(value, CONFIG.DEFAULT_NIGHTS);
+            return normalizeNightCount($('field_totalNights')?.value, CONFIG.DEFAULT_NIGHTS);
         }
 
         function getFieldElementId(sectionId, fieldId, day = null) {
@@ -1293,148 +793,94 @@
 
         const sectionRenderers = {
             fields(section, _data, container) {
-                const fragment = document.createDocumentFragment();
-
+                const frag = document.createDocumentFragment();
                 section.fields.forEach((field) => {
-                    fragment.appendChild(createEl('label', {
+                    frag.appendChild(createEl('label', {
                         text: field.label,
                         attrs: { for: `field_${field.id}` }
                     }));
-
-                    fragment.appendChild(createEl(
-                        field.type === 'textarea' ? 'textarea' : 'input',
-                        {
-                            attrs: {
-                                id: `field_${field.id}`,
-                                type: field.type === 'textarea' ? null : (field.type || 'text')
-                            }
+                    frag.appendChild(createEl(field.type === 'textarea' ? 'textarea' : 'input', {
+                        attrs: {
+                            id: `field_${field.id}`,
+                            type: field.type === 'textarea' ? null : (field.type || 'text')
                         }
-                    ));
+                    }));
                 });
-
-                container.appendChild(fragment);
+                container.appendChild(frag);
             },
 
             counter(section, _data, container) {
-                const fragment = document.createDocumentFragment();
-
+                const frag = document.createDocumentFragment();
                 section.fields.forEach((field) => {
-                    fragment.appendChild(createEl('label', { text: field.label }));
-
+                    frag.appendChild(createEl('label', { text: field.label }));
                     const row = createEl('div');
                     row.appendChild(createEl('input', {
-                        attrs: {
-                            id: `field_${field.id}`,
-                            type: 'number',
-                            placeholder: 'Done'
-                        }
+                        attrs: { id: `field_${field.id}`, type: 'number', placeholder: 'Done' }
                     }));
                     row.appendChild(document.createTextNode(' / '));
                     row.appendChild(createEl('input', {
-                        attrs: {
-                            id: `field_${field.targetId}`,
-                            type: 'number',
-                            placeholder: 'Total'
-                        }
+                        attrs: { id: `field_${field.targetId}`, type: 'number', placeholder: 'Total' }
                     }));
-
-                    fragment.appendChild(row);
+                    frag.appendChild(row);
                 });
-
-                container.appendChild(fragment);
+                container.appendChild(frag);
             },
 
             checklist(section, _data, container) {
-                const fragment = document.createDocumentFragment();
-
+                const frag = document.createDocumentFragment();
                 section.items.forEach((item, index) => {
                     const itemText = typeof item === 'object' ? item.text : item;
                     const wrapper = createEl('div', { className: 'checkItem' });
                     const label = createEl('label');
-
                     const checkbox = createEl('input', {
-                        attrs: {
-                            type: 'checkbox',
-                            id: `${section.id}_${index}`
-                        }
+                        attrs: { type: 'checkbox', id: `${section.id}_${index}` }
                     });
-
                     checkbox.addEventListener('change', () => {
-                        label.style.background =
-                            item.type === 'negative' && checkbox.checked
-                                ? 'rgba(255,0,0,0.2)'
-                                : '';
+                        label.style.background = item?.type === 'negative' && checkbox.checked ? 'rgba(255,0,0,0.2)' : '';
                     });
-
                     label.appendChild(checkbox);
                     label.appendChild(document.createTextNode(` ${itemText}`));
                     wrapper.appendChild(label);
-                    fragment.appendChild(wrapper);
+                    frag.appendChild(wrapper);
                 });
-
                 if (section.notes) {
-                    fragment.appendChild(createEl('label', {
-                        text: 'Notes',
-                        attrs: { for: `notes_${section.id}` }
-                    }));
-                    fragment.appendChild(createEl('textarea', {
-                        attrs: { id: `notes_${section.id}` }
-                    }));
+                    frag.appendChild(createEl('label', { text: 'Notes', attrs: { for: `notes_${section.id}` } }));
+                    frag.appendChild(createEl('textarea', { attrs: { id: `notes_${section.id}` } }));
                 }
-
-                container.appendChild(fragment);
+                container.appendChild(frag);
             },
 
             checklistMultiDay(section, data, container) {
                 const days = Math.max(1, getTotalNights(data));
-                const fragment = document.createDocumentFragment();
-
+                const frag = document.createDocumentFragment();
                 section.items.forEach((item, index) => {
                     const wrapper = createEl('div', { className: 'checkItem' });
                     wrapper.appendChild(createEl('strong', { text: item.text }));
                     wrapper.appendChild(document.createElement('br'));
-
                     for (let day = 0; day < days; day += 1) {
                         const label = createEl('label', { className: 'checkMulti' });
                         label.setAttribute('data-label', `Night ${day + 1}`);
                         label.appendChild(createEl('input', {
-                            attrs: {
-                                type: 'checkbox',
-                                id: `${section.id}_${index}_${day}`
-                            }
+                            attrs: { type: 'checkbox', id: `${section.id}_${index}_${day}` }
                         }));
                         wrapper.appendChild(label);
                     }
-
-                    fragment.appendChild(wrapper);
+                    frag.appendChild(wrapper);
                 });
-
                 if (section.notes) {
-                    fragment.appendChild(createEl('label', {
-                        text: 'Notes',
-                        attrs: { for: `notes_${section.id}` }
-                    }));
-                    fragment.appendChild(createEl('textarea', {
-                        attrs: { id: `notes_${section.id}` }
-                    }));
+                    frag.appendChild(createEl('label', { text: 'Notes', attrs: { for: `notes_${section.id}` } }));
+                    frag.appendChild(createEl('textarea', { attrs: { id: `notes_${section.id}` } }));
                 }
-
-                container.appendChild(fragment);
+                container.appendChild(frag);
             },
 
             nightCounter(section, data, container) {
                 const days = Math.max(1, getTotalNights(data));
-                const sensorTotal = Number(
-                    data?.sections?.site_info?.fields?.sensorTotal?.value ||
-                    $('field_sensorTotal')?.value ||
-                    0
-                );
-
+                const total = state.expectedSensors || 0;
                 section.fields.forEach((field) => {
                     const wrapper = createEl('div', { className: 'row' });
                     wrapper.appendChild(createEl('strong', { text: field.label }));
                     wrapper.appendChild(document.createElement('br'));
-
                     for (let day = 0; day < days; day += 1) {
                         const row = createEl('div');
                         row.appendChild(createEl('span', { text: `Night ${day + 1}: ` }));
@@ -1445,26 +891,19 @@
                                 placeholder: '0'
                             }
                         }));
-                        row.appendChild(createEl('span', {
-                            className: 'sensor-total',
-                            text: `/ ${sensorTotal}`
-                        }));
-
+                        row.appendChild(createEl('span', { className: 'sensor-total', text: `/ ${total}` }));
                         wrapper.appendChild(row);
                     }
-
                     container.appendChild(wrapper);
                 });
             },
 
             matrix(section, _data, container) {
-                const fragment = document.createDocumentFragment();
-
+                const frag = document.createDocumentFragment();
                 section.rows.forEach((row, rowIndex) => {
                     const rowDiv = createEl('div', { className: 'row' });
                     rowDiv.appendChild(createEl('strong', { text: row }));
                     rowDiv.appendChild(document.createElement('br'));
-
                     section.columns.forEach((column, colIndex) => {
                         const label = createEl('label');
                         label.appendChild(createEl('input', {
@@ -1477,117 +916,84 @@
                         label.appendChild(document.createTextNode(` ${column}`));
                         rowDiv.appendChild(label);
                     });
-
-                    fragment.appendChild(rowDiv);
+                    frag.appendChild(rowDiv);
                 });
-
-                container.appendChild(fragment);
+                container.appendChild(frag);
             },
 
             scoring(section, _data, container) {
-                const fragment = document.createDocumentFragment();
-
+                const frag = document.createDocumentFragment();
                 section.fields.forEach((field) => {
-                    fragment.appendChild(createEl('label', {
+                    frag.appendChild(createEl('label', {
                         text: `${field.label} (0-${field.max})`,
                         attrs: { for: `score_${field.id}` }
                     }));
-
-                    fragment.appendChild(createEl('input', {
-                        attrs: {
-                            id: `score_${field.id}`,
-                            type: 'number',
-                            max: field.max
-                        }
+                    frag.appendChild(createEl('input', {
+                        attrs: { id: `score_${field.id}`, type: 'number', max: field.max }
                     }));
                 });
-
-                fragment.appendChild(createEl('label', {
+                frag.appendChild(createEl('label', {
                     text: 'Total',
                     attrs: { for: `score_total_${section.id}` }
                 }));
-
-                fragment.appendChild(createEl('input', {
-                    attrs: {
-                        id: `score_total_${section.id}`,
-                        readonly: 'readonly'
-                    }
+                frag.appendChild(createEl('input', {
+                    attrs: { id: `score_total_${section.id}`, readonly: 'readonly' }
                 }));
-
-                container.appendChild(fragment);
+                container.appendChild(frag);
             },
 
             singleSelect(section, _data, container) {
-                const fragment = document.createDocumentFragment();
-
+                const frag = document.createDocumentFragment();
                 section.options.forEach((option, index) => {
                     const label = createEl('label');
                     label.appendChild(createEl('input', {
-                        attrs: {
-                            type: 'radio',
-                            name: section.id,
-                            id: `${section.id}_${index}`
-                        }
+                        attrs: { type: 'radio', name: section.id, id: `${section.id}_${index}` }
                     }));
                     label.appendChild(document.createTextNode(` ${option}`));
-                    fragment.appendChild(label);
+                    frag.appendChild(label);
                 });
-
-                container.appendChild(fragment);
+                container.appendChild(frag);
             }
         };
 
         function renderSection(section, data) {
             const container = $(`section_${section.id}`);
             if (!container) return;
-
             container.innerHTML = '';
             const renderer = sectionRenderers[section.type];
-
             if (!renderer) {
                 container.textContent = `Unsupported section type: ${section.type}`;
                 return;
             }
-
             renderer(section, data, container);
         }
 
         function buildApp(data = { sections: {} }) {
-            if ($('app')) $('app').innerHTML = '';
+            const app = $('app');
+            if (!app) return;
+            app.innerHTML = '';
 
             if (!state.qcConfig?.sections?.length) {
-                if ($('app')) $('app').textContent = 'Checklist config not loaded.';
+                app.textContent = 'Checklist config not loaded.';
                 return;
             }
 
-            if (!state.qcConfig || !Array.isArray(state.qcConfig.sections)) {
-                console.error("QC config missing");
-                return;
-            }
-
-            const fragment = document.createDocumentFragment();
-
+            const frag = document.createDocumentFragment();
             state.qcConfig.sections.forEach((section, index) => {
                 const wrapper = createEl('div', {
                     className: 'collapsible-section',
                     attrs: { id: section.id }
                 });
-
                 const header = createEl('h2', {
                     className: 'collapsible-header',
                     text: section.title || `Section ${index + 1}`
                 });
-
-                const content = createEl('div', {
-                    attrs: { id: `section_${section.id}` }
-                });
-
+                const content = createEl('div', { attrs: { id: `section_${section.id}` } });
                 wrapper.appendChild(header);
                 wrapper.appendChild(content);
-                fragment.appendChild(wrapper);
+                frag.appendChild(wrapper);
             });
-
-            $('app')?.appendChild(fragment);
+            app.appendChild(frag);
 
             state.qcConfig.sections.forEach((section) => renderSection(section, data));
             applyData(data);
@@ -1606,35 +1012,19 @@
                 if (section.type === 'nightCounter') {
                     const days = Math.max(1, getTotalNights());
                     sectionData.fields = {};
-
                     section.fields.forEach((field) => {
                         sectionData.fields[field.id] = [];
                         for (let day = 0; day < days; day += 1) {
-                            sectionData.fields[field.id].push(
-                                Number($(getFieldElementId(section.id, field.id, day))?.value || 0)
-                            );
+                            sectionData.fields[field.id].push(Number($(getFieldElementId(section.id, field.id, day))?.value || 0));
                         }
                     });
                 }
 
                 if (section.type === 'fields' || section.type === 'counter') {
                     sectionData.fields = {};
-
                     section.fields.forEach((field) => {
                         const value = $(`field_${field.id}`)?.value ?? '';
-
-                        if (
-                            section.id === 'site_info' &&
-                            ['date', 'siteNumber', 'sensorTotal', 'installSummary', 'location'].includes(field.id)
-                        ) {
-                            return;
-                        }
-
-                        sectionData.fields[field.id] = {
-                            label: field.label,
-                            value
-                        };
-
+                        sectionData.fields[field.id] = { label: field.label, value };
                         if (field.targetId) {
                             sectionData.fields[field.targetId] = $(`field_${field.targetId}`)?.value ?? '';
                         }
@@ -1644,13 +1034,11 @@
                 if (section.type === 'scoring') {
                     sectionData.scores = {};
                     let manualScore = 0;
-
                     section.fields.forEach((field) => {
                         const value = Number($(`score_${field.id}`)?.value || 0);
                         sectionData.scores[field.id] = value;
                         manualScore += value;
                     });
-
                     const checklistScore = calculateChecklistScoreAll();
                     sectionData.total = Math.round((checklistScore.percent * 0.7) + (manualScore * 0.3));
                     sectionData.checklistPercent = checklistScore.percent;
@@ -1667,9 +1055,7 @@
                 if (section.type === 'singleSelect') {
                     sectionData.selected = null;
                     section.options.forEach((_, index) => {
-                        if ($(`${section.id}_${index}`)?.checked) {
-                            sectionData.selected = index;
-                        }
+                        if ($(`${section.id}_${index}`)?.checked) sectionData.selected = index;
                     });
                 }
 
@@ -1682,31 +1068,23 @@
                             value: checked ? 1 : 0
                         };
                     });
-
-                    if (section.notes) {
-                        sectionData.notes = $(`notes_${section.id}`)?.value ?? '';
-                    }
+                    if (section.notes) sectionData.notes = $(`notes_${section.id}`)?.value ?? '';
                 }
 
                 if (section.type === 'checklistMultiDay') {
                     const days = Math.max(1, getTotalNights());
-
                     sectionData.items = section.items.map((item, index) => {
                         const dayValues = [];
                         for (let day = 0; day < days; day += 1) {
                             dayValues.push(Boolean($(`${section.id}_${index}_${day}`)?.checked));
                         }
-
                         return {
                             label: item.text,
                             days: dayValues,
                             value: dayValues.filter(Boolean).length
                         };
                     });
-
-                    if (section.notes) {
-                        sectionData.notes = $(`notes_${section.id}`)?.value ?? '';
-                    }
+                    if (section.notes) sectionData.notes = $(`notes_${section.id}`)?.value ?? '';
                 }
 
                 data.sections[section.id] = sectionData;
@@ -1717,7 +1095,6 @@
 
         function applyData(data) {
             const sections = data?.sections || {};
-
             Object.entries(sections).forEach(([sectionId, sectionData]) => {
                 if (sectionData.notes !== undefined) {
                     const notesEl = $(`notes_${sectionId}`);
@@ -1727,12 +1104,11 @@
                 if (sectionData.fields) {
                     Object.entries(sectionData.fields).forEach(([key, value]) => {
                         const fieldEl = $(`field_${key}`);
-                        if (fieldEl) {
-                            fieldEl.value =
-                                value && typeof value === 'object' && 'value' in value
-                                    ? value.value
-                                    : (value ?? '');
-                        }
+                        if (!fieldEl) return;
+                        fieldEl.value =
+                            value && typeof value === 'object' && 'value' in value
+                                ? value.value
+                                : (value ?? '');
                     });
                 }
 
@@ -1745,10 +1121,9 @@
 
                 if (Array.isArray(sectionData.matrix)) {
                     sectionData.matrix.forEach((colIndex, rowIndex) => {
-                        if (colIndex != null) {
-                            const radio = $(`${sectionId}_${rowIndex}_${colIndex}`);
-                            if (radio) radio.checked = true;
-                        }
+                        if (colIndex == null) return;
+                        const radio = $(`${sectionId}_${rowIndex}_${colIndex}`);
+                        if (radio) radio.checked = true;
                     });
                 }
 
@@ -1792,36 +1167,24 @@
             state.qcConfig?.sections?.forEach((section) => {
                 if (section.type === 'checklist') {
                     section.items.forEach((item, index) => {
-
                         const weight = item.weight != null ? Number(item.weight) : 1;
                         const checked = Boolean($(`${section.id}_${index}`)?.checked);
-
                         if (item.type === 'negative') {
-                            if (checked) {
-                                earned -= weight;
-                            }
+                            if (checked) earned -= weight;
                         } else {
                             total += weight;
-
-                            if (checked) {
-                                earned += weight;
-                            }
+                            if (checked) earned += weight;
                         }
-
                     });
                 }
 
                 if (section.type === 'checklistMultiDay') {
                     const days = Math.max(1, getTotalNights());
-
                     section.items.forEach((item, index) => {
                         const weight = item.weight != null ? Number(item.weight) : 1;
-
                         for (let day = 0; day < days; day += 1) {
                             total += weight;
-                            if (Boolean($(`${section.id}_${index}_${day}`)?.checked)) {
-                                earned += weight;
-                            }
+                            if (Boolean($(`${section.id}_${index}_${day}`)?.checked)) earned += weight;
                         }
                     });
                 }
@@ -1862,167 +1225,728 @@
                 $('section_final_scoring')?.appendChild(breakdown);
             }
 
-            breakdown.innerHTML = `Checklist Score: ${checklistScore.percent}%<br>Manual Score: ${manualScore}<br>Final Score: <strong>${finalScore}</strong>`;
+            breakdown.innerHTML =
+                `Checklist Score: ${checklistScore.percent}%<br>` +
+                `Manual Score: ${manualScore}<br>` +
+                `Final Score: <strong>${finalScore}</strong>`;
         }
 
         function updateNightDependentSections() {
-            const data = collectData();
-
+            const snapshot = collectData();
             state.qcConfig?.sections?.forEach((section) => {
                 if (section.type === 'nightCounter' || section.type === 'checklistMultiDay') {
-                    renderSection(section, data);
+                    renderSection(section, snapshot);
                 }
             });
-
-            applyData(data);
+            applyData(snapshot);
             updateAllScoringTotals();
             syncSensorTotalToQC();
         }
 
-        const saveQCData = debounce(async () => {
-            if (!state.currentProject || !state.qcConfig?.sections?.length) return;
+        /* =========================
+           UNIFIED SAVE
+        ========================= */
 
-            const data = collectData();
-            if (!data || !Object.keys(data.sections || {}).length) return;
+        function buildDbFromUi(existingDb = {}) {
+            const next = mergeObjects(existingDb, {});
+            const projectPayload = collectProjectPayloadFromUi();
 
-            await ensureSiteDataFolder();
+            next.id = state.currentProject;
+            next.project = projectPayload.project;
+            next.customerName = state.currentCustomerName || next.customerName || '';
+            next.sensorCount = projectPayload.sensorCount;
+            next.updatedAt = Date.now();
+            next.sensorMeta = next.sensorMeta || {};
 
-            await graphFetch(graphContentUrl(getQCPath()), {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data, null, 2)
-            });
-
-        }, 800);
-
-        function applyTaskToSiteInfo(taskData) {
-            const map = {
-                date: taskData.startTime ? new Date(taskData.startTime).toISOString().split('T')[0] : '',
-                siteNumber: taskData.project || '',
-                sensorTotal: taskData.sensorCount || '',
-                installSummary: taskData.notes || '',
-                location: taskData.customerAddress || ''
+            const siteMap = {
+                startTime: $('field_date')?.value ? new Date($('field_date').value).toISOString() : (next.startTime || ''),
+                project: $('project')?.value.trim() || next.project || '',
+                notes: $('field_installSummary')?.value ?? (next.notes || ''),
+                customerAddress: $('field_location')?.value ?? (next.customerAddress || '')
             };
 
-            Object.entries(map).forEach(([key, value]) => {
-                const el = $(`field_${key}`);
-                if (el) el.value = value;
+            next.startTime = siteMap.startTime;
+            next.project = siteMap.project;
+            next.notes = siteMap.notes;
+            next.customerAddress = siteMap.customerAddress;
+            next.sensorCount = Math.max(0, Number($('field_sensorTotal')?.value || projectPayload.sensorCount || 0));
+
+            if (state.qcConfig?.sections?.length) {
+                next.qcData = collectData();
+            } else {
+                next.qcData = next.qcData || { sections: {} };
+            }
+
+            state.currentProjectName = next.project || state.currentProjectName;
+            state.expectedSensors = next.sensorCount || 0;
+
+            return next;
+        }
+
+        async function saveAll() {
+            if (!state.currentProject) return;
+            return queueSave(async () => {
+                const current = await loadProjectDB();
+                const db = buildDbFromUi(current);
+                state.currentProjectData = db;
+                saveToLocal(db);
+                state.lastSavedHash = JSON.stringify(db);
+                state.lastLoadedHash = state.lastSavedHash;
+                notifyListeners(db);
+
+                try {
+                    await ensureProjectFolders();
+                    await saveProjectDB(db);
+                } catch (err) {
+                    console.warn('Cloud save failed, local copy kept:', err);
+                }
+
+                return db;
             });
         }
 
-        function attachQCListeners() {
-            if (state.qcListenerBound) return;
+        const saveAllDebounced = debounce(() => {
+            saveAll().catch((err) => console.error('Save failed:', err));
+        }, 300);
+
+        /* =========================
+           LOAD / APPLY PROJECT
+        ========================= */
+
+        function applyFullState(data) {
+            if (state.isApplyingRemoteUpdate) return;
+            if (!data) return;
+            state.currentProjectData = data;
+            applyTaskToSiteInfo(data);
+            if (data.qcData) applyData(data.qcData);
+            updateAllScoringTotals();
+            syncSensorTotalToQC();
+            updateMissingImages();
+        }
+
+        async function loadQCChecklist() {
+            await initQCConfig();
+            const db = state.currentProjectData && state.currentProjectData.id === state.currentProject
+                ? state.currentProjectData
+                : await loadProjectDB();
+
+            let qcData = db.qcData || { sections: {} };
+
+            if ((!qcData || !Object.keys(qcData.sections || {}).length) && getStoredToken()) {
+                try {
+                    const response = await graphFetch(graphContentUrl(getQCPath()));
+                    qcData = await response.json();
+                    db.qcData = qcData;
+                    saveToLocal(db);
+                } catch (err) {
+                    if (!/404/i.test(String(err))) console.warn('QC load error:', err);
+                }
+            }
+
+            buildApp(qcData);
+            applyTaskToSiteInfo(db);
+            bindQcRealtimeListeners();
+        }
+
+        async function loadProject(projectId) {
+            if (!projectId || state.isLoadingProject) return;
+            state.isLoadingProject = true;
+
+            try {
+                state.currentProject = projectId;
+                localStorage.setItem('lastProject', projectId);
+
+                const data = await loadProjectDB();
+                state.currentProjectData = data;
+                state.currentProjectName = data.project || projectId;
+                state.currentCustomerName = data.customerName || '';
+                state.expectedSensors = Math.max(0, Number(data.sensorCount) || 0);
+
+                if ($('project')) $('project').value = state.currentProjectName;
+                if ($('sensorCount')) $('sensorCount').value = state.expectedSensors;
+
+                populateSensorDropdown(state.expectedSensors);
+                await ensureProjectFolders();
+                await Promise.all([updateGallery(), loadQCChecklist()]);
+                syncSensorTotalToQC();
+                updateMissingImages();
+                initCollapsibles();
+
+                const hash = JSON.stringify(data);
+                state.lastLoadedHash = hash;
+                state.lastSavedHash = hash;
+            } catch (err) {
+                console.error('[loadProject]', err);
+                alert('Failed to load project.');
+            } finally {
+                state.isLoadingProject = false;
+            }
+        }
+
+        async function loadOrCreateProject() {
+            const projectName = $('project')?.value.trim();
+            if (!projectName) return;
+
+            const customerName = prompt('Enter Customer Name:');
+            if (!customerName) {
+                alert('Customer required');
+                return;
+            }
+
+            const id = `${sanitize(customerName)}_${sanitize(projectName)}`;
+            state.currentProject = id;
+            state.currentProjectName = projectName;
+            state.currentCustomerName = customerName;
+            state.expectedSensors = Math.max(0, Number($('sensorCount')?.value) || 0);
+
+            const newDb = {
+                id,
+                project: projectName,
+                customerName,
+                sensorCount: state.expectedSensors,
+                sensorMeta: {},
+                qcData: { sections: {} },
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            };
+
+            state.currentProjectData = newDb;
+            saveToLocal(newDb);
+
+            try {
+                await ensureProjectFolders();
+                await saveProjectDB(newDb);
+            } catch (err) {
+                console.warn('Create project cloud save failed:', err);
+            }
+
+            await loadProject(id);
+            await populateProjects().catch(() => { });
+        }
+
+        async function saveProjectBasics() {
+            if (!requireEditAccess()) return;
+            if (!state.currentProject) {
+                alert('No project selected.');
+                return;
+            }
+            await saveAll();
+            await populateProjects().catch(() => { });
+            alert('Project saved.');
+        }
+
+        /* =========================
+           QC LISTENERS
+        ========================= */
+
+        function bindQcRealtimeListeners() {
+            if (state.uiListenerBound) return;
+            state.uiListenerBound = true;
 
             $('qcChecklistSection')?.addEventListener('input', async (event) => {
                 const target = event.target;
                 if (!(target instanceof HTMLElement)) return;
 
-                if (target.id.startsWith('field_')) {
-                    const fieldKey = target.id.replace('field_', '');
-                    const map = {
-                        date: 'startTime',
-                        siteNumber: 'project',
-                        sensorTotal: 'sensorCount',
-                        installSummary: 'notes',
-                        location: 'customerAddress'
-                    };
-
-                    const taskField = map[fieldKey];
-                    if (taskField && state.currentProject) {
-                        let value = target.value;
-                        if (fieldKey === 'date') value = new Date(value).toISOString();
-                        if (fieldKey === 'sensorTotal') value = Number(value);
-                        await patch(getTaskPath(), { [taskField]: value });
-                    }
-                }
-
                 if (target.id === 'field_totalNights') {
                     let value = Number(target.value);
                     if (Number.isNaN(value)) return;
-
                     value = Math.min(Math.max(value, 1), CONFIG.MAX_NIGHTS);
                     target.value = value;
-
                     updateNightDependentSections();
-                    saveQCData();
-                    return;
                 }
 
                 if (target.id === 'field_sensorTotal') {
-                    const total = target.value;
-                    $$('[id^="field_nightly_production_"]').forEach((input) => {
-                        input.parentElement?.querySelector('.sensor-total')
-                            ?.replaceChildren(document.createTextNode(`/ ${total}`));
-                    });
-                    saveQCData();
-                    return;
+                    const total = Math.max(0, Number(target.value) || 0);
+                    state.expectedSensors = total;
+                    if ($('sensorCount')) $('sensorCount').value = total;
+                    populateSensorDropdown(total);
+                    syncSensorTotalToQC();
+                    updateMissingImages();
                 }
 
                 updateAllScoringTotals();
-                saveQCData();
+                saveAllDebounced();
             });
 
             $('qcChecklistSection')?.addEventListener('change', () => {
                 updateAllScoringTotals();
-                saveQCData();
+                saveAllDebounced();
             });
-
-            state.qcListenerBound = true;
         }
 
-        async function loadQCChecklist(projectId) {
-            await initQCConfig();
-            if (!state.qcConfig?.sections?.length) return;
+        /* =========================
+           CROSS-TAB / CROSS-DEVICE SYNC
+        ========================= */
 
-            if ($('app')) $('app').innerHTML = '';
+        function startSync() {
+            if (state.syncInterval) return;
+            state.syncInterval = setInterval(runSync, CONFIG.SYNC_POLL_MS);
+        }
 
-            const taskData = await readOnce(getTaskPath(projectId)) || {};
-            let qcData = { sections: {} };
+        function stopSync() {
+            if (state.syncInterval) clearInterval(state.syncInterval);
+            state.syncInterval = null;
+        }
+
+        async function runSync() {
+            if (!state.currentProject || state.isApplyingRemoteUpdate) return;
 
             try {
-                const res = await graphFetch(graphContentUrl(getQCPath()));
-                qcData = await res.json();
+                const remote = await loadProjectDB();
+                const hash = JSON.stringify(remote);
+
+                // ✅ STOP if no change
+                if (hash === state.lastLoadedHash) return;
+
+                state.isApplyingRemoteUpdate = true;
+                state.lastLoadedHash = hash;
+
+                console.log('🌍 Sync update');
+
+                // ✅ Only update what changed
+                if (remote.sensorCount !== state.expectedSensors) {
+                    state.expectedSensors = remote.sensorCount;
+                    populateSensorDropdown(state.expectedSensors);
+                    updateMissingImages();
+                }
+
+                // ✅ DO NOT rebuild whole UI
+                if (remote.qcData) {
+                    applyData(remote.qcData);
+                }
+
+                updateAllScoringTotals();
+
+                setTimeout(() => {
+                    state.isApplyingRemoteUpdate = false;
+                }, 200);
+
             } catch (err) {
-                if (!/404/i.test(String(err))) {
-                    console.error("QC load error:", err);
+                console.warn('Sync failed:', err);
+            }
+        }
+
+        window.addEventListener('storage', (event) => {
+            if (!state.currentProject) return;
+            if (event.key === localKey()) {
+                try {
+                    const data = JSON.parse(event.newValue || '{}');
+                    state.currentProjectData = data;
+                    const hash = JSON.stringify(data);
+                    state.lastLoadedHash = hash;
+                    state.lastSavedHash = hash;
+                    applyFullState(data);
+                } catch (err) {
+                    console.warn('Storage sync failed:', err);
                 }
             }
-            buildApp(qcData);
-            applyTaskToSiteInfo(taskData);
-            attachQCListeners();
+        });
+
+        onValue((data) => {
+            if (!data || state.isApplyingRemoteUpdate) return;
+            applyFullState(data);
+        });
+
+        /* =========================
+           DEVICE META
+        ========================= */
+
+        async function loadSensorMeta(sensorNum) {
+            if (!sensorNum || !state.currentProject) return;
+            const db = await loadProjectDB();
+            const data = db.sensorMeta?.[sensorNum] || {};
+            if ($('sensorMetaSerial')) $('sensorMetaSerial').value = data.serial || '';
+            if ($('sensorMetaM1')) $('sensorMetaM1').value = data.m1 || '';
+            if ($('sensorMetaM2')) $('sensorMetaM2').value = data.m2 || '';
+            if ($('sensorMetaM3')) $('sensorMetaM3').value = data.m3 || '';
+            if ($('serialNumber') && !$('serialNumber').value && data.serial) $('serialNumber').value = data.serial;
         }
+
+        async function saveSensorMeta() {
+            if (!requireEditAccess()) return;
+            const sensorNum = $('sensorMetaNumberDropdown')?.value;
+            if (!sensorNum || !state.currentProject) return;
+
+            const db = await loadProjectDB();
+            db.sensorMeta = db.sensorMeta || {};
+            db.sensorMeta[sensorNum] = {
+                serial: $('sensorMetaSerial')?.value.trim() || '',
+                m1: $('sensorMetaM1')?.value.trim() || '',
+                m2: $('sensorMetaM2')?.value.trim() || '',
+                m3: $('sensorMetaM3')?.value.trim() || '',
+                updatedAt: Date.now()
+            };
+
+            state.currentProjectData = db;
+            saveToLocal(db);
+            try {
+                await saveProjectDB(db);
+            } catch (err) {
+                console.warn('Save sensor meta cloud failed:', err);
+            }
+
+            if ($('sensorNumberDropdown')?.value === sensorNum && $('serialNumber')) {
+                $('serialNumber').value = $('sensorMetaSerial')?.value.trim() || '';
+            }
+
+            notifyListeners(db);
+            alert('Device info saved.');
+        }
+
+        async function exportSensorMetaCsv() {
+            if (!state.currentProject) {
+                alert('No project selected.');
+                return;
+            }
+            const snapshot = (await loadProjectDB()).sensorMeta;
+            if (!snapshot || !Object.keys(snapshot).length) {
+                alert('No device data found.');
+                return;
+            }
+            const rows = [['Device #', 'Serial', 'Info 1', 'Info 2', 'Info 3']];
+            Object.entries(snapshot).forEach(([sensorNum, meta]) => {
+                rows.push([
+                    normalizeText(sensorNum),
+                    normalizeText(meta.serial),
+                    normalizeText(meta.m1),
+                    normalizeText(meta.m2),
+                    normalizeText(meta.m3)
+                ]);
+            });
+            downloadCSV(rows, `${sanitize(state.currentProjectName || state.currentProject)}_deviceData.csv`);
+        }
+
+        /* =========================
+           IMAGES
+        ========================= */
+
+        function updateImageModeUI() {
+            const mode = document.querySelector('input[name="viewMode"]:checked')?.value || 'sensors';
+            if ($('sensorUploadSection')) $('sensorUploadSection').style.display = mode === 'sensors' ? 'block' : 'none';
+            if ($('deliverableUploadSection')) $('deliverableUploadSection').style.display = mode === 'deliverables' ? 'block' : 'none';
+        }
+
+        const resizeImage = (file, maxWidth = CONFIG.IMAGE_MAX_WIDTH) => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = reject;
+            reader.onload = () => {
+                const img = new Image();
+                img.onerror = reject;
+                img.src = reader.result;
+                img.onload = () => {
+                    let { width, height } = img;
+                    if (width > maxWidth) {
+                        height *= maxWidth / width;
+                        width = maxWidth;
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+                    canvas.toBlob((blob) => resolve(blob || file), 'image/jpeg', 0.92);
+                };
+            };
+            reader.readAsDataURL(file);
+        });
+
+        const addTextToImage = (blob, text) => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = reject;
+            reader.onload = () => {
+                const img = new Image();
+                img.onerror = reject;
+                img.src = reader.result;
+                img.onload = () => {
+                    const barHeight = Math.max(72, Math.round(img.width * 0.08));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height + barHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    ctx.fillStyle = 'black';
+                    ctx.fillRect(0, img.height, canvas.width, barHeight);
+                    ctx.fillStyle = 'white';
+                    ctx.font = `bold ${Math.max(28, Math.round(img.width * 0.05))}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(text, canvas.width / 2, img.height + (barHeight / 2));
+                    canvas.toBlob((finalBlob) => resolve(finalBlob || blob), 'image/jpeg', 0.92);
+                };
+            };
+            reader.readAsDataURL(blob);
+        });
+
+        function showModalByIndex(index) {
+            const item = state.modalItems[index];
+            if (!item) return;
+            state.modalIndex = index;
+            if ($('modalImage')) $('modalImage').src = item.url;
+            if ($('modalFileName')) $('modalFileName').textContent = item.name;
+            if ($('modal')) $('modal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            if ($('modal')) $('modal').style.display = 'none';
+            if ($('modalImage')) $('modalImage').src = '';
+            if ($('modalFileName')) $('modalFileName').textContent = '';
+        }
+
+        function confirmWithPassword(actionDescription = 'this action') {
+            const input = prompt(`Enter password to confirm ${actionDescription}:`);
+            return Promise.resolve(input === CONFIG.ADMIN_PASSWORD);
+        }
+
+        async function deleteCurrentModalImage() {
+            const item = state.modalItems[state.modalIndex];
+            if (!item) return;
+            const ok = await confirmWithPassword('delete this image');
+            if (!ok) {
+                alert('Incorrect password.');
+                return;
+            }
+            await graphDeletePath(item.fullPath);
+            closeModal();
+            await updateGallery();
+            await updateMissingImages();
+        }
+
+        async function updateGallery() {
+            if (!state.currentProject) return;
+
+            const mode = document.querySelector('input[name="viewMode"]:checked')?.value || 'sensors';
+            const basePath = getImagesPath(mode);
+            const items = await safeListStorageItems(basePath).catch(() => []);
+            const seen = new Set();
+            const filtered = items.filter((item) => {
+                if (seen.has(item.fullPath)) return false;
+                seen.add(item.fullPath);
+                return true;
+            });
+
+            const favorites = getFavorites();
+            filtered.sort((a, b) => {
+                const aFav = favorites[a.fullPath] ? 1 : 0;
+                const bFav = favorites[b.fullPath] ? 1 : 0;
+                if (aFav !== bFav) return bFav - aFav;
+                return a.name.localeCompare(b.name, undefined, { numeric: true });
+            });
+
+            state.modalItems = filtered;
+            const gallery = $('gallery');
+            const dropdown = $('imageDropdown');
+
+            if (gallery) gallery.innerHTML = '';
+
+            filtered.forEach((item, index) => {
+                const container = createEl('div', { className: 'image-container' });
+
+                const img = createEl('img', {
+                    attrs: { src: item.url, alt: item.name, loading: 'lazy' }
+                });
+
+                img.onclick = () => showModalByIndex(index);
+
+                container.appendChild(img);
+                gallery?.appendChild(container);
+            });
+
+            // ✅ ADD THIS
+            updateImageDropdown(filtered);
+        }
+
+        async function updateMissingImages() {
+            const list = $('missingList');
+            if (!list) return;
+
+            const mode = document.querySelector('input[name="viewMode"]:checked')?.value;
+
+            // ✅ ONLY sensors should show missing
+            if (mode !== 'sensors') {
+                list.innerHTML = '';
+                return;
+            }
+
+            if (!state.currentProject || !state.expectedSensors) return;
+
+            try {
+                const items = await listStorageItems(getImagesPath('sensors'));
+
+                const map = {};
+
+                items.forEach(item => {
+                    const match = item.name.match(/_(\d+)[-_]/);
+                    if (!match) return;
+
+                    const num = parseInt(match[1], 10);
+                    map[num] = (map[num] || 0) + 1;
+                });
+
+                const missing = [];
+
+                for (let i = 1; i <= state.expectedSensors; i++) {
+                    const count = map[i] || 0;
+
+                    if (count < CONFIG.SENSOR_IMAGE_COUNT_REQUIRED) {
+                        missing.push(
+                            `Device ${String(i).padStart(2, '0')} missing ${CONFIG.SENSOR_IMAGE_COUNT_REQUIRED - count} image(s)`
+                        );
+                    }
+                }
+
+                // ✅ prevent flicker
+                const current = Array.from(list.children).map(li => li.textContent);
+                if (JSON.stringify(current) === JSON.stringify(missing)) return;
+
+                list.innerHTML = '';
+
+                missing.forEach(text => {
+                    const li = document.createElement('li');
+                    li.textContent = text;
+                    list.appendChild(li);
+                });
+
+            } catch (err) {
+                console.warn('Missing image check failed:', err);
+            }
+        }
+
+        function handlePickMissing(sensorNum) {
+            const radio = document.querySelector('input[name="viewMode"][value="sensors"]');
+            if (radio && !radio.checked) {
+                radio.checked = true;
+                updateImageModeUI();
+            }
+            if ($('sensorNumberDropdown')) $('sensorNumberDropdown').value = sensorNum;
+            if ($('sensorMetaNumberDropdown')) $('sensorMetaNumberDropdown').value = sensorNum;
+            $('sensorNumberDropdown')?.dispatchEvent(new Event('change', { bubbles: true }));
+            $('sensorMetaNumberDropdown')?.dispatchEvent(new Event('change', { bubbles: true }));
+            $('sensorUploadSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            setTimeout(() => $('serialNumber')?.focus(), 200);
+        }
+
+        async function uploadSensor() {
+            if (!requireEditAccess()) return;
+            if (state.isUploading) return;
+
+            const sensorNum = $('sensorNumberDropdown')?.value;
+            const serial = sanitize($('serialNumber')?.value);
+            const file = $('sensorImage')?.files?.[0];
+            const skipMarkup = $('skipMarkupCheckbox')?.checked;
+
+            if (!state.currentProject || !sensorNum || !serial || !file) {
+                alert('Fill out all fields');
+                return;
+            }
+
+            state.isUploading = true;
+            if ($('uploadImage')) {
+                $('uploadImage').disabled = true;
+                $('uploadImage').textContent = 'Uploading...';
+            }
+
+            try {
+                const padded = String(sensorNum).padStart(2, '0');
+                const folderPath = getImagesPath('sensors');
+                const existing = await listStorageItems(folderPath).catch(() => []);
+                const prefix = sanitize(state.currentCustomerName || state.currentProjectName || state.currentProject);
+
+                const matchCount = existing.filter((item) => item.name.startsWith(`${prefix}_${padded}`)).length;
+                if (matchCount >= CONFIG.SENSOR_IMAGE_COUNT_REQUIRED) {
+                    const proceed = confirm(`Device ${padded} already has ${CONFIG.SENSOR_IMAGE_COUNT_REQUIRED} uploads. Upload another?`);
+                    if (!proceed) return;
+                }
+
+                let blob = await resizeImage(file, CONFIG.IMAGE_MAX_WIDTH);
+                if (!skipMarkup) {
+                    const labelBase = (state.currentCustomerName || state.currentProjectName || state.currentProject).trim();
+                    blob = await addTextToImage(blob, `${labelBase} ${padded} - ${serial}`);
+                }
+
+                const filename = await getUniqueFilename(folderPath, `${prefix}_${padded}-${serial}.jpg`);
+                await graphUploadFile(`${folderPath}/${filename}`, blob, 'image/jpeg');
+
+                const db = await loadProjectDB();
+                db.sensorMeta = db.sensorMeta || {};
+                db.sensorMeta[sensorNum] = {
+                    serial: $('serialNumber')?.value.trim() || '',
+                    m1: $('sensorMetaM1')?.value.trim() || '',
+                    m2: $('sensorMetaM2')?.value.trim() || '',
+                    m3: $('sensorMetaM3')?.value.trim() || '',
+                    updatedAt: Date.now()
+                };
+                state.currentProjectData = db;
+                saveToLocal(db);
+                try { await saveProjectDB(db); } catch (err) { console.warn(err); }
+
+                if ($('sensorImage')) $('sensorImage').value = '';
+                await updateGallery();
+                await updateMissingImages();
+            } catch (err) {
+                console.error(err);
+                alert('Upload failed.');
+            } finally {
+                state.isUploading = false;
+                if ($('uploadImage')) {
+                    $('uploadImage').disabled = false;
+                    $('uploadImage').textContent = 'Upload';
+                }
+            }
+        }
+
+        async function uploadDeliverableImage() {
+            if (!requireEditAccess()) return;
+            const file = $('fileUploader')?.files?.[0];
+            const imageName = sanitize($('imageNameInput')?.value);
+            const markup = $('markupTextInput')?.value.trim();
+
+            if (!state.currentProject || !file || !imageName) {
+                alert('Choose a file and enter a name.');
+                return;
+            }
+
+            try {
+                let blob = await resizeImage(file, CONFIG.IMAGE_MAX_WIDTH);
+                if (markup) blob = await addTextToImage(blob, markup);
+
+                const folderPath = getImagesPath('deliverables');
+                const filename = await getUniqueFilename(folderPath, `${imageName}.jpg`);
+                await graphUploadFile(`${folderPath}/${filename}`, blob, 'image/jpeg');
+
+                if ($('fileUploader')) $('fileUploader').value = '';
+                if ($('imageNameInput')) $('imageNameInput').value = '';
+                if ($('markupTextInput')) $('markupTextInput').value = '';
+                await updateGallery();
+            } catch (err) {
+                console.error(err);
+                alert('Deliverable upload failed.');
+            }
+        }
+
+        /* =========================
+           REPORTS
+        ========================= */
 
         function getNightlyProductionStats(data) {
             const section = data.sections.nightly_production;
             if (!section?.fields) return null;
 
-            const parseValues = (val) =>
-                Array.isArray(val)
-                    ? val.map((v) => Number(v) || 0)
-                    : (typeof val === 'string'
-                        ? val.split(',').map((v) => Number(v.trim()) || 0)
+            const parseValues = (value) =>
+                Array.isArray(value)
+                    ? value.map((v) => Number(v) || 0)
+                    : (typeof value === 'string'
+                        ? value.split(',').map((v) => Number(v.trim()) || 0)
                         : []);
 
             const sensors = parseValues(section.fields.sensors);
             const nights = Math.max(sensors.length, getTotalNights(data));
-
-            const sensorTotal =
-                Number(
-                    data?.sections?.site_info?.fields?.sensorTotal?.value
-                ) ||
-                Number($('field_sensorTotal')?.value) ||
-                state.expectedSensors ||
-                0;
-
+            const sensorTotal = state.expectedSensors || Number($('field_sensorTotal')?.value) || 0;
 
             let maxDone = 0;
-            const result = [];
-
+            const rows = [];
             for (let i = 0; i < nights; i += 1) {
                 const done = Number(sensors[i] ?? 0);
                 maxDone = Math.max(maxDone, done);
-
-                result.push({
+                rows.push({
                     night: i + 1,
                     done,
                     total: sensorTotal,
@@ -2031,7 +1955,7 @@
             }
 
             return {
-                nights: result,
+                nights: rows,
                 overall: sensorTotal > 0 ? Math.round((maxDone / sensorTotal) * 100) : 0
             };
         }
@@ -2039,7 +1963,6 @@
         function generateCertificationReport() {
             const data = collectData();
             const scoring = data.sections.final_scoring || {};
-
             const total = scoring.total || 0;
             const checklistPercent = scoring.checklistPercent || 0;
             const manualScore = scoring.manualScore || 0;
@@ -2069,15 +1992,9 @@
             return lines.join('\n');
         }
 
-        function buildReportFile() {
-            const reportText = generateCertificationReport();
-            return new Blob([reportText], { type: "text/plain" });
-        }
-
         function buildReportCSVRows() {
             const data = collectData();
             const rows = [['Metric', 'Value']];
-
             const scoring = data.sections.final_scoring || {};
             const total = scoring.total || 0;
 
@@ -2086,99 +2003,192 @@
             else if (total < 85) result = 'NEEDS IMPROVEMENT';
 
             rows.push(['Total Score', total], ['Result', result]);
+
+            const production = getNightlyProductionStats(data);
+            if (production) {
+                rows.push([]);
+                rows.push(['Night Progress', '']);
+                production.nights.forEach((night) => {
+                    rows.push([`Night ${night.night}`, `${night.done}/${night.total} (${night.pct}%)`]);
+                });
+                rows.push(['Overall Completion', `${production.overall}%`]);
+            }
 
             return rows;
         }
 
         function exportCertificationCSV() {
-            const data = collectData();
-            const rows = [['Metric', 'Value']];
-            const scoring = data.sections.final_scoring || {};
-
-            const total = scoring.total || 0;
-            let result = 'PASS';
-            if (total < 70) result = 'FAIL';
-            else if (total < 85) result = 'NEEDS IMPROVEMENT';
-
-            rows.push(['Total Score', total], ['Result', result]);
-
-            Object.entries(scoring.scores || {}).forEach(([key, value]) => {
-                rows.push([key, value]);
-            });
-
-            rows.push([]);
-            rows.push(['Night Progress']);
-
-            const production = getNightlyProductionStats(data);
-            if (production) {
-                production.nights.forEach((night) => {
-                    rows.push([
-                        `Night ${night.night}`,
-                        `${night.done}/${night.total} (${night.pct}%)`
-                    ]);
-                });
-                rows.push(['Overall Completion', `${production.overall}%`]);
-            }
-
-            downloadCSV(rows, 'certification_report.csv');
+            downloadCSV(buildReportCSVRows(), 'certification_report.csv');
         }
 
-        function initCollapsibles() {
-            $$('.collapsible-section').forEach(section => {
-                const header = section.querySelector('.collapsible-header');
-                if (!header) return;
+        function buildQCChecklistCSV() {
+            const data = collectData();
+            const rows = [['Section', 'Field', 'Value']];
 
-                const id = section.id;
-                if (!id) return;
-
-                const saved = localStorage.getItem(`collapse:${id}`);
-                if (saved === 'true') {
-                    section.classList.add('collapsed');
+            Object.entries(data.sections || {}).forEach(([sectionId, section]) => {
+                if (section.fields) {
+                    Object.entries(section.fields).forEach(([key, value]) => {
+                        const normalized = value && typeof value === 'object' && 'value' in value ? value.value : value;
+                        rows.push([sectionId, key, normalizeText(normalized)]);
+                    });
                 }
+
+                if (Array.isArray(section.items)) {
+                    section.items.forEach((item) => {
+                        if (item.label) rows.push([sectionId, item.label, item.checked ?? item.value ?? '']);
+                        if (Array.isArray(item.days)) {
+                            item.days.forEach((dayVal, dayIndex) => {
+                                rows.push([sectionId, `${item.label} (Night ${dayIndex + 1})`, dayVal]);
+                            });
+                        }
+                    });
+                }
+
+                if (section.scores) {
+                    Object.entries(section.scores).forEach(([key, value]) => {
+                        rows.push([sectionId, key, value]);
+                    });
+                    rows.push([sectionId, 'Total Score', section.total || 0]);
+                }
+
+                if (section.notes) rows.push([sectionId, 'Notes', normalizeText(section.notes)]);
+            });
+
+            return rows;
+        }
+
+        async function uploadReportsToOneDrive() {
+            if (!state.currentProject) {
+                alert('No project selected');
+                return;
+            }
+
+            await ensureProjectFolders();
+
+            const reportText = generateCertificationReport();
+            const reportCsv = rowsToCsv(buildReportCSVRows());
+            const folder = `${getProjectFolder()}/Data`;
+
+            await graphFetch(graphContentUrl(`${folder}/report.txt`), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'text/plain' },
+                body: reportText
+            });
+
+            await graphFetch(graphContentUrl(`${folder}/report.csv`), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'text/csv' },
+                body: reportCsv
+            });
+
+            alert('✅ QC uploaded to site folder');
+        }
+
+        async function uploadAllImagesToOneDrive() {
+            if (!requireEditAccess()) return;
+            if (!state.currentProject) {
+                alert('No project selected');
+                return;
+            }
+
+            const site = sanitize(state.currentProjectName || state.currentProject);
+            const basePath = `JobPhotos/${site}`;
+            const token = getStoredToken();
+            if (!token) {
+                alert('Not logged into Microsoft');
+                return;
+            }
+
+            let totalUploaded = 0;
+            try {
+                const modes = [
+                    { mode: 'sensors', subFolder: 'sensors' },
+                    { mode: 'deliverables', subFolder: 'deliverables' }
+                ];
+
+                for (const { mode, subFolder } of modes) {
+                    const sourcePath = getImagesPath(mode);
+                    const targetPath = `${basePath}/${subFolder}`;
+                    let items = [];
+                    try {
+                        items = await listStorageItems(sourcePath);
+                    } catch {
+                        continue;
+                    }
+
+                    for (const item of items) {
+                        try {
+                            const response = await fetch(item.url);
+                            const blob = await response.blob();
+                            await fetch(
+                                `https://graph.microsoft.com/v1.0/me/drive/root:/${targetPath}/${item.name}:/content`,
+                                {
+                                    method: 'PUT',
+                                    headers: {
+                                        Authorization: `Bearer ${token}`,
+                                        'Content-Type': blob.type || 'image/jpeg'
+                                    },
+                                    body: blob
+                                }
+                            );
+                            totalUploaded += 1;
+                        } catch (err) {
+                            console.error(`Failed upload: ${item.name}`, err);
+                        }
+                    }
+                }
+
+                alert(`Uploaded ${totalUploaded} images to OneDrive ✅`);
+            } catch (err) {
+                console.error(err);
+                alert('Image upload failed.');
+            }
+        }
+
+        /* =========================
+           UI
+        ========================= */
+
+        function initCollapsibles() {
+            $$('.collapsible-section').forEach((section) => {
+                const header = section.querySelector('.collapsible-header');
+                if (!header || !section.id) return;
+
+                const saved = localStorage.getItem(`collapse:${section.id}`);
+                if (saved === 'true') section.classList.add('collapsed');
 
                 if (header.dataset.bound) return;
                 header.dataset.bound = 'true';
 
                 header.addEventListener('click', () => {
                     section.classList.toggle('collapsed');
-
-                    localStorage.setItem(
-                        `collapse:${id}`,
-                        section.classList.contains('collapsed')
-                    );
+                    localStorage.setItem(`collapse:${section.id}`, section.classList.contains('collapsed'));
                 });
             });
         }
 
         function initModalEvents() {
             $('closeModalButton')?.addEventListener('click', closeModal);
-
-            $('modal')?.addEventListener('click', (e) => {
-                if (e.target === $('modal')) closeModal();
+            $('modal')?.addEventListener('click', (event) => {
+                if (event.target === $('modal')) closeModal();
             });
-
             $('modalPrev')?.addEventListener('click', () => {
                 if (!state.modalItems.length) return;
                 showModalByIndex((state.modalIndex - 1 + state.modalItems.length) % state.modalItems.length);
             });
-
             $('modalNext')?.addEventListener('click', () => {
                 if (!state.modalItems.length) return;
                 showModalByIndex((state.modalIndex + 1) % state.modalItems.length);
             });
-
             $('downloadButton')?.addEventListener('click', () => {
                 const item = state.modalItems[state.modalIndex];
                 if (!item) return;
-
                 const a = document.createElement('a');
                 a.href = item.url;
                 a.download = item.name;
                 a.click();
             });
-
             $('deleteButton')?.addEventListener('click', deleteCurrentModalImage);
-
             $('imageDropdown')?.addEventListener('change', () => {
                 const index = Number($('imageDropdown')?.value);
                 if (!Number.isNaN(index)) showModalByIndex(index);
@@ -2186,7 +2196,6 @@
         }
 
         function initProjectEvents() {
-
             $('projectList')?.addEventListener('change', async () => {
                 const id = $('projectList')?.value;
                 if (id) await loadProject(id);
@@ -2194,41 +2203,36 @@
 
             $('projectSearch')?.addEventListener('input', filterProjects);
 
-            $('sensorCount')?.addEventListener('input', async () => {
+            $('sensorCount')?.addEventListener('input', () => {
                 state.expectedSensors = Math.max(0, Number($('sensorCount')?.value) || 0);
-
                 populateSensorDropdown(state.expectedSensors);
                 syncSensorTotalToQC();
-                await updateGallery();
-                debouncedSaveProjectFields();
+                updateMissingImages();
+                saveAllDebounced();
             });
 
-            $('saveProject')?.addEventListener('click', saveProjectBasics);
-
-            $('project')?.addEventListener('keydown', async (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
+            $('project')?.addEventListener('keydown', async (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
                     await loadOrCreateProject();
                 }
             });
+
+            $('saveProject')?.addEventListener('click', saveProjectBasics);
         }
 
         function initFeatureEvents() {
             $('saveSensorMeta')?.addEventListener('click', saveSensorMeta);
             $('exportCSV')?.addEventListener('click', exportSensorMetaCsv);
 
-            $('sensorMetaNumberDropdown')?.addEventListener('change', () => {
-                loadSensorMeta($('sensorMetaNumberDropdown')?.value);
-            });
+            $('sensorMetaNumberDropdown')?.addEventListener('change', () => loadSensorMeta($('sensorMetaNumberDropdown')?.value));
 
             $('sensorNumberDropdown')?.addEventListener('change', async () => {
                 const sensorNum = $('sensorNumberDropdown')?.value;
                 if (!sensorNum) return;
-
-                const data = await readOnce(`${sensorMetaBasePath()}/${sensorNum}`) || {};
-                if (data.serial && $('serialNumber')) {
-                    $('serialNumber').value = data.serial;
-                }
+                const db = await loadProjectDB();
+                const data = db.sensorMeta?.[sensorNum] || {};
+                if (data.serial && $('serialNumber')) $('serialNumber').value = data.serial;
             });
 
             $$('input[name="viewMode"]').forEach((radio) => {
@@ -2238,15 +2242,15 @@
                 });
             });
 
-            $('missingList')?.addEventListener('click', (e) => {
-                const li = e.target.closest('li[data-sensor]');
+            $('missingList')?.addEventListener('click', (event) => {
+                const li = event.target.closest('li[data-sensor]');
                 if (li) handlePickMissing(li.dataset.sensor);
             });
 
-            $('missingList')?.addEventListener('keydown', (e) => {
-                const li = e.target.closest('li[data-sensor]');
-                if (li && (e.key === 'Enter' || e.key === ' ')) {
-                    e.preventDefault();
+            $('missingList')?.addEventListener('keydown', (event) => {
+                const li = event.target.closest('li[data-sensor]');
+                if (li && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
                     handlePickMissing(li.dataset.sensor);
                 }
             });
@@ -2256,378 +2260,81 @@
 
             $('compareBtn')?.addEventListener('click', () => {
                 const report = generateCertificationReport();
-                $('comparisonResults').innerHTML =
-                    `<pre style="white-space: pre-wrap;">${escapeHtml(report || 'No report available')}</pre>`;
+                $('comparisonResults').innerHTML = `<pre style="white-space:pre-wrap;">${escapeHtml(report || 'No report available')}</pre>`;
             });
 
             $('exportReportBtn')?.addEventListener('click', exportCertificationCSV);
 
-            $$('input[name="checklistType"]').forEach(radio => {
+            $$('input[name="checklistType"]').forEach((radio) => {
                 radio.addEventListener('change', async () => {
-
-                    stopAutosaveLoop();
-
                     state.currentChecklistType = radio.value;
                     state.qcConfig = null;
-
                     await initQCConfig(true);
-                    await loadQCChecklist(state.currentProject);
-
-                    startAutosaveLoop();
+                    await loadQCChecklist();
+                    await saveAll();
                 });
             });
 
             $('uploadQCBtn')?.addEventListener('click', uploadReportsToOneDrive);
-
             $('uploadImagesToOneDriveBtn')?.addEventListener('click', uploadAllImagesToOneDrive);
+
+            $('loginButton')?.addEventListener('click', loginToMicrosoft);
+            $('logoutButton')?.addEventListener('click', logoutFromMicrosoft);
+
+            document.body.addEventListener('blur', async (event) => {
+                const el = event.target;
+                if (!(el instanceof HTMLElement)) return;
+                if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)) return;
+                if (!state.currentProject || state.isApplyingRemoteUpdate) return;
+                await saveAll();
+            }, true);
         }
 
-        function getQCPath() {
-            const site = sanitize(state.currentProjectName || 'unknown');
-            return `${site}/Data/qc.json`;
-        }
+        function bindWindowEvents() {
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) stopSync();
+                else startSync();
+            });
 
-        async function ensureSiteDataFolder() {
-            const site = sanitize(state.currentProjectName || 'unknown');
-
-            await ensureFolderExists(site);
-            await ensureFolderExists(`${site}/Data`);
-        }
-
-        function syncSensorTotalToQC() {
-            const total = state.expectedSensors;
-
-            const qcField = $('field_sensorTotal');
-            if (qcField) qcField.value = total;
-
-            $$('.sensor-total').forEach((el) => {
-                el.textContent = `/ ${total}`;
+            window.addEventListener('beforeunload', () => {
+                if (state.currentProject && !state.isApplyingRemoteUpdate) {
+                    const db = buildDbFromUi(state.currentProjectData || {});
+                    saveToLocal(db);
+                }
             });
         }
 
-        export function getAccessToken() {
-            return localStorage.getItem("accessToken");
-        }
-
-        window.addEventListener('storage', (event) => {
-            if (event.key === 'accessToken') {
-                refreshAccessState();
-            }
-        });
-
-        window.addEventListener('DOMContentLoaded', async () => {
-            await refreshAccessState();
-        });
-
-        async function uploadAllImagesToOneDrive() {
-            if (!requireEditAccess()) return;
-            if (!state.currentProject) {
-                alert("No project selected");
-                return;
-            }
-
-            const site = sanitize(state.currentProjectName || state.currentProject);
-            const basePath = `JobPhotos/${site}`;
-
-            const accessToken = localStorage.getItem("accessToken");
-            if (!accessToken) {
-                alert("Not logged into Microsoft");
-                return;
-            }
-
-            let totalUploaded = 0;
-
-            try {
-                const modes = [
-                    { mode: 'sensors', subFolder: 'sensors' },
-                    { mode: 'deliverables', subFolder: 'deliverables' }
-                ];
-
-                for (const { mode, subFolder } of modes) {
-                    const firebasePath = getImagesPath(mode);
-                    const oneDrivePath = `${basePath}/${subFolder}`;
-
-                    let items = [];
-                    try {
-                        items = await listStorageItems(firebasePath);
-                    } catch {
-                        continue;
-                    }
-
-                    for (const item of items) {
-                        try {
-                            // 📥 Download from Firebase
-                            const res = await fetch(item.url);
-                            const blob = await res.blob();
-
-                            // 📤 Upload to correct subfolder
-                            await fetch(
-                                `https://graph.microsoft.com/v1.0/me/drive/root:/${oneDrivePath}/${item.name}:/content`,
-                                {
-                                    method: "PUT",
-                                    headers: {
-                                        "Authorization": `Bearer ${accessToken}`,
-                                        "Content-Type": blob.type || "image/jpeg"
-                                    },
-                                    body: blob
-                                }
-                            );
-
-                            totalUploaded++;
-                            console.log(`Uploaded (${subFolder}): ${item.name}`);
-                        } catch (err) {
-                            console.error(`Failed (${subFolder}): ${item.name}`, err);
-                        }
-                    }
-                }
-
-                alert(`Uploaded ${totalUploaded} images to OneDrive ✅`);
-            } catch (err) {
-                console.error(err);
-                alert("Image upload failed.");
-            }
-        }
-
-        function buildQCChecklistCSV() {
-            const data = collectData();
-            const rows = [["Section", "Field", "Value"]];
-
-            Object.entries(data.sections || {}).forEach(([sectionId, section]) => {
-
-                // 🧾 Fields
-                if (section.fields) {
-                    Object.entries(section.fields).forEach(([key, val]) => {
-                        const value = (val && typeof val === "object" && "value" in val)
-                            ? val.value
-                            : val;
-
-                        rows.push([sectionId, key, normalizeText(value)]);
-                    });
-                }
-
-                // ✅ Checklist
-                if (Array.isArray(section.items)) {
-                    section.items.forEach((item, i) => {
-                        if (item.label) {
-                            rows.push([
-                                sectionId,
-                                item.label,
-                                item.checked ?? item.value ?? ""
-                            ]);
-                        }
-
-                        // multi-day
-                        if (Array.isArray(item.days)) {
-                            item.days.forEach((dayVal, d) => {
-                                rows.push([
-                                    sectionId,
-                                    `${item.label} (Night ${d + 1})`,
-                                    dayVal
-                                ]);
-                            });
-                        }
-                    });
-                }
-
-                // 📊 Scores
-                if (section.scores) {
-                    Object.entries(section.scores).forEach(([k, v]) => {
-                        rows.push([sectionId, k, v]);
-                    });
-
-                    rows.push([sectionId, "Total Score", section.total || 0]);
-                }
-
-                // 🧠 Notes
-                if (section.notes) {
-                    rows.push([sectionId, "Notes", normalizeText(section.notes)]);
-                }
-            });
-
-            return rows;
-        }
-
-        function buildQCChecklistBlob() {
-            const rows = buildQCChecklistCSV();
-
-            const csv = rows.map(row =>
-                row.map(cell => {
-                    const text = String(cell ?? '');
-                    return /[",\n]/.test(text)
-                        ? `"${text.replace(/"/g, '""')}"`
-                        : text;
-                }).join(',')
-            ).join('\n');
-
-            return new Blob([csv], { type: "text/csv" });
-        }
-
-        async function uploadReportsToOneDrive() {
-            if (!state.currentProject) {
-                alert("No project selected");
-                return;
-            }
-
-            const site = sanitize(state.currentProjectName || 'unknown');
-
-            await ensureFolderExists(site);
-            await ensureFolderExists(`${site}/Data`);
-
-            const reportText = generateCertificationReport();
-
-            // TXT report
-            await graphFetch(graphContentUrl(`${site}/Data/report.txt`), {
-                method: 'PUT',
-                headers: { 'Content-Type': 'text/plain' },
-                body: reportText
-            });
-
-            // CSV report
-            const rows = buildReportCSVRows();
-            const csv = rows.map(r => r.join(',')).join('\n');
-
-            await graphFetch(graphContentUrl(`${site}/Data/report.csv`), {
-                method: 'PUT',
-                headers: { 'Content-Type': 'text/csv' },
-                body: csv
-            });
-
-            alert("✅ QC uploaded to site folder");
-        }
-
-        async function uploadQCChecklistToOneDrive() {
-            if (!requireEditAccess()) return;
-            if (!state.currentProject) {
-                alert("No project selected");
-                return;
-            }
-
-            const site = sanitize(state.currentProjectName || state.currentProject);
-            const path = `Jobs/Radar/${site}`;
-
-            const accessToken = localStorage.getItem("accessToken");
-            if (!accessToken) {
-                alert("Not logged into Microsoft");
-                return;
-            }
-
-            try {
-                const rows = buildQCChecklistCSV();
-
-                const csv = rows.map(r => r.map(cell => {
-                    const text = String(cell ?? "");
-                    return /[",\n]/.test(text)
-                        ? `"${text.replace(/"/g, '""')}"`
-                        : text;
-                }).join(",")).join("\n");
-
-                const blob = new Blob([csv], { type: "text/csv" });
-
-                await fetch(
-                    `https://graph.microsoft.com/v1.0/me/drive/root:/${path}/qc_checklist.csv:/content`,
-                    {
-                        method: "PUT",
-                        headers: {
-                            "Authorization": `Bearer ${accessToken}`,
-                            "Content-Type": "text/csv"
-                        },
-                        body: blob
-                    }
-                );
-
-                alert("QC Checklist uploaded ✅");
-            } catch (err) {
-                console.error(err);
-                alert("QC upload failed.");
-            }
-        }
-
-        async function uploadToOneDrive(path, fileBlob, filename, contentType = "application/octet-stream") {
-            const accessToken = localStorage.getItem("accessToken");
-            if (!accessToken) {
-                alert("Not logged into Microsoft");
-                return;
-            }
-
-            const fullPath = `${path}/${filename}`;
-
-            const res = await fetch(
-                `https://graph.microsoft.com/v1.0/me/drive/root:/${fullPath}:/content`,
-                {
-                    method: "PUT",
-                    headers: {
-                        "Authorization": `Bearer ${accessToken}`,
-                        "Content-Type": contentType
-                    },
-                    body: fileBlob
-                }
-            );
-
-            if (!res.ok) {
-                const err = await res.text();
-                console.error("Upload failed:", err);
-                throw new Error("OneDrive upload failed");
-            }
-
-            return await res.json();
-        }
-
-        document.getElementById("loginButton").onclick = loginToMicrosoft;
-        document.getElementById("logoutButton").onclick = logoutFromMicrosoft;
-
-        window.addEventListener("DOMContentLoaded", async () => {
-            await refreshAccessState();
-        });
-
-        $('loginButton')?.addEventListener('click', loginToMicrosoft);
-        $('logoutButton')?.addEventListener('click', logoutFromMicrosoft);
+        /* =========================
+           INIT
+        ========================= */
 
         async function initApp() {
             initMicrosoftAuth();
+            initModalEvents();
+            initProjectEvents();
+            initFeatureEvents();
+            updateImageModeUI();
+            initCollapsibles();
+            bindWindowEvents();
 
-            if (!isLoggedIn()) {
-                $('mainApp').style.display = 'none';
-                $('loginStatus').textContent = 'Not logged in';
-                return;
+            await refreshAccessState();
+
+            const lastProject = localStorage.getItem('lastProject');
+            if (lastProject) {
+                state.currentProject = lastProject;
+                await loadProject(lastProject).catch(() => { });
             }
 
-            const user = await getUserInfo();
-
-            $('loginStatus').textContent =
-                `Logged in as: ${user?.displayName || user?.userPrincipalName}`;
-
-            $('mainApp').style.display = 'block';
-
-            await refreshAccessState(); // IMPORTANT: loads projects
+            startSync();
         }
 
-        document.addEventListener('DOMContentLoaded', initApp);
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initApp();
+        });
 
-        async function ensureFolder(path) {
-            try {
-                await graphFetch(graphChildrenUrl(path));
-            } catch (err) {
-                if (/404|itemNotFound/i.test(String(err))) {
-                    console.log("Creating folder:", path);
-
-                    await graphFetch(graphContentUrl(path + '/.init'), {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'text/plain' },
-                        body: 'init'
-                    });
-                } else {
-                    throw err;
-                }
-            }
+        export function getAccessToken() {
+            return localStorage.getItem('accessToken');
         }
-
-        initModalEvents();
-        initProjectEvents();
-        initFeatureEvents();
-        updateImageModeUI();
-        initCollapsibles();
-        refreshAccessState();
-        initMicrosoftAuth();
     </script>
 </body>
 
