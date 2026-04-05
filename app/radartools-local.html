@@ -36,8 +36,8 @@
     <nav class="top-actions">
         <button id="saveProject" type="button">Save Project</button>
         <button id="restoreBackupBtn">Restore Last Save</button>
-        <button id="exportBackupBtn" class="secondary" type="button">Export Backup</button>
         <button id="newProjectBtn" class="secondary" type="button">New / Load by Name</button>
+        <button id="exportBackupBtn" class="secondary" type="button">Export Backup</button>
         <button id="importBackupBtn" class="secondary" type="button">Import Backup</button>
         <input id="backupInput" type="file" accept="application/json" class="hidden">
         <button id="clearAllBtn" class="danger" type="button">Clear All Local Data</button>
@@ -628,7 +628,8 @@
             let items = getCurrentImages(mode);
             const seen = new Set();
             items = items.filter((item) => {
-                const key = `${item.name}|${item.imageId || item.url}`; if (seen.has(key)) return false;
+                const key = `${item.name}|${item.imageId || item.url}`;
+                if (seen.has(key)) return false;
                 seen.add(key);
                 return true;
             });
@@ -778,6 +779,7 @@
         }
 
         async function uploadDeliverableImage() {
+            const project = getProjectById();
             const file = $('fileUploader')?.files?.[0];
             const rawName = $('imageNameInput')?.value.trim();
             const markup = $('markupTextInput')?.value.trim();
@@ -787,6 +789,7 @@
             if (!project || !file || !finalName) {
                 return alert('Enter a name or markup.');
             }
+
             try {
                 let blob = await resizeImage(file, CONFIG.IMAGE_MAX_WIDTH);
 
@@ -794,10 +797,12 @@
                     blob = await addTextToImage(blob, markup);
                 }
 
-                // ✅ store in IndexedDB (same as sensors)
                 const imageId = await saveImage(blob);
 
-                const filename = `${finalName}.jpg`;
+                const filename = getUniqueLocalFilename(
+                    project.images.deliverables,
+                    `${finalName}.jpg`
+                );
 
                 project.images.deliverables.push({
                     id: crypto.randomUUID(),
@@ -813,6 +818,7 @@
                 $('markupTextInput').value = '';
 
                 await updateGallery();
+
             } catch (err) {
                 console.error(err);
                 alert('Deliverable upload failed.');
