@@ -11,7 +11,7 @@
 <body>
     <header>
         <h1><img src="assets/img/telaid_logo.png" alt=""> Radar</h1>
-                <section id="login-section" class="logins-section">
+        <section id="login-section" class="logins-section">
             <form id="login-form">
                 <label for="username">Email:</label>
                 <input type="email" id="username" required>
@@ -32,16 +32,16 @@
             </div>
         </section>
 
-        <div class="top-actions">
-            <span class="pill">Local Only</span>
-            <button id="exportBackupBtn" class="secondary" type="button">Export Backup</button>
-            <button id="importBackupBtn" class="secondary" type="button">Import Backup</button>
-            <input id="backupInput" type="file" accept="application/json" class="hidden">
-            <button id="clearAllBtn" class="danger" type="button">Clear All Local Data</button>
-            <button id="restoreBackupBtn">Restore Last Save</button>
-
-        </div>
     </header>
+    <nav class="top-actions">
+        <button id="saveProject" type="button">Save Project</button>
+        <button id="restoreBackupBtn">Restore Last Save</button>
+        <button id="exportBackupBtn" class="secondary" type="button">Export Backup</button>
+        <button id="newProjectBtn" class="secondary" type="button">New / Load by Name</button>
+        <button id="importBackupBtn" class="secondary" type="button">Import Backup</button>
+        <input id="backupInput" type="file" accept="application/json" class="hidden">
+        <button id="clearAllBtn" class="danger" type="button">Clear All Local Data</button>
+    </nav>
 
     <main id="mainApp">
         <section>
@@ -61,10 +61,7 @@
                         <input type="number" id="sensorCount" min="1" />
                     </label>
                 </div>
-                <div class="button-row" style="align-self:end;">
-                    <button id="saveProject" type="button">Save Project</button>
-                    <button id="newProjectBtn" class="secondary" type="button">New / Load by Name</button>
-                </div>
+
             </div>
 
             <div class="grid grid-2" style="margin-top: 12px;">
@@ -220,9 +217,6 @@
                     </div>
                 </div>
 
-                <div class="button-row" style="margin-top: 12px;">
-                    <button id="uploadImagesToOneDriveBtn" class="secondary" type="button">Export Images JSON</button>
-                </div>
             </section>
         </section>
 
@@ -307,6 +301,69 @@
             }).join(',')).join('\n');
             downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), filename);
         };
+
+
+        const DB_NAME = 'radarImagesDB';
+        const STORE_NAME = 'images';
+
+        function openDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, 1);
+
+                request.onupgradeneeded = () => {
+                    const db = request.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    }
+                };
+
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function saveImage(blob) {
+            const db = await openDB();
+            const id = crypto.randomUUID();
+
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+
+                store.put({ id, blob });
+
+                tx.oncomplete = () => resolve(id);
+                tx.onerror = () => reject(tx.error);
+            });
+        }
+
+        async function getImage(id) {
+            const db = await openDB();
+
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+
+                const request = store.get(id);
+
+                request.onsuccess = () => resolve(request.result?.blob || null);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function deleteImage(imageId) {
+            const db = await openDB();
+
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+
+                store.delete(imageId);
+
+                tx.oncomplete = resolve;
+                tx.onerror = reject;
+            });
+        }
 
         function loadStore() {
             try {
@@ -405,16 +462,40 @@
             if ($('deliverableUploadSection')) $('deliverableUploadSection').style.display = mode === 'deliverables' ? 'block' : 'none';
         }
 
+        let currentModalURL = null;
+
         function showModalByIndex(index) {
             const item = state.modalItems[index];
             if (!item) return;
+
             state.modalIndex = index;
-            $('modalImage').src = item.url;
+
+            // cleanup old URL
+            if (currentModalURL) {
+                URL.revokeObjectURL(currentModalURL);
+                currentModalURL = null;
+            }
+
+            if (item.imageId) {
+                getImage(item.imageId).then(blob => {
+                    if (!blob) return;
+                    currentModalURL = URL.createObjectURL(blob);
+                    $('modalImage').src = currentModalURL;
+                });
+            } else {
+                $('modalImage').src = item.url || '';
+            }
+
             $('modalFileName').textContent = item.name;
             $('modal').style.display = 'flex';
         }
 
         function closeModal() {
+            if (currentModalURL) {
+                URL.revokeObjectURL(currentModalURL);
+                currentModalURL = null;
+            }
+
             $('modal').style.display = 'none';
             $('modalImage').src = '';
             $('modalFileName').textContent = '';
@@ -547,8 +628,7 @@
             let items = getCurrentImages(mode);
             const seen = new Set();
             items = items.filter((item) => {
-                const key = `${item.name}|${item.url?.slice(0, 50)}`;
-                if (seen.has(key)) return false;
+                const key = `${item.name}|${item.imageId || item.url}`; if (seen.has(key)) return false;
                 seen.add(key);
                 return true;
             });
@@ -568,7 +648,21 @@
 
             items.forEach((item, index) => {
                 const container = createEl('div', { className: 'image-container' });
-                const img = createEl('img', { attrs: { src: item.url, loading: 'lazy', alt: item.name } });
+                const img = createEl('img', { attrs: { loading: 'lazy', alt: item.name } });
+
+                // ✅ Load from IndexedDB
+                if (item.imageId) {
+                    getImage(item.imageId).then(blob => {
+                        if (!blob) return;
+                        const url = URL.createObjectURL(blob);
+                        img.src = url;
+                        img.onload = () => URL.revokeObjectURL(url);
+                    });
+                }
+                // fallback for old images
+                else if (item.url) {
+                    img.src = item.url;
+                }
                 img.addEventListener('click', () => showModalByIndex(index));
 
                 const star = createEl('span', {
@@ -653,20 +747,23 @@
                 }
 
                 let blob = await resizeImage(file, CONFIG.IMAGE_MAX_WIDTH);
+
                 if (!skipMarkup) {
                     const labelBase = (project.customerName || project.project || project.id).trim();
                     blob = await addTextToImage(blob, `${labelBase} ${paddedNum} - ${serial}`);
                 }
-                const url = await blobToDataURL(blob);
-                const filename = `${prefix}_${paddedNum}-${serial}_${Date.now()}.jpg`;
-                project.images.sensors.push({ id: crypto.randomUUID(), name: filename, url, createdAt: Date.now() });
-                project.sensorMeta[num] = {
-                    serial: $('serialNumber')?.value.trim() || '',
-                    m1: $('sensorMetaM1')?.value.trim() || '',
-                    m2: $('sensorMetaM2')?.value.trim() || '',
-                    m3: $('sensorMetaM3')?.value.trim() || '',
-                    updatedAt: Date.now()
-                };
+
+                // ✅ SAVE TO INDEXEDDB
+                const imageId = await saveImage(blob);
+
+                const filename = `${prefix}_${paddedNum}-${serial}.jpg`;
+
+                project.images.sensors.push({
+                    id: crypto.randomUUID(),
+                    name: filename,
+                    imageId,
+                    createdAt: Date.now()
+                });
                 saveProjectRecord(project);
                 $('sensorImage').value = '';
                 await updateGallery();
@@ -682,21 +779,39 @@
 
         async function uploadDeliverableImage() {
             const file = $('fileUploader')?.files?.[0];
-            const imageName = sanitize($('imageNameInput')?.value);
+            const rawName = $('imageNameInput')?.value.trim();
             const markup = $('markupTextInput')?.value.trim();
-            const project = getProjectById();
-            if (!project || !file || !imageName) return alert('Choose a file and enter a name.');
 
+            const finalName = sanitize(rawName || markup);
+
+            if (!project || !file || !finalName) {
+                return alert('Enter a name or markup.');
+            }
             try {
                 let blob = await resizeImage(file, CONFIG.IMAGE_MAX_WIDTH);
-                if (markup) blob = await addTextToImage(blob, markup);
-                const url = await blobToDataURL(blob);
-                const filename = `${imageName}_${Date.now()}.jpg`;
-                project.images.deliverables.push({ id: crypto.randomUUID(), name: filename, url, createdAt: Date.now() });
+
+                if (markup) {
+                    blob = await addTextToImage(blob, markup);
+                }
+
+                // ✅ store in IndexedDB (same as sensors)
+                const imageId = await saveImage(blob);
+
+                const filename = `${finalName}.jpg`;
+
+                project.images.deliverables.push({
+                    id: crypto.randomUUID(),
+                    name: filename,
+                    imageId,
+                    createdAt: Date.now()
+                });
+
                 saveProjectRecord(project);
+
                 $('fileUploader').value = '';
                 $('imageNameInput').value = '';
                 $('markupTextInput').value = '';
+
                 await updateGallery();
             } catch (err) {
                 console.error(err);
@@ -711,7 +826,12 @@
             const ok = await confirmWithPassword('delete this image');
             if (!ok) return alert('Incorrect password.');
             ['sensors', 'deliverables'].forEach((mode) => {
-                project.images[mode] = (project.images[mode] || []).filter((img) => img.id !== item.id);
+                project.images[mode] = (project.images[mode] || []).filter((img) => {
+                    if (img.id === item.id && img.imageId) {
+                        deleteImage(img.imageId); // ✅ remove from IndexedDB
+                    }
+                    return img.id !== item.id;
+                });
             });
             saveProjectRecord(project);
             closeModal();
@@ -753,8 +873,12 @@
             renderProjectDropdown(state.allProjects.filter((p) => normKey(`${p.customer} ${p.project}`).includes(query)));
         }
 
-        async function startApp() {
+        async function startApp(projectId = null) {
             await populateProjects();
+
+            if (projectId) {
+                await loadProject(projectId);
+            }
         }
 
         async function loadProject(projectId) {
@@ -1270,22 +1394,38 @@
                 const target = event.target;
                 if (!(target instanceof HTMLElement)) return;
                 if (target.id === 'field_totalNights') {
-                    let value = Number(target.value);
+                    const raw = target.value;
+
+                    if (raw === '') return;
+
+                    let value = Number(raw);
 
                     if (isNaN(value)) return;
 
                     value = Math.min(Math.max(value, 1), CONFIG.MAX_NIGHTS);
-                    target.value = value;
 
-                    // 🔥 FORCE FULL REBUILD
+                    if (value !== Number(raw)) {
+                        target.value = value;
+                    }
+
                     const currentData = collectData();
 
-                    buildApp(currentData);   // rebuild entire UI
-                    applyData(currentData);  // reapply values
+                    buildApp(currentData);
+                    applyData(currentData);
 
                     saveQCData();
                     return;
-                } if (target.id === 'field_sensorTotal') {
+                }
+
+                $('qcChecklistSection')?.addEventListener('blur', (e) => {
+                    if (e.target?.id === 'field_totalNights') {
+                        if (!e.target.value) {
+                            e.target.value = CONFIG.DEFAULT_NIGHTS;
+                        }
+                    }
+                }, true);
+
+                if (target.id === 'field_sensorTotal') {
                     const total = target.value;
                     $$('[id^="field_nightly_production_"]').forEach((input) => {
                         input.parentElement?.querySelector('.sensor-total')?.replaceChildren(document.createTextNode(`/ ${total}`));
@@ -1407,10 +1547,18 @@
             $('downloadButton')?.addEventListener('click', () => {
                 const item = state.modalItems[state.modalIndex];
                 if (!item) return;
-                const a = document.createElement('a');
-                a.href = item.url;
-                a.download = item.name;
-                a.click();
+
+                if (item.imageId) {
+                    getImage(item.imageId).then(blob => {
+                        if (!blob) return;
+                        downloadBlob(blob, item.name);
+                    });
+                } else if (item.url) {
+                    const a = document.createElement('a');
+                    a.href = item.url;
+                    a.download = item.name;
+                    a.click();
+                }
             });
             $('deleteButton')?.addEventListener('click', deleteCurrentModalImage);
             $('imageDropdown')?.addEventListener('change', () => {
@@ -1494,7 +1642,6 @@
                 const rows = buildQCChecklistCSV();
                 downloadCSV(rows, `${sanitize(state.currentProjectName || 'project')}_${state.currentChecklistType}_checklist.csv`);
             });
-            $('uploadImagesToOneDriveBtn')?.addEventListener('click', exportImagesJson);
             $('exportBackupBtn')?.addEventListener('click', exportBackup);
             $('importBackupBtn')?.addEventListener('click', () => $('backupInput').click());
             $('backupInput')?.addEventListener('change', importBackup);
@@ -1535,15 +1682,6 @@
             return rows;
         }
 
-        function exportImagesJson() {
-            const project = getProjectById();
-            if (!project) return alert('No project selected');
-            downloadBlob(
-                new Blob([JSON.stringify(project.images, null, 2)], { type: 'application/json' }),
-                `${sanitize(project.project || project.id)}_images.json`
-            );
-        }
-
         function exportBackup() {
             saveStore();
             downloadBlob(
@@ -1576,17 +1714,26 @@
         function clearAllData() {
             const ok = confirm('This will erase all local Radar app data on this browser. Continue?');
             if (!ok) return;
+
             localStorage.removeItem(CONFIG.STORAGE_KEY);
+
+            // ✅ clear IndexedDB too
+            indexedDB.deleteDatabase(DB_NAME);
+
             store = { projects: {}, favorites: {}, ui: {} };
             state.currentProject = '';
+
             $('project').value = '';
             $('customerName').value = '';
             $('sensorCount').value = '';
+
             $('app').innerHTML = 'Loading checklist...';
             $('gallery').innerHTML = '';
             $('imageDropdown').innerHTML = '<option value="">-- Select an Image --</option>';
             $('missingList').innerHTML = '';
+
             populateProjects();
+
             alert('Local data cleared.');
         }
 
@@ -1612,13 +1759,29 @@
             alert("Backup restored ✅");
         });
 
+        $('newProjectBtn')?.addEventListener('click', () => {
+            $('project').value = '';
+            $('customerName').value = '';
+            $('sensorCount').value = '';
+
+            state.currentProject = '';
+            state.currentProjectName = '';
+            state.currentCustomerName = '';
+            state.expectedSensors = 0;
+
+            buildApp({ sections: {} });
+            updateGallery();
+
+            alert("New blank project ready (not saved yet)");
+        });
+
         initModalEvents();
         initProjectEvents();
         initFeatureEvents();
         updateImageModeUI();
         populateProjects().then(async () => {
             await initQCConfig(true);
-            buildApp({ sections: {} }); // empty checklist
+            buildApp({ sections: {} });
         });    </script>
 </body>
 
