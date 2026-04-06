@@ -16,9 +16,9 @@
 
   <nav class="top-actions">
     <button id="saveProject" type="button">Save Project</button>
-    <button id="refreshProjectsBtn" type="button" class="secondary">Refresh Projects</button>
     <button id="newProjectBtn" type="button" class="secondary">New Project</button>
-    <button id="exportProjectJsonBtn" type="button" class="secondary" style="display: none;">Export Project JSON</button>
+    <button id="exportProjectJsonBtn" type="button" class="secondary" style="display: none;">Export Project
+      JSON</button>
   </nav>
 
   <main id="mainApp">
@@ -52,9 +52,6 @@
           </label>
         </div>
         <div>
-          <label>Total Devices:
-            <input type="number" id="sensorCount" min="1" />
-          </label>
         </div>
         <br>
         <div>
@@ -628,7 +625,7 @@
         ...existing,
         project: $('project').value.trim(),
         customerName: $('customerName').value.trim(),
-        sensorCount: Math.max(0, Number($('sensorCount').value) || 0),
+        sensorCount: Number($('field_sensorTotal')?.value || 0),
         sensorMeta: existing.sensorMeta || {},
         createdAt: existing.createdAt || Date.now(),
         updatedAt: Date.now(),
@@ -659,9 +656,9 @@
         state.currentProjectName = data.project || folderName;
         state.currentCustomerName = data.customerName || '';
         state.expectedSensors = Number(data.sensorCount) || 0;
+        populateSensorDropdown(state.expectedSensors);
         $('project').value = state.currentProjectName;
         $('customerName').value = state.currentCustomerName;
-        $('sensorCount').value = state.expectedSensors;
         $('projectFolderDisplay').value = `${CONFIG.ROOT_FOLDER}/${folderName}`;
         populateSensorDropdown(state.expectedSensors);
         await Promise.all([updateGallery(), loadQCChecklist(folderName)]);
@@ -1006,7 +1003,7 @@
       return {
         project: $('project').value.trim() || '',
         customerName: $('customerName').value.trim() || '',
-        sensorCount: Math.max(0, Number($('sensorCount').value) || 0),
+        sensorCount: Number($('field_sensorTotal').value) || 0,
         updatedAt: Date.now()
       };
     }
@@ -1462,10 +1459,20 @@
           return;
         }
         if (target.id === 'field_sensorTotal') {
-          const total = target.value;
+          const total = Number(target.value) || 0;
+
+          state.expectedSensors = total;
+
+          populateSensorDropdown(total);
+
+          updateGallery();
+
           $$('[id^="field_nightly_production_"]').forEach((input) => {
-            input.parentElement?.querySelector('.sensor-total')?.replaceChildren(document.createTextNode(`/ ${total}`));
+            input.parentElement?.querySelector('.sensor-total')?.replaceChildren(
+              document.createTextNode(`/ ${total}`)
+            );
           });
+
           saveQCData();
           return;
         }
@@ -1586,7 +1593,7 @@
           const text = String(cell ?? '');
           return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
         }).join(',')).join('\n');
-const timestamp = "latest";
+        const timestamp = "latest";
         await uploadBlobToOneDrive(`${getProjectBasePath()}/qc_${timestamp}.csv`, new Blob([qcCsv], { type: 'text/csv' }), 'text/csv');
         await uploadBlobToOneDrive(`${getProjectBasePath()}/report_${timestamp}.txt`, buildReportFile(), 'text/plain');
       } catch (err) {
@@ -1652,42 +1659,43 @@ const timestamp = "latest";
         }
       });
       $('projectSearch')?.addEventListener('input', filterProjects);
-      $('sensorCount')?.addEventListener('input', async () => {
-        state.expectedSensors = Math.max(0, Number($('sensorCount').value) || 0);
-        populateSensorDropdown(state.expectedSensors);
-        syncSensorTotalToQC();
-        await updateGallery();
-        debouncedSaveProjectFields();
+
+      $('saveProject')?.addEventListener('click', async () => {
+        const btn = $('saveProject');
+
+        try {
+          requireAuth(true);
+
+          btn.disabled = true;
+          btn.textContent = 'Saving...';
+
+          console.log("[SAVE] Saving project...");
+
+          await saveCurrentProject();
+
+          console.log("[SAVE] Project saved");
+
+          console.log("[SAVE] Uploading QC + Report...");
+          await uploadReportsToOneDrive();
+
+          console.log("[SAVE] QC + Report uploaded");
+
+          startAutosaveLoop();
+
+          alert('Project saved ✅');
+
+        } catch (err) {
+          console.error(err);
+          alert("Save failed ❌");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Save Project';
+        }
       });
-$('saveProject')?.addEventListener('click', async () => {
-  try {
-    requireAuth(true);
 
-    console.log("[SAVE] Saving project...");
-
-    await saveCurrentProject();
-
-    console.log("[SAVE] Project saved");
-
-    console.log("[SAVE] Uploading QC + Report...");
-    await uploadReportsToOneDrive();
-
-    console.log("[SAVE] QC + Report uploaded");
-
-    startAutosaveLoop();
-
-    alert('Project saved ✅');
-
-  } catch (err) {
-    console.error(err);
-    alert("Save failed ❌");
-  }
-});
-      $('refreshProjectsBtn')?.addEventListener('click', populateProjects);
       $('newProjectBtn')?.addEventListener('click', () => {
         $('project').value = '';
         $('customerName').value = '';
-        $('sensorCount').value = '';
         $('projectFolderDisplay').value = '';
         state.currentProject = '';
         state.currentProjectName = '';
