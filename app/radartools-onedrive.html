@@ -18,9 +18,7 @@
     <button id="saveProject" type="button">Save Project</button>
     <button id="refreshProjectsBtn" type="button" class="secondary">Refresh Projects</button>
     <button id="newProjectBtn" type="button" class="secondary">New Project</button>
-    <button id="exportProjectJsonBtn" type="button" class="secondary">Export Project JSON</button>
-    <button id="uploadQCBtn" type="button" class="secondary">Upload QC + Report</button>
-
+    <button id="exportProjectJsonBtn" type="button" class="secondary" style="display: none;">Export Project JSON</button>
   </nav>
 
   <main id="mainApp">
@@ -1589,7 +1587,7 @@
           const text = String(cell ?? '');
           return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
         }).join(',')).join('\n');
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+const timestamp = "latest";
         await uploadBlobToOneDrive(`${getProjectBasePath()}/qc_${timestamp}.csv`, new Blob([qcCsv], { type: 'text/csv' }), 'text/csv');
         await uploadBlobToOneDrive(`${getProjectBasePath()}/report_${timestamp}.txt`, buildReportFile(), 'text/plain');
         alert('QC Checklist + Report uploaded ✅');
@@ -1663,19 +1661,30 @@
         await updateGallery();
         debouncedSaveProjectFields();
       });
-      $('saveProject')?.addEventListener('click', async () => {
-        try {
-          requireAuth(true);
+$('saveProject')?.addEventListener('click', async () => {
+  try {
+    requireAuth(true);
 
-          await saveCurrentProject();
-          startAutosaveLoop();
+    console.log("[SAVE] Saving project...");
 
-          alert('Project saved ✅');
+    await saveCurrentProject();
 
-        } catch (err) {
-          console.error(err);
-        }
-      });
+    console.log("[SAVE] Project saved");
+
+    console.log("[SAVE] Uploading QC + Report...");
+    await uploadReportsToOneDrive();
+
+    console.log("[SAVE] QC + Report uploaded");
+
+    startAutosaveLoop();
+
+    alert('Project saved ✅');
+
+  } catch (err) {
+    console.error(err);
+    alert("Save failed ❌");
+  }
+});
       $('refreshProjectsBtn')?.addEventListener('click', populateProjects);
       $('newProjectBtn')?.addEventListener('click', () => {
         $('project').value = '';
@@ -1729,7 +1738,6 @@
       $('compareBtn')?.addEventListener('click', () => { $('comparisonResults').innerHTML = `<pre>${escapeHtml(generateCertificationReport() || 'No report available')}</pre>`; });
       $('exportReportBtn')?.addEventListener('click', exportCertificationCSV);
       $('exportQCBtn')?.addEventListener('click', () => downloadCSV(buildQCChecklistCSV(), `${sanitize(state.currentProjectName || 'project')}_${state.currentChecklistType}_checklist.csv`));
-      $('uploadQCBtn')?.addEventListener('click', uploadReportsToOneDrive);
       $('qcChecklistSection')?.addEventListener('input', (e) => {
         const target = e.target;
 
