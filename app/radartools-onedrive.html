@@ -39,6 +39,10 @@
 
 
     <section>
+      <label style="display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" id="autosaveToggle">
+        Auto Save
+      </label>
       <div class="grid grid-4">
         <div>
           <label>Project ID / Name:
@@ -238,7 +242,7 @@
       MAX_NIGHTS: 10,
       DEFAULT_NIGHTS: 5,
       ADMIN_PASSWORD: 'telaidadmin',
-      AUTO_SAVE_MS: 1500,
+      AUTO_SAVE_MS: 3000,
       IMAGE_MAX_WIDTH: 2048,
       SENSOR_IMAGE_COUNT_REQUIRED: 2,
       ROOT_FOLDER: 'RadarApp/projects',
@@ -416,18 +420,23 @@
       qcConfig: null,
       qcListenerBound: false,
       currentChecklistType: 'radar',
-      projectData: null
+      projectData: null,
+      autoSaveEnabled: false,
     };
 
-    function requireAuth() {
+    let isSaving = false;
+
+    function requireAuth(showAlert = false) {
       if (!accessToken || isTokenExpired(accessToken)) {
-        alert('Please log in to Microsoft first.');
+        if (showAlert) {
+          alert('Please log in to Microsoft first.');
+        }
         throw new Error('Not logged into Microsoft');
       }
     }
 
     async function graphFetch(url, options = {}) {
-      requireAuth();
+      requireAuth(false);
       const headers = { Authorization: `Bearer ${accessToken}`, ...(options.headers || {}) };
       const res = await fetch(url, { ...options, headers });
       if (!res.ok) {
@@ -506,11 +515,38 @@
     }
 
     async function writeJsonFile(path, data) {
-      await graphFetch(`https://graph.microsoft.com/v1.0/drives/${CONFIG.SHARED_DRIVE_ID}/root:/${path}:/content`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data, null, 2)
-      });
+      if (isSaving) {
+        console.warn("⏳ Save skipped (already saving)");
+        return;
+      }
+
+      isSaving = true;
+
+      try {
+        const url = `https://graph.microsoft.com/v1.0/drives/${CONFIG.SHARED_DRIVE_ID}/root:/${path}:/content`;
+
+        await graphFetch(url, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data, null, 2)
+        });
+
+      } catch (err) {
+        console.error("❌ Save failed:", err);
+
+        // Optional retry for 412
+        if (err.message.includes("412")) {
+          console.warn("🔁 Retrying save...");
+          await new Promise(r => setTimeout(r, 300));
+          return writeJsonFile(path, data);
+        }
+
+      } finally {
+        isSaving = false;
+      }
+      console.log("[AUTOSAVE] Saved");
     }
 
     async function uploadBlobToOneDrive(path, blob, contentType = 'application/octet-stream') {
@@ -1000,8 +1036,14 @@
 
     function startAutosaveLoop() {
       stopAutosaveLoop();
+
+      if (!state.autoSaveEnabled) return;
+
+      if (!accessToken || isTokenExpired(accessToken)) return;
+
       state.autoSaveTimer = setInterval(() => {
         if (!state.currentProject) return;
+
         debouncedSaveProjectFields();
         saveQCData();
       }, CONFIG.AUTO_SAVE_MS);
@@ -1623,12 +1665,15 @@
       });
       $('saveProject')?.addEventListener('click', async () => {
         try {
+          requireAuth(true);
+
           await saveCurrentProject();
           startAutosaveLoop();
+
           alert('Project saved ✅');
+
         } catch (err) {
           console.error(err);
-          alert(`Save failed. ${err.message}`);
         }
       });
       $('refreshProjectsBtn')?.addEventListener('click', populateProjects);
@@ -1648,6 +1693,18 @@
       $('exportProjectJsonBtn')?.addEventListener('click', () => {
         const project = ensureProjectShape(state.projectData || {});
         downloadBlob(new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' }), `${sanitize(project.project || 'project')}.json`);
+      });
+      $('autosaveToggle')?.addEventListener('change', (e) => {
+        state.autoSaveEnabled = e.target.checked;
+
+        if (state.autoSaveEnabled) {
+          startAutosaveLoop();
+          console.log("✅ Autosave enabled");
+        } else {
+          stopAutosaveLoop();
+          console.log("⛔ Autosave disabled");
+        }
+
       });
     }
 
@@ -1680,6 +1737,15 @@
           updateTotalNightsLive(target.value);
         }
       });
+      const saved = localStorage.getItem("autosaveEnabled");
+
+      state.autoSaveEnabled = saved === "true"; // default = false
+
+      $('autosaveToggle').checked = state.autoSaveEnabled;
+
+      if (state.autoSaveEnabled) {
+        startAutosaveLoop();
+      }
       document.querySelectorAll('input[name="checklistType"]').forEach((radio) => {
         radio.addEventListener('change', async () => {
           state.currentChecklistType = radio.value;
