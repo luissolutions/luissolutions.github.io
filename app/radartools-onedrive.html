@@ -15,6 +15,11 @@
   </header>
 
   <nav class="top-actions">
+    <div>
+      <label>Project ID / Name:
+        <input type="text" id="project" />
+      </label>
+    </div>
     <button id="saveProject" type="button">Save Project</button>
     <button id="newProjectBtn" type="button" class="secondary">New Project</button>
     <button id="exportProjectJsonBtn" type="button" class="secondary" style="display: none;">Export Project
@@ -41,11 +46,6 @@
         Auto Save
       </label>
       <div class="grid grid-4">
-        <div>
-          <label>Project ID / Name:
-            <input type="text" id="project" />
-          </label>
-        </div>
         <div>
           <label>Customer Name:
             <input type="text" id="customerName" />
@@ -517,20 +517,50 @@
       isSaving = true;
 
       try {
-        const url = `https://graph.microsoft.com/v1.0/drives/${CONFIG.SHARED_DRIVE_ID}/root:/${path}:/content`;
+        const urlBase = `https://graph.microsoft.com/v1.0/drives/${CONFIG.SHARED_DRIVE_ID}/root:/${path}`;
 
-        await graphFetch(url, {
+        // 🔍 STEP 1: Check existing file metadata
+        let existingSize = 0;
+        try {
+          const metaRes = await graphFetch(urlBase);
+          const meta = await metaRes.json();
+          existingSize = meta.size || 0;
+        } catch (e) {
+          // file might not exist yet → ignore
+        }
+
+        // 🧮 STEP 2: Calculate new data size
+        const jsonString = JSON.stringify(data, null, 2);
+        const newSize = new Blob([jsonString]).size;
+
+        console.log(`[SAVE] Existing: ${existingSize} bytes | New: ${newSize} bytes`);
+
+        // ⚠️ STEP 3: Warn if shrinking
+        if (existingSize > 0 && newSize < existingSize) {
+          const confirmSave = confirm(
+            `⚠️ New save is smaller than existing file.\n\nExisting: ${existingSize} bytes\nNew: ${newSize} bytes\n\nAre you sure you want to overwrite?`
+          );
+
+          if (!confirmSave) {
+            console.warn("❌ Save cancelled (smaller file)");
+            return;
+          }
+        }
+
+        // 💾 STEP 4: Save
+        const uploadUrl = `${urlBase}:/content`;
+
+        await graphFetch(uploadUrl, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(data, null, 2)
+          body: jsonString
         });
 
       } catch (err) {
         console.error("❌ Save failed:", err);
 
-        // Optional retry for 412
         if (err.message.includes("412")) {
           console.warn("🔁 Retrying save...");
           await new Promise(r => setTimeout(r, 300));
@@ -540,7 +570,8 @@
       } finally {
         isSaving = false;
       }
-      console.log(isSaving ? "[SAVE] Saved" : "[AUTOSAVE] Saved");
+
+      console.log("[SAVE] Done");
     }
 
     async function uploadBlobToOneDrive(path, blob, contentType = 'application/octet-stream') {
@@ -617,7 +648,7 @@
 
       if (!projectName) {
         alert('Project name required.');
-        return;
+        return false;
       }
 
       state.currentProjectName = projectName; const existing = ensureProjectShape(state.projectData || {});
@@ -643,6 +674,8 @@
       await writeJsonFile(getProjectFilePath(), data);
       await populateProjects();
       await loadProject(state.currentProject);
+
+      return true;
     }
 
     async function loadProject(folderName) {
@@ -859,7 +892,6 @@
         });
         container.appendChild(img);
         container.appendChild(star);
-        container.appendChild(createEl('div', { className: 'small', text: item.name }));
         $('gallery').appendChild(container);
         $('imageDropdown').appendChild(new Option(item.name, String(index)));
       });
@@ -963,13 +995,23 @@
       if (!state.currentProject) return alert('Save the project first.');
       const file = $('fileUploader').files?.[0];
       const rawName = $('imageNameInput').value.trim();
-      const markup = $('markupTextInput').value.trim();
-      const finalName = sanitize(rawName || markup);
+      const markupInput = $('markupTextInput').value.trim();
+
+      // 👇 Get site name
+      const siteName = (state.currentCustomerName || state.currentProjectName || state.currentProject || '').trim();
+
+      // 👇 Build final markup text
+      const fullMarkup = markupInput
+        ? `${siteName} - ${markupInput}`
+        : siteName;
+
+      // 👇 Use that for filename
+      const finalName = sanitize(rawName || fullMarkup);
       if (!file || !finalName) return alert('Enter a name or markup.');
 
       try {
         let blob = await resizeImage(file, CONFIG.IMAGE_MAX_WIDTH);
-        if (markup) blob = await addTextToImage(blob, markup);
+        if (fullMarkup) blob = await addTextToImage(blob, fullMarkup);
         const folderPath = getImagesPath('deliverables');
         const filename = await getUniqueOneDriveFilename(folderPath, `${finalName}.jpg`);
         await uploadBlobToOneDrive(`${folderPath}/${filename}`, blob, 'image/jpeg');
@@ -1038,7 +1080,7 @@
       state.autoSaveTimer = setInterval(() => {
         if (!state.currentProject) return;
 
-        saveQCData();
+        if (state.autoSaveEnabled) saveQCData();
       }, CONFIG.AUTO_SAVE_MS);
     }
 
@@ -1454,7 +1496,7 @@
           const currentData = collectData();
           buildApp(currentData);
           applyData(currentData);
-          saveQCData();
+          if (state.autoSaveEnabled) saveQCData();
           return;
         }
         if (target.id === 'field_sensorTotal') {
@@ -1472,15 +1514,15 @@
             );
           });
 
-          saveQCData();
+          if (state.autoSaveEnabled) saveQCData();
           return;
         }
         updateAllScoringTotals();
-        saveQCData();
+        if (state.autoSaveEnabled) saveQCData();
       });
       $('qcChecklistSection')?.addEventListener('change', () => {
         updateAllScoringTotals();
-        saveQCData();
+        if (state.autoSaveEnabled) saveQCData();
       });
       state.qcListenerBound = true;
     }
@@ -1489,7 +1531,10 @@
       await initQCConfig();
       if (!state.qcConfig?.sections?.length) return;
       const taskData = ensureProjectShape(state.projectData || {});
-      const qcData = taskData[`qcData_${state.currentChecklistType}`] || { sections: {} };
+      const qcData =
+        taskData[`qcData_${state.currentChecklistType}`] ||
+        taskData[`qcData_${state.currentChecklistType}_checklist`] ||
+        { sections: {} };
       buildApp(qcData);
       applyTaskToSiteInfo(taskData);
       attachQCListeners();
@@ -1672,14 +1717,26 @@
 
           console.log("[SAVE] Saving project...");
 
-          await saveCurrentProject();
+          const success = await saveCurrentProject();
+
+          if (!success) {
+            console.warn("[SAVE] Aborted - project not valid");
+            btn.disabled = false;
+            btn.textContent = 'Save Project';
+            return;
+          }
+
+          if (!state.currentProject) {
+            console.warn("[SAVE] Aborted - no project selected");
+            btn.disabled = false;
+            btn.textContent = 'Save Project';
+            return;
+          }
 
           console.log("[SAVE] Uploading QC + Report...");
           await uploadReportsToOneDrive();
 
           console.log("[SAVE] Done");
-
-          if (state.autoSaveEnabled) startAutosaveLoop();
 
           alert('Project saved ✅');
 
@@ -1696,11 +1753,17 @@
         $('project').value = '';
         $('customerName').value = '';
         $('projectFolderDisplay').value = '';
+
         state.currentProject = '';
         state.currentProjectName = '';
         state.currentCustomerName = '';
         state.expectedSensors = 0;
         state.projectData = null;
+
+        // 🔥 ADD THESE
+        state.lastAutosavedPayload = '';
+        stopAutosaveLoop();
+
         buildApp({ sections: {} });
         updateGallery();
       });
@@ -1786,16 +1849,18 @@
         value: nights
       };
 
-      // Rebuild UI instantly
-      const currentData = collectData();
-      buildApp(currentData);
-      applyData(currentData);
+      const freshData =
+        state.projectData?.[`qcData_${state.currentChecklistType}`] ||
+        { sections: {} };
+
+      buildApp(freshData);
+      applyData(freshData);
 
       // Update scoring + totals
       updateAllScoringTotals();
 
       // Save (debounced)
-      saveQCData();
+      if (state.autoSaveEnabled) saveQCData();
     }
 
     async function boot() {
