@@ -1639,12 +1639,46 @@
 
         const saveQCData = debounce(async () => {
             if (!state.currentProject || !state.qcConfig?.sections?.length) return;
+            if (state.isLoadingProject) return;
 
             const data = collectData();
 
-            if (!data || !Object.keys(data.sections || {}).length) return;
+            // 🔍 Check if current data is basically empty
+            const isEmptyNow = !data || Object.values(data.sections || {}).every(section => {
+                if (!section) return true;
+
+                // check fields
+                if (section.fields) {
+                    return Object.values(section.fields).every(v =>
+                        !v || (typeof v === 'object' && !v.value)
+                    );
+                }
+
+                // check checklist
+                if (Array.isArray(section.items)) {
+                    return section.items.every(item =>
+                        !item.checked && (!item.days || item.days.every(d => !d))
+                    );
+                }
+
+                // check scores
+                if (section.scores) {
+                    return Object.values(section.scores).every(v => !v);
+                }
+
+                return true;
+            });
+
+            const existing = await readOnce(getQCPath());
+
+            // 🚫 BLOCK overwrite if existing has data but new is empty
+            if (existing && Object.keys(existing.sections || {}).length > 0 && isEmptyNow) {
+                console.warn('[BLOCKED] Prevented overwrite with empty QC data');
+                return;
+            }
 
             await patch(getQCPath(), data);
+
         }, 800);
 
         function applyTaskToSiteInfo(taskData) {
@@ -2000,7 +2034,7 @@
             $$('input[name="checklistType"]').forEach(radio => {
                 radio.addEventListener('change', async () => {
 
-                    stopAutosaveLoop();
+                    stopAutosaveLoop(); // ✅ good
 
                     state.currentChecklistType = radio.value;
                     state.qcConfig = null;
@@ -2008,7 +2042,9 @@
                     await initQCConfig(true);
                     await loadQCChecklist(state.currentProject);
 
-                    startAutosaveLoop();
+                    state.lastAutosavedPayload = ''; // 🔥 RESET CACHE
+
+                    startAutosaveLoop(); // restart AFTER load
                 });
             });
 
