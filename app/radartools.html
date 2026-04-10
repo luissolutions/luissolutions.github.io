@@ -302,7 +302,8 @@
             autoSaveTimer: null,
             lastAutosavedPayload: '',
             imageModule: null,
-            currentChecklistType: 'radar'
+            currentChecklistType: 'radar',
+            qcReady: false,
         };
 
         const ONEDRIVE_CONFIG = {
@@ -317,19 +318,16 @@
 
             const tasks = await readOnce(`${state.basePath}/tasks`) || {};
 
-            // 🔍 Find existing project
             const match = Object.entries(tasks).find(([id, data]) =>
                 (data.project || '').trim().toLowerCase() === key
             );
 
             if (match) {
-                // ✅ LOAD EXISTING
                 const [id] = match;
                 await loadProject(id);
                 return;
             }
 
-            // ➕ CREATE NEW
             const customerName = prompt("Enter Customer Name:");
             if (!customerName) {
                 alert("Customer name is required.");
@@ -1655,10 +1653,13 @@
         }
 
         const saveQCData = debounce(async () => {
+            if (!state.qcReady) return;
+
             if (!state.currentProject || !state.qcConfig?.sections?.length) return;
             if (state.isLoadingProject) return;
 
             const data = collectData();
+            data._type = state.currentChecklistType;
 
             // 🔍 Check if current data is basically empty
             const isEmptyNow = !data || Object.values(data.sections || {}).every(section => {
@@ -1678,7 +1679,6 @@
                     );
                 }
 
-                // check scores
                 if (section.scores) {
                     return Object.values(section.scores).every(v => !v);
                 }
@@ -1686,12 +1686,22 @@
                 return true;
             });
 
-            const existing = await readOnce(getQCPath());
+            const currentPath = getQCPath();
+            const existing = await readOnce(currentPath);
 
-            // 🚫 BLOCK overwrite if existing has data but new is empty
-            if (existing && Object.keys(existing.sections || {}).length > 0 && isEmptyNow) {
-                console.warn('[BLOCKED] Prevented overwrite with empty QC data');
-                return;
+            if (existing) {
+                const existingType = existing._type;
+
+                if (existingType && existingType !== state.currentChecklistType) {
+                    console.warn('[BLOCKED] Type mismatch, ignoring stale data');
+                    return;
+                }
+                const hasExistingData = Object.keys(existing.sections || {}).length > 0;
+
+                if (hasExistingData && isEmptyNow) {
+                    console.warn('[BLOCKED] Prevented overwrite with empty QC data');
+                    return;
+                }
             }
 
             await patch(getQCPath(), data);
@@ -1783,6 +1793,7 @@
             const qcData = await readOnce(getQCPath()) || { sections: {} };
 
             buildApp(qcData);
+            state.qcReady = true;
             applyTaskToSiteInfo(taskData);
             attachQCListeners();
         }
@@ -2051,7 +2062,10 @@
             $$('input[name="checklistType"]').forEach(radio => {
                 radio.addEventListener('change', async () => {
 
-                    stopAutosaveLoop(); // ✅ good
+                    stopAutosaveLoop();
+
+                    state.qcReady = false;
+                    state.lastAutosavedPayload = '';
 
                     state.currentChecklistType = radio.value;
                     state.qcConfig = null;
@@ -2059,9 +2073,7 @@
                     await initQCConfig(true);
                     await loadQCChecklist(state.currentProject);
 
-                    state.lastAutosavedPayload = ''; // 🔥 RESET CACHE
-
-                    startAutosaveLoop(); // restart AFTER load
+                    startAutosaveLoop();
                 });
             });
 
@@ -2254,13 +2266,11 @@
             }
 
             try {
-                // 📄 Build files
                 const qcBlob = buildQCChecklistBlob();
                 const reportBlob = buildReportFile();
 
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
-                // 📤 Upload QC Checklist
                 await fetch(
                     `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${basePath}/qc_${timestamp}.csv:/content`,
                     {
@@ -2273,7 +2283,6 @@
                     }
                 );
 
-                // 📤 Upload Report
                 await fetch(
                     `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${basePath}/report_${timestamp}.txt:/content`,
                     {
