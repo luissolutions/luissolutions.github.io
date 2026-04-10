@@ -1,5 +1,9 @@
 const clientId = "f5ef88e6-7af0-40af-ae6a-5a9d3342360e";
 const tenantId = "f9cb31b8-4d87-4d78-89f4-636d4e6f6509";
+const CONFIG_OD = {
+    SHARED_DRIVE_ID: 'b!3mJ2DZSHdkmBrOccfkDkBt3Eklx5UvdMlDz0bmgGRktCiH2Pzkr5TbiD0DhegSHo'
+};
+
 const redirectUri = `${window.location.origin}${window.location.pathname}`;
 let accessToken;
 
