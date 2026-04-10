@@ -41,10 +41,6 @@
     </section>
 
     <section>
-      <label style="display:flex; align-items:center; gap:6px;">
-        <input type="checkbox" id="autosaveToggle">
-        Auto Save
-      </label>
       <div class="grid grid-4">
         <div>
           <label>Customer Name:
@@ -267,14 +263,6 @@
       return el;
     };
 
-    const debounce = (fn, delay = 300) => {
-      let timer = null;
-      return (...args) => {
-        clearTimeout(timer);
-        timer = setTimeout(() => fn(...args), delay);
-      };
-    };
-
     const downloadBlob = (blob, filename) => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -409,13 +397,10 @@
       isUploading: false,
       modalItems: [],
       modalIndex: 0,
-      autoSaveTimer: null,
-      lastAutosavedPayload: '',
       qcConfig: null,
       qcListenerBound: false,
       currentChecklistType: 'radar',
       projectData: null,
-      autoSaveEnabled: false,
     };
 
     let isSaving = false;
@@ -1044,55 +1029,6 @@
       return Promise.resolve(input === CONFIG.ADMIN_PASSWORD);
     }
 
-    function collectProjectAutosavePayload() {
-      if (!state.currentProject) return null;
-      return {
-        project: $('project').value.trim() || '',
-        customerName: $('customerName').value.trim() || '',
-        sensorCount: Number($('field_sensorTotal').value) || 0,
-        updatedAt: Date.now()
-      };
-    }
-
-    const debouncedSaveProjectFields = debounce(async () => {
-      const payload = collectProjectAutosavePayload();
-      if (!payload) return;
-      const comparable = JSON.stringify({ ...payload, updatedAt: 0 });
-      if (comparable === state.lastAutosavedPayload) return;
-      state.lastAutosavedPayload = comparable;
-      const project = ensureProjectShape(state.projectData || {});
-      Object.assign(project, payload);
-      state.currentProjectName = payload.project;
-      state.currentCustomerName = payload.customerName;
-      state.expectedSensors = payload.sensorCount;
-      state.projectData = project;
-      $('projectFolderDisplay').value = getProjectBasePath();
-      populateSensorDropdown(state.expectedSensors);
-      syncSensorTotalToQC();
-      await ensureProjectFolders();
-      await writeJsonFile(getProjectFilePath(), project);
-      await populateProjects();
-    }, CONFIG.AUTO_SAVE_MS);
-
-    function startAutosaveLoop() {
-      stopAutosaveLoop();
-
-      if (!state.autoSaveEnabled) return;
-
-      if (!accessToken || isTokenExpired(accessToken)) return;
-
-      state.autoSaveTimer = setInterval(() => {
-        if (!state.currentProject) return;
-
-        if (state.autoSaveEnabled) saveQCData();
-      }, CONFIG.AUTO_SAVE_MS);
-    }
-
-    function stopAutosaveLoop() {
-      if (state.autoSaveTimer) clearInterval(state.autoSaveTimer);
-      state.autoSaveTimer = null;
-    }
-
     async function initQCConfig(force = false) {
       if (!force && state.qcConfig?.sections?.length) return;
 
@@ -1459,15 +1395,18 @@
       breakdown.innerHTML = `Checklist Score: ${checklistScore.percent}%<br>Manual Score: ${manualScore}<br>Final Score: <strong>${finalScore}</strong>`;
     }
 
-    const saveQCData = debounce(async () => {
+    async function saveQCData() {
       if (!state.currentProject || !state.qcConfig?.sections?.length) return;
+
       const data = collectData();
       const project = ensureProjectShape(state.projectData || {});
       project[`qcData_${state.currentChecklistType}`] = data;
       project.updatedAt = Date.now();
+
       state.projectData = project;
+
       await writeJsonFile(getProjectFilePath(), project);
-    }, 500);
+    }
 
     function applyTaskToSiteInfo(taskData) {
       const map = {
@@ -1500,7 +1439,6 @@
           const currentData = collectData();
           buildApp(currentData);
           applyData(currentData);
-          if (state.autoSaveEnabled) saveQCData();
           return;
         }
         if (target.id === 'field_sensorTotal') {
@@ -1518,15 +1456,12 @@
             );
           });
 
-          if (state.autoSaveEnabled) saveQCData();
           return;
         }
         updateAllScoringTotals();
-        if (state.autoSaveEnabled) saveQCData();
       });
       $('qcChecklistSection')?.addEventListener('change', () => {
         updateAllScoringTotals();
-        if (state.autoSaveEnabled) saveQCData();
       });
       state.qcListenerBound = true;
     }
@@ -1703,7 +1638,6 @@
         const folder = $('projectList').value;
         if (folder) {
           await loadProject(folder);
-          startAutosaveLoop();
         }
       });
       $('projectSearch')?.addEventListener('input', filterProjects);
@@ -1713,8 +1647,6 @@
 
         try {
           requireAuth(true);
-
-          stopAutosaveLoop();
 
           btn.disabled = true;
           btn.textContent = 'Saving...';
@@ -1736,6 +1668,9 @@
             btn.textContent = 'Save Project';
             return;
           }
+
+          console.log("[SAVE] Saving QC data...");
+          await saveQCData();
 
           console.log("[SAVE] Uploading QC + Report...");
           await uploadReportsToOneDrive();
@@ -1764,28 +1699,12 @@
         state.expectedSensors = 0;
         state.projectData = null;
 
-        // 🔥 ADD THESE
-        state.lastAutosavedPayload = '';
-        stopAutosaveLoop();
-
         buildApp({ sections: {} });
         updateGallery();
       });
       $('exportProjectJsonBtn')?.addEventListener('click', () => {
         const project = ensureProjectShape(state.projectData || {});
         downloadBlob(new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' }), `${sanitize(project.project || 'project')}.json`);
-      });
-      $('autosaveToggle')?.addEventListener('change', (e) => {
-        state.autoSaveEnabled = e.target.checked;
-
-        if (state.autoSaveEnabled) {
-          startAutosaveLoop();
-          console.log("✅ Autosave enabled");
-        } else {
-          stopAutosaveLoop();
-          console.log("⛔ Autosave disabled");
-        }
-
       });
     }
 
@@ -1817,15 +1736,7 @@
           updateTotalNightsLive(target.value);
         }
       });
-      const saved = localStorage.getItem("autosaveEnabled");
 
-      state.autoSaveEnabled = saved === "true"; // default = false
-
-      $('autosaveToggle').checked = state.autoSaveEnabled;
-
-      if (state.autoSaveEnabled) {
-        startAutosaveLoop();
-      }
       document.querySelectorAll('input[name="checklistType"]').forEach((radio) => {
         radio.addEventListener('change', async () => {
           state.currentChecklistType = radio.value;
@@ -1860,11 +1771,7 @@
       buildApp(freshData);
       applyData(freshData);
 
-      // Update scoring + totals
       updateAllScoringTotals();
-
-      // Save (debounced)
-      if (state.autoSaveEnabled) saveQCData();
     }
 
     async function boot() {
