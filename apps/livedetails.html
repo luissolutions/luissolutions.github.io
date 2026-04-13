@@ -729,65 +729,37 @@
             return `${DATABASE_BASE_PATH}/tasks/${metaOwnerTaskId}/comments`;
         }
 
-        async function populateProjects() {
-            const dropdown = document.getElementById('projectList');
-            dropdown.innerHTML = '';
-            dropdown.appendChild(new Option('-- Choose a customer --', ''));
+       async function populateProjects() {
+    const dropdown = document.getElementById('projectList');
+    dropdown.innerHTML = '';
+    dropdown.appendChild(new Option('-- Choose a project --', ''));
 
-            const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
-            if (!snap.exists()) return;
+    const snap = await get(dbRef(database, `${DATABASE_BASE_PATH}/tasks`));
+    if (!snap.exists()) return;
 
-            const tasks = snap.val();
+    const tasks = snap.val();
 
-            const byCustomer = new Map();
+    // ✅ Show EVERY project (no grouping by customer)
+    allProjects = Object.entries(tasks).map(([id, task]) => {
+        const customer = (task.customerName || '').trim();
+        const project = (task.project || '').trim();
 
-            for (const [id, task] of Object.entries(tasks)) {
-                const customerRaw = (task.customerName || '').trim();
-                if (!customerRaw) continue;
+        return {
+            id,
+            customer,
+            project,
+            label: `${customer || '(No Customer)'} — ${project || '(No Project)'}`
+        };
+    })
+    // newest first (since IDs are timestamps)
+    .sort((a, b) => Number(b.id) - Number(a.id));
 
-                const custKey = customerRaw.toLowerCase();
-                const time = bestTime(task, id);
-                const entry = byCustomer.get(custKey);
-
-                if (!entry) {
-                    byCustomer.set(custKey, {
-                        ownerId: id,
-                        ownerTask: task,
-                        ownerTime: time,
-                        newestTime: time
-                    });
-                } else {
-                    // track newest activity
-                    if (time > entry.newestTime) entry.newestTime = time;
-
-                    // track oldest (first project ever)
-                    if (time < entry.ownerTime) {
-                        entry.ownerTime = time;
-                        entry.ownerId = id;
-                        entry.ownerTask = task;
-                    }
-                }
-            }
-
-            const sorted = [...byCustomer.values()]
-                .sort((a, b) => b.newestTime - a.newestTime);
-
-            allProjects = sorted.map(entry => {
-                const customer = entry.ownerTask.customerName?.trim() || '';
-                const project = entry.ownerTask.project?.trim() || '';
-                return {
-                    id: entry.ownerId,
-                    customer,
-                    project,
-                    label: `${customer || '(No Customer)'} — ${project || '(No Project)'}`
-                };
-            });
-
-            dropdown.innerHTML = '<option value="">-- Choose a customer --</option>';
-            allProjects.forEach(p => {
-                dropdown.appendChild(new Option(p.label, p.id));
-            });
-        }
+    // populate dropdown
+    dropdown.innerHTML = '<option value="">-- Choose a project --</option>';
+    allProjects.forEach(p => {
+        dropdown.appendChild(new Option(p.label, p.id));
+    });
+}        
 
         async function loadProject(id) {
             if (isLoadingProject) return;
