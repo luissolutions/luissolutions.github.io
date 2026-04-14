@@ -10,6 +10,7 @@
     <script type="module" src="../apps/assets/js/microsoftAuth.js"></script>
     <script type="module" src="../apps/assets/js/login.js"></script>
     <script src="../apps/assets/js/sidebar.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 
 <body>
@@ -2078,8 +2079,10 @@
                 });
             });
 
-            $('uploadQCBtn')?.addEventListener('click', uploadReportsToOneDrive);
-
+            $('uploadQCBtn')?.addEventListener('click', async () => {
+                await uploadReportsToOneDrive(); // existing CSV + TXT
+                await uploadChecklistPDFToOneDrive(); // NEW PDF
+            });
             $('uploadImagesToOneDriveBtn')?.addEventListener('click', uploadAllImagesToOneDrive);
         }
 
@@ -2378,6 +2381,141 @@
             }
 
             return await res.json();
+        }
+
+        async function generateChecklistPDFBlob() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            const data = collectData();
+
+            let y = 10;
+
+            const line = (text = "") => {
+                doc.text(text, 10, y);
+                y += 6;
+            };
+
+            const section = (title) => {
+                y += 4;
+                doc.setFont(undefined, "bold");
+                doc.text(title, 10, y);
+                doc.setFont(undefined, "normal");
+                y += 6;
+            };
+
+            // =========================
+            // HEADER
+            // =========================
+            doc.setFontSize(14);
+            doc.text("TELAID – Radar QC Checklist", 10, y);
+            y += 10;
+
+            doc.setFontSize(10);
+
+            const site = data.sections.site_info?.fields || {};
+
+            line(`Site #: ${site.siteNumber?.value || ""}`);
+            line(`Location: ${site.location?.value || ""}`);
+            line(`Date: ${site.date?.value || ""}`);
+            line(`Total Nights: ${site.totalNights?.value || ""}`);
+            line("");
+
+            // =========================
+            // CHECKLIST SECTIONS
+            // =========================
+            Object.entries(data.sections).forEach(([sectionId, sectionData]) => {
+
+                if (sectionId === "site_info") return;
+
+                section(sectionId.replace(/_/g, " ").toUpperCase());
+
+                // Fields
+                if (sectionData.fields) {
+                    Object.entries(sectionData.fields).forEach(([k, v]) => {
+                        const val = (v && typeof v === "object") ? v.value : v;
+                        line(`${k}: ${val || ""}`);
+                    });
+                }
+
+                // Checklist
+                if (Array.isArray(sectionData.items)) {
+                    sectionData.items.forEach(item => {
+                        if (item.label) {
+                            const check = item.checked || item.value ? "[✔]" : "[ ]";
+                            line(`${check} ${item.label}`);
+                        }
+
+                        if (Array.isArray(item.days)) {
+                            item.days.forEach((d, i) => {
+                                line(`   Night ${i + 1}: ${d ? "✔" : "✖"}`);
+                            });
+                        }
+                    });
+                }
+
+                // Scores
+                if (sectionData.scores) {
+                    Object.entries(sectionData.scores).forEach(([k, v]) => {
+                        line(`${k}: ${v}`);
+                    });
+                    line(`Total: ${sectionData.total || 0}`);
+                }
+
+                // Notes
+                if (sectionData.notes) {
+                    line(`Notes: ${sectionData.notes}`);
+                }
+
+                y += 4;
+
+                // Page break protection
+                if (y > 270) {
+                    doc.addPage();
+                    y = 10;
+                }
+            });
+
+            return doc.output("blob");
+        }
+
+        async function uploadChecklistPDFToOneDrive() {
+            if (!state.currentProject) {
+                alert("No project selected");
+                return;
+            }
+
+            const site = sanitize(state.currentProjectName || state.currentProject);
+            const basePath = `RadarApp/projects/${site}`;
+
+            const accessToken = localStorage.getItem("accessToken");
+            if (!accessToken) {
+                alert("Not logged into Microsoft");
+                return;
+            }
+
+            try {
+                const pdfBlob = await generateChecklistPDFBlob();
+                const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+                await fetch(
+                    `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${basePath}/qc_${timestamp}.pdf:/content`,
+                    {
+                        method: "PUT",
+                        headers: {
+                            "Authorization": `Bearer ${accessToken}`,
+                            "Content-Type": "application/pdf"
+                        },
+                        body: pdfBlob
+                    }
+                );
+
+                alert("QC PDF uploaded to OneDrive ✅");
+
+            } catch (err) {
+                console.error(err);
+                alert("PDF upload failed.");
+            }
         }
 
         initModalEvents();
