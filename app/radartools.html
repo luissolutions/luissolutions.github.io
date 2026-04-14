@@ -214,6 +214,13 @@
             SENSOR_IMAGE_COUNT_REQUIRED: 2
         };
 
+        const ONEDRIVE_CONFIG = {
+            SHARED_DRIVE_ID: 'b!3mJ2DZSHdkmBrOccfkDkBt3Eklx5UvdMlDz0bmgGRktCiH2Pzkr5TbiD0DhegSHo',
+            API_BASE: 'https://graph.microsoft.com/v1.0',
+            API_DRIVES: (driveId) => `https://graph.microsoft.com/v1.0/drives/${driveId}`,
+            AUTH_HEADER: (token) => ({ 'Authorization': `Bearer ${token}` })
+        };
+
         const $ = (id) => document.getElementById(id);
         const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
@@ -322,8 +329,52 @@
             qcReady: false,
         };
 
-        const ONEDRIVE_CONFIG = {
-            SHARED_DRIVE_ID: 'b!3mJ2DZSHdkmBrOccfkDkBt3Eklx5UvdMlDz0bmgGRktCiH2Pzkr5TbiD0DhegSHo'
+        // ===== GRAPH API HELPER =====
+        const GraphAPI = {
+            async fetch(endpoint, options = {}) {
+                const token = localStorage.getItem("accessToken");
+                if (!token) throw new Error("Not logged into Microsoft");
+                
+                const defaultOptions = {
+                    headers: { ...ONEDRIVE_CONFIG.AUTH_HEADER(token), ...options.headers }
+                };
+                
+                const res = await fetch(endpoint, { ...defaultOptions, ...options });
+                
+                if (!res.ok && res.status !== 404) {
+                    const text = await res.text().catch(() => "");
+                    throw new Error(`API error (${res.status}): ${text || res.statusText}`);
+                }
+                
+                return res;
+            },
+
+            async uploadFile(drivePath, filename, blob, contentType = "application/octet-stream") {
+                const endpoint = `${ONEDRIVE_CONFIG.API_DRIVES(ONEDRIVE_CONFIG.SHARED_DRIVE_ID)}/root:/${drivePath}/${filename}:/content`;
+                const res = await this.fetch(endpoint, {
+                    method: "PUT",
+                    body: blob,
+                    headers: { "Content-Type": contentType }
+                });
+                
+                if (!res.ok) throw new Error("Upload failed");
+                return res;
+            },
+
+            async readJson(drivePath, filename) {
+                const endpoint = `${ONEDRIVE_CONFIG.API_DRIVES(ONEDRIVE_CONFIG.SHARED_DRIVE_ID)}/root:/${drivePath}/${filename}:/content`;
+                const res = await this.fetch(endpoint);
+                
+                if (res.status === 404) return null;
+                if (!res.ok) throw new Error("Read failed");
+                
+                return res.json();
+            },
+
+            async writeJson(drivePath, filename, data) {
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                return this.uploadFile(drivePath, filename, blob, 'application/json');
+            }
         };
 
         async function loadOrCreateProject() {
@@ -1099,9 +1150,16 @@
             return el ? el.value : '';
         }
 
+        function getPdfHeaderSectionId() {
+            if (getSectionConfig('site_info')) return 'site_info';
+            if (getSectionConfig('audit_info')) return 'audit_info';
+            return null;
+        }
+
         function getPdfSiteHeaderRows() {
-            const siteInfo = getSectionConfig('site_info');
-            const siteFields = Array.isArray(siteInfo?.fields) ? siteInfo.fields : [];
+            const headerSectionId = getPdfHeaderSectionId();
+            const headerSection = headerSectionId ? getSectionConfig(headerSectionId) : null;
+            const siteFields = Array.isArray(headerSection?.fields) ? headerSection.fields : [];
 
             if (!siteFields.length) {
                 return [
@@ -2215,71 +2273,41 @@
         });
 
         async function uploadAllImagesToOneDrive() {
-            if (!state.currentProject) {
-                alert("No project selected");
-                return;
-            }
-
-            const site = sanitize(state.currentProjectName || state.currentProject);
-            const basePath = `RadarApp/projects/${site}`;
-
-            const accessToken = localStorage.getItem("accessToken");
-            if (!accessToken) {
-                alert("Not logged into Microsoft");
-                return;
-            }
-
-            let totalUploaded = 0;
-
             try {
+                if (!state.currentProject) { alert("No project selected"); return; }
+
+                const site = sanitize(state.currentProjectName || state.currentProject);
+                const basePath = `RadarApp/projects/${site}`;
                 const modes = [
                     { mode: 'sensors', subFolder: 'sensors' },
                     { mode: 'deliverables', subFolder: 'deliverables' }
                 ];
 
+                let totalUploaded = 0;
+
                 for (const { mode, subFolder } of modes) {
                     const firebasePath = getImagesPath(mode);
                     const oneDrivePath = `${basePath}/${subFolder}`;
 
-                    console.log("Uploading to:", oneDrivePath);
-
-                    let items = [];
                     try {
-                        items = await listStorageItems(firebasePath);
-                        console.log(`Found ${items.length} in ${mode}`);
-                    } catch (err) {
-                        console.error(`Failed to list ${firebasePath}`, err);
-                        continue;
-                    }
-
-                    for (const item of items) {
-                        try {
-                            const res = await fetch(item.url);
-                            const blob = await res.blob();
-
-                            await fetch(
-                                `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${oneDrivePath}/${item.name}:/content`,
-                                {
-                                    method: "PUT",
-                                    headers: {
-                                        "Authorization": `Bearer ${accessToken}`,
-                                        "Content-Type": blob.type || "image/jpeg"
-                                    },
-                                    body: blob
-                                }
-                            );
-
-                            totalUploaded++;
-                            console.log(`Uploaded (${subFolder}): ${item.name}`);
-                        } catch (err) {
-                            console.error(`Failed (${subFolder}): ${item.name}`, err);
+                        const items = await listStorageItems(firebasePath).catch(() => []);
+                        for (const item of items) {
+                            try {
+                                const blob = await (await fetch(item.url)).blob();
+                                await GraphAPI.uploadFile(oneDrivePath, item.name, blob, blob.type || "image/jpeg");
+                                totalUploaded++;
+                            } catch (err) {
+                                console.error(`Failed uploading ${item.name}:`, err);
+                            }
                         }
+                    } catch (err) {
+                        console.error(`Failed listing ${firebasePath}:`, err);
                     }
                 }
 
                 alert(`Uploaded ${totalUploaded} images to Shared Drive ✅`);
             } catch (err) {
-                console.error(err);
+                console.error('Image upload failed:', err);
                 alert("Image upload failed.");
             }
         }
@@ -2361,218 +2389,88 @@
             return new Blob([csv], { type: "text/csv" });
         }
 
-        async function readProjectJsonFromOneDrive(basePath, accessToken) {
-            const res = await fetch(
-                `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${basePath}/project.json:/content`,
-                {
-                    method: "GET",
-                    headers: {
-                        "Authorization": `Bearer ${accessToken}`
-                    }
-                }
-            );
-
-            if (res.status === 404) return null;
-            if (!res.ok) {
-                const text = await res.text().catch(() => "");
-                throw new Error(`Failed reading project.json (${res.status}): ${text || res.statusText}`);
-            }
-
-            return await res.json();
-        }
-
+        // ===== ONEDRIVE UNIFIED FUNCTIONS =====
         async function saveProjectJsonToOneDrive() {
-            if (!state.currentProject) {
-                await loadOrCreateProject();
+            try {
+                if (!state.currentProject) await loadOrCreateProject();
+                if (!state.currentProject) { alert("No project selected"); return false; }
+
+                const site = sanitize(state.currentProjectName || state.currentProject);
+                const basePath = `RadarApp/projects/${site}`;
+
+                await ensureFolderExists(basePath);
+
+                const taskData = await readOnce(getTaskPath()) || {};
+                const existingProject = await GraphAPI.readJson(basePath, 'project.json').catch(() => null);
+
+                const qcKey = `qcData_${state.currentChecklistType}`;
+                const payload = {
+                    ...(existingProject || {}),
+                    ...(taskData || {}),
+                    id: existingProject?.id || taskData?.id || state.currentProject,
+                    project: $('project')?.value?.trim() || taskData?.project || state.currentProjectName || state.currentProject,
+                    customerName: taskData?.customerName || state.currentCustomerName || "",
+                    sensorCount: Number($('field_sensorTotal')?.value || taskData?.sensorCount || 0),
+                    sensorMeta: existingProject?.sensorMeta || taskData?.sensorMeta || {},
+                    createdAt: Number(existingProject?.createdAt) || Number(taskData?.createdAt) || Date.now(),
+                    updatedAt: Date.now(),
+                    [qcKey]: collectData()
+                };
+
+                ["radar", "remote", "audit"].forEach((type) => {
+                    const key = `qcData_${type}`;
+                    if (payload[key]) return;
+                    payload[key] = existingProject?.[key] || taskData?.[key] || { sections: {} };
+                });
+
+                await GraphAPI.writeJson(basePath, 'project.json', payload);
+                return true;
+            } catch (err) {
+                console.error('Save project failed:', err);
+                throw err;
             }
-
-            if (!state.currentProject) {
-                alert("No project selected");
-                return false;
-            }
-
-            const accessToken = localStorage.getItem("accessToken");
-            if (!accessToken) {
-                alert("Not logged into Microsoft");
-                return false;
-            }
-
-            const site = sanitize(state.currentProjectName || state.currentProject);
-            const basePath = `RadarApp/projects/${site}`;
-
-            await ensureFolderExists(basePath);
-
-            const taskData = await readOnce(getTaskPath()) || {};
-            const existingProject = await readProjectJsonFromOneDrive(basePath, accessToken).catch(() => null);
-
-            const qcKey = `qcData_${state.currentChecklistType}`;
-            const payload = {
-                ...(existingProject || {}),
-                ...(taskData || {}),
-                id: existingProject?.id || taskData?.id || state.currentProject,
-                project: $('project')?.value?.trim() || taskData?.project || state.currentProjectName || state.currentProject,
-                customerName: taskData?.customerName || state.currentCustomerName || "",
-                sensorCount: Number($('field_sensorTotal')?.value || taskData?.sensorCount || 0),
-                sensorMeta: existingProject?.sensorMeta || taskData?.sensorMeta || {},
-                createdAt: Number(existingProject?.createdAt) || Number(taskData?.createdAt) || Date.now(),
-                updatedAt: Date.now(),
-                [qcKey]: collectData()
-            };
-
-            ["radar", "remote", "audit"].forEach((type) => {
-                const key = `qcData_${type}`;
-                if (payload[key]) return;
-                payload[key] = existingProject?.[key] || taskData?.[key] || { sections: {} };
-            });
-
-            const uploadUrl =
-                `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}` +
-                `/root:/${basePath}/project.json:/content`;
-
-            const res = await fetch(uploadUrl, {
-                method: "PUT",
-                headers: {
-                    "Authorization": `Bearer ${accessToken}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify(payload, null, 2)
-            });
-
-            if (!res.ok) {
-                const text = await res.text().catch(() => "");
-                throw new Error(`Failed saving project.json (${res.status}): ${text || res.statusText}`);
-            }
-
-            return true;
         }
 
         async function uploadReportsToOneDrive() {
-            if (!state.currentProject) {
-                alert("No project selected");
-                return;
-            }
-
-            const site = sanitize(state.currentProjectName || state.currentProject);
-            const basePath = `RadarApp/projects/${site}`;
-
-            const accessToken = localStorage.getItem("accessToken");
-            if (!accessToken) {
-                alert("Not logged into Microsoft");
-                return;
-            }
-
             try {
-                const qcBlob = buildQCChecklistBlob();
-                const reportBlob = buildReportFile();
+                if (!state.currentProject) { alert("No project selected"); return; }
 
+                const site = sanitize(state.currentProjectName || state.currentProject);
+                const basePath = `RadarApp/projects/${site}`;
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
-                await fetch(
-                    `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${basePath}/qc_${timestamp}.csv:/content`,
-                    {
-                        method: "PUT",
-                        headers: {
-                            "Authorization": `Bearer ${accessToken}`,
-                            "Content-Type": "text/csv"
-                        },
-                        body: qcBlob
-                    }
-                );
-
-                await fetch(
-                    `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${basePath}/report_${timestamp}.txt:/content`,
-                    {
-                        method: "PUT",
-                        headers: {
-                            "Authorization": `Bearer ${accessToken}`,
-                            "Content-Type": "text/plain"
-                        },
-                        body: reportBlob
-                    }
-                );
+                await Promise.all([
+                    GraphAPI.uploadFile(basePath, `qc_${timestamp}.csv`, buildQCChecklistBlob(), 'text/csv'),
+                    GraphAPI.uploadFile(basePath, `report_${timestamp}.txt`, buildReportFile(), 'text/plain')
+                ]);
 
                 alert("QC Checklist + Report uploaded ✅");
-
             } catch (err) {
-                console.error(err);
+                console.error('Report upload failed:', err);
                 alert("Upload failed.");
             }
         }
 
-        async function uploadQCChecklistToOneDrive() {
-            if (!state.currentProject) {
-                alert("No project selected");
-                return;
-            }
-
-            const site = sanitize(state.currentProjectName || state.currentProject);
-            const basePath = `RadarApp/projects/${site}`;
-
-            const accessToken = localStorage.getItem("accessToken");
-            if (!accessToken) {
-                alert("Not logged into Microsoft");
-                return;
-            }
-
+        async function uploadChecklistPDFToOneDrive() {
             try {
-                const rows = buildQCChecklistCSV();
+                if (!state.currentProject) { alert("No project selected"); return; }
 
-                const csv = rows.map(r => r.map(cell => {
-                    const text = String(cell ?? "");
-                    return /[",\n]/.test(text)
-                        ? `"${text.replace(/"/g, '""')}"`
-                        : text;
-                }).join(",")).join("\n");
+                const site = sanitize(state.currentProjectName || state.currentProject);
+                const basePath = `RadarApp/projects/pdf`;
+                const date = new Date().toISOString().split('T')[0];
+                const filename = `${site}_checklist_${date}.pdf`;
 
-                const blob = new Blob([csv], { type: "text/csv" });
+                const pdfBlob = await generateChecklistPDFBlob();
+                if (!pdfBlob) throw new Error("PDF generation failed");
 
-                await fetch(
-                    `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${path}/qc_checklist.csv:/content`,
-                    {
-                        method: "PUT",
-                        headers: {
-                            "Authorization": `Bearer ${accessToken}`,
-                            "Content-Type": "text/csv"
-                        },
-                        body: blob
-                    }
-                );
+                await ensureFolderExists(basePath);
+                await GraphAPI.uploadFile(basePath, filename, pdfBlob, 'application/pdf');
 
-                alert("QC Checklist uploaded ✅");
+                alert("QC PDF uploaded to OneDrive ✅");
             } catch (err) {
-                console.error(err);
-                alert("QC upload failed.");
+                console.error('PDF upload failed:', err);
+                alert("PDF upload failed. Check console.");
             }
-        }
-
-        async function uploadToOneDrive(path, fileBlob, filename, contentType = "application/octet-stream") {
-            const accessToken = localStorage.getItem("accessToken");
-            if (!accessToken) {
-                alert("Not logged into Microsoft");
-                return;
-            }
-
-            const fullPath = `${path}/${filename}`;
-
-            const res = await fetch(
-                `https://graph.microsoft.com/v1.0/me/drive/root:/${fullPath}:/content`,
-                {
-                    method: "PUT",
-                    headers: {
-                        "Authorization": `Bearer ${accessToken}`,
-                        "Content-Type": contentType
-                    },
-                    body: fileBlob
-                }
-            );
-
-            if (!res.ok) {
-                const err = await res.text();
-                console.error("Upload failed:", err);
-                throw new Error("OneDrive upload failed");
-            }
-
-            return await res.json();
         }
 
         async function generateChecklistPDFBlob() {
@@ -2637,8 +2535,9 @@
             line("");
 
             // ===== SECTIONS =====
+            const headerSectionId = getPdfHeaderSectionId();
             Object.entries(data.sections).forEach(([sectionId, sectionData]) => {
-                if (sectionId === "site_info") return;
+                if (sectionId === headerSectionId) return;
 
                 section(getSectionLabel(sectionId));
 
@@ -2692,32 +2591,19 @@
         }
 
         async function ensureFolderExists(path) {
-            const accessToken = localStorage.getItem("accessToken");
-
-            const parts = path.split('/');
+            const parts = path.split('/').filter(Boolean);
             let currentPath = '';
 
             for (const part of parts) {
                 currentPath += `/${part}`;
-
-                await fetch(
-                    `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:${currentPath}`,
-                    {
-                        method: "GET",
-                        headers: {
-                            "Authorization": `Bearer ${accessToken}`
-                        }
-                    }
-                ).then(async res => {
+                try {
+                    const res = await GraphAPI.fetch(`${ONEDRIVE_CONFIG.API_DRIVES(ONEDRIVE_CONFIG.SHARED_DRIVE_ID)}/root:${currentPath}`);
                     if (res.status === 404) {
-                        await fetch(
-                            `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:${currentPath}:/children`,
+                        await GraphAPI.fetch(
+                            `${ONEDRIVE_CONFIG.API_DRIVES(ONEDRIVE_CONFIG.SHARED_DRIVE_ID)}/root:${currentPath}:/children`,
                             {
                                 method: "POST",
-                                headers: {
-                                    "Authorization": `Bearer ${accessToken}`,
-                                    "Content-Type": "application/json"
-                                },
+                                headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({
                                     name: part,
                                     folder: {},
@@ -2726,66 +2612,30 @@
                             }
                         );
                     }
-                });
+                } catch (err) {
+                    console.error(`Folder creation failed for ${currentPath}:`, err);
+                }
             }
         }
 
         async function uploadChecklistPDFToOneDrive() {
-            if (!state.currentProject) {
-                alert("No project selected");
-                return;
-            }
-
-            const site = sanitize(state.currentProjectName || state.currentProject);
-            const basePath = `RadarApp/projects/pdf`;
-
-            const accessToken = localStorage.getItem("accessToken");
-            if (!accessToken) {
-                alert("Not logged into Microsoft");
-                return;
-            }
-
             try {
-                console.log("Generating PDF...");
+                if (!state.currentProject) { alert("No project selected"); return; }
 
-                const pdfBlob = await generateChecklistPDFBlob();
-
-                if (!pdfBlob) {
-                    throw new Error("PDF generation failed (no blob)");
-                }
-
+                const site = sanitize(state.currentProjectName || state.currentProject);
+                const basePath = `RadarApp/projects/pdf`;
                 const date = new Date().toISOString().split('T')[0];
                 const filename = `${site}_checklist_${date}.pdf`;
 
-                console.log("Ensuring folder exists:", basePath);
+                const pdfBlob = await generateChecklistPDFBlob();
+                if (!pdfBlob) throw new Error("PDF generation failed");
+
                 await ensureFolderExists(basePath);
+                await GraphAPI.uploadFile(basePath, filename, pdfBlob, 'application/pdf');
 
-                const uploadUrl =
-                    `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}` +
-                    `/root:/${basePath}/${filename}:/content`;
-
-                console.log("Uploading to:", uploadUrl);
-
-                const res = await fetch(uploadUrl, {
-                    method: "PUT",
-                    headers: {
-                        "Authorization": `Bearer ${accessToken}`,
-                        "Content-Type": "application/pdf"
-                    },
-                    body: pdfBlob
-                });
-
-                if (!res.ok) {
-                    const errorText = await res.text();
-                    console.error("Upload failed:", errorText);
-                    throw new Error("Upload failed");
-                }
-
-                console.log("Upload success");
                 alert("QC PDF uploaded to OneDrive ✅");
-
             } catch (err) {
-                console.error("PDF upload error:", err);
+                console.error('PDF upload error:', err);
                 alert("PDF upload failed. Check console.");
             }
         }
