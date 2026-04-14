@@ -1,0 +1,173 @@
+import { auth, onAuthStateChanged, database, ref, get, set, push, remove, update } from './firebase-init.js';
+
+        const contactsList = document.getElementById('contacts-list');
+        const contactDetails = document.getElementById('contact-details');
+        const contactNameElem = document.getElementById('contact-name');
+        const contactPhoneInput = document.getElementById('contact-phone');
+        const contactEmailInput = document.getElementById('contact-email');
+        const contactAddressInput = document.getElementById('contact-address');
+        const searchContacts = document.getElementById('searchContacts');
+        const addContactSection = document.getElementById('add-contact-section');
+        const newContactNameInput = document.getElementById('new-contact-name');
+        const newContactPhoneInput = document.getElementById('new-contact-phone');
+        const newContactEmailInput = document.getElementById('new-contact-email');
+        const newContactAddressInput = document.getElementById('new-contact-address');
+        let selectedContactId = null;
+        let DATABASE_BASE_PATH = 'public';
+
+        onAuthStateChanged(auth, (user) => {
+            DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
+            fetchContacts();
+        });
+
+        async function fetchContacts() {
+            const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+            const snapshot = await get(tasksRef);
+            if (snapshot.exists()) {
+                renderContacts(snapshot.val());
+            }
+        }
+
+        function renderContacts(tasks) {
+            contactsList.innerHTML = '';
+            const customerMap = {};
+
+            for (const taskId in tasks) {
+                const task = tasks[taskId];
+                const customerName = task.customerName;
+
+                if (!customerMap[customerName]) {
+                    customerMap[customerName] = [];
+                }
+                customerMap[customerName].push({ taskId, task });
+            }
+
+            for (const customerName in customerMap) {
+                const li = document.createElement('li');
+                li.textContent = customerName;
+                li.onclick = () => displayContactDetails(customerMap[customerName]);
+                contactsList.appendChild(li);
+            }
+        }
+
+        function displayContactDetails(customerTasks) {
+            selectedContactId = customerTasks[0].taskId;
+            contactDetails.style.display = 'block';
+            addContactSection.style.display = 'none';
+            const firstTask = customerTasks[0].task;
+
+            contactNameElem.textContent = firstTask.customerName || 'Unnamed Contact';
+            contactPhoneInput.value = customerTasks.map(ct => ct.task.customerPhone).join(', ');
+            contactEmailInput.value = customerTasks.map(ct => ct.task.customerEmail).join(', ');
+            contactAddressInput.value = customerTasks.map(ct => ct.task.customerAddress).join(', ');
+
+            renderProjects(customerTasks);
+        }
+
+        function renderProjects(customerTasks) {
+            const projectsList = document.getElementById('projects-list');
+            projectsList.innerHTML = '';
+
+            customerTasks.forEach(({ task }) => {
+                const projectDiv = document.createElement('div');
+                projectDiv.innerHTML = `
+                    <strong>Project:</strong> ${task.project}<br>
+                    <strong>Start Time:</strong> ${new Date(task.startTime).toLocaleString()}<br>
+                    <strong>End Time:</strong> ${task.endTime ? new Date(task.endTime).toLocaleString() : 'N/A'}
+                `;
+                projectsList.appendChild(projectDiv);
+            });
+        }
+
+        document.getElementById('save-contact-button').addEventListener('click', async () => {
+            if (selectedContactId) {
+                const updatedFields = {
+                    customerPhone: contactPhoneInput.value,
+                    customerEmail: contactEmailInput.value,
+                    customerAddress: contactAddressInput.value,
+                };
+
+                const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+                const snapshot = await get(tasksRef);
+                if (snapshot.exists()) {
+                    const tasks = snapshot.val();
+                    for (const taskId in tasks) {
+                        if (tasks[taskId].customerName === contactNameElem.textContent) {
+                            const contactRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${taskId}`);
+                            update(contactRef, updatedFields)
+                                .catch(error => console.error('Error updating contact:', error));
+                        }
+                    }
+                    alert('All matching contacts updated successfully!');
+                    fetchContacts();
+                }
+            }
+        });
+
+        document.getElementById('delete-contact-button').addEventListener('click', () => {
+            if (selectedContactId) {
+                const contactRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${selectedContactId}`);
+                remove(contactRef)
+                    .then(() => {
+                        alert('Contact deleted successfully!');
+                        fetchContacts();
+                        contactDetails.style.display = 'none';
+                    })
+                    .catch(error => {
+                        console.error('Error deleting contact:', error);
+                    });
+            }
+        });
+
+        document.getElementById('add-contact-button').addEventListener('click', () => {
+            const contactName = newContactNameInput.value;
+            const phone = newContactPhoneInput.value;
+            const email = newContactEmailInput.value;
+            const address = newContactAddressInput.value;
+
+            if (contactName) {
+                const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+                const newContactRef = push(tasksRef);
+                set(newContactRef, {
+                    customerName: contactName,
+                    customerPhone: phone,
+                    customerEmail: email,
+                    customerAddress: address,
+                }).then(() => {
+                    newContactNameInput.value = '';
+                    newContactPhoneInput.value = '';
+                    newContactEmailInput.value = '';
+                    newContactAddressInput.value = '';
+                    fetchContacts();
+                });
+            }
+        });
+
+        document.getElementById('toggle-add-contact-button').addEventListener('click', () => {
+            addContactSection.style.display = addContactSection.style.display === 'none' ? 'block' : 'none';
+            contactDetails.style.display = 'none';
+        });
+
+        document.querySelectorAll('.toggleSidebar').forEach(button => {
+            button.addEventListener('click', () => {
+                const sidebar = document.getElementById('sidebar');
+                sidebar.classList.toggle('hidden');
+            });
+        });
+
+        document.addEventListener('click', (event) => {
+            const sidebar = document.getElementById('sidebar');
+            const toggleButtons = document.querySelectorAll('.toggleSidebar');
+
+            if (!sidebar.contains(event.target) && !Array.from(toggleButtons).some(button => button.contains(event.target)) && !sidebar.classList.contains('hidden')) {
+                sidebar.classList.add('hidden');
+            }
+        });
+
+        searchContacts.addEventListener('input', () => {
+            const searchValue = searchContacts.value.toLowerCase();
+            Array.from(contactsList.children).forEach(li => {
+                const contactName = li.textContent.toLowerCase();
+                li.style.display = contactName.includes(searchValue) ? 'block' : 'none';
+            });
+        });
