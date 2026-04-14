@@ -2392,7 +2392,7 @@
             let y = 10;
 
             const line = (text = "") => {
-                doc.text(text, 10, y);
+                doc.text(String(text), 10, y);
                 y += 6;
             };
 
@@ -2404,11 +2404,11 @@
                 y += 6;
             };
 
-            // =========================
-            // HEADER
-            // =========================
+            // ===== HEADER =====
+            const siteName = state.currentProjectName || state.currentProject || "";
+
             doc.setFontSize(14);
-            doc.text("TELAID – Radar QC Checklist", 10, y);
+            doc.text(`TELAID – ${siteName} QC Checklist`, 10, y);
             y += 10;
 
             doc.setFontSize(10);
@@ -2421,11 +2421,8 @@
             line(`Total Nights: ${site.totalNights?.value || ""}`);
             line("");
 
-            // =========================
-            // CHECKLIST SECTIONS
-            // =========================
+            // ===== SECTIONS =====
             Object.entries(data.sections).forEach(([sectionId, sectionData]) => {
-
                 if (sectionId === "site_info") return;
 
                 section(sectionId.replace(/_/g, " ").toUpperCase());
@@ -2442,13 +2439,13 @@
                 if (Array.isArray(sectionData.items)) {
                     sectionData.items.forEach(item => {
                         if (item.label) {
-                            const check = item.checked || item.value ? "[*]" : "[ ]";
+                            const check = item.checked || item.value ? "*" : "-";
                             line(`${check} ${item.label}`);
                         }
 
                         if (Array.isArray(item.days)) {
                             item.days.forEach((d, i) => {
-                                line(`   Night ${i + 1}: ${d ? "*" : "x"}`);
+                                line(`   Night ${i + 1}: ${d ? "*" : "-"}`);
                             });
                         }
                     });
@@ -2469,7 +2466,6 @@
 
                 y += 4;
 
-                // Page break protection
                 if (y > 270) {
                     doc.addPage();
                     y = 10;
@@ -2477,6 +2473,45 @@
             });
 
             return doc.output("blob");
+        }
+
+        async function ensureFolderExists(path) {
+            const accessToken = localStorage.getItem("accessToken");
+
+            const parts = path.split('/');
+            let currentPath = '';
+
+            for (const part of parts) {
+                currentPath += `/${part}`;
+
+                await fetch(
+                    `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:${currentPath}`,
+                    {
+                        method: "GET",
+                        headers: {
+                            "Authorization": `Bearer ${accessToken}`
+                        }
+                    }
+                ).then(async res => {
+                    if (res.status === 404) {
+                        await fetch(
+                            `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:${currentPath}:/children`,
+                            {
+                                method: "POST",
+                                headers: {
+                                    "Authorization": `Bearer ${accessToken}`,
+                                    "Content-Type": "application/json"
+                                },
+                                body: JSON.stringify({
+                                    name: part,
+                                    folder: {},
+                                    "@microsoft.graph.conflictBehavior": "replace"
+                                })
+                            }
+                        );
+                    }
+                });
+            }
         }
 
         async function uploadChecklistPDFToOneDrive() {
@@ -2497,8 +2532,15 @@
                 const pdfBlob = await generateChecklistPDFBlob();
                 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 
+                const site = sanitize(state.currentProjectName || state.currentProject);
+                const date = new Date().toISOString().split('T')[0];
+
+                const filename = `${site}_checklist_${date}.pdf`;
+
+                await ensureFolderExists(basePath);
+
                 await fetch(
-                    `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${basePath}/qc_${timestamp}.pdf:/content`,
+                    `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${basePath}/${filename}:/content`,
                     {
                         method: "PUT",
                         headers: {
