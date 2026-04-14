@@ -232,6 +232,17 @@
 
         const normalizeText = (v) => String(v ?? '').replace(/[\r\n]+/g, ' ').trim();
         const normKey = (s) => (s || '').trim().toLowerCase();
+        const formatMissing = (value, fallback = 'N/A') => {
+            const normalized = normalizeText(value);
+            return normalized || fallback;
+        };
+
+        const prettifyId = (value) => String(value ?? '')
+            .replace(/([a-z])([A-Z])/g, '$1 $2')
+            .replace(/[_-]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/\b\w/g, (char) => char.toUpperCase());
 
         const createEl = (tag, options = {}) => {
             const el = document.createElement(tag);
@@ -1045,6 +1056,26 @@
 
         function getSectionConfig(sectionId) {
             return state.qcConfig?.sections?.find((section) => section.id === sectionId) || null;
+        }
+
+        function getSectionLabel(sectionId) {
+            const title = getSectionConfig(sectionId)?.title;
+            return title || prettifyId(sectionId);
+        }
+
+        function getFieldLabel(sectionId, fieldId) {
+            const section = getSectionConfig(sectionId);
+            if (!section?.fields) return prettifyId(fieldId);
+
+            for (const field of section.fields) {
+                if (field.id === fieldId) return field.label || prettifyId(fieldId);
+                if (field.targetId === fieldId) {
+                    const base = field.label || prettifyId(field.id);
+                    return `${base} Target`;
+                }
+            }
+
+            return prettifyId(fieldId);
         }
 
         function normalizeNightCount(value, fallback = 1) {
@@ -2185,6 +2216,7 @@
             const rows = [["Section", "Field", "Value"]];
 
             Object.entries(data.sections || {}).forEach(([sectionId, section]) => {
+                const sectionLabel = getSectionLabel(sectionId);
 
                 // 🧾 Fields
                 if (section.fields) {
@@ -2193,7 +2225,11 @@
                             ? val.value
                             : val;
 
-                        rows.push([sectionId, key, normalizeText(value)]);
+                        rows.push([
+                            sectionLabel,
+                            getFieldLabel(sectionId, key),
+                            formatMissing(value)
+                        ]);
                     });
                 }
 
@@ -2202,7 +2238,7 @@
                     section.items.forEach((item, i) => {
                         if (item.label) {
                             rows.push([
-                                sectionId,
+                                sectionLabel,
                                 item.label,
                                 item.checked ?? item.value ?? ""
                             ]);
@@ -2212,7 +2248,7 @@
                         if (Array.isArray(item.days)) {
                             item.days.forEach((dayVal, d) => {
                                 rows.push([
-                                    sectionId,
+                                    sectionLabel,
                                     `${item.label} (Night ${d + 1})`,
                                     dayVal
                                 ]);
@@ -2224,16 +2260,14 @@
                 // 📊 Scores
                 if (section.scores) {
                     Object.entries(section.scores).forEach(([k, v]) => {
-                        rows.push([sectionId, k, v]);
+                        rows.push([sectionLabel, prettifyId(k), v]);
                     });
 
-                    rows.push([sectionId, "Total Score", section.total || 0]);
+                    rows.push([sectionLabel, "Total Score", section.total || 0]);
                 }
 
                 // 🧠 Notes
-                if (section.notes) {
-                    rows.push([sectionId, "Notes", normalizeText(section.notes)]);
-                }
+                rows.push([sectionLabel, "Notes", formatMissing(section.notes)]);
             });
 
             return rows;
@@ -2390,25 +2424,41 @@
             const data = collectData();
 
             let y = 10;
+            const marginX = 10;
+            const maxY = 280;
+            const lineHeight = 6;
+            const maxWidth = 190;
+
+            const ensureSpace = (requiredLines = 1) => {
+                if (y + (requiredLines * lineHeight) > maxY) {
+                    doc.addPage();
+                    y = 10;
+                }
+            };
 
             const line = (text = "") => {
-                doc.text(String(text), 10, y);
-                y += 6;
+                const lines = doc.splitTextToSize(String(text), maxWidth);
+                const safeLines = Array.isArray(lines) ? lines : [String(text)];
+                ensureSpace(Math.max(1, safeLines.length));
+                doc.text(safeLines, marginX, y);
+                y += Math.max(1, safeLines.length) * lineHeight;
             };
 
             const section = (title) => {
                 y += 4;
+                ensureSpace(2);
                 doc.setFont(undefined, "bold");
-                doc.text(title, 10, y);
+                const titleLines = doc.splitTextToSize(title, maxWidth);
+                doc.text(titleLines, marginX, y);
                 doc.setFont(undefined, "normal");
-                y += 6;
+                y += Math.max(1, titleLines.length) * lineHeight;
             };
 
             // ===== HEADER =====
             const siteName = state.currentProjectName || state.currentProject || "";
 
             doc.setFontSize(14);
-            doc.text(`TELAID – ${siteName} QC Checklist`, 10, y);
+            doc.text(`TELAID - ${siteName} QC Checklist`, marginX, y);
             y += 10;
 
             doc.setFontSize(10);
@@ -2425,13 +2475,13 @@
             Object.entries(data.sections).forEach(([sectionId, sectionData]) => {
                 if (sectionId === "site_info") return;
 
-                section(sectionId.replace(/_/g, " ").toUpperCase());
+                section(getSectionLabel(sectionId));
 
                 // Fields
                 if (sectionData.fields) {
                     Object.entries(sectionData.fields).forEach(([k, v]) => {
                         const val = (v && typeof v === "object") ? v.value : v;
-                        line(`${k}: ${val || ""}`);
+                        line(`${getFieldLabel(sectionId, k)}: ${formatMissing(val)}`);
                     });
                 }
 
@@ -2461,15 +2511,11 @@
 
                 // Notes
                 if (sectionData.notes) {
-                    line(`Notes: ${sectionData.notes}`);
+                    line(`Notes: ${formatMissing(sectionData.notes)}`);
                 }
 
                 y += 4;
-
-                if (y > 270) {
-                    doc.addPage();
-                    y = 10;
-                }
+                ensureSpace(1);
             });
 
             return doc.output("blob");
