@@ -329,17 +329,55 @@
             qcReady: false,
         };
 
+        function normalizeAccessToken(raw) {
+            const token = String(raw ?? '').trim();
+            if (!token) return '';
+            if (token === 'null' || token === 'undefined') return '';
+            return token;
+        }
+
+        function isStoredTokenExpired(token) {
+            try {
+                const parts = token.split('.');
+                if (parts.length < 2) return true;
+                const payload = JSON.parse(atob(parts[1]));
+                return (Date.now() / 1000) > Number(payload.exp || 0);
+            } catch {
+                return true;
+            }
+        }
+
+        function getStoredAccessToken() {
+            const token = normalizeAccessToken(localStorage.getItem('accessToken'));
+            if (!token) {
+                localStorage.removeItem('accessToken');
+                return '';
+            }
+            if (isStoredTokenExpired(token)) {
+                localStorage.removeItem('accessToken');
+                return '';
+            }
+            return token;
+        }
+
         // ===== GRAPH API HELPER =====
         const GraphAPI = {
             async fetch(endpoint, options = {}) {
-                const token = localStorage.getItem("accessToken");
-                if (!token) throw new Error("Not logged into Microsoft");
+                const token = getStoredAccessToken();
+                if (!token) {
+                    throw new Error('Microsoft login required. Click "Login to MS" and try again.');
+                }
 
                 const defaultOptions = {
                     headers: { ...ONEDRIVE_CONFIG.AUTH_HEADER(token), ...options.headers }
                 };
 
                 const res = await fetch(endpoint, { ...defaultOptions, ...options });
+
+                if (res.status === 401) {
+                    localStorage.removeItem('accessToken');
+                    throw new Error('Microsoft session expired. Please log in again.');
+                }
 
                 if (!res.ok && res.status !== 404) {
                     const text = await res.text().catch(() => "");
@@ -2264,7 +2302,7 @@
         }
 
         export function getAccessToken() {
-            return localStorage.getItem("accessToken");
+            return getStoredAccessToken();
         }
 
         onAuthStateChanged(auth, async (user) => {

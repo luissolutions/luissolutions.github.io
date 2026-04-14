@@ -519,6 +519,20 @@
         const sanitize = str => (str || '').trim().replace(/\s+/g, '_');
         const normKey = s => (s || '').trim().toLowerCase();
 
+        function getPhotoNamePrefix() {
+            const customer = sanitize(currentCustomerName || '');
+            const project = sanitize(currentProjectName || currentProject || '');
+            if (customer && project) return `${customer}_${project}`;
+            return customer || project;
+        }
+
+        function getPhotoLabelPrefix() {
+            const customer = (currentCustomerName || '').trim();
+            const project = (currentProjectName || currentProject || '').trim();
+            if (customer && project) return `${customer} - ${project}`;
+            return customer || project;
+        }
+
         function getStorageFolderKey() {
             // Prefer customerName, fallback to projectName, then task id
             const cust = sanitize(currentCustomerName || '');
@@ -978,12 +992,11 @@
 
                 let blob = await resizeImage(file, 2048);
                 if (!skipMarkup) {
-                    const labelBase = (currentCustomerName || currentProjectName || safeProjectName).trim();
+                    const labelBase = getPhotoLabelPrefix() || safeProjectName;
                     blob = await addTextToImage(blob, `${labelBase} ${paddedNum} - ${serial}`);
                 }
 
-                const safeCustomer = sanitize(currentCustomerName || '');
-                const prefix = safeCustomer ? `${safeCustomer}` : '';
+                const prefix = getPhotoNamePrefix() || safeProjectName;
                 const desired = `${prefix}_${paddedNum}-${serial}.jpg`;
                 const uniqueName = await getUniqueFilename(folderPath, desired);
 
@@ -1041,9 +1054,8 @@
                 if (rawMarkup) blob = await addTextToImage(blob, rawMarkup);
 
                 const folder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/deliverables`;
-                const safeCustomer = sanitize(currentCustomerName || '');
-                const prefix = safeCustomer ? `${safeCustomer}_` : '';
-                const desired = `${prefix}${baseName}.jpg`;
+                const prefix = getPhotoNamePrefix() || safeProjectName;
+                const desired = `${prefix}_${baseName}.jpg`;
                 const uniqueName = await getUniqueFilename(folder, desired);
 
                 await uploadBytes(storageRef(storage, `${folder}/${uniqueName}`), blob);
@@ -1341,9 +1353,8 @@
                 let blob = await resizeImage(file, 2048);
 
                 const timestamp = Date.now();
-                const safeCustomer = sanitize(currentCustomerName || '');
-                const prefix = safeCustomer ? `${safeCustomer}_` : '';
-                const desiredName = `${prefix}site_${timestamp}.jpg`;
+                const prefix = getPhotoNamePrefix() || safeProjectName;
+                const desiredName = `${prefix}_site_${timestamp}.jpg`;
                 const uniqueName = await getUniqueFilename(folderPath, desiredName);
 
                 await uploadBytes(
