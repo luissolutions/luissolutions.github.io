@@ -37,7 +37,7 @@
                 <p id="loginStatus">Login status...</p>
             </div>
             <button id="uploadImagesToOneDriveBtn">Upload Images to OneDrive</button>
-            <button id="uploadQCBtn">Upload QC Checklist</button>
+            <button id="uploadQCBtn">Update to OneDrive</button>
 
         </section>
     </header>
@@ -2177,8 +2177,15 @@
             });
 
             $('uploadQCBtn')?.addEventListener('click', async () => {
-                await uploadReportsToOneDrive(); // existing CSV + TXT
-                await uploadChecklistPDFToOneDrive(); // NEW PDF
+                try {
+                    const saved = await saveProjectJsonToOneDrive();
+                    if (!saved) return;
+                    await uploadReportsToOneDrive(); // existing CSV + TXT
+                    await uploadChecklistPDFToOneDrive(); // NEW PDF
+                } catch (err) {
+                    console.error(err);
+                    alert(`OneDrive save failed: ${err.message}`);
+                }
             });
             $('uploadImagesToOneDriveBtn')?.addEventListener('click', uploadAllImagesToOneDrive);
         }
@@ -2352,6 +2359,91 @@
             ).join('\n');
 
             return new Blob([csv], { type: "text/csv" });
+        }
+
+        async function readProjectJsonFromOneDrive(basePath, accessToken) {
+            const res = await fetch(
+                `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${basePath}/project.json:/content`,
+                {
+                    method: "GET",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`
+                    }
+                }
+            );
+
+            if (res.status === 404) return null;
+            if (!res.ok) {
+                const text = await res.text().catch(() => "");
+                throw new Error(`Failed reading project.json (${res.status}): ${text || res.statusText}`);
+            }
+
+            return await res.json();
+        }
+
+        async function saveProjectJsonToOneDrive() {
+            if (!state.currentProject) {
+                await loadOrCreateProject();
+            }
+
+            if (!state.currentProject) {
+                alert("No project selected");
+                return false;
+            }
+
+            const accessToken = localStorage.getItem("accessToken");
+            if (!accessToken) {
+                alert("Not logged into Microsoft");
+                return false;
+            }
+
+            const site = sanitize(state.currentProjectName || state.currentProject);
+            const basePath = `RadarApp/projects/${site}`;
+
+            await ensureFolderExists(basePath);
+
+            const taskData = await readOnce(getTaskPath()) || {};
+            const existingProject = await readProjectJsonFromOneDrive(basePath, accessToken).catch(() => null);
+
+            const qcKey = `qcData_${state.currentChecklistType}`;
+            const payload = {
+                ...(existingProject || {}),
+                ...(taskData || {}),
+                id: existingProject?.id || taskData?.id || state.currentProject,
+                project: $('project')?.value?.trim() || taskData?.project || state.currentProjectName || state.currentProject,
+                customerName: taskData?.customerName || state.currentCustomerName || "",
+                sensorCount: Number($('field_sensorTotal')?.value || taskData?.sensorCount || 0),
+                sensorMeta: existingProject?.sensorMeta || taskData?.sensorMeta || {},
+                createdAt: Number(existingProject?.createdAt) || Number(taskData?.createdAt) || Date.now(),
+                updatedAt: Date.now(),
+                [qcKey]: collectData()
+            };
+
+            ["radar", "remote", "audit"].forEach((type) => {
+                const key = `qcData_${type}`;
+                if (payload[key]) return;
+                payload[key] = existingProject?.[key] || taskData?.[key] || { sections: {} };
+            });
+
+            const uploadUrl =
+                `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}` +
+                `/root:/${basePath}/project.json:/content`;
+
+            const res = await fetch(uploadUrl, {
+                method: "PUT",
+                headers: {
+                    "Authorization": `Bearer ${accessToken}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(payload, null, 2)
+            });
+
+            if (!res.ok) {
+                const text = await res.text().catch(() => "");
+                throw new Error(`Failed saving project.json (${res.status}): ${text || res.statusText}`);
+            }
+
+            return true;
         }
 
         async function uploadReportsToOneDrive() {

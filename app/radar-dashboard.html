@@ -196,6 +196,27 @@
       margin-top: 10px;
     }
 
+    .btn-pdf {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: linear-gradient(135deg, #16a34a, #22c55e);
+      color: white;
+      text-decoration: none;
+      padding: 8px 14px;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+      margin: 5px;
+      font-size: 13px;
+      border: none;
+    }
+
+    .btn-pdf:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(22, 163, 74, 0.5);
+    }
+
     .compact {
       font-size: 12px;
       line-height: 1.35;
@@ -307,6 +328,7 @@
     const token = localStorage.getItem("accessToken");
 
     let ALL_SITES = [];
+    let PDF_LOOKUP = {};
     let CURRENT_FILTER = "ALL";
     let CURRENT_SEARCH = "";
 
@@ -354,6 +376,37 @@
         console.error("[LOAD ERROR]", name, err);
         return null;
       }
+    }
+
+    function sanitizeForKey(str) {
+      return (str || '').trim().replace(/\s+/g, '_').replace(/[\\/:*?"<>|#%{}~&]/g, '_');
+    }
+
+    async function loadPDFFolder() {
+      try {
+        const url = `https://graph.microsoft.com/v1.0/drives/${CONFIG.DRIVE_ID}/root:/${CONFIG.ROOT}/pdf:/children?$select=name,@microsoft.graph.downloadUrl`;
+        const data = await graph(url);
+        if (!data?.value) return;
+        PDF_LOOKUP = {};
+        for (const file of data.value) {
+          if (!file.name?.toLowerCase().endsWith('.pdf')) continue;
+          const match = file.name.match(/^(.+?)_checklist_/);
+          if (match) {
+            const key = match[1];
+            if (!PDF_LOOKUP[key] || file.name > PDF_LOOKUP[key].name) {
+              PDF_LOOKUP[key] = { name: file.name, url: file['@microsoft.graph.downloadUrl'] };
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[PDF] Could not load PDF folder', e);
+      }
+    }
+
+    function findPDFForRecord(record) {
+      const key1 = sanitizeForKey(record.info.project);
+      const key2 = sanitizeForKey(record.name);
+      return PDF_LOOKUP[key1] || PDF_LOOKUP[key2] || null;
     }
 
     function getFirstNonEmpty(...values) {
@@ -711,6 +764,10 @@
       const r = record.analysis.scores.radar;
       const re = record.analysis.scores.remote;
       const a = record.analysis.scores.audit;
+      const pdfItem = findPDFForRecord(record);
+      const pdfLink = pdfItem
+        ? `<a class="btn-pdf" href="${escapeHtml(pdfItem.url)}" target="_blank" rel="noopener">&#x1F4C4; View PDF</a>`
+        : '';
 
       return `
         <div class="detail-grid">
@@ -810,6 +867,7 @@
             <div class="row-actions">
               <button onclick="event.stopPropagation(); openProject('${escapeJs(record.name)}')">Open Project</button>
               <button onclick="event.stopPropagation(); exportJSON('${escapeJs(record.name)}', ALL_SITES.find(x => x.name === '${escapeJs(record.name)}')?.data || {})">Export JSON</button>
+              ${pdfLink}
             </div>
           </section>
         </div>
@@ -919,7 +977,7 @@
       const tbody = document.getElementById("tbody");
       tbody.innerHTML = `<tr><td colspan="14">Loading...</td></tr>`;
 
-      const projects = await getProjects();
+      const [projects] = await Promise.all([getProjects(), loadPDFFolder()]);
       const folders = projects.filter(p => p.folder);
 
       const records = await Promise.all(
