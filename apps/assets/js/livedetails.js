@@ -30,10 +30,8 @@ import {
         }
 
         function getPhotoLabelPrefix() {
-            const customer = (currentCustomerName || '').trim();
             const project = (currentProjectName || currentProject || '').trim();
-            if (customer && project) return `${customer} - ${project}`;
-            return customer || project;
+            return project;
         }
 
         function getStorageFolderKey() {
@@ -524,7 +522,7 @@ import {
                 let blob = await resizeImage(file, 2048);
                 if (!skipMarkup) {
                     const labelBase = getPhotoLabelPrefix() || safeProjectName;
-                    blob = await addTextToImage(blob, `${labelBase} ${paddedNum} - ${serial}`);
+                    blob = await addTextToImage(blob, `${labelBase} - ${paddedNum} - ${serial}`);
                 }
 
                 const prefix = getPhotoNamePrefix() || safeProjectName;

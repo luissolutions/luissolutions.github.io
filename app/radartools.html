@@ -204,7 +204,6 @@
         } from '../apps/assets/js/firebase-init.js';
 
         import { initImageModule } from './assets/js/imageModule.js';
-
         const CONFIG = {
             MAX_NIGHTS: 10,
             DEFAULT_NIGHTS: 5,
@@ -2278,16 +2277,32 @@
 
             $('uploadQCBtn')?.addEventListener('click', async () => {
                 try {
-                    const saved = await saveProjectJsonToOneDrive();
-                    if (!saved) return;
-                    await uploadReportsToOneDrive(); // existing CSV + TXT
-                    await uploadChecklistPDFToOneDrive(); // NEW PDF
+                    const uploadedFiles = [];
+
+                    const projectJsonPath = await saveProjectJsonToOneDrive();
+                    if (!projectJsonPath) return;
+                    uploadedFiles.push(projectJsonPath);
+
+                    uploadedFiles.push(...await uploadReportsToOneDrive());
+                    uploadedFiles.push(await uploadChecklistPDFToOneDrive());
+
+                    logUploadedFiles('QC + reports upload complete', uploadedFiles);
+                    alert(`OneDrive upload complete: ${uploadedFiles.length} file(s). See console for details.`);
                 } catch (err) {
                     console.error(err);
                     alert(`OneDrive save failed: ${err.message}`);
                 }
             });
-            $('uploadImagesToOneDriveBtn')?.addEventListener('click', uploadAllImagesToOneDrive);
+            $('uploadImagesToOneDriveBtn')?.addEventListener('click', async () => {
+                try {
+                    const uploadedFiles = await uploadAllImagesToOneDrive();
+                    logUploadedFiles('Image upload complete', uploadedFiles);
+                    alert(`Uploaded ${uploadedFiles.length} image(s) to OneDrive. See console for details.`);
+                } catch (err) {
+                    console.error('Image upload failed:', err);
+                    alert(`Image upload failed: ${err.message || err}`);
+                }
+            });
         }
 
         function getQCPath() {
@@ -2309,49 +2324,59 @@
             return getStoredAccessToken();
         }
 
+        function logUploadedFiles(label, uploadedFiles = []) {
+            if (!Array.isArray(uploadedFiles) || uploadedFiles.length === 0) {
+                console.info(`[OneDrive] ${label}: no files uploaded.`);
+                return;
+            }
+
+            console.groupCollapsed(`[OneDrive] ${label} (${uploadedFiles.length} file(s))`);
+            uploadedFiles.forEach((path, index) => {
+                console.log(`${index + 1}. ${path}`);
+            });
+            console.groupEnd();
+        }
+
         onAuthStateChanged(auth, async (user) => {
             state.basePath = user ? user.uid : 'public';
             await populateProjects();
         });
 
         async function uploadAllImagesToOneDrive() {
-            try {
-                if (!state.currentProject) { alert("No project selected"); return; }
-
-                const site = sanitize(state.currentProjectName || state.currentProject);
-                const basePath = `RadarApp/projects/${site}`;
-                const modes = [
-                    { mode: 'sensors', subFolder: 'sensors' },
-                    { mode: 'deliverables', subFolder: 'deliverables' }
-                ];
-
-                let totalUploaded = 0;
-
-                for (const { mode, subFolder } of modes) {
-                    const firebasePath = getImagesPath(mode);
-                    const oneDrivePath = `${basePath}/${subFolder}`;
-
-                    try {
-                        const items = await listStorageItems(firebasePath).catch(() => []);
-                        for (const item of items) {
-                            try {
-                                const blob = await (await fetch(item.url)).blob();
-                                await GraphAPI.uploadFile(oneDrivePath, item.name, blob, blob.type || "image/jpeg");
-                                totalUploaded++;
-                            } catch (err) {
-                                console.error(`Failed uploading ${item.name}:`, err);
-                            }
-                        }
-                    } catch (err) {
-                        console.error(`Failed listing ${firebasePath}:`, err);
-                    }
-                }
-
-                alert(`Uploaded ${totalUploaded} images to Shared Drive ✅`);
-            } catch (err) {
-                console.error('Image upload failed:', err);
-                alert("Image upload failed.");
+            if (!state.currentProject) {
+                throw new Error('No project selected.');
             }
+
+            const site = sanitize(state.currentProjectName || state.currentProject);
+            const basePath = `RadarApp/projects/${site}`;
+            const modes = [
+                { mode: 'sensors', subFolder: 'sensors' },
+                { mode: 'deliverables', subFolder: 'deliverables' }
+            ];
+
+            const uploadedFiles = [];
+
+            for (const { mode, subFolder } of modes) {
+                const firebasePath = getImagesPath(mode);
+                const oneDrivePath = `${basePath}/${subFolder}`;
+
+                try {
+                    const items = await listStorageItems(firebasePath).catch(() => []);
+                    for (const item of items) {
+                        try {
+                            const blob = await (await fetch(item.url)).blob();
+                            await GraphAPI.uploadFile(oneDrivePath, item.name, blob, blob.type || "image/jpeg");
+                            uploadedFiles.push(`${oneDrivePath}/${item.name}`);
+                        } catch (err) {
+                            console.error(`Failed uploading ${item.name}:`, err);
+                        }
+                    }
+                } catch (err) {
+                    console.error(`Failed listing ${firebasePath}:`, err);
+                }
+            }
+
+            return uploadedFiles;
         }
 
         function buildQCChecklistCSV() {
@@ -2435,7 +2460,9 @@
         async function saveProjectJsonToOneDrive() {
             try {
                 if (!state.currentProject) await loadOrCreateProject();
-                if (!state.currentProject) { alert("No project selected"); return false; }
+                if (!state.currentProject) {
+                    throw new Error('No project selected.');
+                }
 
                 const site = sanitize(state.currentProjectName || state.currentProject);
                 const basePath = `RadarApp/projects/${site}`;
@@ -2466,7 +2493,7 @@
                 });
 
                 await GraphAPI.writeJson(basePath, 'project.json', payload);
-                return true;
+                return `${basePath}/project.json`;
             } catch (err) {
                 console.error('Save project failed:', err);
                 throw err;
@@ -2475,30 +2502,36 @@
 
         async function uploadReportsToOneDrive() {
             try {
-                if (!state.currentProject) { alert("No project selected"); return; }
+                if (!state.currentProject) {
+                    throw new Error('No project selected.');
+                }
 
                 const site = sanitize(state.currentProjectName || state.currentProject);
                 const basePath = `RadarApp/projects/${site}`;
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const csvName = `qc_${timestamp}.csv`;
+                const txtName = `report_${timestamp}.txt`;
 
                 await Promise.all([
-                    GraphAPI.uploadFile(basePath, `qc_${timestamp}.csv`, buildQCChecklistBlob(), 'text/csv'),
-                    GraphAPI.uploadFile(basePath, `report_${timestamp}.txt`, buildReportFile(), 'text/plain')
+                    GraphAPI.uploadFile(basePath, csvName, buildQCChecklistBlob(), 'text/csv'),
+                    GraphAPI.uploadFile(basePath, txtName, buildReportFile(), 'text/plain')
                 ]);
 
-                alert("QC Checklist + Report uploaded ✅");
+                return [`${basePath}/${csvName}`, `${basePath}/${txtName}`];
             } catch (err) {
                 console.error('Report upload failed:', err);
-                alert("Upload failed.");
+                throw err;
             }
         }
 
         async function uploadChecklistPDFToOneDrive() {
             try {
-                if (!state.currentProject) { alert("No project selected"); return; }
+                if (!state.currentProject) {
+                    throw new Error('No project selected.');
+                }
 
                 const site = sanitize(state.currentProjectName || state.currentProject);
-                const basePath = `RadarApp/pdf`;
+                const basePath = `RadarApp/pdf/${site}`;
                 const date = new Date().toISOString().split('T')[0];
                 const filename = `${site}_checklist_${date}.pdf`;
 
@@ -2508,10 +2541,10 @@
                 await ensureFolderExists(basePath);
                 await GraphAPI.uploadFile(basePath, filename, pdfBlob, 'application/pdf');
 
-                alert("QC PDF uploaded to OneDrive ✅");
+                return `${basePath}/${filename}`;
             } catch (err) {
                 console.error('PDF upload failed:', err);
-                alert("PDF upload failed. Check console.");
+                throw err;
             }
         }
 
@@ -2634,26 +2667,31 @@
 
         async function ensureFolderExists(path) {
             const parts = path.split('/').filter(Boolean);
-            let currentPath = '';
+            let parentPath = '';
 
             for (const part of parts) {
-                currentPath += `/${part}`;
+                const currentPath = `${parentPath}/${part}`;
                 try {
-                    const res = await GraphAPI.fetch(`${ONEDRIVE_CONFIG.API_DRIVES(ONEDRIVE_CONFIG.SHARED_DRIVE_ID)}/root:${currentPath}`);
+                    const checkEndpoint = `${ONEDRIVE_CONFIG.API_DRIVES(ONEDRIVE_CONFIG.SHARED_DRIVE_ID)}/root:${currentPath}`;
+                    const res = await GraphAPI.fetch(checkEndpoint);
+
                     if (res.status === 404) {
-                        await GraphAPI.fetch(
-                            `${ONEDRIVE_CONFIG.API_DRIVES(ONEDRIVE_CONFIG.SHARED_DRIVE_ID)}/root:${currentPath}:/children`,
-                            {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                    name: part,
-                                    folder: {},
-                                    "@microsoft.graph.conflictBehavior": "replace"
-                                })
-                            }
-                        );
+                        const createEndpoint = parentPath
+                            ? `${ONEDRIVE_CONFIG.API_DRIVES(ONEDRIVE_CONFIG.SHARED_DRIVE_ID)}/root:${parentPath}:/children`
+                            : `${ONEDRIVE_CONFIG.API_DRIVES(ONEDRIVE_CONFIG.SHARED_DRIVE_ID)}/root/children`;
+
+                        await GraphAPI.fetch(createEndpoint, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                name: part,
+                                folder: {},
+                                "@microsoft.graph.conflictBehavior": "replace"
+                            })
+                        });
                     }
+
+                    parentPath = currentPath;
                 } catch (err) {
                     console.error(`Folder creation failed for ${currentPath}:`, err);
                 }
