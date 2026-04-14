@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>Job Details Tracker</title>
+    <title>Job Details Tracker v3</title>
     <link rel="icon" href="./assets/img/favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="./assets/css/radartools.css" />
     <script type="module" src="../apps/assets/js/microsoftAuth.js"></script>
@@ -232,6 +232,9 @@
 
         const normalizeText = (v) => String(v ?? '').replace(/[\r\n]+/g, ' ').trim();
         const normKey = (s) => (s || '').trim().toLowerCase();
+        const canonicalKey = (value) => String(value ?? '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, '');
         const formatMissing = (value, fallback = 'N/A') => {
             const normalized = normalizeText(value);
             return normalized || fallback;
@@ -1058,24 +1061,67 @@
             return state.qcConfig?.sections?.find((section) => section.id === sectionId) || null;
         }
 
+        function findSectionField(sectionId, fieldId) {
+            const section = getSectionConfig(sectionId);
+            if (!section?.fields) return null;
+
+            const targetKey = canonicalKey(fieldId);
+
+            return section.fields.find((field) =>
+                canonicalKey(field.id) === targetKey ||
+                canonicalKey(field.targetId) === targetKey
+            ) || null;
+        }
+
         function getSectionLabel(sectionId) {
             const title = getSectionConfig(sectionId)?.title;
             return title || prettifyId(sectionId);
         }
 
         function getFieldLabel(sectionId, fieldId) {
-            const section = getSectionConfig(sectionId);
-            if (!section?.fields) return prettifyId(fieldId);
+            const field = findSectionField(sectionId, fieldId);
+            if (!field) return prettifyId(fieldId);
 
-            for (const field of section.fields) {
-                if (field.id === fieldId) return field.label || prettifyId(fieldId);
-                if (field.targetId === fieldId) {
-                    const base = field.label || prettifyId(field.id);
-                    return `${base} Target`;
-                }
+            if (canonicalKey(field.id) === canonicalKey(fieldId)) {
+                return field.label || prettifyId(fieldId);
+            }
+
+            if (canonicalKey(field.targetId) === canonicalKey(fieldId)) {
+                const base = field.label || prettifyId(field.id);
+                return `${base} Target`;
             }
 
             return prettifyId(fieldId);
+        }
+
+        function getCurrentFieldValue(fieldId) {
+            const el = $(`field_${fieldId}`);
+            return el ? el.value : '';
+        }
+
+        function getPdfSiteHeaderRows() {
+            const siteInfo = getSectionConfig('site_info');
+            const siteFields = Array.isArray(siteInfo?.fields) ? siteInfo.fields : [];
+
+            if (!siteFields.length) {
+                return [
+                    { label: 'Site #', value: formatMissing(getCurrentFieldValue('siteNumber')) },
+                    { label: 'Location', value: formatMissing(getCurrentFieldValue('location')) },
+                    { label: 'Date', value: formatMissing(getCurrentFieldValue('date')) },
+                    { label: 'Total Nights', value: formatMissing(getCurrentFieldValue('totalNights')) }
+                ];
+            }
+
+            return siteFields
+                .map((field) => ({
+                    label: field.label || prettifyId(field.id),
+                    value: getCurrentFieldValue(field.id)
+                }))
+                .filter((row) => normalizeText(row.value).length > 0)
+                .map((row) => ({
+                    label: row.label,
+                    value: formatMissing(row.value)
+                }));
         }
 
         function normalizeNightCount(value, fallback = 1) {
@@ -2463,12 +2509,9 @@
 
             doc.setFontSize(10);
 
-            const site = data.sections.site_info?.fields || {};
-
-            line(`Site #: ${site.siteNumber?.value || ""}`);
-            line(`Location: ${site.location?.value || ""}`);
-            line(`Date: ${site.date?.value || ""}`);
-            line(`Total Nights: ${site.totalNights?.value || ""}`);
+            getPdfSiteHeaderRows().forEach((row) => {
+                line(`${row.label}: ${row.value}`);
+            });
             line("");
 
             // ===== SECTIONS =====
@@ -2504,7 +2547,7 @@
                 // Scores
                 if (sectionData.scores) {
                     Object.entries(sectionData.scores).forEach(([k, v]) => {
-                        line(`${k}: ${v}`);
+                        line(`${getFieldLabel(sectionId, k)}: ${formatMissing(v, '0')}`);
                     });
                     line(`Total: ${sectionData.total || 0}`);
                 }
