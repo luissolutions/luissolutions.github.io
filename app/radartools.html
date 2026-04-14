@@ -2522,6 +2522,7 @@
 
             const site = sanitize(state.currentProjectName || state.currentProject);
             const basePath = `RadarApp/projects/pdf`;
+
             const accessToken = localStorage.getItem("accessToken");
             if (!accessToken) {
                 alert("Not logged into Microsoft");
@@ -2529,36 +2530,50 @@
             }
 
             try {
+                console.log("Generating PDF...");
+
                 const pdfBlob = await generateChecklistPDFBlob();
-                const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 
-                const site = sanitize(state.currentProjectName || state.currentProject);
+                if (!pdfBlob) {
+                    throw new Error("PDF generation failed (no blob)");
+                }
+
                 const date = new Date().toISOString().split('T')[0];
-
                 const filename = `${site}_checklist_${date}.pdf`;
 
+                console.log("Ensuring folder exists:", basePath);
                 await ensureFolderExists(basePath);
 
-                await fetch(
-                    `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}/root:/${basePath}/${filename}:/content`,
-                    {
-                        method: "PUT",
-                        headers: {
-                            "Authorization": `Bearer ${accessToken}`,
-                            "Content-Type": "application/pdf"
-                        },
-                        body: pdfBlob
-                    }
-                );
+                const uploadUrl =
+                    `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_CONFIG.SHARED_DRIVE_ID}` +
+                    `/root:/${basePath}/${filename}:/content`;
 
+                console.log("Uploading to:", uploadUrl);
+
+                const res = await fetch(uploadUrl, {
+                    method: "PUT",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`,
+                        "Content-Type": "application/pdf"
+                    },
+                    body: pdfBlob
+                });
+
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    console.error("Upload failed:", errorText);
+                    throw new Error("Upload failed");
+                }
+
+                console.log("Upload success");
                 alert("QC PDF uploaded to OneDrive ✅");
 
             } catch (err) {
-                console.error(err);
-                alert("PDF upload failed.");
+                console.error("PDF upload error:", err);
+                alert("PDF upload failed. Check console.");
             }
         }
-
+        
         initModalEvents();
         initProjectEvents();
         initFeatureEvents();
