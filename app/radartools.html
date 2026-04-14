@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>Job Details Tracker v3</title>
+    <title>Radar Checklist</title>
     <link rel="icon" href="./assets/img/favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="./assets/css/radartools.css" />
     <script type="module" src="../apps/assets/js/microsoftAuth.js"></script>
@@ -1798,7 +1798,16 @@
 
             Object.entries(map).forEach(([key, value]) => {
                 const el = $(`field_${key}`);
-                if (el) el.value = value;
+                if (!el) return;
+
+                const incoming = normalizeText(value);
+                const current = normalizeText(el.value);
+
+                // Do not clobber populated checklist values with empty task defaults.
+                if (!incoming) return;
+                if (current) return;
+
+                el.value = value;
             });
         }
 
@@ -1874,6 +1883,17 @@
             buildApp(qcData);
             state.qcReady = true;
             applyTaskToSiteInfo(taskData);
+
+            // Keep expected sensor count aligned with whichever source has real data.
+            const qcSensorTotal = Number(
+                qcData?.sections?.site_info?.fields?.sensorTotal?.value
+            ) || 0;
+            if (qcSensorTotal > 0) {
+                state.expectedSensors = qcSensorTotal;
+                populateSensorDropdown(state.expectedSensors);
+                syncSensorTotalToQC();
+            }
+
             attachQCListeners();
         }
 
@@ -2500,6 +2520,16 @@
                 y += Math.max(1, titleLines.length) * lineHeight;
             };
 
+            const singleSelectText = (sectionId, selectedIndex) => {
+                if (selectedIndex == null) return 'N/A';
+                const sectionConfig = getSectionConfig(sectionId);
+                const options = sectionConfig?.options;
+                if (Array.isArray(options) && options[selectedIndex] != null) {
+                    return String(options[selectedIndex]);
+                }
+                return String(selectedIndex);
+            };
+
             // ===== HEADER =====
             const siteName = state.currentProjectName || state.currentProject || "";
 
@@ -2550,6 +2580,11 @@
                         line(`${getFieldLabel(sectionId, k)}: ${formatMissing(v, '0')}`);
                     });
                     line(`Total: ${sectionData.total || 0}`);
+                }
+
+                // Single-select sections (e.g., Lead Tech Understanding)
+                if (Object.prototype.hasOwnProperty.call(sectionData, 'selected')) {
+                    line(`${getSectionLabel(sectionId)}: ${singleSelectText(sectionId, sectionData.selected)}`);
                 }
 
                 // Notes
