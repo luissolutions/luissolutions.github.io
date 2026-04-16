@@ -16,7 +16,7 @@
 
     .dashboard-toolbar {
       display: grid;
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: 1fr auto auto auto;
       gap: 12px;
       align-items: center;
       margin-bottom: 12px;
@@ -33,6 +33,25 @@
       gap: 8px;
       flex-wrap: wrap;
       justify-content: flex-end;
+    }
+
+    .source-toggle {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .source-toggle label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 12px;
+      cursor: pointer;
     }
 
     .summary-pill {
@@ -274,6 +293,16 @@
   <main class="dashboard-wrap">
     <div class="dashboard-toolbar">
       <input id="searchInput" type="text" placeholder="Search site, customer, address, lead tech, QC lead..." />
+      <div class="source-toggle" id="sourceToggle">
+        <label>
+          <input type="radio" name="dataSource" value="onedrive" checked />
+          OneDrive
+        </label>
+        <label>
+          <input type="radio" name="dataSource" value="firebase" />
+          Firebase
+        </label>
+      </div>
       <select id="statusFilter">
         <option value="ALL">All statuses</option>
         <option value="FAIL">Fail</option>
@@ -313,15 +342,25 @@
     </div>
   </main>
 
-  <script>
+  <script type="module">
+    import {
+      auth,
+      onAuthStateChanged,
+      database,
+      ref as dbRef,
+      get
+    } from "../assets/js/firebase-init.js";
+
     const CONFIG = {
       ROOT: "RadarApp/projects",
       DRIVE_ID: "b!3mJ2DZSHdkmBrOccfkDkBt3Eklx5UvdMlDz0bmgGRktCiH2Pzkr5TbiD0DhegSHo"
     };
 
-  const getAccessToken = () => String(localStorage.getItem("accessToken") || "").trim();
-  let LAST_ACCESS_TOKEN = getAccessToken();
-  let DASHBOARD_LOADING = false;
+    const getAccessToken = () => String(localStorage.getItem("accessToken") || "").trim();
+    let LAST_ACCESS_TOKEN = getAccessToken();
+    let DASHBOARD_LOADING = false;
+    let CURRENT_SOURCE = "onedrive";
+    let FIREBASE_BASE_PATH = "public";
 
     let ALL_SITES = [];
     let PDF_LOOKUP = {};
@@ -344,6 +383,9 @@
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (res.status === 404) {
+        return null;
+      }
       if (!res.ok) {
         console.error("[GRAPH]", url, res.status);
         return null;
@@ -917,6 +959,8 @@
       row.classList.toggle("open");
     }
 
+    window.toggleDetail = toggleDetail;
+
     function applyFilters(records) {
       return records.filter(record => {
         const statusMatch = CURRENT_FILTER === "ALL" || record.analysis.status === CURRENT_FILTER;
@@ -957,6 +1001,10 @@
     }
 
     async function loadAll() {
+      if (CURRENT_SOURCE === "firebase") {
+        return loadAllFromFirebase();
+      }
+
       if (DASHBOARD_LOADING) return;
       DASHBOARD_LOADING = true;
 
@@ -996,12 +1044,47 @@
       }
     }
 
+    async function loadAllFromFirebase() {
+      if (DASHBOARD_LOADING) return;
+      DASHBOARD_LOADING = true;
+
+      const tbody = document.getElementById("tbody");
+      tbody.innerHTML = `<tr><td colspan="14">Loading...</td></tr>`;
+
+      try {
+        const snap = await get(dbRef(database, `${FIREBASE_BASE_PATH}/tasks`));
+        const tasks = snap.exists() ? snap.val() : {};
+
+        const records = Object.entries(tasks).map(([id, data]) => {
+          const record = buildRecord(id, data || {});
+          record.searchText = getSearchText(record);
+          return record;
+        });
+
+        ALL_SITES = records;
+        PDF_LOOKUP = {};
+        render();
+      } catch (error) {
+        console.error("[FIREBASE DASHBOARD LOAD FAILED]", error);
+        setLoadingMessage("Failed to load Firebase dashboard data.");
+      } finally {
+        DASHBOARD_LOADING = false;
+      }
+    }
+
     async function reloadAfterTokenChange() {
+      if (CURRENT_SOURCE !== "onedrive") return;
       const token = getAccessToken();
       if (!token || token === LAST_ACCESS_TOKEN) return;
 
       LAST_ACCESS_TOKEN = token;
       await loadAll();
+    }
+
+    function setSource(source) {
+      CURRENT_SOURCE = source;
+      setLoadingMessage("Loading...");
+      loadAll();
     }
 
     document.getElementById("searchInput").addEventListener("input", e => {
@@ -1028,6 +1111,8 @@
       const token = getAccessToken();
       LAST_ACCESS_TOKEN = token;
 
+      if (CURRENT_SOURCE !== "onedrive") return;
+
       if (token) {
         loadAll();
       } else {
@@ -1038,6 +1123,7 @@
     });
 
     document.getElementById("loginButton")?.addEventListener("click", () => {
+      if (CURRENT_SOURCE !== "onedrive") return;
       const baseline = getAccessToken();
       let attempts = 0;
       const maxAttempts = 60;
@@ -1057,6 +1143,17 @@
           clearInterval(timer);
         }
       }, 500);
+    });
+
+    document.querySelectorAll('input[name="dataSource"]').forEach((radio) => {
+      radio.addEventListener("change", (event) => {
+        setSource(event.target.value);
+      });
+    });
+
+    onAuthStateChanged(auth, (user) => {
+      FIREBASE_BASE_PATH = user ? user.uid : "public";
+      if (CURRENT_SOURCE === "firebase") loadAll();
     });
 
     loadAll();
