@@ -337,11 +337,14 @@
         <select id="imageSelect">
           <option>Select Image</option>
         </select>
+        <div id="loadingIndicator" style="display: none;">Loading images...</div>
 
-        <div style="width: 100%;">
+        <div class="photoGrid">
           <div id="photoContainer"></div>
+          <div id="paginationControls"></div>
         </div>
         <button id="deleteImageButton">Delete Selected Image</button>
+        <button id="downloadAllImagesBtn">Download All Images</button>
       </div>
 
       <div class="progress-row">
@@ -534,7 +537,8 @@
         recordCb: null,
         dropdownRef: null,
         dropdownCb: null
-      }
+      },
+      metaEnsured: false
     };
 
     let dropdownProjectsCache = [];
@@ -2285,6 +2289,14 @@
         if (!snap.exists()) return;
 
         const data = snap.val() || {};
+        const hasData = !!(
+          data.project ||
+          data.customerName ||
+          data.notes ||
+          (Array.isArray(data.links) && data.links.length) ||
+          (data.tasks && Object.keys(data.tasks).length) ||
+          (data.lists && Object.keys(data.lists).length)
+        );
         state.customerName = data.customerName || "";
         state.notes = data.notes || "";
         state.projectFieldName = data.project || "";
@@ -2308,13 +2320,16 @@
           photoContainer.innerHTML = '';
           imageUrls = [];
         }
+
+        if (hasData && !state.metaEnsured) {
+          state.metaEnsured = true;
+          ensureMetaExists(id);
+        }
       };
 
       state.listeners.recordRef = rRef;
       state.listeners.recordCb = rCb;
       onValue(rRef, rCb);
-
-      await ensureMetaExists(id);
     }
 
     // ============================
@@ -2559,8 +2574,14 @@
     const uploadButton = document.getElementById("uploadButton");
     const imageSelect = document.getElementById("imageSelect");
     const photoContainer = document.getElementById("photoContainer");
+  const loadingIndicator = document.getElementById("loadingIndicator");
+  const paginationControls = document.getElementById("paginationControls");
+  const downloadAllImagesBtn = document.getElementById("downloadAllImagesBtn");
 
     let imageUrls = [];
+  let currentPage = 1;
+  let imagesPerPage = 6;
+  let totalPages = 0;
 
 
     async function getAllImagesRecursive(folderRef) {
@@ -2600,12 +2621,31 @@
       imageSelect.innerHTML = '<option value="">Select Image</option>';
       photoContainer.innerHTML = '';
 
+      if (!project) {
+        return;
+      }
+
       try {
 
-        const rootRef =
-          storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images/${project}`);
+        const safeProject = String(project).replace(/[^\w\-]/g, "_");
+        const roots = Array.from(new Set([project, safeProject].filter(Boolean)));
+        let allImages = [];
 
-        const allImages = await getAllImagesRecursive(rootRef);
+        if (loadingIndicator) {
+          loadingIndicator.style.display = "block";
+        }
+
+        for (const root of roots) {
+          try {
+            const rootRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images/${root}`);
+            const found = await getAllImagesRecursive(rootRef);
+            allImages = allImages.concat(found);
+          } catch (error) {
+            if (error?.code !== "storage/object-not-found") {
+              console.warn("Image folder load failed:", root, error);
+            }
+          }
+        }
 
         const seen = new Set();
 
@@ -2616,7 +2656,8 @@
 
           const option = document.createElement('option');
 
-          option.value = JSON.stringify({ url, path });
+          option.value = url;
+          option.dataset.path = path;
           option.textContent = name;
 
           imageSelect.appendChild(option);
@@ -2624,11 +2665,93 @@
           imageUrls.push(url);
         }
 
+        displayImagesForPage(1);
+
       } catch (error) {
 
         console.error("Error loading images:", error);
 
+      } finally {
+
+        if (loadingIndicator) {
+          loadingIndicator.style.display = "none";
+        }
+
       }
+    }
+
+    function displayImagesForPage(page) {
+      const startIndex = (page - 1) * imagesPerPage;
+      const endIndex = Math.min(startIndex + imagesPerPage, imageUrls.length);
+
+      photoContainer.innerHTML = "";
+
+      for (let i = startIndex; i < endIndex; i++) {
+        const url = imageUrls[i];
+        const img = document.createElement("img");
+        img.src = url;
+        img.className = "thumbnail";
+        img.loading = "lazy";
+        img.addEventListener("click", () => displaySelectedImage(url));
+        photoContainer.appendChild(img);
+      }
+
+      currentPage = page;
+      updatePaginationControls();
+    }
+
+    function updatePaginationControls() {
+      if (!paginationControls) return;
+      paginationControls.innerHTML = "";
+
+      totalPages = Math.max(1, Math.ceil(imageUrls.length / imagesPerPage));
+
+      const prevButton = document.createElement("button");
+      prevButton.textContent = "Previous Page";
+      prevButton.disabled = currentPage === 1;
+      prevButton.addEventListener("click", () => {
+        if (currentPage > 1) displayImagesForPage(currentPage - 1);
+      });
+      paginationControls.appendChild(prevButton);
+
+      for (let i = 1; i <= totalPages; i++) {
+        const pageButton = document.createElement("button");
+        pageButton.textContent = i;
+        pageButton.className = "pg";
+        pageButton.addEventListener("click", () => displayImagesForPage(i));
+        paginationControls.appendChild(pageButton);
+      }
+
+      const nextButton = document.createElement("button");
+      nextButton.textContent = "Next Page";
+      nextButton.disabled = currentPage === totalPages;
+      nextButton.addEventListener("click", () => {
+        if (currentPage < totalPages) displayImagesForPage(currentPage + 1);
+      });
+      paginationControls.appendChild(nextButton);
+    }
+
+    function displaySelectedImage(url) {
+      photoContainer.innerHTML = "";
+      const imgWrapper = document.createElement("div");
+      imgWrapper.className = "img-wrapper";
+
+      const img = document.createElement("img");
+      img.src = url;
+      img.className = "photo";
+      imgWrapper.appendChild(img);
+      photoContainer.appendChild(imgWrapper);
+
+      const options = imageSelect.options;
+      for (let i = 0; i < options.length; i++) {
+        if (options[i].value === url) {
+          imageSelect.selectedIndex = i;
+          break;
+        }
+      }
+
+      currentPage = 1;
+      updatePaginationControls();
     }
 
     uploadButton.addEventListener("click", async () => {
@@ -2680,29 +2803,21 @@
     });
 
     imageSelect.addEventListener("change", () => {
-
-      const selected = JSON.parse(imageSelect.value || "{}");
-      const url = selected.url;
-
-      photoContainer.innerHTML = "";
-
-      const img = document.createElement("img");
-      img.src = url;
-      img.style.maxWidth = "500px";
-
-      img.onclick = () => window.open(url, "_blank");
-
-      photoContainer.appendChild(img);
-
+      const selectedUrl = imageSelect.value;
+      if (selectedUrl) {
+        displaySelectedImage(selectedUrl);
+      }
     });
 
     const deleteImageButton = document.getElementById("deleteImageButton");
 
     deleteImageButton.addEventListener("click", async () => {
 
-      const selected = JSON.parse(imageSelect.value || "{}");
+      const selectedOption = imageSelect.selectedOptions?.[0];
+      const selectedUrl = selectedOption?.value || "";
+      const selectedPath = selectedOption?.dataset?.path || "";
 
-      if (!selected.path) {
+      if (!selectedUrl && !selectedPath) {
         alert("Select an image first.");
         return;
       }
@@ -2710,7 +2825,7 @@
       if (!confirm("Delete this image?")) return;
 
       try {
-        const imageRef = storageRef(storage, selected.path); // ✅ correct
+        const imageRef = storageRef(storage, selectedPath || selectedUrl);
         await deleteObject(imageRef);
 
         alert("Image deleted");
@@ -2722,6 +2837,37 @@
         alert("Failed to delete image.");
       }
 
+    });
+
+    downloadAllImagesBtn?.addEventListener("click", async () => {
+      const project = state.projectFieldName;
+      if (!project) {
+        alert("Select a project before opening images.");
+        return;
+      }
+
+      const safeProject = String(project).replace(/[^\w\-]/g, "_");
+      const roots = Array.from(new Set([project, safeProject].filter(Boolean)));
+
+      try {
+        let opened = 0;
+        for (const root of roots) {
+          const storageImagesRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images/${root}`);
+          const storageSnapshot = await listAll(storageImagesRef);
+          for (const item of storageSnapshot.items) {
+            const imageUrl = await getDownloadURL(item);
+            window.open(imageUrl, "_blank");
+            opened++;
+          }
+        }
+
+        if (opened === 0) {
+          alert("No images found for this project.");
+        }
+      } catch (error) {
+        console.error("Error opening images:", error);
+        alert("Error opening images. Please try again.");
+      }
     });
 
     async function addTextToImage(url, text) {

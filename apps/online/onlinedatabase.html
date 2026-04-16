@@ -290,6 +290,20 @@
             </div>
 
             <div class="row" style="margin-top:10px;">
+                <div style="flex:1; min-width:320px;">
+                    <label><strong>Or From Path (file or folder)</strong></label>
+                    <input id="fromPathInput" type="text" placeholder="e.g. public/tasks/images/ProjectA/file.jpg"
+                        style="width:100%; padding:6px 8px;">
+                </div>
+
+                <div style="flex:1; min-width:320px;">
+                    <label><strong>Or To Path (folder)</strong></label>
+                    <input id="toPathInput" type="text" placeholder="e.g. public/tasks/images/ProjectB"
+                        style="width:100%; padding:6px 8px;">
+                </div>
+            </div>
+
+            <div class="row" style="margin-top:10px;">
                 <label style="display:flex; align-items:center; gap:8px;">
                     <input type="radio" name="moveMode" value="move" checked>
                     Move
@@ -310,6 +324,8 @@
                 <button id="moveImageButton" class="btn primary" disabled>Choose folders…</button>
                 <button id="swapFoldersBtn" class="btn" disabled>Swap</button>
             </div>
+
+            <div id="folderStatus" class="muted" style="margin-top:8px;">Loading folders…</div>
 
             <div class="row" style="margin-top:12px; gap:12px; align-items:stretch;">
                 <div class="panel" style="flex:1; min-width:320px;">
@@ -563,6 +579,17 @@
             return other.split('/').slice(0, -1).join('/');
         }
 
+        function extractStoragePathFromUrl(url) {
+            if (!url) return '';
+            try {
+                const u = new URL(url);
+                const match = u.pathname.match(/\/o\/(.+)$/);
+                return match ? decodeURIComponent(match[1]) : '';
+            } catch {
+                return '';
+            }
+        }
+
         // -------------------------------------------------------------------
         // Explorer rendering
         // -------------------------------------------------------------------
@@ -778,11 +805,14 @@
         const toDropdown = document.getElementById('toFolderDropdown');
         const moveButton = document.getElementById('moveImageButton');
         const swapBtn = document.getElementById('swapFoldersBtn');
+    const fromPathInput = document.getElementById('fromPathInput');
+    const toPathInput = document.getElementById('toPathInput');
 
         const fromPreview = document.getElementById('fromPreview');
         const toPreview = document.getElementById('toPreview');
         const fromSummary = document.getElementById('fromSummary');
         const toSummary = document.getElementById('toSummary');
+    const folderStatus = document.getElementById('folderStatus');
 
         const dryRunCheckbox = document.getElementById('dryRunCheckbox');
 
@@ -796,8 +826,10 @@
         }
 
         function setMoveButtonsState() {
-            const fromFolder = fromDropdown.value.trim();
-            const toFolder = toDropdown.value.trim();
+            const manualFrom = fromPathInput?.value.trim();
+            const manualTo = toPathInput?.value.trim();
+            const fromFolder = manualFrom || fromDropdown.value.trim();
+            const toFolder = manualTo || toDropdown.value.trim();
             const ok = fromFolder && toFolder && fromFolder !== toFolder && !isSubfolderMove(fromFolder, toFolder);
 
             moveButton.disabled = !ok;
@@ -835,21 +867,67 @@
         }
 
         async function populateFolderDropdowns() {
-            const startRef = storageRef(storage, DATABASE_BASE_PATH);
-
             try {
-                const leafFolders = await getAllFolders(startRef);
+                const roots = new Set([DATABASE_BASE_PATH, 'public']);
+
+                // Attempt to discover any accessible top-level folders
+                try {
+                    const rootList = await listAll(storageRef(storage, ''));
+                    rootList.prefixes.forEach(prefix => roots.add(prefix.name));
+                } catch (err) {
+                    console.warn('Root folder listing failed (continuing):', err);
+                }
+
+                const leafFolders = [];
+                for (const root of roots) {
+                    try {
+                        const rootRef = storageRef(storage, root);
+                        const found = await getAllFolders(rootRef, root);
+                        leafFolders.push(...found);
+                    } catch (err) {
+                        console.warn('Folder scan failed (continuing):', root, err);
+                    }
+                }
+
+                if (leafFolders.length === 0) {
+                    try {
+                        const candidates = [DATABASE_BASE_PATH, 'public'];
+                        for (const base of candidates) {
+                            const snap = await get(ref(getDatabase(), `${base}/tasks`));
+                            const data = snap.val() || {};
+
+                            Object.values(data).forEach((task) => {
+                                if (!task || typeof task !== 'object') return;
+                                const project = String(task.project || '').trim();
+                                if (!project) return;
+                                leafFolders.push(`${base}/tasks/images/${project}`);
+                            });
+
+                            const invSnap = await get(ref(getDatabase(), `${base}/inventory`));
+                            const invData = invSnap.val() || {};
+                            Object.values(invData).forEach((components) => {
+                                if (!components || typeof components !== 'object') return;
+                                Object.values(components).forEach((items) => {
+                                    if (!items || typeof items !== 'object') return;
+                                    Object.values(items).forEach((item) => {
+                                        if (!item || typeof item !== 'object') return;
+                                        const path = extractStoragePathFromUrl(item.imageUrl);
+                                        if (path) leafFolders.push(path);
+                                    });
+                                });
+                            });
+                        }
+                    } catch (err) {
+                        console.warn('DB fallback folder build failed:', err);
+                    }
+                }
 
                 // Collect parents + leaves
                 const folderSet = new Set();
 
                 leafFolders.forEach(f => {
                     folderSet.add(f);                    // original folder
-                    getParentPaths(f).forEach(p => {
-                        if (p.startsWith(DATABASE_BASE_PATH)) {
-                            folderSet.add(p);                // parent folders
-                        }
-                    });
+                    getParentPaths(f).forEach(p => folderSet.add(p));
                 });
 
                 const folders = Array.from(folderSet)
@@ -868,8 +946,9 @@
                 // same “startTime label” logic you had
                 const folderData = await Promise.all(
                     folders.map(async (folder) => {
-                        const match = folder.match(/^(.*?)\/images\/(.+)$/);
-                        if (!match) return { folder, startTime: null };
+                        const value = String(folder?.value ?? folder ?? '');
+                        const match = value.match(/^(.*?)\/images\/(.+)$/);
+                        if (!match) return { folder: value, startTime: null };
 
                         const [_, dbPath, projectId] = match;
                         const dbRef = ref(getDatabase(), dbPath);
@@ -878,9 +957,9 @@
                             const snap = await get(dbRef);
                             const data = snap.val();
                             const entry = Object.values(data || {}).find((v) => v && typeof v === 'object' && v.project === projectId);
-                            return { folder, startTime: entry?.startTime || null };
+                            return { folder: value, startTime: entry?.startTime || null };
                         } catch {
-                            return { folder, startTime: null };
+                            return { folder: value, startTime: null };
                         }
                     })
                 );
@@ -898,13 +977,30 @@
                         dropdown.appendChild(new Option(label, value));
                     });
                 });
+
+                const total = folders.length;
+                if (folderStatus) {
+                    folderStatus.textContent = total
+                        ? `Loaded ${total} accessible folder(s).`
+                        : 'No accessible folders found. Check permissions or confirm tasks exist.';
+                }
+
+                console.log('Image mover folders:', {
+                    roots: Array.from(roots),
+                    leafFolders: leafFolders.length,
+                    totalFolders: total
+                });
             } catch (err) {
                 console.error("Failed to get folders or task info:", err);
+                if (folderStatus) {
+                    folderStatus.textContent = 'Failed to load folders. Check console for errors.';
+                }
             }
         }
 
         function parseFolderToDbPathAndProject(folderPath) {
-            const m = folderPath.match(/^(.*?)\/images\/(.+)$/);
+            const path = String(folderPath || '');
+            const m = path.match(/^(.*?)\/images\/(.+)$/);
             if (!m) return { dbPath: null, projectId: null };
             return { dbPath: m[1], projectId: m[2] };
         }
@@ -1132,10 +1228,15 @@
         async function refreshPreviews() {
             let fromFolder = resolveFolderSelection(fromDropdown.value.trim(), toDropdown.value.trim());
             let toFolder = resolveFolderSelection(toDropdown.value.trim(), fromDropdown.value.trim());
+            const manualFrom = fromPathInput?.value.trim();
+            const manualTo = toPathInput?.value.trim();
+
+            if (manualFrom) fromFolder = manualFrom;
+            if (manualTo) toFolder = manualTo;
 
             setMoveButtonsState();
 
-            if (fromFolder) {
+            if (fromFolder && !manualFrom) {
                 fromPreview.textContent = 'Loading…';
                 const [sum, task] = await Promise.all([summarizeFolder(fromFolder), getTaskPreview(fromFolder)]);
                 renderFolderPreview(fromPreview, fromSummary, fromFolder, sum, task);
@@ -1143,7 +1244,7 @@
                 renderFolderPreview(fromPreview, fromSummary, '', { fileCount: 0, previewFiles: [] }, null);
             }
 
-            if (toFolder) {
+            if (toFolder && !manualTo) {
                 toPreview.textContent = 'Loading…';
                 const [sum, task] = await Promise.all([summarizeFolder(toFolder), getTaskPreview(toFolder)]);
                 renderFolderPreview(toPreview, toSummary, toFolder, sum, task);
@@ -1160,19 +1261,55 @@
             }
         }
 
-        // --- Accurate progress across recursion ---
-        async function countFilesRecursively(folderRef) {
-            let count = 0;
+        // --- Accurate progress across recursion (single traversal) ---
+        async function listAllItemsRecursively(folderRef, accumulator = []) {
             const res = await listAll(folderRef);
-            count += res.items.length;
-            for (const p of res.prefixes) count += await countFilesRecursively(p);
-            return count;
+            accumulator.push(...res.items);
+            for (const p of res.prefixes) await listAllItemsRecursively(p, accumulator);
+            return accumulator;
         }
 
-        async function moveAllFilesRecursively(folderRef, fromFolder, toFolder, copyInstead, progress) {
-            const listResult = await listAll(folderRef);
+        async function runWithConcurrency(items, limit, worker) {
+            const queue = [...items];
+            const runners = Array.from({ length: Math.max(1, limit) }, async () => {
+                while (queue.length) {
+                    const item = queue.shift();
+                    if (!item) return;
+                    await worker(item);
+                }
+            });
+            await Promise.all(runners);
+        }
 
-            for (const item of listResult.items) {
+        function normalizeStoragePath(p) {
+            return String(p || '').replace(/^\/+/, '').replace(/\/+/g, '/');
+        }
+
+        function basename(path) {
+            const parts = normalizeStoragePath(path).split('/').filter(Boolean);
+            return parts[parts.length - 1] || '';
+        }
+
+        async function copySingleFile(fromPath, toFolder, copyInstead, progress) {
+            const fromRef = storageRef(storage, fromPath);
+            const toPath = `${normalizeStoragePath(toFolder)}/${basename(fromPath)}`;
+            const toRef = storageRef(storage, toPath);
+            const buffer = await getBytes(fromRef);
+            await uploadBytes(toRef, buffer);
+            if (!copyInstead) await deleteObject(fromRef);
+
+            if (progress) {
+                progress.moved++;
+                const percent = Math.round((progress.moved / progress.total) * 100);
+                progressBar.value = percent;
+                progressText.textContent = `${percent}%`;
+                progressDetail.textContent = `${progress.moved}/${progress.total} files`;
+            }
+        }
+
+        async function moveItemsWithConcurrency(items, fromFolder, toFolder, copyInstead, progress) {
+            const concurrency = 5;
+            await runWithConcurrency(items, concurrency, async (item) => {
                 const buffer = await getBytes(item);
                 const relativePath = item.fullPath.replace(fromFolder, '').replace(/^\/+/, '');
                 const toRef = storageRef(storage, `${toFolder}/${relativePath}`);
@@ -1184,16 +1321,53 @@
                 progressBar.value = percent;
                 progressText.textContent = `${percent}%`;
                 progressDetail.textContent = `${progress.moved}/${progress.total} files`;
-            }
+            });
+        }
 
-            for (const prefix of listResult.prefixes) {
-                await moveAllFilesRecursively(prefix, fromFolder, toFolder, copyInstead, progress);
+        async function copyOrMovePath(fromPath, toPath, copyInstead, prelistedItems = null) {
+            const normalizedFrom = normalizeStoragePath(fromPath);
+            const normalizedTo = normalizeStoragePath(toPath);
+
+            // Attempt folder operation first; if it fails, treat as a single file.
+            try {
+                const baseRef = storageRef(storage, normalizedFrom);
+                const items = Array.isArray(prelistedItems)
+                    ? prelistedItems
+                    : await listAllItemsRecursively(baseRef);
+                const total = items.length;
+                const progress = { total: Math.max(1, total), moved: 0 };
+
+                progressContainer.style.display = 'block';
+                progressBar.value = 0;
+                progressText.textContent = '0%';
+                progressDetail.textContent = `0/${progress.total} files`;
+
+                if (!items.length) {
+                    return { total: 0, kind: 'folder', empty: true };
+                }
+
+                await moveItemsWithConcurrency(items, normalizedFrom, normalizedTo, copyInstead, progress);
+                return { total: progress.total, kind: 'folder' };
+            } catch (err) {
+                // folder listing failed; try single file
+                const progress = { total: 1, moved: 0 };
+                progressContainer.style.display = 'block';
+                progressBar.value = 0;
+                progressText.textContent = '0%';
+                progressDetail.textContent = `0/1 files`;
+
+                await copySingleFile(normalizedFrom, normalizedTo, copyInstead, progress);
+                return { total: 1, kind: 'file' };
+            } finally {
+                progressContainer.style.display = 'none';
             }
         }
 
         // --- Events ---
-        fromDropdown.addEventListener('change', refreshPreviews);
-        toDropdown.addEventListener('change', refreshPreviews);
+    fromDropdown.addEventListener('change', refreshPreviews);
+    toDropdown.addEventListener('change', refreshPreviews);
+    fromPathInput?.addEventListener('input', refreshPreviews);
+    toPathInput?.addEventListener('input', refreshPreviews);
         dryRunCheckbox.addEventListener('change', () => { setMoveButtonsState(); });
 
         document.querySelectorAll('input[name="moveMode"]').forEach(r => {
@@ -1209,8 +1383,10 @@
         });
 
         moveButton.addEventListener('click', async () => {
-            const fromFolder = fromDropdown.value.trim();
-            const toFolder = toDropdown.value.trim();
+            const manualFrom = fromPathInput?.value.trim();
+            const manualTo = toPathInput?.value.trim();
+            const fromFolder = manualFrom || fromDropdown.value.trim();
+            const toFolder = manualTo || toDropdown.value.trim();
             const mode = getMoveMode();
             const copyInstead = (mode === 'copy');
             const dryRun = dryRunCheckbox.checked;
@@ -1224,7 +1400,14 @@
                 return;
             }
 
-            const total = await countFilesRecursively(storageRef(storage, fromFolder));
+            let total = 1;
+            let prelistedItems = null;
+            try {
+                prelistedItems = await listAllItemsRecursively(storageRef(storage, fromFolder));
+                total = prelistedItems.length;
+            } catch {
+                total = 1;
+            }
 
             const ok = confirm(
                 `${dryRun ? 'PREVIEW' : mode.toUpperCase()}\n\n` +
@@ -1238,29 +1421,24 @@
 
             if (dryRun) return;
 
-            progressContainer.style.display = 'block';
-            progressBar.value = 0;
-            progressText.textContent = '0%';
-            progressDetail.textContent = 'Counting…';
-
             try {
-                const baseRef = storageRef(storage, fromFolder);
-                const total = await countFilesRecursively(baseRef);
+                if (prelistedItems && prelistedItems.length === 0) {
+                    alert('No files found in the selected folder.');
+                    return;
+                }
 
-                const progress = { total: Math.max(1, total), moved: 0 };
-                progressDetail.textContent = `0/${progress.total} files`;
+                const result = await copyOrMovePath(fromFolder, toFolder, copyInstead, prelistedItems);
 
-                await moveAllFilesRecursively(baseRef, fromFolder, toFolder, copyInstead, progress);
-                await copyInfoDataRegardlessOfIds(fromFolder, toFolder);
+                if (result.kind === 'folder' && !result.empty) {
+                    await copyInfoDataRegardlessOfIds(fromFolder, toFolder);
+                }
 
-                alert(`Successfully ${copyInstead ? 'copied' : 'moved'} ${progress.total} files.`);
+                alert(`Successfully ${copyInstead ? 'copied' : 'moved'} ${result.total} file(s).`);
                 await populateFolderDropdowns();
                 await refreshPreviews();
             } catch (err) {
                 console.error("Move/Copy Error:", err);
                 alert("Error moving/copying files.");
-            } finally {
-                progressContainer.style.display = 'none';
             }
         });
 
