@@ -5,7 +5,6 @@ document.addEventListener('DOMContentLoaded', () => {
     wireUpSidebarToggle();
 });
 
-
 function injectSidebarCSS() {
     const css = `        
         #toggleSidebar {
@@ -50,7 +49,6 @@ function injectSidebarCSS() {
     document.head.appendChild(styleEl);
 }
 
-
 function insertToggleButtonIntoHeader() {
     const headerEl = document.querySelector('header');
     if (!headerEl) {
@@ -69,7 +67,6 @@ function insertToggleButtonIntoHeader() {
     headerEl.appendChild(btn);
 }
 
-
 function createSidebarElement() {
     if (document.getElementById('sidebar')) {
         return;
@@ -84,7 +81,7 @@ function createSidebarElement() {
 
     const iframe = document.createElement('iframe');
     iframe.id = 'linkAppIframe';
-    iframe.src = '../apps/livelinks.html';
+    iframe.src = '../online/onlinelinks.html';
     iframe.style.width = '100%';
     iframe.style.height = 'calc(100vh - 60px)';
     iframe.style.border = 'none';
@@ -93,7 +90,6 @@ function createSidebarElement() {
     sidebar.appendChild(content);
     document.body.appendChild(sidebar);
 }
-
 
 function wireUpSidebarToggle() {
     const toggleBtn = document.getElementById('toggleSidebar');

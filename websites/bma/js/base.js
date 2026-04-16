@@ -54,26 +54,26 @@ function generateAppList(filterText = "") {
 }
 
 const appNamesMap = {
-  "Job Task Logging": { filename: "livetasker", tags: ["tasks", "log", "work"] },
-  "Quote/Invoice Maker": { filename: "liveinvoice", tags: ["invoice", "billing", "quote", "finance"] },
-  "Project Tracker": { filename: "liveproject", tags: ["details", "jobnotes", "Projects"] },
-  "Financial Logging": { filename: "livefinancials", tags: ["budget", "money", "expenses", "finance"] },
-  "Financial Budgeting": { filename: "livebudget", tags: ["budget", "money", "expenses", "finance"] },
-  "Job Details": { filename: "livedetails", tags: ["details", "jobnotes", "job"] },
-  "Gas Logging": { filename: "livegas", tags: ["fuel", "mileage", "gas", "log"] },
-  "View/Edit Inventory": { filename: "liveinventory", tags: ["database", "data", "records", "inventory"] },
-  "Quiz/Testing": { filename: "livelearn", tags: ["quiz", "test", "study", "exam", "learn"] },
-  "Favorites/Bookmarks": { filename: "livelinks", tags: ["bookmarks", "links", "favorites", "web"] },
-  "Notes App": { filename: "livenotes", tags: ["notes", "writing", "journal"] },
-  "Jobs Calendar": { filename: "liveschedule", tags: ["calendar", "appointments", "schedule"] },
-  "Jobs Gallery": { filename: "livegallery", tags: ["gallery", "photos", "images"] },
-  "Analytics": { filename: "liveanalytics", tags: ["analytics", "stats", "charts", "data"] },
-  "Mileage Logging": { filename: "livemileage", tags: ["mileage", "miles", "trip"] },
-  "Contacts": { filename: "livecontacts", tags: ["contacts", "phone", "address", "people"] },
-  "Password Generator": { filename: "password", tags: ["password", "security", "generator"] },
-  "Conversion Calculator": { filename: "conversion", tags: ["conversion", "convert", "math"] },
-  "Calculator": { filename: "calc", tags: ["calculator", "math", "numbers"] },
-  "Wire Counter": { filename: "count", tags: ["count", "wires", "electrical"] },
+  "Job Task Logging": { path: "../../apps/online/onlinetasker.html", tags: ["tasks", "log", "work"] },
+  "Quote/Invoice Maker": { path: "../../apps/online/onlineinvoice.html", tags: ["invoice", "billing", "quote", "finance"] },
+  "Project Tracker": { path: "../../apps/online/onlineproject.html", tags: ["details", "jobnotes", "projects"] },
+  "Financial Logging": { path: "../../apps/online/onlinefinancials.html", tags: ["budget", "money", "expenses", "finance"] },
+  "Financial Budgeting": { path: "../../apps/online/onlinebudget.html", tags: ["budget", "money", "expenses", "finance"] },
+  "Job Details": { path: "../../apps/online/onlinedetails.html", tags: ["details", "jobnotes", "job"] },
+  "Gas Logging": { path: "../../apps/online/onlinegas.html", tags: ["fuel", "mileage", "gas", "log"] },
+  "View/Edit Inventory": { path: "../../apps/online/onlineinventory.html", tags: ["database", "data", "records", "inventory"] },
+  "Quiz/Testing": { path: "../../apps/online/onlinelearn.html", tags: ["quiz", "test", "study", "exam", "learn"] },
+  "Favorites/Bookmarks": { path: "../../apps/online/onlinelinks.html", tags: ["bookmarks", "links", "favorites", "web"] },
+  "Notes App": { path: "../../apps/online/onlinenotes.html", tags: ["notes", "writing", "journal"] },
+  "Jobs Calendar": { path: "../../apps/online/onlineschedule.html", tags: ["calendar", "appointments", "schedule"] },
+  "Jobs Gallery": { path: "../../apps/online/onlinegallery.html", tags: ["gallery", "photos", "images"] },
+  "Analytics": { path: "../../apps/online/onlineanalytics.html", tags: ["analytics", "stats", "charts", "data"] },
+  "Mileage Logging": { path: "../../apps/online/onlinemileage.html", tags: ["mileage", "miles", "trip"] },
+  "Contacts": { path: "../../apps/online/onlinecontacts.html", tags: ["contacts", "phone", "address", "people"] },
+  "Password Generator": { path: "../../apps/local/password.html", tags: ["password", "security", "generator"] },
+  "Conversion Calculator": { path: "../../apps/local/converter.html", tags: ["conversion", "convert", "math"] },
+  "Calculator": { path: "../../apps/local/calc.html", tags: ["calculator", "math", "numbers"] },
+  "Wire Counter": { path: "../../apps/local/count.html", tags: ["count", "wires", "electrical"] },
 };
 
 const appDisplayNames = Object.keys(appNamesMap);
@@ -81,10 +81,26 @@ const iframe = document.getElementById('myIframe');
 const dropdownContent = document.getElementById('myDropdown');
 let currentIndex = 0;
 
-function setIframeSrc(appName) {
+function resolveAppName(appNameOrIndex) {
+  if (typeof appNameOrIndex === "number") {
+    return appDisplayNames[appNameOrIndex] || "";
+  }
+  return String(appNameOrIndex || "");
+}
+
+function resolveAppPath(app) {
+  if (!app) return "";
+  if (app.path) return app.path;
+  if (app.filename) return `../../apps/${app.filename}.html`;
+  return "";
+}
+
+function setIframeSrc(appNameOrIndex) {
+  const appName = resolveAppName(appNameOrIndex);
   const app = appNamesMap[appName];
-  if (app) {
-    document.getElementById("myIframe").src = `../../apps/${app.filename}.html`;
+  const path = resolveAppPath(app);
+  if (path) {
+    document.getElementById("myIframe").src = path;
     localStorage.setItem("lastUsedApp", appName);
 
     const sidebar = document.getElementById("sidebar");
@@ -100,6 +116,8 @@ function setIframeSrc(appName) {
     if (dropdown && dropdown.classList.contains("show")) {
       dropdown.classList.remove("show");
     }
+  } else {
+    console.warn("App path not found for", appName);
   }
 }
 
@@ -111,9 +129,10 @@ function generateButtons() {
 
 function loadIframeContent() {
   const sourceName = document.getElementById('iframeSource').value;
-  const fullPath = `../../apps/${appNamesMap[sourceName]}.html`;
-  iframe.src = fullPath;
-  localStorage.setItem('lastUsedApp', appDisplayNames.indexOf(sourceName));
+  const app = appNamesMap[sourceName];
+  const path = resolveAppPath(app) || `../../apps/${sourceName}.html`;
+  iframe.src = path;
+  localStorage.setItem('lastUsedApp', sourceName);
 }
 
 function updateTime() {
@@ -201,11 +220,14 @@ function handleSearch(event) {
     event.preventDefault();
     const searchValue = document.getElementById("appSearch").value.trim().toLowerCase();
 
-    for (const app of Object.values(appNamesMap)) {
-      if (app.filename.toLowerCase() === searchValue) {
-        document.getElementById("myIframe").src = `../../apps/${app.filename}.html`;
-        localStorage.setItem("lastUsedApp", searchValue);
-        return;
+    for (const [name, app] of Object.entries(appNamesMap)) {
+      if ((app.filename && app.filename.toLowerCase() === searchValue) || name.toLowerCase() === searchValue) {
+        const path = resolveAppPath(app);
+        if (path) {
+          document.getElementById("myIframe").src = path;
+          localStorage.setItem("lastUsedApp", name);
+          return;
+        }
       }
     }
 
