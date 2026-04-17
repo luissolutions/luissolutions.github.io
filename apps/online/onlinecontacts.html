@@ -24,7 +24,20 @@
             background: #fff;
             margin: 5px 0;
             cursor: pointer;
-            border-radius: 5px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #contacts-list li .contact-name {
+            font-weight: 600;
+        }
+
+        #contacts-list li .contact-meta {
+            font-size: 12px;
+            color: #667085;
         }
 
         #contacts-list li:hover {
@@ -53,6 +66,45 @@
 
         #projects-list {
             margin-top: 20px;
+        }
+
+        .contact-summary {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .field-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 6px;
+        }
+
+        .field-chip {
+            background: #f2f4f7;
+            border: 1px solid #e4e7ec;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 12px;
+        }
+
+        .contact-subtle {
+            font-size: 12px;
+            color: #667085;
+        }
+
+        .project-card {
+            border: 1px solid #e4e7ec;
+            border-radius: 10px;
+            padding: 12px;
+            background: #fafafa;
+            margin-bottom: 10px;
+        }
+
+        .project-card h4 {
+            margin: 0 0 6px;
         }
 
         #toggleSidebar {
@@ -130,6 +182,21 @@
         </div>
         <div id="contact-details">
             <h2 id="contact-name"></h2>
+            <div class="contact-summary">
+                <div>
+                    <div class="contact-subtle">Phones on record</div>
+                    <div id="contact-phone-list" class="field-list"></div>
+                </div>
+                <div>
+                    <div class="contact-subtle">Emails on record</div>
+                    <div id="contact-email-list" class="field-list"></div>
+                </div>
+                <div>
+                    <div class="contact-subtle">Addresses on record</div>
+                    <div id="contact-address-list" class="field-list"></div>
+                </div>
+            </div>
+            <div class="contact-subtle">Update all records for this customer:</div>
             <input type="tel" id="contact-phone" placeholder="Phone">
             <input type="email" id="contact-email" placeholder="Email">
             <input type="text" id="contact-address" placeholder="Address">
@@ -185,7 +252,7 @@
 
             for (const taskId in tasks) {
                 const task = tasks[taskId];
-                const customerName = task.customerName;
+                const customerName = (task.customerName || 'Unnamed Contact').trim();
 
                 if (!customerMap[customerName]) {
                     customerMap[customerName] = [];
@@ -193,10 +260,26 @@
                 customerMap[customerName].push({ taskId, task });
             }
 
-            for (const customerName in customerMap) {
+            const sortedNames = Object.keys(customerMap)
+                .filter(name => name)
+                .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+            for (const customerName of sortedNames) {
+                const tasksForCustomer = customerMap[customerName];
+                const lastActivity = tasksForCustomer
+                    .map(({ task }) => new Date(task.endTime || task.startTime || 0).getTime())
+                    .reduce((acc, val) => Math.max(acc, val), 0);
+                const lastLabel = lastActivity ? new Date(lastActivity).toLocaleDateString() : 'No activity';
+
                 const li = document.createElement('li');
-                li.textContent = customerName;
-                li.onclick = () => displayContactDetails(customerMap[customerName]);
+                li.dataset.name = customerName.toLowerCase();
+                li.innerHTML = `
+                    <div>
+                        <div class="contact-name">${customerName}</div>
+                        <div class="contact-meta">${tasksForCustomer.length} project(s) • Last: ${lastLabel}</div>
+                    </div>
+                `;
+                li.onclick = () => displayContactDetails(tasksForCustomer);
                 contactsList.appendChild(li);
             }
         }
@@ -207,10 +290,40 @@
             addContactSection.style.display = 'none';
             const firstTask = customerTasks[0].task;
 
+            const uniqueValues = (values) => [...new Set(values.map(v => String(v || '').trim()).filter(Boolean))];
+            const phones = uniqueValues(customerTasks.map(ct => ct.task.customerPhone));
+            const emails = uniqueValues(customerTasks.map(ct => ct.task.customerEmail));
+            const addresses = uniqueValues(customerTasks.map(ct => ct.task.customerAddress));
+
+            const renderChips = (el, values) => {
+                el.innerHTML = '';
+                if (!values.length) {
+                    const empty = document.createElement('span');
+                    empty.className = 'contact-subtle';
+                    empty.textContent = '—';
+                    el.appendChild(empty);
+                    return;
+                }
+                values.forEach(val => {
+                    const chip = document.createElement('span');
+                    chip.className = 'field-chip';
+                    chip.textContent = val;
+                    el.appendChild(chip);
+                });
+            };
+
             contactNameElem.textContent = firstTask.customerName || 'Unnamed Contact';
-            contactPhoneInput.value = customerTasks.map(ct => ct.task.customerPhone).join(', ');
-            contactEmailInput.value = customerTasks.map(ct => ct.task.customerEmail).join(', ');
-            contactAddressInput.value = customerTasks.map(ct => ct.task.customerAddress).join(', ');
+            contactPhoneInput.value = phones[0] || '';
+            contactEmailInput.value = emails[0] || '';
+            contactAddressInput.value = addresses[0] || '';
+
+            contactPhoneInput.placeholder = phones.length > 1 ? 'Multiple values' : 'Phone';
+            contactEmailInput.placeholder = emails.length > 1 ? 'Multiple values' : 'Email';
+            contactAddressInput.placeholder = addresses.length > 1 ? 'Multiple values' : 'Address';
+
+            renderChips(document.getElementById('contact-phone-list'), phones);
+            renderChips(document.getElementById('contact-email-list'), emails);
+            renderChips(document.getElementById('contact-address-list'), addresses);
 
             renderProjects(customerTasks);
         }
@@ -221,10 +334,15 @@
 
             customerTasks.forEach(({ task }) => {
                 const projectDiv = document.createElement('div');
+                projectDiv.className = 'project-card';
+                const start = task.startTime ? new Date(task.startTime).toLocaleString() : 'N/A';
+                const end = task.endTime ? new Date(task.endTime).toLocaleString() : 'N/A';
                 projectDiv.innerHTML = `
-                    <strong>Project:</strong> ${task.project}<br>
-                    <strong>Start Time:</strong> ${new Date(task.startTime).toLocaleString()}<br>
-                    <strong>End Time:</strong> ${task.endTime ? new Date(task.endTime).toLocaleString() : 'N/A'}
+                    <h4>${task.project || 'Untitled Project'}</h4>
+                    <div class="contact-subtle">Task ID: ${task.id || ''}</div>
+                    <div><strong>Start:</strong> ${start}</div>
+                    <div><strong>End:</strong> ${end}</div>
+                    ${task.notes ? `<div><strong>Notes:</strong> ${task.notes}</div>` : ''}
                 `;
                 projectsList.appendChild(projectDiv);
             });
@@ -318,7 +436,7 @@
         searchContacts.addEventListener('input', () => {
             const searchValue = searchContacts.value.toLowerCase();
             Array.from(contactsList.children).forEach(li => {
-                const contactName = li.textContent.toLowerCase();
+                const contactName = li.dataset.name || li.textContent.toLowerCase();
                 li.style.display = contactName.includes(searchValue) ? 'block' : 'none';
             });
         });

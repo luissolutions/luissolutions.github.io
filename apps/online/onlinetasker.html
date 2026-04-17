@@ -94,7 +94,10 @@
                 </div>
                 <button id="updateTaskBtn" style="display: none;">Update Task</button>
                 <button id="toggleTimer">Start/Stop Timer</button>
+                <button id="startTravelBtn">Start Travel</button>
+                <button id="startWorkBtn">Start Work</button>
                 <div>Timer: <span id="currentTaskTime">00:00:00</span></div>
+                <div id="segmentSummary"></div>
             </div>
 
             <div id="imageUploadSection" class="hidden">
@@ -214,6 +217,9 @@
         const currentTaskTimeDisplay = document.getElementById('currentTaskTime');
         const deleteImageButton = document.getElementById('deleteImageButton');
         const updateTaskBtn = document.getElementById('updateTaskBtn');
+    const startTravelBtn = document.getElementById('startTravelBtn');
+    const startWorkBtn = document.getElementById('startWorkBtn');
+    const segmentSummary = document.getElementById('segmentSummary');
         const fileUploader = document.getElementById('fileUploader');
         const imageNameInput = document.getElementById('imageNameInput');
         const uploadButton = document.getElementById('uploadButton');
@@ -259,6 +265,90 @@
             return isValidDate(d) ? d : null;
         }
 
+        function ensureSegments(task) {
+            if (!task) return [];
+            if (!Array.isArray(task.segments)) task.segments = [];
+            return task.segments;
+        }
+
+        function getSegmentNow() {
+            return snapTo15Minutes(new Date()).toISOString();
+        }
+
+        function closeActiveSegment(task) {
+            const segments = ensureSegments(task);
+            for (let i = segments.length - 1; i >= 0; i--) {
+                if (!segments[i].endTime) {
+                    segments[i].endTime = getSegmentNow();
+                    break;
+                }
+            }
+        }
+
+        function startSegment(type) {
+            if (currentTask && currentTask.endTime) {
+                alert('This job is already completed. Start a new task to add segments.');
+                return;
+            }
+
+            if (!currentTask) {
+                startTask(type);
+                return;
+            }
+
+            closeActiveSegment(currentTask);
+            ensureSegments(currentTask).push({
+                type,
+                startTime: getSegmentNow(),
+                endTime: null
+            });
+            saveTask(currentTask);
+            updateSegmentSummary();
+        }
+
+        function formatDuration(ms) {
+            const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            return `${hours}h ${minutes}m`;
+        }
+
+        function updateSegmentSummary() {
+            if (!segmentSummary) return;
+            if (!currentTask) {
+                segmentSummary.textContent = '';
+                return;
+            }
+
+            const segments = ensureSegments(currentTask);
+            if (!segments.length) {
+                segmentSummary.textContent = 'No travel/work segments yet.';
+                return;
+            }
+
+            const totals = segments.reduce(
+                (acc, seg) => {
+                    const end = seg.endTime ? new Date(seg.endTime) : new Date();
+                    const start = new Date(seg.startTime);
+                    const diff = Math.max(0, end - start);
+                    if (seg.type === 'travel') acc.travel += diff;
+                    if (seg.type === 'work') acc.work += diff;
+                    return acc;
+                },
+                { travel: 0, work: 0 }
+            );
+
+            const list = segments
+                .map(seg => {
+                    const start = new Date(seg.startTime).toLocaleTimeString();
+                    const end = seg.endTime ? new Date(seg.endTime).toLocaleTimeString() : 'In progress';
+                    return `${seg.type.toUpperCase()} • ${start} → ${end}`;
+                })
+                .join(' | ');
+
+            segmentSummary.textContent = `Travel: ${formatDuration(totals.travel)} • Work: ${formatDuration(totals.work)} | ${list}`;
+        }
+
         document.querySelectorAll('.toggle-column').forEach(checkbox => {
             checkbox.addEventListener('change', toggleColumnVisibility);
         });
@@ -280,7 +370,7 @@
             }
         }
 
-        function startTask() {
+        function startTask(initialSegmentType = null) {
             const taskName = taskNameInput.value.trim();
             const project = projectInput.value.trim();
             const startOdometer = startOdometerInput.value.trim();
@@ -297,11 +387,21 @@
                     endOdometer: null,
                     location,
                     startTime: snapTo15Minutes(new Date()).toISOString(),
-                    endTime: null
+                    endTime: null,
+                    segments: []
                 };
+
+                if (initialSegmentType) {
+                    currentTask.segments.push({
+                        type: initialSegmentType,
+                        startTime: getSegmentNow(),
+                        endTime: null
+                    });
+                }
                 saveTask(currentTask);
                 timerInterval = setInterval(updateCurrentTaskTime, 1000);
                 endOdometerInput.disabled = false;
+                updateSegmentSummary();
             };
 
             if (typeof getGeolocation === 'function') {
@@ -316,6 +416,7 @@
 
         function endTask() {
             clearInterval(timerInterval);
+            closeActiveSegment(currentTask);
             currentTask.endOdometer = endOdometerInput.value.trim();
             currentTask.endTime = snapTo15Minutes(new Date()).toISOString();
             currentTask.notes = taskNotesTextarea.value.trim();
@@ -323,6 +424,7 @@
             currentTask.project = projectInput.value.trim();
             saveTask(currentTask);
             updateTaskInTable(currentTask);
+            updateSegmentSummary();
             resetTimerState();
             updateTotalHours(allTasks);
             applyColumnVisibility();
@@ -345,7 +447,7 @@
         }
 
         function updateTaskInTable(task) {
-            const key = task.__key || task.id;
+            const key = task.id;
             const existingRow = document.querySelector(`[data-task-id="${key}"]`);
             if (existingRow) {
                 updateRow(existingRow, task);
@@ -356,14 +458,14 @@
 
         function addTaskToTable(task) {
             const row = taskLogTable.insertRow();
-            row.dataset.taskId = task.__key || task.id;
+            row.dataset.taskId = task.id;
             updateRow(row, task);
             applyColumnVisibility();
         }
 
         function updateRow(row, task) {
 
-            const key = task.__key || task.id;
+            const key = task.id;
             row.dataset.taskId = key;
 
             row.innerHTML = '';
@@ -434,18 +536,18 @@
             endTimeCell.contentEditable = true;
             notesCell.contentEditable = true;
 
-            nameCell.addEventListener('blur', () => updateTaskField(task.id, 'customerName', nameCell.innerText));
-            projectCell.addEventListener('blur', () => updateTaskField(task.id, 'project', projectCell.innerText));
-            startOdometerCell.addEventListener('blur', () => updateTaskField(task.id, 'startOdometer', startOdometerCell.innerText));
-            endOdometerCell.addEventListener('blur', () => updateTaskField(task.id, 'endOdometer', endOdometerCell.innerText));
-            startTimeCell.addEventListener('blur', () => updateTaskField(task.id, 'startTime', snapTo15Minutes(new Date(startTimeCell.innerText)).toISOString()));
+            nameCell.addEventListener('blur', () => updateTaskField(key, 'customerName', nameCell.innerText));
+            projectCell.addEventListener('blur', () => updateTaskField(key, 'project', projectCell.innerText));
+            startOdometerCell.addEventListener('blur', () => updateTaskField(key, 'startOdometer', startOdometerCell.innerText));
+            endOdometerCell.addEventListener('blur', () => updateTaskField(key, 'endOdometer', endOdometerCell.innerText));
+            startTimeCell.addEventListener('blur', () => updateTaskField(key, 'startTime', snapTo15Minutes(new Date(startTimeCell.innerText)).toISOString()));
             endTimeCell.addEventListener('blur', () =>
                 updateTaskField(
-                    task.id,
+                    key,
                     'endTime',
                     snapTo15Minutes(new Date(endTimeCell.innerText)).toISOString()
                 )
-            ); notesCell.addEventListener('blur', () => updateTaskField(task.id, 'notes', notesCell.innerText));
+            ); notesCell.addEventListener('blur', () => updateTaskField(key, 'notes', notesCell.innerText));
 
             const deleteButton = document.createElement('button');
             deleteButton.classList.add('clear-button');
@@ -463,6 +565,8 @@
             const snapshot = await get(taskRef);
             if (snapshot.exists()) {
                 const task = snapshot.val();
+                task.id = task.id || taskKey;
+                currentTask = task;
                 taskNameInput.value = task.customerName || '';
                 projectInput.value = task.project || '';
                 taskNotesTextarea.value = task.notes || '';
@@ -470,6 +574,13 @@
                 endOdometerInput.value = task.endOdometer || '';
                 customerAddressInput.value = task.customerAddress || '';
                 endOdometerInput.disabled = task.endOdometer == null;
+
+                clearInterval(timerInterval);
+                if (!task.endTime) {
+                    timerInterval = setInterval(updateCurrentTaskTime, 1000);
+                }
+
+                updateSegmentSummary();
 
                 loadTaskImages(task.project);
                 changeTimerButtonToRefresh();
@@ -618,8 +729,8 @@
 
                 snapshot.forEach(taskSnapshot => {
                     const task = taskSnapshot.val() || {};
-                    task.__key = taskSnapshot.key;
-                    task.id = task.id || taskSnapshot.key;
+                    const nodeKey = taskSnapshot.key;
+                    task.id = task.id || nodeKey;
                     tasks.push(task);
                 });
 
@@ -1225,6 +1336,8 @@
             const snapshot = await get(taskRef);
             if (snapshot.exists()) {
                 const task = snapshot.val();
+                task.id = task.id || currentTaskId;
+                currentTask = task;
                 taskNameInput.value = task.customerName || '';
                 projectInput.value = task.project || '';
                 taskNotesTextarea.value = task.notes || '';
@@ -1232,6 +1345,13 @@
                 endOdometerInput.value = task.endOdometer || '';
                 customerAddressInput.value = task.customerAddress || '';
                 endOdometerInput.disabled = task.endOdometer == null;
+
+                clearInterval(timerInterval);
+                if (!task.endTime) {
+                    timerInterval = setInterval(updateCurrentTaskTime, 1000);
+                }
+
+                updateSegmentSummary();
 
                 updateTaskBtn.style.display = 'inline-block';
                 loadTaskImages(task.project);
@@ -1588,6 +1708,8 @@
         }
 
         toggleTimerBtn.addEventListener('click', toggleTimer);
+    startTravelBtn.addEventListener('click', () => startSegment('travel'));
+    startWorkBtn.addEventListener('click', () => startSegment('work'));
         deleteImageButton.addEventListener('click', deleteSelectedImage);
         updateTaskBtn.addEventListener('click', updateTask);
 
