@@ -842,7 +842,9 @@
         async function updateGallery() {
             const safeProjectName = sanitize(currentProjectName || currentProject);
             const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
-            const base = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${isSensor ? 'sensors' : 'deliverables'}`;
+            const base = isSensor
+                ? `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/sensors`
+                : `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}`;
 
             const snapshot = await listAll(storageRef(storage, base));
             const items = await Promise.all(snapshot.items.map(async item => {
@@ -1060,7 +1062,7 @@
 
                 if (rawMarkup) blob = await addTextToImage(blob, rawMarkup);
 
-                const folder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/deliverables`;
+                const folder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}`;
                 const prefix = getPhotoNamePrefix() || safeProjectName;
                 const desired = `${prefix}_${baseName}.jpg`;
                 const uniqueName = await getUniqueFilename(folder, desired);
@@ -1189,14 +1191,14 @@
             const blob = createPlaceholderBlob();
 
             const uploadPlaceholder = async (folder, name = ".init.txt") => {
-                const fullPath = `${basePath}/${folder}/${name}`;
+                const fullPath = folder ? `${basePath}/${folder}/${name}` : `${basePath}/${name}`;
                 try { await uploadBytes(storageRef(storage, fullPath), blob); }
                 catch (err) { console.warn(`Failed to upload dummy to ${folder}:`, err); }
             };
 
             await uploadPlaceholder('siteImages');
             await uploadPlaceholder('sensors');
-            await uploadPlaceholder('deliverables');
+            await uploadPlaceholder('');
         }
 
         function showModal(url, name, folderPath) {
@@ -1228,8 +1230,10 @@
             }
 
             const isSensor = document.querySelector('input[name="viewMode"]:checked').value === 'sensors';
-            const folder = isSensor ? 'sensors' : 'deliverables';
-            const path = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${folder}/${item.name}`;
+            const folder = isSensor ? 'sensors' : '';
+            const path = folder
+                ? `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${folder}/${item.name}`
+                : `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${item.name}`;
 
             try {
                 await deleteObject(storageRef(storage, path));
@@ -1603,7 +1607,9 @@
 
             // ✅ Firebase stays PROJECT-based (unchanged)
             const safeProjectName = sanitize(currentProjectName || currentProject);
-            const firebaseFolder = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${folderType}`;
+            const firebaseFolder = isSensor
+                ? `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/sensors`
+                : `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}`;
 
             // ✅ OneDrive becomes CUSTOMER-based when available
             const safeCustomerName = sanitize(currentCustomerName || '');

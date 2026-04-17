@@ -538,7 +538,8 @@
 
     let dropdownProjectsCache = [];
     state.projectDropdownQuery = "";
-    let isLoadingImages = false;
+  let isLoadingImages = false;
+  let imageLoadToken = 0;
 
     // ============================
     // DOM
@@ -797,16 +798,17 @@
       return String(v || "").trim().replace(/[^\w\-]+/g, "_").slice(0, 50);
     }
 
-    function storageImagePath({ kind, dailyKey, listId, itemId }) {
+    function storageImagePath({ kind, dailyKey, listId, itemId, marked = false }) {
       const ts = Date.now();
+      const suffix = marked ? "_markup" : "";
 
       if (kind === "daily") {
         const idPart = safeFilePart(dailyKey);
-        return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/daily/${dailyKey}/${idPart}_${ts}.jpg`;
+        return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/daily/${dailyKey}/${idPart}${suffix}_${ts}.jpg`;
       }
 
       const idPart = safeFilePart(itemId);
-      return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/lists/${listId}/${itemId}/${idPart}_${ts}.jpg`;
+      return `${DATABASE_BASE_PATH}/tasks/${state.recordId}/lists/${listId}/${itemId}/${idPart}${suffix}_${ts}.jpg`;
     }
 
     // ============================
@@ -1484,7 +1486,11 @@
       });
 
       filtered
-        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+        .sort((a, b) => {
+          const aTime = a.updatedAt || a.createdAt || 0;
+          const bTime = b.updatedAt || b.createdAt || 0;
+          return bTime - aTime;
+        })
         .forEach(p => {
           const opt = document.createElement("option");
           opt.value = p.id;
@@ -2234,10 +2240,19 @@
         let dbNodePath;
 
         if (target.kind === "daily") {
-          storagePath = storageImagePath({ kind: "daily", dailyKey: target.dailyKey });
+          storagePath = storageImagePath({
+            kind: "daily",
+            dailyKey: target.dailyKey,
+            marked: !!target.autoMarkup
+          });
           dbNodePath = PATH.dailyItem(state.recordId, target.dailyKey);
         } else {
-          storagePath = storageImagePath({ kind: "listItem", listId: target.listId, itemId: target.itemId });
+          storagePath = storageImagePath({
+            kind: "listItem",
+            listId: target.listId,
+            itemId: target.itemId,
+            marked: !!target.autoMarkup
+          });
           dbNodePath = PATH.item(state.recordId, target.listId, target.itemId);
         }
 
@@ -2610,26 +2625,26 @@
       return results;
     }
 
-    async function loadProjectImages(project) {
+  async function loadProjectImages(project) {
 
-      if (isLoadingImages) {
-        console.log("Skipping duplicate image load");
-        return;
-      }
-
+      const token = ++imageLoadToken;
       isLoadingImages = true;
       imageUrls = [];
       imageSelect.innerHTML = '<option value="">Select Image</option>';
       photoContainer.innerHTML = '';
 
       if (!project) {
+        if (loadingIndicator) {
+          loadingIndicator.style.display = "none";
+        }
+        isLoadingImages = false;
         return;
       }
 
-      try {
+  try {
 
-        const safeProject = String(project).replace(/[^\w\-]/g, "_");
-        const roots = [safeProject];
+  const safeProject = String(project).replace(/[^\w\-]/g, "_");
+  const roots = Array.from(new Set([project, safeProject].filter(Boolean)));
         let allImages = [];
 
         if (loadingIndicator) {
@@ -2637,9 +2652,11 @@
         }
 
         for (const root of roots) {
+          if (token !== imageLoadToken) return;
           try {
             const rootRef = storageRef(storage, `${DATABASE_BASE_PATH}/tasks/images/${root}`);
             const found = await getAllImagesRecursive(rootRef);
+            if (token !== imageLoadToken) return;
             allImages = allImages.concat(found);
           } catch (error) {
             if (error?.code !== "storage/object-not-found") {
@@ -2648,9 +2665,12 @@
           }
         }
 
+        if (token !== imageLoadToken) return;
+
         const seen = new Set();
 
         for (const { name, url, path } of allImages) {
+          if (token !== imageLoadToken) return;
 
           if (seen.has(path)) continue;
           seen.add(path);
@@ -2666,13 +2686,17 @@
           imageUrls.push(url);
         }
 
-        displayImagesForPage(1);
+  displayImagesForPage(1);
 
       } catch (error) {
 
         console.error("Error loading images:", error);
 
       } finally {
+
+        if (token === imageLoadToken) {
+          isLoadingImages = false;
+        }
 
         if (loadingIndicator) {
           loadingIndicator.style.display = "none";
