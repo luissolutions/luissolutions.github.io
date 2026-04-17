@@ -81,6 +81,46 @@ const iframe = document.getElementById('myIframe');
 const dropdownContent = document.getElementById('myDropdown');
 let currentIndex = 0;
 
+const THEME_KEY = "theme";
+const THEMES = {
+  one: "../../assets/css/dark-styles.css",
+  two: "../../assets/css/app-styles.css",
+  three: "../../assets/css/excel-styles.css",
+};
+
+function getSavedTheme() {
+  return localStorage.getItem(THEME_KEY) || "two";
+}
+
+function resolveThemeStylesheet(doc) {
+  return doc.getElementById("stylesheet") || doc.getElementById("app-stylesheet");
+}
+
+function applyThemeToIframe(theme) {
+  if (!iframe || !iframe.contentDocument) return;
+  const doc = iframe.contentDocument;
+  const link = resolveThemeStylesheet(doc);
+  if (!link) return;
+
+  const href = THEMES[theme] || THEMES.two;
+  const resolved = new URL(href, doc.baseURI).toString();
+  link.setAttribute("href", resolved);
+}
+
+function initThemeSelector() {
+  const selector = document.getElementById("themeSelector");
+  if (!selector) return;
+
+  const saved = getSavedTheme();
+  selector.value = saved;
+
+  selector.addEventListener("change", () => {
+    const selected = selector.value;
+    localStorage.setItem(THEME_KEY, selected);
+    applyThemeToIframe(selected);
+  });
+}
+
 function resolveAppName(appNameOrIndex) {
   if (typeof appNameOrIndex === "number") {
     return appDisplayNames[appNameOrIndex] || "";
@@ -183,6 +223,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   setupHeaderFooterLogo();
+  initThemeSelector();
+
+  if (iframe) {
+    iframe.addEventListener("load", () => {
+      applyThemeToIframe(getSavedTheme());
+    });
+  }
 });
 
 function setupHeaderFooterLogo() {
