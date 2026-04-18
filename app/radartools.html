@@ -79,10 +79,7 @@
       <strong>Login requirement:</strong>
       Use <strong>telaid@telaid.com</strong> and a password provided directly by Luis or Emma.
     </div>
-    <label class="muted" style="display:flex; gap:10px; align-items:flex-start;">
-      <input type="checkbox" id="ackCheckbox" />
-      <span>I've read and understand the access requirements above.</span>
-    </label>
+    <p class="muted">By continuing, you agree that you have read and understand the access requirements above.</p>
 
     <div class="notice" style="margin-top:16px;">
       <strong>Login required</strong> to continue. Microsoft login is optional for OneDrive features.
@@ -135,11 +132,10 @@
       checklist: "../apps/telaid/radartools.html",
       dashboard: "../apps/telaid/radar-dashboard.html"
     };
-    const ACK_KEY = "radarToolsAccessAcknowledged";
-
-    const ackCheckbox = document.getElementById("ackCheckbox");
+    const REDIRECT_DELAY_MS = 3000;
     const continueBtn = document.getElementById("continueBtn");
     const destinationRadios = Array.from(document.querySelectorAll('input[name="destination"]'));
+    let redirectTimer = null;
 
     function getSelectedDestination() {
       const stored = localStorage.getItem(DESTINATION_KEY);
@@ -157,8 +153,19 @@
       return TARGETS[getSelectedDestination()] || TARGETS.checklist;
     }
 
-    function isAcknowledged() {
-      return localStorage.getItem(ACK_KEY) === "true";
+    function clearRedirectTimer() {
+      if (redirectTimer) {
+        clearTimeout(redirectTimer);
+        redirectTimer = null;
+      }
+    }
+
+    function scheduleRedirect() {
+      if (!isFirebaseLoggedIn()) return;
+      clearRedirectTimer();
+      redirectTimer = setTimeout(() => {
+        window.location.href = getTargetUrl();
+      }, REDIRECT_DELAY_MS);
     }
 
     function isFirebaseLoggedIn() {
@@ -166,23 +173,14 @@
     }
 
     function updateContinueState() {
-      const ok = isAcknowledged() && isFirebaseLoggedIn();
+      const ok = isFirebaseLoggedIn();
       if (continueBtn) continueBtn.disabled = !ok;
-    }
-
-    if (ackCheckbox) {
-      ackCheckbox.checked = isAcknowledged();
-      ackCheckbox.addEventListener("change", () => {
-        localStorage.setItem(ACK_KEY, ackCheckbox.checked ? "true" : "false");
-        updateContinueState();
-      });
     }
 
     if (continueBtn) {
       continueBtn.addEventListener("click", () => {
-        if (!isAcknowledged()) return;
         if (!isFirebaseLoggedIn()) return;
-        window.location.href = getTargetUrl();
+        scheduleRedirect();
       });
     }
 
@@ -196,13 +194,24 @@
     const initialDestination = localStorage.getItem(DESTINATION_KEY) || "checklist";
     setSelectedDestination(initialDestination);
 
-    if (isAcknowledged() && isFirebaseLoggedIn()) {
-      window.location.replace(getTargetUrl());
+    if (isFirebaseLoggedIn()) {
+      scheduleRedirect();
     }
 
     window.addEventListener("storage", (event) => {
-      if (event.key === "currentUserUID" || event.key === ACK_KEY) {
+      if (event.key === "currentUserUID") {
         updateContinueState();
+        if (isFirebaseLoggedIn()) {
+          scheduleRedirect();
+        } else {
+          clearRedirectTimer();
+        }
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        clearRedirectTimer();
       }
     });
 
