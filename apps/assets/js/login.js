@@ -69,15 +69,39 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
-
     const headerTitle = document.querySelector('header h1');
-    const loginSection = document.getElementById('login-section');
+    let loginSections = Array.from(document.querySelectorAll('.logins-section'));
 
-    headerTitle.addEventListener('dblclick', () => {
-        loginSection.style.display =
-            loginSection.style.display === 'none' || getComputedStyle(loginSection).display === 'none'
-                ? 'block'
-                : 'none';
+    if (!loginSections.length) {
+        const legacySection = document.getElementById('login-section');
+        if (legacySection) {
+            legacySection.classList.add('logins-section');
+            loginSections = [legacySection];
+        }
+    }
+
+    if (!headerTitle || !loginSections.length) return;
+
+    const toggleLoginSections = () => {
+        loginSections.forEach((section) => {
+            section.style.display =
+                section.style.display === 'none' || getComputedStyle(section).display === 'none'
+                    ? 'block'
+                    : 'none';
+        });
+    };
+
+    headerTitle.addEventListener('dblclick', toggleLoginSections);
+
+    let lastTap = 0;
+    headerTitle.addEventListener('touchend', (event) => {
+        const now = Date.now();
+        const delta = now - lastTap;
+        if (delta > 0 && delta < 350) {
+            event.preventDefault();
+            toggleLoginSections();
+        }
+        lastTap = now;
     });
 });
 

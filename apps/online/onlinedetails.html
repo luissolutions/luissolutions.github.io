@@ -4,8 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Job Details Tracker</title>
-    <link rel="stylesheet" href="../../assets/css/app-styles.css" />
-    <link rel="stylesheet" href="../assets/css/radar-styles.css" />
+    <link rel="stylesheet" id="stylesheet" href="../../assets/css/app-styles.css" />
     <script type="module" src="../assets/js/microsoftAuth.js"></script>
     <script type="module" src="../assets/js/login.js"></script>
     <script src="../assets/js/sidebar.js"></script>
@@ -17,7 +16,6 @@
 
       #gallery img {
         max-width: 150px;
-        margin: 5px;
         border: 2px solid #ccc;
         border-radius: 10px;
       }
@@ -99,7 +97,6 @@
       .image-container {
         position: relative;
         display: inline-block;
-        margin: 5px;
       }
 
       .image-container img {
@@ -196,7 +193,7 @@
         }
 
         #gallery img {
-          max-width: 130px;
+          max-width: 125px;
         }
       }
 
@@ -321,37 +318,7 @@
       </section>
     </header>
 
-    <div id="authScreen">
-      <h2>Enter Project Code to Continue</h2>
-      <input type="text" id="accessCode" placeholder="Project ID" />
-      <button id="submitCode">Enter</button>
-      <button id="autoValidateBtn">Select Project</button>
-
-      <section class="instructions">
-        <h2>Instructions</h2>
-        <ul>
-          <li>
-            Enter a new Project ID and total devices, then click “Save New
-            Project”.
-          </li>
-          <li>Use the dropdown to switch between existing saved projects.</li>
-          <li>Save project notes with a date and description.</li>
-          <li>Select between Device Images or Deliverables view.</li>
-          <li>
-            Device uploads are resized and marked with the device number +
-            serial.
-          </li>
-          <li>Deliverable uploads use the image name or markup as filename.</li>
-          <li>
-            Missing device images are shown below (2 required per device).
-          </li>
-          <li>Click an image to view, download, delete, or move it.</li>
-          <li>Click ★ to favorite an image (favorites are shown first).</li>
-        </ul>
-      </section>
-    </div>
-
-    <main id="mainApp" class="hidden">
+    <main id="mainApp">
       <section id="fieldSelector">
         <button id="customizeToggle" class="compact-btn">
           ⚙️ Customize View
@@ -641,144 +608,7 @@
         populateProjects();
       });
 
-      let validated = false;
 
-      async function validateCode() {
-        const input = document
-          .getElementById("accessCode")
-          .value.trim()
-          .toLowerCase();
-        if (!input) return alert("Project ID cannot be blank.");
-
-        const snapshot = await get(
-          dbRef(database, `${DATABASE_BASE_PATH}/tasks`),
-        );
-        if (!snapshot.exists()) return alert("No tasks found.");
-
-        const tasks = snapshot.val();
-
-        // ✅ 1) If they entered an exact numeric ID and it exists, use it
-        if (/^\d+$/.test(input) && tasks[input]) {
-          const matchedID = input;
-          localStorage.setItem("lastProject", matchedID);
-          validated = true;
-
-          document.getElementById("authScreen")?.remove();
-          document.getElementById("mainApp")?.classList.remove("hidden");
-
-          await populateProjects();
-          document.getElementById("projectList").value = matchedID;
-          await loadProject(matchedID);
-          return;
-        }
-
-        // ✅ 2) Otherwise match by project code, but pick the newest deterministically
-        const matches = Object.entries(tasks).filter(
-          ([id, data]) => (data.project || "").trim().toLowerCase() === input,
-        );
-
-        if (matches.length) {
-          matches.sort((a, b) => bestTime(b[1], b[0]) - bestTime(a[1], a[0]));
-          const [matchedID] = matches[0];
-
-          localStorage.setItem("lastProject", matchedID);
-          validated = true;
-
-          document.getElementById("authScreen")?.remove();
-          document.getElementById("mainApp")?.classList.remove("hidden");
-
-          await populateProjects();
-          document.getElementById("projectList").value = matchedID;
-          await loadProject(matchedID);
-          return;
-        }
-
-        // Not found -> create flow
-        const shouldCreate = confirm(
-          `Project "${input}" not found. Would you like to create it?`,
-        );
-        if (!shouldCreate) return;
-
-        const inputPassword = prompt("Enter password to create a new project:");
-        if (inputPassword !== ADMIN_PASSWORD)
-          return alert("Incorrect password.");
-
-        const newTimestamp = Date.now().toString();
-        const taskRef = dbRef(
-          database,
-          `${DATABASE_BASE_PATH}/tasks/${newTimestamp}`,
-        );
-
-        // NOTE: customerName is unknown at create-time here, so sensorCount defaults 0.
-        // Once customerName is set (in your task system), owner anchoring takes over.
-        await update(taskRef, {
-          id: newTimestamp,
-          project: input,
-          sensorCount: 0,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        });
-
-        localStorage.setItem("lastProject", newTimestamp);
-        validated = true;
-
-        alert("New project created. Please enter the total sensors and save.");
-        document.getElementById("authScreen")?.remove();
-        document.getElementById("mainApp")?.classList.remove("hidden");
-
-        await populateProjects();
-        document.getElementById("projectList").value = newTimestamp;
-        await loadProject(newTimestamp);
-      }
-
-      document
-        .getElementById("autoValidateBtn")
-        .addEventListener("click", async () => {
-          const tasksSnapshot = await get(
-            dbRef(database, `${DATABASE_BASE_PATH}/tasks`),
-          );
-          if (!tasksSnapshot.exists()) {
-            alert("No projects found.");
-            return;
-          }
-
-          const tasks = tasksSnapshot.val();
-          const taskEntries = Object.entries(tasks);
-          if (taskEntries.length === 0) {
-            alert("No projects available.");
-            return;
-          }
-
-          let selectedID;
-
-          const lastProjectID = localStorage.getItem("lastProject");
-          const foundLast = taskEntries.find(([id]) => id === lastProjectID);
-          if (lastProjectID && foundLast) {
-            selectedID = lastProjectID;
-          } else {
-            const randomEntry =
-              taskEntries[Math.floor(Math.random() * taskEntries.length)];
-            selectedID = randomEntry[0];
-          }
-
-          validated = true;
-          document.getElementById("authScreen")?.remove();
-          document.getElementById("mainApp")?.classList.remove("hidden");
-          localStorage.setItem("lastProject", selectedID);
-          await populateProjects();
-          document.getElementById("projectList").value = selectedID;
-          await loadProject(selectedID);
-        });
-
-      document
-        .getElementById("submitCode")
-        .addEventListener("click", validateCode);
-      document.getElementById("accessCode").addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          validateCode();
-        }
-      });
 
       const resizeImage = (file, maxWidth) =>
         new Promise((resolve) => {
@@ -1988,27 +1818,6 @@
             }, 400);
           }
         });
-
-      document.querySelector("h1").addEventListener("dblclick", () => {
-        const loginSection = document.getElementById("logins-section");
-        const adminSection = document.getElementById("adminSection");
-
-        if (loginSection) {
-          loginSection.style.display =
-            loginSection.style.display === "none" ||
-            loginSection.style.display === ""
-              ? "flex"
-              : "none";
-        }
-
-        if (adminSection) {
-          adminSection.style.display =
-            adminSection.style.display === "none" ||
-            adminSection.style.display === ""
-              ? "block"
-              : "none";
-        }
-      });
 
       document
         .getElementById("downloadSiteImage")

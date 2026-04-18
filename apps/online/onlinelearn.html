@@ -22,20 +22,8 @@
     <script type="module" src="../assets/js/pdfs.js"></script>
     <script src="../assets/js/search.js" defer></script>
     <style>
-      #sidebar:not(.hidden) {
-        transform: translateX(0);
-      }
-
-      #toggleSidebar {
-        top: 20px;
-        left: 10px;
-        cursor: pointer;
-      }
-
-      #hideSidebarBtn {
-        cursor: pointer;
-        margin-bottom: 15px;
-        transition: transform 0.3s ease;
+      #indexDropdown {
+        min-width: 220px;
       }
 
       .pdf-hidden {
@@ -74,9 +62,6 @@
   <body>
     <header>
       <h1>Quiz</h1>
-      <button id="toggleSidebar" class="toggleSidebar">
-        &rarr; Show Index
-      </button>
       <section id="login-section">
         <form id="login-form">
           <label for="username">Email:</label>
@@ -115,6 +100,9 @@
         <div>
           <input type="text" id="filterInput" placeholder="Filter questions" />
           <button id="filterButton">Filter</button>
+          <select id="indexDropdown" aria-label="Filter by topic">
+            <option value="">All topics</option>
+          </select>
         </div>
 
         <label>
@@ -207,14 +195,6 @@
         <div id="pdfList">Log in to view saved PDFs.</div>
       </section>
     </main>
-
-    <aside id="sidebar" class="hidden">
-      <button id="hideSidebarBtn" class="toggleSidebar">
-        &larr; Hide Index
-      </button>
-      <div id="indexKey"></div>
-      <br />
-    </aside>
 
     <script type="module">
       import {
@@ -776,7 +756,6 @@
         const filterText = String(
           document.getElementById("filterInput").value || "",
         ).trim();
-        const showIncorrect = document.getElementById("showIncorrect").checked;
         const shuffleEnabled = document.getElementById("shuffleToggle").checked;
 
         questions = filterQuestionsList(allQuestions);
@@ -791,6 +770,24 @@
             );
           }
         }
+
+        if (shuffleEnabled) {
+          questions = shuffleArray(questions);
+        }
+
+        updateQuestionCounter();
+        currentQuestionIndex = 0;
+        displayQuestion(questions[currentQuestionIndex]);
+        toggleNavigationButtons();
+      }
+
+      function filterQuestionsByDescription(description) {
+        const shuffleEnabled = document.getElementById("shuffleToggle").checked;
+        const target = String(description || "").toLowerCase();
+
+        questions = filterQuestionsList(allQuestions).filter((q) =>
+          String(q.description || "").toLowerCase() === target,
+        );
 
         if (shuffleEnabled) {
           questions = shuffleArray(questions);
@@ -1309,33 +1306,24 @@
         });
       }
 
-      const sidebar = document.getElementById("sidebar");
-      const toggleSidebarBtn = document.getElementById("toggleSidebar");
-      const hideSidebarBtn = document.getElementById("hideSidebarBtn");
-
-      toggleSidebarBtn.addEventListener("click", () => {
-        sidebar.classList.remove("hidden");
-        toggleSidebarBtn.style.display = "none";
-      });
-
-      hideSidebarBtn.addEventListener("click", () => {
-        sidebar.classList.add("hidden");
-        toggleSidebarBtn.style.display = "inline";
-      });
-
-      document.addEventListener("click", (event) => {
-        if (
-          !sidebar.contains(event.target) &&
-          event.target !== toggleSidebarBtn
-        ) {
-          sidebar.classList.add("hidden");
-          toggleSidebarBtn.style.display = "inline";
-        }
-      });
-
       function populateIndexKey() {
-        const indexKeyElement = document.getElementById("indexKey");
-        indexKeyElement.innerHTML = "Loading...";
+        const indexDropdown = document.getElementById("indexDropdown");
+        if (!indexDropdown) return;
+
+        if (!indexDropdown.dataset.bound) {
+          indexDropdown.dataset.bound = "true";
+          indexDropdown.addEventListener("change", () => {
+            const value = indexDropdown.value;
+            document.getElementById("filterInput").value = value;
+            if (!value) {
+              filterQuestions();
+              return;
+            }
+            filterQuestionsByDescription(value);
+          });
+        }
+
+        indexDropdown.innerHTML = '<option value="">All topics</option>';
 
         const questionsRef = ref(database, "share/questions");
 
@@ -1343,29 +1331,20 @@
           (snapshot) => {
             const data = snapshot.val();
             if (!data) {
-              indexKeyElement.innerHTML = "No topics available";
+              indexDropdown.innerHTML = '<option value="">No topics available</option>';
               return;
             }
-
-            indexKeyElement.innerHTML = "";
 
             const descriptions = new Set();
             for (const description in data) {
               descriptions.add(description);
             }
 
-            descriptions.forEach((description) => {
-              const descriptionButton = document.createElement("button");
-              descriptionButton.textContent = description;
-              descriptionButton.classList.add("description-btn");
-
-              descriptionButton.addEventListener("click", () => {
-                document.getElementById("filterInput").value = description;
-                filterQuestions();
+            Array.from(descriptions)
+              .sort((a, b) => a.localeCompare(b))
+              .forEach((description) => {
+                indexDropdown.appendChild(new Option(description, description));
               });
-
-              indexKeyElement.appendChild(descriptionButton);
-            });
           },
           {
             onlyOnce: true,
