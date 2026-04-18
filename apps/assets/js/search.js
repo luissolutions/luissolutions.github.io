@@ -197,5 +197,117 @@
         };
     }
 
-    global.SearchEngine = { create };
+    function pickFirst(obj, keys) {
+        for (const k of keys) {
+            const v = obj ? obj[k] : undefined;
+            if (v !== undefined && v !== null && v !== '') return v;
+        }
+        return '';
+    }
+
+    function toText(val) {
+        if (Array.isArray(val)) return val.map(v => String(v || '').trim()).filter(Boolean).join(' ');
+        return String(val ?? '').trim();
+    }
+
+    const COMMON_FIELDS = {
+        name: { type: 'string', resolver: r => pickFirst(r, ['name', 'title', 'label']) },
+        title: { type: 'string', resolver: r => pickFirst(r, ['title', 'name', 'label']) },
+        label: { type: 'string', resolver: r => pickFirst(r, ['label', 'name', 'title']) },
+        description: { type: 'string', resolver: r => pickFirst(r, ['description', 'desc', 'notes', 'note', 'details']) },
+        desc: { type: 'string', resolver: r => pickFirst(r, ['desc', 'description', 'notes', 'note', 'details']) },
+        notes: { type: 'string', resolver: r => pickFirst(r, ['notes', 'note', 'description', 'desc']) },
+        project: { type: 'string', resolver: r => pickFirst(r, ['project', 'proj']) },
+        customer: { type: 'string', resolver: r => pickFirst(r, ['customer', 'customerName', 'client', 'clientName']) },
+        address: { type: 'string', resolver: r => pickFirst(r, ['address', 'addr', 'location']) },
+        email: { type: 'string', resolver: r => pickFirst(r, ['email', 'emails']) },
+        phone: { type: 'string', resolver: r => pickFirst(r, ['phone', 'phones']) },
+        url: { type: 'string', resolver: r => pickFirst(r, ['url', 'link', 'href', 'website']) },
+        link: { type: 'string', resolver: r => pickFirst(r, ['link', 'url', 'href', 'website']) },
+        category: { type: 'string', resolver: r => pickFirst(r, ['category', 'cat', 'type']) },
+        cat: { type: 'string', resolver: r => pickFirst(r, ['cat', 'category']) },
+        tags: { type: 'string', resolver: r => toText(pickFirst(r, ['tags', 'tag', 'categories'])) },
+        tag: { type: 'string', resolver: r => toText(pickFirst(r, ['tag', 'tags', 'categories'])) },
+        sku: { type: 'string', resolver: r => pickFirst(r, ['sku', 'code', 'id']) },
+        id: { type: 'string', resolver: r => pickFirst(r, ['id', 'key']) },
+        type: { type: 'string', resolver: r => pickFirst(r, ['type', 'category']) },
+        amount: { type: 'number', resolver: r => pickFirst(r, ['amount', 'amt', 'total', 'price', 'cost', 'value']) },
+        amt: { type: 'number', resolver: r => pickFirst(r, ['amt', 'amount', 'total', 'price', 'cost', 'value']) },
+        price: { type: 'number', resolver: r => pickFirst(r, ['price', 'amount', 'amt', 'value']) },
+        cost: { type: 'number', resolver: r => pickFirst(r, ['cost', 'amount', 'amt', 'value']) },
+        qty: { type: 'number', resolver: r => pickFirst(r, ['qty', 'quantity', 'count']) },
+        quantity: { type: 'number', resolver: r => pickFirst(r, ['quantity', 'qty', 'count']) },
+        date: { type: 'date', resolver: r => pickFirst(r, ['date', 'created', 'createdAt', 'time', 'timestamp', 'postedDate']) },
+        postedDate: { type: 'date', resolver: r => pickFirst(r, ['postedDate', 'date', 'createdAt']) }
+    };
+
+    const DEFAULT_FIELDS = [
+        'name', 'title', 'label', 'description', 'desc', 'notes',
+        'project', 'customer', 'address', 'tags', 'tag',
+        'category', 'cat', 'sku', 'link', 'url', 'id'
+    ];
+
+    function attach(input, {
+        fields = {},
+        defaultFields = [],
+        caseSensitive = false,
+        placeholderAdvanced = 'Search...',
+        placeholderBasic = 'Search...',
+        basicFilter = null
+    } = {}) {
+        if (!input) {
+            return {
+                engine: null,
+                filter(records, query) {
+                    if (typeof basicFilter === 'function') return basicFilter(records, query);
+                    return records || [];
+                }
+            };
+        }
+
+        const engine = create({ fields, defaultFields, caseSensitive });
+        input.title = engine.operatorsHelp();
+        if (placeholderAdvanced) input.placeholder = placeholderAdvanced;
+
+        return {
+            engine,
+            filter(records, query) {
+                const q = String(query || '').trim();
+                if (!q) return records || [];
+                return engine.filter(records, q);
+            }
+        };
+    }
+
+    function attachAuto(input, {
+        fields = {},
+        defaultFields = DEFAULT_FIELDS,
+        caseSensitive = false,
+        placeholderAdvanced = 'Search...'
+    } = {}) {
+        if (!input) {
+            return {
+                engine: null,
+                filter(records) {
+                    return records || [];
+                }
+            };
+        }
+
+        const mergedFields = { ...COMMON_FIELDS, ...fields };
+        const engine = create({ fields: mergedFields, defaultFields, caseSensitive });
+        input.title = engine.operatorsHelp();
+        if (placeholderAdvanced) input.placeholder = placeholderAdvanced;
+
+        return {
+            engine,
+            filter(records, query) {
+                const q = String(query || '').trim();
+                if (!q) return records || [];
+                return engine.filter(records, q);
+            }
+        };
+    }
+
+    global.SearchEngine = { create, attach, attachAuto };
 })(window);
