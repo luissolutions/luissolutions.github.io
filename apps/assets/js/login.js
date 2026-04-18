@@ -92,17 +92,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     headerTitle.addEventListener('dblclick', toggleLoginSections);
-
-    let lastTap = 0;
-    headerTitle.addEventListener('touchend', (event) => {
-        const now = Date.now();
-        const delta = now - lastTap;
-        if (delta > 0 && delta < 350) {
-            event.preventDefault();
-            toggleLoginSections();
-        }
-        lastTap = now;
-    });
 });
 
 export function getCurrentUserUID() {

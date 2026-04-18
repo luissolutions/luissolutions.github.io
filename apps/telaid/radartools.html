@@ -327,7 +327,8 @@
             imageModule: null,
             currentChecklistType: 'radar',
             qcReady: false,
-            lastCreateCancelKey: ''
+            lastCreateCancelKey: '',
+            qcEmptyWarningShown: {}
         };
 
         function normalizeAccessToken(raw) {
@@ -428,23 +429,24 @@
                 return;
             }
 
-            const key = input.toLowerCase();
+            const key = canonicalKey(input);
 
             const tasks = await readOnce(`${state.basePath}/tasks`) || {};
 
-            const match = Object.entries(tasks).find(([id, data]) =>
-                (data.project || '').trim().toLowerCase() === key
+            const match = Object.entries(tasks).find(([, data]) =>
+                canonicalKey(data.project) === key
             );
 
             if (match) {
                 const [id] = match;
+                alert('A project with this name already exists. Loading the existing project.');
                 await loadProject(id);
                 return;
             }
 
             const customerName = prompt("Enter Customer Name:");
             if (customerName === null) {
-                state.lastCreateCancelKey = normKey(input);
+                state.lastCreateCancelKey = key;
                 return;
             }
 
@@ -947,7 +949,7 @@
                     };
                 })
                 .filter(Boolean)
-                .sort((a, b) => b.time - a.time);
+                .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
 
             renderProjectDropdown(state.allProjects);
         }
@@ -955,7 +957,17 @@
         function renderProjectDropdown(projects) {
             if (!$('projectList')) return;
             $('projectList').innerHTML = '<option value="">-- Choose a customer --</option>';
-            projects.forEach((p) => $('projectList').appendChild(new Option(p.label, p.id)));
+
+            const lastProject = localStorage.getItem('lastProject');
+            const ordered = [...projects];
+            if (lastProject) {
+                const index = ordered.findIndex((p) => p.id === lastProject);
+                if (index >= 0) {
+                    ordered.unshift(...ordered.splice(index, 1));
+                }
+            }
+
+            ordered.forEach((p) => $('projectList').appendChild(new Option(p.label, p.id)));
         }
 
         function filterProjects() {
@@ -2033,13 +2045,15 @@
                 const existingType = existing._type;
 
                 if (existingType && existingType !== state.currentChecklistType) {
-                    console.warn('[BLOCKED] Type mismatch, ignoring stale data');
                     return;
                 }
                 const hasExistingData = Object.keys(existing.sections || {}).length > 0;
 
                 if (hasExistingData && isEmptyNow) {
-                    console.warn('[BLOCKED] Prevented overwrite with empty QC data');
+                    if (!state.qcEmptyWarningShown[state.currentChecklistType]) {
+                        console.warn('[BLOCKED] Prevented overwrite with empty QC data');
+                        state.qcEmptyWarningShown[state.currentChecklistType] = true;
+                    }
                     return;
                 }
             }
@@ -2142,6 +2156,7 @@
                 sensorTotal: taskData.sensorCount || '',
                 installSummary: taskData.notes || '',
                 customerAddress: taskData.customerAddress || '',
+                location: taskData.customerAddress || '',
                 managerName: taskData.managerName || '',
                 startOdometer: taskData.startOdometer || '',
                 endOdometer: taskData.endOdometer || '',
@@ -2184,6 +2199,7 @@
                         sensorTotal: 'sensorCount',
                         installSummary: 'notes',
                         customerAddress: 'customerAddress',
+                        location: 'customerAddress',
                         managerName: 'managerName',
                         startOdometer: 'startOdometer',
                         endOdometer: 'endOdometer'
@@ -2284,6 +2300,23 @@
 
             const taskData = await readOnce(getTaskPath(projectId)) || {};
             const qcData = await readOnce(getQCPath()) || { sections: {} };
+
+            if (state.currentChecklistType === 'audit' && !normalizeText(taskData.customerAddress)) {
+                const auditFields = qcData?.sections?.audit_info?.fields || {};
+                const auditAddress = auditFields.customerAddress;
+                const auditLocation = auditFields.location;
+                const fallbackAddress =
+                    (auditAddress && typeof auditAddress === 'object' ? auditAddress.value : auditAddress) ||
+                    (auditLocation && typeof auditLocation === 'object' ? auditLocation.value : auditLocation);
+
+                if (normalizeText(fallbackAddress)) {
+                    taskData.customerAddress = fallbackAddress;
+                    await patch(getTaskPath(), {
+                        customerAddress: fallbackAddress,
+                        updatedAt: Date.now()
+                    });
+                }
+            }
 
             buildApp(qcData);
             state.qcReady = true;
@@ -2861,7 +2894,9 @@
                 const site = sanitize(state.currentProjectName || state.currentProject);
                 const basePath = `RadarApp/pdf/${site}`;
                 const date = new Date().toISOString().split('T')[0];
-                const filename = `${site}_checklist_${date}.pdf`;
+                const checklistTag = (state.currentChecklistType || 'checklist').toLowerCase();
+                const siteNumber = sanitize(getCurrentFieldValue('siteNumber') || state.currentProjectName || state.currentProject);
+                const filename = `${siteNumber}_${checklistTag}_checklist_${date}.pdf`;
 
                 const pdfBlob = await generateChecklistPDFBlob();
                 if (!pdfBlob) throw new Error("PDF generation failed");
