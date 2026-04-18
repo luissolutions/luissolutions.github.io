@@ -962,17 +962,27 @@
         const isSensor =
           document.querySelector('input[name="viewMode"]:checked').value ===
           "sensors";
-        const base = isSensor
-          ? `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/sensors`
-          : `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}`;
+        const base = `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}`;
+        const folderPaths = isSensor
+          ? [`${base}/sensors`]
+          : [base, `${base}/deliverables`];
 
-        const snapshot = await listAll(storageRef(storage, base));
-        const items = await Promise.all(
-          snapshot.items.map(async (item) => {
-            const url = await getDownloadURL(item);
-            return { name: item.name, url, fullPath: item.fullPath };
-          }),
-        );
+        const items = [];
+        for (const path of folderPaths) {
+          try {
+            const snapshot = await listAll(storageRef(storage, path));
+            const chunk = await Promise.all(
+              snapshot.items.map(async (item) => ({
+                name: item.name,
+                url: await getDownloadURL(item),
+                fullPath: item.fullPath,
+              })),
+            );
+            items.push(...chunk);
+          } catch {
+            // Folder may not exist yet.
+          }
+        }
 
         const favorites = JSON.parse(localStorage.getItem("favorites") || "{}");
         items.sort(
@@ -1395,23 +1405,14 @@
       }
 
       document.getElementById("deleteButton").onclick = async () => {
-        const safeProjectName = sanitize(currentProjectName || currentProject);
         const item = modalItems[modalIndex];
         if (!(await confirmWithPassword("deleting this image"))) {
           alert("Incorrect password. Action cancelled.");
           return;
         }
 
-        const isSensor =
-          document.querySelector('input[name="viewMode"]:checked').value ===
-          "sensors";
-        const folder = isSensor ? "sensors" : "";
-        const path = folder
-          ? `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${folder}/${item.name}`
-          : `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/${item.name}`;
-
         try {
-          await deleteObject(storageRef(storage, path));
+          await deleteObject(storageRef(storage, item.fullPath));
           document.getElementById("modal").style.display = "none";
           updateGallery();
         } catch (err) {
