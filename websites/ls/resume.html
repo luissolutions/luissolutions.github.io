@@ -214,6 +214,12 @@
         .footer-arrow:focus {
             outline: none;
         }
+
+        .pdf-export-mode {
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+        }
     </style>
 </head>
 
@@ -401,15 +407,55 @@
         }
 
         function exportToPDF() {
-            const element = document.getElementById('resume');
+            const element = document.getElementById("resume");
+
+            // 🔹 Build dynamic filename
+            const name = document.getElementById("name").textContent.trim();
+            const title = document.getElementById("title").textContent.trim();
+
+            const safeName = name.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
+            const safeTitle = title.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
+
+            const fileName = `${safeName}_${safeTitle}_Resume.pdf`;
+
+            // 🔹 Apply clean export mode (removes inner border properly)
+            element.classList.add("pdf-export-mode");
+
             const options = {
-                margin: 0.5,
-                filename: 'Luis_Curbelo_Resume.pdf',
-                image: { type: 'jpeg', quality: 0.98 },
+                margin: 0.3,
+                filename: fileName,
+                image: { type: "jpeg", quality: 0.98 },
                 html2canvas: { scale: 2 },
-                jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+                jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
             };
-            html2pdf().set(options).from(element).save();
+
+            html2pdf()
+                .set(options)
+                .from(element)
+                .toPdf()
+                .get("pdf")
+                .then(function (pdf) {
+                    const totalPages = pdf.internal.getNumberOfPages();
+
+                    for (let i = 1; i <= totalPages; i++) {
+                        pdf.setPage(i);
+
+                        const width = pdf.internal.pageSize.getWidth();
+                        const height = pdf.internal.pageSize.getHeight();
+
+                        const margin = 0.3;
+
+                        pdf.setLineWidth(0.01);
+                        pdf.setDrawColor(80, 80, 80);
+
+                        pdf.rect(margin, margin, width - margin * 2, height - margin * 2);
+                    }
+                })
+                .save()
+                .then(() => {
+                    // 🔹 Cleanly restore UI
+                    element.classList.remove("pdf-export-mode");
+                });
         }
 
         const themes = ["light", "dark", "blue"];
