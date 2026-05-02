@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Gallery Image Batch Tool</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="./assets/css/styles.css" id="stylesheet" />
+
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family:
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+      }
+
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      h1 {
+        margin-top: 0;
+        font-size: 2rem;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        margin-bottom: 24px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 20px;
+        box-shadow: var(--shadow);
+        margin-bottom: 20px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        font-weight: 700;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      input,
+      select,
+      button {
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        padding: 12px 14px;
+        font: inherit;
+      }
+
+      input[type="file"] {
+        padding: 10px;
+      }
+
+      button {
+        cursor: pointer;
+        font-weight: 700;
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+        transition: opacity 0.15s ease;
+      }
+
+      button:hover {
+        opacity: 0.9;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+      }
+
+      .preview-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .preview-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+
+      .preview-card img {
+        width: 100%;
+        height: 140px;
+        object-fit: cover;
+        display: block;
+        background: black;
+      }
+
+      .preview-info {
+        padding: 12px;
+        display: grid;
+        gap: 4px;
+        font-size: 0.85rem;
+      }
+
+      .filename {
+        font-weight: 700;
+        color: var(--text);
+        word-break: break-all;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .log {
+        margin-top: 14px;
+        color: var(--muted);
+        white-space: pre-wrap;
+        font-size: 0.9rem;
+      }
+
+      .dropzone {
+        border: 2px dashed var(--border);
+        border-radius: 18px;
+        padding: 30px;
+        text-align: center;
+        transition:
+          border-color 0.15s ease,
+          background 0.15s ease;
+      }
+
+      .dropzone.dragover {
+        border-color: var(--accent);
+        background: rgba(14, 165, 233, 0.08);
+      }
+
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 14px;
+        color: var(--muted);
+      }
+
+      .checkbox-row input {
+        width: auto;
+      }
+
+      @media (max-width: 600px) {
+        .container {
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Gallery Image Batch Tool</h1>
+
+      <p class="subtitle">
+        Upload images, automatically resize them, and rename them to match your
+        slideshow system. Example outputs: d001.jpg, d100.jpg, m002.jpg
+      </p>
+
+      <section class="panel">
+        <div class="grid">
+          <label>
+            Prefix
+            <select id="prefix">
+              <option value="d">d — Detailing</option>
+              <option value="m">m — Mechanic</option>
+              <option value="c">c — Decals</option>
+              <option value="p">p — Pressure Wash</option>
+            </select>
+          </label>
+
+          <label>
+            Starting Number
+            <input type="number" id="startNumber" value="1" min="0" />
+          </label>
+
+          <label>
+            Resize Width
+            <input type="number" id="resizeWidth" value="1600" min="100" />
+          </label>
+
+          <label>
+            JPEG Quality (0-1)
+            <input
+              type="number"
+              id="quality"
+              value="0.85"
+              min="0.1"
+              max="1"
+              step="0.05"
+            />
+          </label>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="keepOriginalSize" />
+          <label for="keepOriginalSize">Do not resize images</label>
+        </div>
+
+        <div class="dropzone" id="dropzone">
+          <p><strong>Drag & Drop Images Here</strong></p>
+          <p class="muted">or</p>
+          <input type="file" id="imageInput" multiple accept="image/*" />
+        </div>
+
+        <div class="actions">
+          <button id="processBtn">Process Images</button>
+          <button id="downloadAllBtn" disabled>Download ZIP</button>
+        </div>
+
+        <div class="log" id="log"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Preview</h2>
+        <div id="previewGrid" class="preview-grid"></div>
+      </section>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <script>
+      const imageInput = document.getElementById("imageInput");
+      const processBtn = document.getElementById("processBtn");
+      const downloadAllBtn = document.getElementById("downloadAllBtn");
+      const previewGrid = document.getElementById("previewGrid");
+      const logEl = document.getElementById("log");
+      const dropzone = document.getElementById("dropzone");
+
+      let selectedFiles = [];
+      let processedFiles = [];
+
+      imageInput.addEventListener("change", (e) => {
+        selectedFiles = [...e.target.files];
+        renderSelectionInfo();
+      });
+
+      dropzone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropzone.classList.add("dragover");
+      });
+
+      dropzone.addEventListener("dragleave", () => {
+        dropzone.classList.remove("dragover");
+      });
+
+      dropzone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("dragover");
+
+        selectedFiles = [...e.dataTransfer.files].filter((file) =>
+          file.type.startsWith("image/"),
+        );
+
+        renderSelectionInfo();
+      });
+
+      function renderSelectionInfo() {
+        logEl.textContent = `${selectedFiles.length} image(s) selected.`;
+      }
+
+      processBtn.addEventListener("click", async () => {
+        if (!selectedFiles.length) {
+          alert("Select some images first.");
+          return;
+        }
+
+        processBtn.disabled = true;
+        processBtn.textContent = "Processing...";
+
+        previewGrid.innerHTML = "";
+        processedFiles = [];
+
+        const prefix = document.getElementById("prefix").value;
+        const startNumber = Number(
+          document.getElementById("startNumber").value || 0,
+        );
+        const resizeWidth = Number(
+          document.getElementById("resizeWidth").value || 1600,
+        );
+        const quality = Number(
+          document.getElementById("quality").value || 0.85,
+        );
+        const keepOriginalSize =
+          document.getElementById("keepOriginalSize").checked;
+
+        let count = startNumber;
+
+        for (const file of selectedFiles) {
+          const padded = String(count).padStart(3, "0");
+          const filename = `${prefix}${padded}.jpg`;
+
+          const processedBlob = await resizeImage(
+            file,
+            resizeWidth,
+            quality,
+            keepOriginalSize,
+          );
+
+          processedFiles.push({
+            filename,
+            blob: processedBlob,
+          });
+
+          const url = URL.createObjectURL(processedBlob);
+
+          const card = document.createElement("div");
+          card.className = "preview-card";
+
+          card.innerHTML = `
+          <img src="${url}" alt="${filename}">
+          <div class="preview-info">
+            <div class="filename">${filename}</div>
+            <div class="muted">${formatBytes(processedBlob.size)}</div>
+          </div>
+        `;
+
+          previewGrid.appendChild(card);
+
+          count++;
+        }
+
+        logEl.textContent = `Processed ${processedFiles.length} image(s).`;
+
+        processBtn.disabled = false;
+        processBtn.textContent = "Process Images";
+        downloadAllBtn.disabled = false;
+      });
+
+      downloadAllBtn.addEventListener("click", async () => {
+        if (!processedFiles.length) return;
+
+        const zip = new JSZip();
+
+        processedFiles.forEach((file) => {
+          zip.file(file.filename, file.blob);
+        });
+
+        const blob = await zip.generateAsync({ type: "blob" });
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+
+        a.href = url;
+        a.download = "gallery-images.zip";
+        a.click();
+
+        URL.revokeObjectURL(url);
+      });
+
+      function resizeImage(file, maxWidth, quality, keepOriginalSize) {
+        return new Promise((resolve) => {
+          const img = new Image();
+
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+
+            let width = img.width;
+            let height = img.height;
+
+            if (!keepOriginalSize && width > maxWidth) {
+              const ratio = maxWidth / width;
+              width = maxWidth;
+              height = Math.round(height * ratio);
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+
+            ctx.drawImage(img, 0, 0, width, height);
+
+            canvas.toBlob(
+              (blob) => {
+                resolve(blob);
+              },
+              "image/jpeg",
+              quality,
+            );
+          };
+
+          img.src = URL.createObjectURL(file);
+        });
+      }
+
+      function formatBytes(bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+        return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+      }
+    </script>
+  </body>
+</html>
