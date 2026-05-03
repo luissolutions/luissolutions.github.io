@@ -494,8 +494,7 @@
     <footer class="site-footer">
       <div class="container footer-inner">
         <p class="footer-copy">
-          © <span id="year"></span> J&amp;E Mobile Detailing &amp; Mechanic
-          Service
+          © <span id="year"></span> J&amp;E Detailing &amp; Mechanic Service
         </p>
         <div id="site-counter" aria-live="polite">
           Visits: <span id="visitCount">—</span>
@@ -628,7 +627,8 @@
       }
 
       let rafId = 0,
-        lastState = null;
+        lastState = null,
+        lastWidth = 0;
 
       function updateNavModeStable() {
         if (!headerInner) return;
@@ -655,7 +655,14 @@
 
       function scheduleUpdate() {
         cancelAnimationFrame(rafId);
-        rafId = requestAnimationFrame(updateNavModeStable);
+        rafId = requestAnimationFrame(() => {
+          const w = headerInner
+            ? Math.round(headerInner.getBoundingClientRect().width)
+            : 0;
+          if (w === lastWidth && lastState !== null) return;
+          lastWidth = w;
+          updateNavModeStable();
+        });
       }
 
       window.addEventListener("load", scheduleUpdate);
@@ -663,180 +670,6 @@
       window.addEventListener("orientationchange", scheduleUpdate);
       if (document.fonts?.ready) document.fonts.ready.then(scheduleUpdate);
       scheduleUpdate();
-
-      // ── GALLERY / SLIDESHOW ──
-      (function () {
-        const IMG_DIR = "./assets/img/";
-        const EXTS = ["jpg", "jpeg", "png", "webp"];
-        const AUTO_MS = 4500;
-
-        let cache = {};
-        let current = { cat: "d", idx: 0 };
-        let autoTimer = null;
-
-        const slideImg = document.getElementById("slideImg");
-        const slideStage = document.getElementById("slideStage");
-        const slideDots = document.getElementById("slideDots");
-        const slideCounter = document.getElementById("slideCounter");
-        const galleryEmpty = document.getElementById("galleryEmpty");
-        const slideshowWrap = document.getElementById("slideshowWrap");
-        const prevBtn = document.getElementById("slidePrev");
-        const nextBtn = document.getElementById("slideNext");
-
-        function imageExists(src) {
-          return new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => resolve(src);
-            img.onerror = () => resolve(null);
-            img.src = src;
-          });
-        }
-
-        async function probeCategory(prefix) {
-          if (cache[prefix]) return cache[prefix];
-
-          const found = [];
-          const checks = [];
-
-          for (let i = 1; i <= 200; i++) {
-            const num = String(i).padStart(3, "0");
-            const base = IMG_DIR + prefix + num;
-
-            for (const ext of EXTS) {
-              checks.push(imageExists(base + "." + ext));
-            }
-          }
-
-          const results = await Promise.all(checks);
-
-          results.forEach((url) => {
-            if (url) found.push(url);
-          });
-
-          // RANDOMIZE
-          for (let i = found.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [found[i], found[j]] = [found[j], found[i]];
-          }
-
-          cache[prefix] = found;
-          return found;
-        }
-
-        function buildDots(count, activeIdx) {
-          slideDots.innerHTML = "";
-          const max = Math.min(count, 20); // cap dots at 20
-          for (let i = 0; i < max; i++) {
-            const dot = document.createElement("button");
-            dot.className = "slide-dot" + (i === activeIdx ? " active" : "");
-            dot.setAttribute("aria-label", `Image ${i + 1}`);
-            dot.type = "button";
-            const idx = i;
-            dot.addEventListener("click", () => goTo(idx));
-            slideDots.appendChild(dot);
-          }
-        }
-
-        function showImage(url) {
-          slideImg.classList.add("fade-out");
-          setTimeout(() => {
-            slideImg.src = url;
-            slideImg.alt = url.split("/").pop();
-            slideImg.classList.remove("fade-out");
-          }, 200);
-        }
-
-        function goTo(idx) {
-          const imgs = cache[current.cat] || [];
-          if (!imgs.length) return;
-          current.idx = (idx + imgs.length) % imgs.length;
-          showImage(imgs[current.idx]);
-          buildDots(imgs.length, current.idx);
-          slideCounter.textContent = `${current.idx + 1} / ${imgs.length}`;
-          restartAuto();
-        }
-
-        function restartAuto() {
-          clearInterval(autoTimer);
-          autoTimer = setInterval(() => goTo(current.idx + 1), AUTO_MS);
-        }
-
-        async function loadCategory(prefix) {
-          slideImg.src = "";
-          slideDots.innerHTML = "";
-          slideCounter.textContent = "Loading…";
-          galleryEmpty.style.display = "none";
-          slideshowWrap.style.display = "";
-          clearInterval(autoTimer);
-
-          const imgs = await probeCategory(prefix);
-          current.cat = prefix;
-          current.idx = 0;
-
-          if (!imgs.length) {
-            slideshowWrap.style.display = "none";
-            galleryEmpty.style.display = "";
-            return;
-          }
-
-          showImage(imgs[0]);
-          buildDots(imgs.length, 0);
-          slideCounter.textContent = `1 / ${imgs.length}`;
-          restartAuto();
-        }
-
-        document.querySelectorAll(".gallery-tab").forEach((tab) => {
-          tab.addEventListener("click", () => {
-            document
-              .querySelectorAll(".gallery-tab")
-              .forEach((t) => t.classList.remove("active"));
-            tab.classList.add("active");
-            loadCategory(tab.dataset.cat);
-          });
-        });
-
-        prevBtn?.addEventListener("click", () => goTo(current.idx - 1));
-        nextBtn?.addEventListener("click", () => goTo(current.idx + 1));
-
-        // Pause on hover
-        slideStage?.addEventListener("mouseenter", () =>
-          clearInterval(autoTimer),
-        );
-        slideStage?.addEventListener("mouseleave", restartAuto);
-
-        // Touch swipe
-        let touchX = null;
-        slideStage?.addEventListener(
-          "touchstart",
-          (e) => {
-            touchX = e.touches[0].clientX;
-          },
-          { passive: true },
-        );
-        slideStage?.addEventListener(
-          "touchend",
-          (e) => {
-            if (touchX === null) return;
-            const dx = e.changedTouches[0].clientX - touchX;
-            if (Math.abs(dx) > 40) goTo(current.idx + (dx < 0 ? 1 : -1));
-            touchX = null;
-          },
-          { passive: true },
-        );
-
-        // Keyboard navigation when gallery is in view
-        document.addEventListener("keydown", (e) => {
-          if (
-            !document.getElementById("gallery").getBoundingClientRect().top <
-            window.innerHeight
-          )
-            return;
-          if (e.key === "ArrowLeft") goTo(current.idx - 1);
-          if (e.key === "ArrowRight") goTo(current.idx + 1);
-        });
-
-        loadCategory("d");
-      })();
 
       // One service accordion open at a time
       document.querySelectorAll(".service-accordion").forEach((d) => {
@@ -847,6 +680,169 @@
           });
         });
       });
+    </script>
+
+    <script type="module">
+      import {
+        storage,
+        storageRef,
+        listAll,
+        getDownloadURL,
+      } from "../../assets/js/firebase-init.js";
+
+      const AUTO_MS = 4500;
+      let cache = {};
+      let current = { cat: "d", idx: 0 };
+      let autoTimer = null;
+
+      const slideImg = document.getElementById("slideImg");
+      const slideStage = document.getElementById("slideStage");
+      const slideDots = document.getElementById("slideDots");
+      const slideCounter = document.getElementById("slideCounter");
+      const galleryEmpty = document.getElementById("galleryEmpty");
+      const slideshowWrap = document.getElementById("slideshowWrap");
+      const prevBtn = document.getElementById("slidePrev");
+      const nextBtn = document.getElementById("slideNext");
+
+      async function probeCategory(prefix) {
+        if (cache[prefix]) return cache[prefix];
+        try {
+          const folder = storageRef(storage, "public/jeb/images/");
+          const result = await listAll(folder);
+          const matching = result.items.filter((item) =>
+            item.name.startsWith(prefix),
+          );
+          matching.sort((a, b) => {
+            const key = (name) => {
+              const m = name.match(/^[a-z](\d+)([ba]?)\.jpg$/i);
+              if (!m) return [0, 0];
+              return [parseInt(m[1]), m[2] === "b" ? 0 : m[2] === "a" ? 1 : 0];
+            };
+            const [an, aw] = key(a.name);
+            const [bn, bw] = key(b.name);
+            return an !== bn ? an - bn : aw - bw;
+          });
+          const urls = await Promise.all(
+            matching.map((item) => getDownloadURL(item)),
+          );
+          cache[prefix] = urls;
+          return urls;
+        } catch (err) {
+          console.error("Storage error:", err);
+          cache[prefix] = [];
+          return [];
+        }
+      }
+
+      function buildDots(count, activeIdx) {
+        slideDots.innerHTML = "";
+        const max = Math.min(count, 20);
+        for (let i = 0; i < max; i++) {
+          const dot = document.createElement("button");
+          dot.className = "slide-dot" + (i === activeIdx ? " active" : "");
+          dot.setAttribute("aria-label", `Image ${i + 1}`);
+          dot.type = "button";
+          const idx = i;
+          dot.addEventListener("click", () => goTo(idx));
+          slideDots.appendChild(dot);
+        }
+      }
+
+      function showImage(url) {
+        slideImg.classList.add("fade-out");
+        setTimeout(() => {
+          slideImg.src = url;
+          slideImg.classList.remove("fade-out");
+        }, 200);
+      }
+
+      function goTo(idx) {
+        const imgs = cache[current.cat] || [];
+        if (!imgs.length) return;
+        current.idx = (idx + imgs.length) % imgs.length;
+        showImage(imgs[current.idx]);
+        buildDots(imgs.length, current.idx);
+        slideCounter.textContent = `${current.idx + 1} / ${imgs.length}`;
+        restartAuto();
+      }
+
+      function restartAuto() {
+        clearInterval(autoTimer);
+        autoTimer = setInterval(() => goTo(current.idx + 1), AUTO_MS);
+      }
+
+      async function loadCategory(prefix) {
+        slideImg.src = "";
+        slideDots.innerHTML = "";
+        slideCounter.textContent = "Loading…";
+        galleryEmpty.style.display = "none";
+        slideshowWrap.style.display = "";
+        clearInterval(autoTimer);
+
+        const imgs = await probeCategory(prefix);
+        current.cat = prefix;
+        current.idx = 0;
+
+        if (!imgs.length) {
+          slideshowWrap.style.display = "none";
+          galleryEmpty.style.display = "";
+          return;
+        }
+
+        showImage(imgs[0]);
+        buildDots(imgs.length, 0);
+        slideCounter.textContent = `1 / ${imgs.length}`;
+        restartAuto();
+      }
+
+      document.querySelectorAll(".gallery-tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          document
+            .querySelectorAll(".gallery-tab")
+            .forEach((t) => t.classList.remove("active"));
+          tab.classList.add("active");
+          loadCategory(tab.dataset.cat);
+        });
+      });
+
+      prevBtn?.addEventListener("click", () => goTo(current.idx - 1));
+      nextBtn?.addEventListener("click", () => goTo(current.idx + 1));
+
+      slideStage?.addEventListener("mouseenter", () =>
+        clearInterval(autoTimer),
+      );
+      slideStage?.addEventListener("mouseleave", restartAuto);
+
+      let touchX = null;
+      slideStage?.addEventListener(
+        "touchstart",
+        (e) => {
+          touchX = e.touches[0].clientX;
+        },
+        { passive: true },
+      );
+      slideStage?.addEventListener(
+        "touchend",
+        (e) => {
+          if (touchX === null) return;
+          const dx = e.changedTouches[0].clientX - touchX;
+          if (Math.abs(dx) > 40) goTo(current.idx + (dx < 0 ? 1 : -1));
+          touchX = null;
+        },
+        { passive: true },
+      );
+
+      document.addEventListener("keydown", (e) => {
+        if (
+          !document.getElementById("gallery").getBoundingClientRect().top <
+          window.innerHeight
+        )
+          return;
+        if (e.key === "ArrowLeft") goTo(current.idx - 1);
+        if (e.key === "ArrowRight") goTo(current.idx + 1);
+      });
+
+      loadCategory("d");
     </script>
   </body>
 </html>
