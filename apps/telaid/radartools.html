@@ -454,6 +454,7 @@
         allProjects: [],
         validated: false,
         isLoadingProject: false,
+        loadSeq: 0,
         isUploading: false,
         modalItems: [],
         modalIndex: 0,
@@ -1299,22 +1300,32 @@
       }
 
       async function loadProject(projectId) {
-        if (state.isLoadingProject) return;
+        const seq = ++state.loadSeq;
+        state.qcReady = false;
         state.isLoadingProject = true;
+
+        if ($("app"))
+          $("app").innerHTML =
+            '<p style="padding:1rem;opacity:0.6">Loading site…</p>';
+        if ($("project")) $("project").value = "";
 
         try {
           state.currentProject = projectId;
 
           const data = await readOnce(getTaskPath(projectId));
+          if (seq !== state.loadSeq) return;
           if (!data) throw new Error("No project data");
 
           state.currentProjectName = data.project || "";
           state.currentCustomerName = (data.customerName || "").trim();
 
           await resolveMetaOwnerTaskId();
+          if (seq !== state.loadSeq) return;
 
           const owner =
             (await readOnce(getTaskPath(state.metaOwnerTaskId))) || data;
+          if (seq !== state.loadSeq) return;
+
           state.expectedSensors =
             Number(
               data?.qcData_radar?.sections?.site_info?.fields?.sensorTotal
@@ -1328,16 +1339,18 @@
 
           populateSensorDropdown(state.expectedSensors);
 
-          await Promise.all([updateGallery(), loadQCChecklist(projectId)]);
+          await Promise.all([updateGallery(), loadQCChecklist(projectId, seq)]);
+          if (seq !== state.loadSeq) return;
 
           syncSensorTotalToQC();
           initCollapsibles();
           bindRealtimeProjectListener(projectId);
         } catch (err) {
+          if (seq !== state.loadSeq) return;
           console.error("[loadProject] Failed:", err);
           alert("Failed to load project. Check console for details.");
         } finally {
-          state.isLoadingProject = false;
+          if (seq === state.loadSeq) state.isLoadingProject = false;
         }
       }
 
@@ -2695,14 +2708,18 @@
         state.qcListenerBound = true;
       }
 
-      async function loadQCChecklist(projectId) {
+      async function loadQCChecklist(projectId, seq) {
         await initQCConfig();
+        if (seq !== undefined && seq !== state.loadSeq) return;
         if (!state.qcConfig?.sections?.length) return;
 
         if ($("app")) $("app").innerHTML = "";
 
         const taskData = (await readOnce(getTaskPath(projectId))) || {};
+        if (seq !== undefined && seq !== state.loadSeq) return;
+
         const qcData = (await readOnce(getQCPath())) || { sections: {} };
+        if (seq !== undefined && seq !== state.loadSeq) return;
 
         if (
           state.currentChecklistType === "audit" &&
