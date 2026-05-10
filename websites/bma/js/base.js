@@ -54,7 +54,7 @@ function generateAppList(filterText = "") {
 }
 
 const appNamesMap = {
-  "Job Task Logging": { path: "../../apps/online/onlinetasker.html", tags: ["tasks", "log", "work"] },
+  "Job Task Logging": { path: "../../apps/online/onlinejob.html", tags: ["tasks", "log", "work"] },
   "Quote/Invoice Maker": { path: "../../apps/online/onlineinvoice.html", tags: ["invoice", "billing", "quote", "finance"] },
   "Project Tracker": { path: "../../apps/online/onlineproject.html", tags: ["details", "jobnotes", "projects"] },
   "Financial Logging": { path: "../../apps/online/onlinefinancials.html", tags: ["budget", "money", "expenses", "finance"] },
@@ -74,6 +74,7 @@ const appNamesMap = {
   "Conversion Calculator": { path: "../../apps/local/converter.html", tags: ["conversion", "convert", "math"] },
   "Calculator": { path: "../../apps/local/calc.html", tags: ["calculator", "math", "numbers"] },
   "Wire Counter": { path: "../../apps/local/count.html", tags: ["count", "wires", "electrical"] },
+  "Journal": { path: "../../apps/online/onlinejournal.html", tags: ["journal", "writing", "notes"] },
 };
 
 const appDisplayNames = Object.keys(appNamesMap);

@@ -1,10 +1,68 @@
 document.addEventListener("DOMContentLoaded", () => {
-  if (document.getElementById('projects-container')) {
-    populateThumbnails(projects, 'projects-container');
+  // Load shared header and footer
+  fetchWithFallback(
+    "header-placeholder",
+    "components/header.html",
+    "../components/header.html",
+  ).then(() => {
+    // Theme toggle — AFTER header loads
+    const html = document.documentElement;
+    const btn = document.getElementById("theme-toggle");
+
+    if (btn) {
+      const saved = localStorage.getItem("ss-theme");
+
+      function applyTheme(theme) {
+        if (theme === "light") {
+          html.classList.add("light");
+          btn.textContent = "🌙";
+          btn.title = "Switch to dark";
+        } else {
+          html.classList.remove("light");
+          btn.textContent = "☀️";
+          btn.title = "Switch to light";
+        }
+      }
+
+      // Initial load
+      if (saved) {
+        applyTheme(saved);
+      } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+        applyTheme("light");
+      }
+
+      // Click handler
+      btn.addEventListener("click", () => {
+        const isLight = html.classList.contains("light");
+        const next = isLight ? "dark" : "light";
+        localStorage.setItem("ss-theme", next);
+        applyTheme(next);
+      });
+    }
+
+    // Hamburger menu toggle — runs after header is injected into the DOM
+    const hamburger = document.querySelector(".hamburger");
+    const navLinks = document.querySelector(".nav-links");
+    if (hamburger && navLinks) {
+      hamburger.addEventListener("click", () => {
+        navLinks.classList.toggle("active");
+        hamburger.classList.toggle("active");
+      });
+    }
+  });
+
+  fetchWithFallback(
+    "footer-placeholder",
+    "components/footer.html",
+    "../components/footer.html",
+  );
+
+  if (document.getElementById("projects-container")) {
+    populateThumbnails(projects, "projects-container");
   }
 
-  if (document.getElementById('apps-container')) {
-    populateThumbnails(apps, 'apps-container');
+  if (document.getElementById("apps-container")) {
+    populateThumbnails(apps, "apps-container");
   }
 });
 
@@ -12,17 +70,15 @@ function populateThumbnails(items, containerId, userLoggedIn) {
   const container = document.getElementById(containerId);
   container.innerHTML = "";
 
-  const categories = {
-    "Cloud": [],
-    "Game": [],
-    "Other": []
-  };
+  const categories = { Cloud: [], Game: [], Other: [] };
 
   items.forEach((item) => {
     if (!item.requiresLogin || (item.requiresLogin && userLoggedIn)) {
-      const itemCategories = item.category ? item.category.split(',').map(cat => cat.trim()) : ["Other"];
+      const itemCategories = item.category
+        ? item.category.split(",").map((cat) => cat.trim())
+        : ["Other"];
 
-      itemCategories.forEach(category => {
+      itemCategories.forEach((category) => {
         if (categories[category]) {
           categories[category].push(item);
         } else {
@@ -53,9 +109,11 @@ function populateThumbnails(items, containerId, userLoggedIn) {
         link.target = "_blank";
 
         const img = document.createElement("img");
-        img.src = item.image && item.image.trim() !== "" ? item.image : "assets/img/default.png";
+        img.src =
+          item.image && item.image.trim() !== ""
+            ? item.image
+            : "assets/img/default.png";
         img.alt = item.title;
-
         img.onerror = function () {
           this.onerror = null;
           this.src = "assets/img/default.png";
@@ -76,57 +134,40 @@ function populateThumbnails(items, containerId, userLoggedIn) {
   });
 }
 
-function toggleMenu() {
-  const nav = document.querySelector('nav');
-  const hamburger = document.querySelector('.hamburger');
-
-  nav.classList.toggle('active');
-  hamburger.classList.toggle('active');
-
-  if (nav.classList.contains('active')) {
-    document.addEventListener('click', handleOutsideClick);
-  } else {
-    document.removeEventListener('click', handleOutsideClick);
-  }
-}
-
-function handleOutsideClick(event) {
-  const nav = document.querySelector('nav');
-  const hamburger = document.querySelector('.hamburger');
-
-  if (!nav.contains(event.target) && !hamburger.contains(event.target)) {
-    nav.classList.remove('active');
-    hamburger.classList.remove('active');
-
-    document.removeEventListener('click', handleOutsideClick);
-  }
-}
-
 function fetchWithFallback(targetId, primaryPath, fallbackPath) {
-  fetch(primaryPath)
-    .then(res => {
-      if (!res.ok) throw new Error('Primary failed');
+  return fetch(primaryPath)
+    .then((res) => {
+      if (!res.ok) throw new Error("Primary failed");
       return res.text();
     })
-    .then(data => {
+    .then((data) => {
       document.getElementById(targetId).innerHTML = data;
     })
     .catch(() => {
-      fetch(fallbackPath)
-        .then(res => {
-          if (!res.ok) throw new Error('Fallback failed');
+      return fetch(fallbackPath)
+        .then((res) => {
+          if (!res.ok) throw new Error("Fallback failed");
           return res.text();
         })
-        .then(data => {
-          document.getElementById(targetId).innerHTML = data;
+        .then((data) => {
+          const el = document.getElementById(targetId);
+          el.innerHTML = data;
+          // Rebase relative links — fallback means we're one level deep (e.g. online/)
+          el.querySelectorAll("a[href]").forEach((a) => {
+            const href = a.getAttribute("href");
+            if (href && !href.startsWith("http") && !href.startsWith("/") && !href.startsWith("#") && !href.startsWith("..") && !href.startsWith("mailto:")) {
+              a.setAttribute("href", "../" + href);
+            }
+          });
+          el.querySelectorAll("[src]").forEach((node) => {
+            const src = node.getAttribute("src");
+            if (src && !src.startsWith("http") && !src.startsWith("/") && !src.startsWith("..") && !src.startsWith("data:")) {
+              node.setAttribute("src", "../" + src);
+            }
+          });
         })
-        .catch(err => {
+        .catch((err) => {
           console.error(`Failed to load ${targetId}:`, err);
         });
     });
 }
-
-document.addEventListener("DOMContentLoaded", function () {
-  fetchWithFallback("header-placeholder", "components/header.html", "../components/header.html");
-  fetchWithFallback("footer-placeholder", "components/footer.html", "../components/footer.html");
-});
