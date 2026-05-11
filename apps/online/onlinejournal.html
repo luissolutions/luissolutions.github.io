@@ -578,7 +578,7 @@
     });
 
     /* ── auth UI ── */
-    document.addEventListener("DOMContentLoaded", () => {
+    {
       const authBtn = document.getElementById("auth-btn");
       const loginBox = document.getElementById("login-inline");
       const doLogin = document.getElementById("do-login");
@@ -603,7 +603,7 @@
           if (authErr) authErr.textContent = "Invalid login.";
         }
       });
-    });
+    }
 
     /* ── helpers ── */
     function setStatus(msg, err) {
@@ -864,27 +864,32 @@
 
     /* ── load / list ── */
     async function loadArticles(initial) {
-      var combined = {};
-      var publicPath = "public/journalArticles";
-      var publicSnap = await get(ref(database, publicPath));
-      var publicData = publicSnap.exists() ? publicSnap.val() : {};
-      Object.entries(publicData).forEach(function ([id, article]) {
-        combined["public__" + id] = Object.assign({}, article, { __id: id, __path: publicPath, __scope: "public" });
-      });
-      if (currentUser) {
-        var privatePath = currentUser.uid + "/journalArticles";
-        var privateSnap = await get(ref(database, privatePath));
-        var privateData = privateSnap.exists() ? privateSnap.val() : {};
-        Object.entries(privateData).forEach(function ([id, article]) {
-          combined["private__" + id] = Object.assign({}, article, { __id: id, __path: privatePath, __scope: "private" });
+      try {
+        var combined = {};
+        var publicPath = "public/journalArticles";
+        var publicSnap = await get(ref(database, publicPath));
+        var publicData = publicSnap.exists() ? publicSnap.val() : {};
+        Object.entries(publicData).forEach(function ([id, article]) {
+          combined["public__" + id] = Object.assign({}, article, { __id: id, __path: publicPath, __scope: "public" });
         });
-      }
-      allArticles = combined;
-      renderList();
-      if (initial) {
-        var params = new URLSearchParams(location.search);
-        var id = params.get("id");
-        if (id && allArticles[id]) renderArticle(id);
+        if (currentUser) {
+          var privatePath = currentUser.uid + "/journalArticles";
+          var privateSnap = await get(ref(database, privatePath));
+          var privateData = privateSnap.exists() ? privateSnap.val() : {};
+          Object.entries(privateData).forEach(function ([id, article]) {
+            combined["private__" + id] = Object.assign({}, article, { __id: id, __path: privatePath, __scope: "private" });
+          });
+        }
+        allArticles = combined;
+        renderList();
+        if (initial) {
+          var params = new URLSearchParams(location.search);
+          var id = params.get("id");
+          if (id && allArticles[id]) renderArticle(id);
+        }
+      } catch (err) {
+        console.error("loadArticles failed:", err);
+        listEl.innerHTML = '<div class="empty-state">Failed to load articles — ' + escapeHtml(err.message) + '</div>';
       }
     }
 
@@ -916,7 +921,7 @@
             "<small>" + scopeLabel + (cardDate ? " · " + cardDate : "") + "</small>" +
             "<h3>" + escapeHtml(a.title) + "</h3>" +
             "<p>" + escapeHtml(a.description || "") + "</p>";
-          div.onclick = function () { location.search = "?id=" + encodeURIComponent(rowKey); };
+          div.onclick = function () { renderArticle(rowKey); };
           listEl.appendChild(div);
         });
     }
@@ -968,7 +973,9 @@
       await remove(ref(database, sourcePath + "/" + realId));
       currentArticleId = null;
       editingId = null;
-      location.search = "";
+      listView.style.display = "block";
+      articleView.style.display = "none";
+      await loadArticles();
     }
 
     async function moveArticle() {
@@ -1009,8 +1016,20 @@
     /* ── events ── */
     addSectionBtn.onclick = function () { addSection(); };
     saveBtn.onclick = saveArticle;
-    clearFormBtn.onclick = function () { location.reload(); };
-    backToListBtn.onclick = function () { location.search = ""; };
+    clearFormBtn.onclick = function () {
+      titleInput.value = "";
+      descriptionInput.value = "";
+      tagsInput.value = "";
+      sections = [];
+      renderSections();
+      editingId = null;
+      setStatus("");
+    };
+    backToListBtn.onclick = function () {
+      listView.style.display = "block";
+      articleView.style.display = "none";
+      currentArticleId = null;
+    };
     refreshListBtn.onclick = function () { loadArticles(); };
     editArticleBtn.onclick = function () {
       var a = allArticles[currentArticleId];

@@ -140,7 +140,7 @@ export function renderArticleCards(data, container) {
       `;
 
       div.onclick = () => {
-        window.location.href = `apps/online/onlinejournal.html?id=${id}`;
+        window.location.href = `online/onlinejournal.html?id=${id}`;
       };
 
       container.appendChild(div);
