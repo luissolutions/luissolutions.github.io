@@ -837,9 +837,65 @@
       const tbl = document.getElementById("task-log");
       const hiddenIdx = new Set(Array.from(tbl.querySelectorAll("thead th")).map((th, i) => (th.classList.contains("actions-column") || th.style.display === "none") ? i : null).filter(i => i !== null));
       const headers = Array.from(tbl.querySelectorAll("thead th")).filter((_, i) => !hiddenIdx.has(i)).map(th => th.textContent.trim());
-      const rows = Array.from(tbl.querySelectorAll("tbody tr")).filter(r => r.style.display !== "none").map(r => Array.from(r.cells).filter((_, i) => !hiddenIdx.has(i)).map(c => c.textContent.replace(/\r?\n|\r/g, " ").trim()));
-      rows.unshift(headers);
-      const csv = rows.map(r => r.map(f => { f = String(f || ""); if (f.includes(",") || f.includes('"')) f = `"${f.replace(/"/g, '""')}"`; return f; }).join(",")).join("\r\n");
+      headers.push("Travel", "Work");
+      const taskMap = Object.fromEntries(allTasks.map(t => [String(t.id), t]));
+      const visibleRows = Array.from(tbl.querySelectorAll("tbody tr")).filter(r => r.style.display !== "none");
+
+      const rows = visibleRows.map(r => {
+        const base = Array.from(r.cells)
+          .filter((_, i) => !hiddenIdx.has(i))
+          .map(c => c.textContent.replace(/\r?\n|\r/g, " ").trim());
+        const task = taskMap[r.dataset.taskId];
+        const segTotals = (task?.segments || []).reduce((a, s) => {
+          const ms = Math.max(0, (s.endTime ? new Date(s.endTime) : new Date()) - new Date(s.startTime));
+          if (s.type === "travel") a.t += ms;
+          else if (s.type === "work") a.w += ms;
+          return a;
+        }, { t: 0, w: 0 });
+        base.push(fmtMs(segTotals.t), fmtMs(segTotals.w));
+        return base;
+      });
+
+      const colCount = headers.length;
+      const startCol = headers.indexOf("Start Time");
+      const endCol = headers.indexOf("End Time");
+      const lenCol = headers.indexOf("Length");
+      const notesCol = headers.indexOf("Notes");
+      const travelCol = headers.indexOf("Travel");
+
+      const allRows = [headers];
+      for (let i = 0; i < rows.length; i++) {
+        const mainRow = [...rows[i]];
+        const task = taskMap[visibleRows[i].dataset.taskId];
+        if (task?.segments) {
+          const workSegs = task.segments.filter(s => s.type === "work" && s.startTime && s.endTime);
+          if (workSegs.length > 0) {
+            const firstWork = workSegs.reduce((a, b) => new Date(a.startTime) < new Date(b.startTime) ? a : b);
+            const workStart = safeDate(firstWork.startTime);
+            if (workStart && startCol >= 0) mainRow[startCol] = fmtDt(workStart);
+            const workMs = workSegs.reduce((sum, s) => sum + Math.max(0, new Date(s.endTime) - new Date(s.startTime)), 0);
+            if (lenCol >= 0) mainRow[lenCol] = fmtMs(workMs);
+          }
+        }
+        allRows.push(mainRow);
+        if (!task?.segments) continue;
+        for (const seg of task.segments) {
+          if (seg.type !== "travel") continue;
+          const start = safeDate(seg.startTime);
+          const end = seg.endTime ? safeDate(seg.endTime) : null;
+          const ms = start && end ? Math.max(0, end - start) : 0;
+          const tRow = Array(colCount).fill("");
+          if (notesCol >= 0) tRow[notesCol] = "Travel";
+          if (startCol >= 0) tRow[startCol] = start ? fmtDt(start) : "";
+          if (endCol >= 0) tRow[endCol] = end ? fmtDt(end) : "In Progress";
+          if (lenCol >= 0) tRow[lenCol] = fmtMs(ms);
+          if (travelCol >= 0) tRow[travelCol] = fmtMs(ms);
+          tRow[0] = task.customerName || "";
+          tRow[1] = task.project || "";
+          allRows.push(tRow);
+        }
+      }
+      const csv = allRows.map(r => r.map(f => { f = String(f || ""); if (f.includes(",") || f.includes('"')) f = `"${f.replace(/"/g, '""')}"`; return f; }).join(",")).join("\r\n");
       const a = document.createElement("a"); a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv); a.download = "tasks.csv"; a.click();
     }
 
