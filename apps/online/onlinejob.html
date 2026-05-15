@@ -620,7 +620,6 @@
 
     function loadTasks() {
       if (unsubscribeTasks) unsubscribeTasks();
-      isShowingAll = false;
       unsubscribeTasks = onValue(dbRef(database, `${DB}/tasks`), (snap) => {
         const tasks = [];
         snap.forEach(s => { const t = s.val() || {}; t.id = t.id || s.key; tasks.push(t); });
@@ -629,11 +628,12 @@
     }
 
     function handleTasksUpdate(tasks) {
+      const wasShowingAll = isShowingAll;
       taskLogTbody.innerHTML = ""; allTasks = tasks;
       tasks.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
       const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
       const recent = tasks.filter(t => t.startTime && new Date(t.startTime) >= cutoff);
-      isShowingAll = recent.length === tasks.length;
+      isShowingAll = wasShowingAll || recent.length === tasks.length;
       (isShowingAll ? tasks : recent).forEach(addTaskToTable);
       document.getElementById("totalTasks").innerText = tasks.length;
       checkOngoingTask(tasks); updateTotalHours(tasks); processDaily(tasks); populateTaskDropdown(tasks);
@@ -835,9 +835,10 @@
 
     function exportTaskCSV() {
       const tbl = document.getElementById("task-log");
-      const hiddenIdx = new Set(Array.from(tbl.querySelectorAll("thead th")).map((th, i) => (th.classList.contains("actions-column") || th.style.display === "none") ? i : null).filter(i => i !== null));
+      const hiddenIdx = new Set(Array.from(tbl.querySelectorAll("thead th")).map((th, i) => (th.classList.contains("actions-column") || th.classList.contains("segments-column") || th.style.display === "none") ? i : null).filter(i => i !== null));
       const headers = Array.from(tbl.querySelectorAll("thead th")).filter((_, i) => !hiddenIdx.has(i)).map(th => th.textContent.trim());
-      headers.push("Travel", "Work");
+      const segmentsChecked = !!document.querySelector('.toggle-column[value="segments-column"]')?.checked;
+      if (segmentsChecked) headers.push("Travel", "Work");
       const taskMap = Object.fromEntries(allTasks.map(t => [String(t.id), t]));
       const visibleRows = Array.from(tbl.querySelectorAll("tbody tr")).filter(r => r.style.display !== "none");
 
@@ -845,14 +846,16 @@
         const base = Array.from(r.cells)
           .filter((_, i) => !hiddenIdx.has(i))
           .map(c => c.textContent.replace(/\r?\n|\r/g, " ").trim());
-        const task = taskMap[r.dataset.taskId];
-        const segTotals = (task?.segments || []).reduce((a, s) => {
-          const ms = Math.max(0, (s.endTime ? new Date(s.endTime) : new Date()) - new Date(s.startTime));
-          if (s.type === "travel") a.t += ms;
-          else if (s.type === "work") a.w += ms;
-          return a;
-        }, { t: 0, w: 0 });
-        base.push(fmtMs(segTotals.t), fmtMs(segTotals.w));
+        if (segmentsChecked) {
+          const task = taskMap[r.dataset.taskId];
+          const segTotals = (task?.segments || []).reduce((a, s) => {
+            const ms = Math.max(0, (s.endTime ? new Date(s.endTime) : new Date()) - new Date(s.startTime));
+            if (s.type === "travel") a.t += ms;
+            else if (s.type === "work") a.w += ms;
+            return a;
+          }, { t: 0, w: 0 });
+          base.push(fmtMs(segTotals.t), fmtMs(segTotals.w));
+        }
         return base;
       });
 
@@ -861,13 +864,15 @@
       const endCol = headers.indexOf("End Time");
       const lenCol = headers.indexOf("Length");
       const notesCol = headers.indexOf("Notes");
-      const travelCol = headers.indexOf("Travel");
+      const addrCol = headers.indexOf("Address");
+      const travelCol = segmentsChecked ? headers.indexOf("Travel") : -1;
 
       const allRows = [headers];
       for (let i = 0; i < rows.length; i++) {
         const mainRow = [...rows[i]];
         const task = taskMap[visibleRows[i].dataset.taskId];
-        if (task?.segments) {
+        if (travelCol >= 0) mainRow[travelCol] = "";
+        if (task?.segments?.length > 0) {
           const workSegs = task.segments.filter(s => s.type === "work" && s.startTime && s.endTime);
           if (workSegs.length > 0) {
             const firstWork = workSegs.reduce((a, b) => new Date(a.startTime) < new Date(b.startTime) ? a : b);
@@ -875,23 +880,34 @@
             if (workStart && startCol >= 0) mainRow[startCol] = fmtDt(workStart);
             const workMs = workSegs.reduce((sum, s) => sum + Math.max(0, new Date(s.endTime) - new Date(s.startTime)), 0);
             if (lenCol >= 0) mainRow[lenCol] = fmtMs(workMs);
+          } else {
+            const tMs = task.segments.filter(s => s.type === "travel" && s.startTime).reduce((sum, s) => sum + Math.max(0, (s.endTime ? new Date(s.endTime) : new Date()) - new Date(s.startTime)), 0);
+            if (tMs > 0 && task.startTime && task.endTime) {
+              const totMs = Math.max(0, new Date(task.endTime) - new Date(task.startTime));
+              if (totMs > tMs && lenCol >= 0) mainRow[lenCol] = fmtMs(totMs - tMs);
+            }
           }
+        } else if (task?.startTime && task?.endTime) {
+          const totMs = Math.max(0, new Date(task.endTime) - new Date(task.startTime));
+          if (lenCol >= 0) mainRow[lenCol] = fmtMs(totMs);
+          if (travelCol >= 0) mainRow[travelCol + 1] = fmtMs(totMs);
         }
         allRows.push(mainRow);
-        if (!task?.segments) continue;
+        if (!segmentsChecked || !task?.segments) continue;
         for (const seg of task.segments) {
           if (seg.type !== "travel") continue;
           const start = safeDate(seg.startTime);
           const end = seg.endTime ? safeDate(seg.endTime) : null;
           const ms = start && end ? Math.max(0, end - start) : 0;
           const tRow = Array(colCount).fill("");
+          tRow[0] = task.customerName || "";
+          tRow[1] = task.project || "";
+          if (addrCol >= 0) tRow[addrCol] = task.customerAddress || "";
           if (notesCol >= 0) tRow[notesCol] = "Travel";
           if (startCol >= 0) tRow[startCol] = start ? fmtDt(start) : "";
           if (endCol >= 0) tRow[endCol] = end ? fmtDt(end) : "In Progress";
           if (lenCol >= 0) tRow[lenCol] = fmtMs(ms);
           if (travelCol >= 0) tRow[travelCol] = fmtMs(ms);
-          tRow[0] = task.customerName || "";
-          tRow[1] = task.project || "";
           allRows.push(tRow);
         }
       }
