@@ -7,22 +7,26 @@ document.querySelectorAll('a[data-src]').forEach(link => {
     });
 });
 
-document.getElementById('better-minecraft').addEventListener('click', function () {
-    const textToCopy = '73.131.4.5:25565';
-
-    navigator.clipboard.writeText(textToCopy).then(function () {
-        alert('73.131.4.5:25565 copied to clipboard!');
+function copyToClipboard(text, label) {
+    navigator.clipboard.writeText(text).then(function () {
+        alert(label + ' copied to clipboard!');
     }, function (err) {
         console.error('Could not copy text: ', err);
     });
+}
+
+document.getElementById('server-java')?.addEventListener('click', function () {
+    copyToClipboard('wish-midwest.gl.joinmc.link', 'Java Edition — wish-midwest.gl.joinmc.link');
 });
 
-document.getElementById('vanilla-enhanced').addEventListener('click', function () {
-    const textToCopy = 'oddohome.asuscomm.com:25566';
+document.getElementById('server-bedrock')?.addEventListener('click', function () {
+    copyToClipboard('wish-midwest.gl.at.ply.gg:27443', 'Bedrock Edition — wish-midwest.gl.at.ply.gg:27443');
+});
 
-    navigator.clipboard.writeText(textToCopy).then(function () {
-        alert('oddohome.asuscomm.com:25566 copied to clipboard!');
-    }, function (err) {
-        console.error('Could not copy text: ', err);
-    });
+document.getElementById('server-triforce1')?.addEventListener('click', function () {
+    copyToClipboard('oddohome.asuscomm.com:25566', 'Triforce — oddohome.asuscomm.com:25566');
+});
+
+document.getElementById('server-triforce2')?.addEventListener('click', function () {
+    copyToClipboard('oddohome.asuscomm.com:25565', 'Triforce 2 — oddohome.asuscomm.com:25565');
 });

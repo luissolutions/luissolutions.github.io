@@ -35,7 +35,12 @@ function initializeAccessToken() {
     }
 
     if (!accessToken) {
-        accessToken = storage.getAccessToken();
+        const stored = storage.getAccessToken();
+        if (stored && !isTokenExpired(stored)) {
+            accessToken = stored;
+        } else if (stored) {
+            storage.clearAccessToken();
+        }
     }
 
     setupAuthEventListeners();
@@ -86,7 +91,11 @@ async function loginToMicrosoft() {
 }
 
 async function getUserInfo() {
-    if (!accessToken) return null;
+    if (!accessToken || isTokenExpired(accessToken)) {
+        storage.clearAccessToken();
+        accessToken = null;
+        return null;
+    }
 
     const res = await fetch("https://graph.microsoft.com/v1.0/me", {
         headers: { Authorization: `Bearer ${accessToken}` }
