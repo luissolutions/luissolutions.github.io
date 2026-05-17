@@ -8,14 +8,19 @@
 <section class="background">
     <div class="main-content">
         <h2>Server Management</h2>
-        <p style="font-size:0.85em;color:#555;margin-bottom:10px;">Local network only — 192.168.50.10</p>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:10px;">
-            <button onclick="mcAction('start')">▶ Start Servers</button>
-            <button onclick="mcAction('stop')">■ Stop Servers</button>
-            <button onclick="mcAction('restart')">↺ Restart Servers</button>
-            <button onclick="mcStatus()">⟳ Refresh Status</button>
+        <div id="mc-controls-local" style="display:none;">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:10px;">
+                <button onclick="mcAction('start')">▶ Start Servers</button>
+                <button onclick="mcAction('stop')">■ Stop Servers</button>
+                <button onclick="mcAction('restart')">↺ Restart Servers</button>
+                <button onclick="mcStatus()">⟳ Refresh Status</button>
+            </div>
+            <div id="mc-api-status" style="font-size:0.9em;min-height:24px;"></div>
         </div>
-        <div id="mc-api-status" style="font-size:0.9em;min-height:24px;"></div>
+        <div id="mc-controls-remote" style="display:none;">
+            <p style="font-size:0.9em;color:#666;">Server controls are only available on the local network.<br>
+            Connect to <a href="http://192.168.50.10:8081/websites/khmc/index.html">http://192.168.50.10:8081</a> to manage servers.</p>
+        </div>
     </div>
     <br>
     <div class="main-content">
@@ -200,20 +205,27 @@
     setInterval(updateServerStatuses, 30000);
 
     const API = 'http://192.168.50.10:3001';
+    const isLocal = location.protocol === 'http:';
+
+    document.getElementById('mc-controls-local').style.display  = isLocal ? 'block' : 'none';
+    document.getElementById('mc-controls-remote').style.display = isLocal ? 'none'  : 'block';
+
     const statusEl = document.getElementById('mc-api-status');
 
     async function mcAction(action) {
+        if (!statusEl) return;
         statusEl.textContent = action + 'ing servers...';
         try {
             const res = await fetch(`${API}/${action}`, { method: 'POST' });
             const data = await res.json();
             statusEl.textContent = data.ok ? `✓ ${action} successful` : `✗ Error: ${data.output}`;
         } catch {
-            statusEl.textContent = '✗ API unreachable — are you on the local network?';
+            statusEl.textContent = '✗ API unreachable.';
         }
     }
 
     async function mcStatus() {
+        if (!statusEl) return;
         statusEl.textContent = 'Checking...';
         try {
             const res = await fetch(`${API}/status`);
@@ -221,9 +233,9 @@
             const lines = Object.entries(data.status).map(([k, v]) => `${k}: ${v}`).join(' | ');
             statusEl.textContent = lines;
         } catch {
-            statusEl.textContent = '✗ API unreachable — are you on the local network?';
+            statusEl.textContent = '✗ API unreachable.';
         }
     }
 
-    mcStatus();
+    if (isLocal) mcStatus();
 </script>
