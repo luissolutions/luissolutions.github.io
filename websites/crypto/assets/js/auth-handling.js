@@ -1,6 +1,5 @@
-import { auth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, ref } from "../../../../assets/js/firebase-init.js";
+import { auth, database, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, ref, set } from "../../../../assets/js/firebase-init.js";
 
-// Check for login form and add event listener if present
 const loginForm = document.getElementById("login-form");
 if (loginForm) {
     loginForm.addEventListener("submit", function (event) {
@@ -9,7 +8,7 @@ if (loginForm) {
         const password = document.getElementById('login-password').value;
 
         signInWithEmailAndPassword(auth, email, password)
-            .then((credentials) => {
+            .then(() => {
                 window.location.href = 'index.html';
             })
             .catch((error) => {
@@ -19,22 +18,11 @@ if (loginForm) {
     });
 }
 
-const specialAccessPassword = "M1n3Rm4N";
-
-// Check for registration form and add event listener if present
 const registrationForm = document.getElementById("registration-form");
 if (registrationForm) {
-    registrationForm.addEventListener("submit", function (event) {
+    registrationForm.addEventListener("submit", async function (event) {
         event.preventDefault();
 
-        // Prompt for special access password
-        const accessPassword = prompt("Please enter the access password to complete registration:");
-        if (accessPassword !== specialAccessPassword) {
-            alert("Incorrect access password. Registration not allowed.");
-            return; // Exit registration if access password is incorrect
-        }
-
-        // Get email and passwords from form fields
         const email = document.getElementById('reg-email').value;
         const password = document.getElementById('reg-password').value;
         const confirmPassword = document.getElementById('reg-confirm-password').value;
@@ -44,22 +32,44 @@ if (registrationForm) {
             return;
         }
 
-        // Proceed with Firebase registration
-        createUserWithEmailAndPassword(auth, email, password)
-            .then((userCredential) => {
-                console.log('User registered:', userCredential.user);
-                alert("Registration Successful");
-            })
-            .catch((error) => {
-                console.error('Error registering user:', error);
-                alert("Registration failed: " + error.message);
-            });
+        const ipAddress = await getIP();
 
-        registrationForm.reset();
+        try {
+            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            await saveUserData(userCredential.user.uid, email, ipAddress);
+            alert("Registration Successful");
+            registrationForm.reset();
+        } catch (error) {
+            if (error.code === "auth/email-already-in-use") {
+                try {
+                    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                    await saveUserData(userCredential.user.uid, email, ipAddress);
+                    alert("Account already existed — profile updated.");
+                    registrationForm.reset();
+                } catch (loginError) {
+                    alert("Error: " + loginError.message);
+                }
+            } else {
+                alert("Registration failed: " + error.message);
+            }
+        }
     });
 }
 
-// Toggling between login and registration forms (only if toggle links are present)
+async function saveUserData(userId, email, ipAddress) {
+    await set(ref(database, `${userId}/info`), { email, ipAddress });
+}
+
+async function getIP() {
+    try {
+        const res = await fetch('https://api.ipify.org?format=json');
+        const data = await res.json();
+        return data.ip;
+    } catch {
+        return "Unknown";
+    }
+}
+
 const toggleRegisterLink = document.getElementById('toggle-register');
 const toggleLoginLink = document.getElementById('toggle-login');
 
@@ -77,7 +87,6 @@ if (toggleRegisterLink && toggleLoginLink) {
     });
 }
 
-// Handle login/logout link
 document.addEventListener("componentLoaded:nav", () => {
     const authLink = document.getElementById('authLink');
 
@@ -89,12 +98,8 @@ document.addEventListener("componentLoaded:nav", () => {
                 authLink.onclick = (e) => {
                     e.preventDefault();
                     signOut(auth)
-                        .then(() => {
-                            window.location.href = 'index.html';
-                        })
-                        .catch((error) => {
-                            console.error('Error signing out:', error);
-                        });
+                        .then(() => { window.location.href = 'index.html'; })
+                        .catch((error) => { console.error('Error signing out:', error); });
                 };
             } else {
                 authLink.textContent = 'Login';

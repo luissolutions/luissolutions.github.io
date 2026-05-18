@@ -1,385 +1,547 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-    <title>EmulatorJS + Cloud Sync</title>
+    <title>Emulator — Game Library</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="favicon.ico" type="image/x-icon">
-    <script type="module" src="../../apps/assets/js/login.js" defer></script>
     <link rel="stylesheet" href="../../assets/css/app-styles.css">
-
     <style>
+        * { box-sizing: border-box; }
+
         body {
-            background: var(--backgroundColor);
+            background: #1a1a1a;
+            color: #ccc;
+            font-family: monospace;
+            margin: 0;
         }
 
-        #box {
-            margin: 0 auto;
-            color: #aaa;
-            height: 30em;
-            width: 40em;
-            max-width: 90%;
-            background-color: #333;
-            border-radius: 8px;
-            border: 2px solid #555;
+        /* ── HEADER ── */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 20px;
+            background: #111;
+            border-bottom: 1px solid #333;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        header h1 { margin: 0; font-size: 1rem; color: #fff; }
+
+        #auth-section { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        #auth-section input {
+            padding: 4px 8px; border-radius: 4px; border: 1px solid #555;
+            background: #2a2a2a; color: #fff; font-size: .85rem; width: 140px;
+        }
+        #auth-section button {
+            padding: 4px 12px; font-size: .85rem; cursor: pointer;
+            border-radius: 4px; border: none; background: #e65c00; color: #fff;
+        }
+        #user-status { font-size: .82rem; color: #888; }
+
+        /* ── LAYOUT ── */
+        #app { display: flex; height: calc(100vh - 50px); }
+
+        /* ── SIDEBAR ── */
+        #sidebar {
+            width: 300px;
+            min-width: 260px;
+            background: #222;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #system-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            border-bottom: 1px solid #333;
+            padding: 8px 8px 0;
+            gap: 4px;
+        }
+        .sys-tab {
+            padding: 5px 10px;
+            border-radius: 4px 4px 0 0;
+            border: 1px solid #444;
+            border-bottom: none;
+            background: #2a2a2a;
+            color: #888;
+            cursor: pointer;
+            font-size: .8rem;
+            font-family: monospace;
+        }
+        .sys-tab.active { background: #e65c00; color: #fff; border-color: #e65c00; }
+        .sys-tab:hover:not(.active) { background: #333; color: #ccc; }
+
+        #search-wrap { padding: 10px; }
+        #search {
+            width: 100%;
+            padding: 6px 10px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background: #1a1a1a;
+            color: #ccc;
+            font-size: .85rem;
+            font-family: monospace;
+        }
+
+        #rom-count { padding: 0 10px 6px; font-size: .78rem; color: #666; }
+
+        #game-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 6px 10px;
+        }
+        #game-list::-webkit-scrollbar { width: 6px; }
+        #game-list::-webkit-scrollbar-track { background: #1a1a1a; }
+        #game-list::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
+        .game-entry {
+            padding: 7px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: .82rem;
+            color: #bbb;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .game-entry:hover { background: #333; color: #fff; }
+        .game-entry.active { background: #e65c00; color: #fff; }
+
+        #list-placeholder {
+            padding: 20px 10px;
+            color: #555;
+            font-size: .82rem;
+            text-align: center;
+        }
+
+        /* ── MAIN AREA ── */
+        #main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #controls {
+            display: flex;
+            gap: 8px;
+            padding: 10px 16px;
+            background: #1e1e1e;
+            border-bottom: 1px solid #333;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        #controls button {
+            padding: 6px 14px;
+            border-radius: 4px;
+            border: none;
+            background: #333;
+            color: #ccc;
+            cursor: pointer;
+            font-size: .85rem;
+            font-family: monospace;
+        }
+        #controls button:hover { background: #444; color: #fff; }
+        #controls button.primary { background: #e65c00; color: #fff; }
+        #controls button.primary:hover { background: #cc4f00; }
+
+        #save-status {
+            margin-left: auto;
+            font-size: .8rem;
+            color: #666;
+            min-width: 180px;
+            text-align: right;
+        }
+        #save-status.ok  { color: #6c6; }
+        #save-status.err { color: #f66; }
+
+        #emulator-wrap {
+            flex: 1;
             display: flex;
             align-items: center;
             justify-content: center;
+            background: #111;
+            overflow: hidden;
+        }
+
+        #drop-prompt {
+            color: #444;
+            font-size: 1rem;
             text-align: center;
-            font-family: monospace;
-            font-weight: bold;
+            line-height: 2;
         }
+        #drop-prompt span { display: block; font-size: .8rem; color: #333; }
 
-        #input {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            opacity: 0;
-            cursor: pointer;
-        }
-
-        header {
-            display: none;
-        }
-
+        #game { width: 100%; height: 100%; }
     </style>
 </head>
-
 <body>
 
-    <header>
-        <h1>🎮 Emulator w/ Cloud Sync</h1>
+<header>
+    <h1>🎮 Game Library</h1>
+    <div id="auth-section">
+        <div id="login-fields" style="display:flex;gap:8px;align-items:center;">
+            <input type="email" id="login-email" placeholder="Email">
+            <input type="password" id="login-password" placeholder="Password">
+            <button id="login-btn">Login</button>
+        </div>
+        <div id="logout-fields" style="display:none;gap:8px;align-items:center;">
+            <span id="user-status"></span>
+            <button id="logout-btn">Logout</button>
+        </div>
+    </div>
+</header>
 
-        <section id="login-section">
-            <form id="login-form">
-                <label>Email:</label>
-                <input type="email" id="username" required>
-                <br>
-                <label>Password:</label>
-                <input type="password" id="password" required>
-                <br>
-                <button type="submit">Sign in</button>
-            </form>
-            <button id="logout" style="display:none;">Logout</button>
-        </section>
+<div id="app">
 
-    </header>
+    <div id="sidebar">
+        <div id="system-tabs"></div>
+        <div id="search-wrap">
+            <input type="text" id="search" placeholder="Search games…">
+        </div>
+        <div id="rom-count"></div>
+        <div id="game-list">
+            <div id="list-placeholder">Select a system above</div>
+        </div>
+    </div>
 
-    <main>
+    <div id="main">
+        <div id="controls">
+            <button id="download-state">Load Cloud Save</button>
+            <button id="save-quit" class="primary">Save &amp; Quit</button>
+            <div id="save-status"></div>
+        </div>
+        <div id="emulator-wrap">
+            <div id="drop-prompt">
+                ← Select a game from the library
+                <span>SNES · GBA · N64 · NDS · PS1</span>
+            </div>
+        </div>
+    </div>
 
-        <section class="controls">
-            <button id="upload-battery">Upload Battery</button>
-            <button id="download-state">Load Cloud State</button>
-            <button id="save-quit">Save & Quit</button>
-        </section>
+</div>
 
-        <section id="box">
-            <input type="file" id="input">
-            Drag ROM file or click here
-        </section>
+<script type="module">
 
-    </main>
+    import {
+        auth, storage, storageRef, uploadBytes, getBytes,
+        onAuthStateChanged, signInWithEmailAndPassword, signOut
+    } from "../../assets/js/firebase-init.js";
 
-    <script type="module">
+    /* ── CONFIG ── */
 
-        import {
-            auth,
-            storage,
-            storageRef,
-            uploadBytes,
-            getBytes,
-            onAuthStateChanged
-        } from "../../assets/js/firebase-init.js";
+    const ROM_SERVER = "http://192.168.50.10:8090/roms";
 
-        /* ================= AUTH ================= */
+    const SYSTEMS = [
+        { id: "snes", name: "SNES", folder: "snes_roms", core: "snes", exts: ["smc","sfc","zip"] },
+        { id: "gba",  name: "GBA",  folder: "gba_roms",  core: "gba",  exts: ["gba","zip"] },
+        { id: "n64",  name: "N64",  folder: "n64_roms",  core: "n64",  exts: ["z64","n64","v64","zip"] },
+        { id: "nds",  name: "NDS",  folder: "ds_roms",   core: "nds",  exts: ["nds","zip"] },
+        { id: "ps1",  name: "PS1",  folder: "ps1_roms",  core: "psx",  exts: ["bin","iso","zip"] },
+    ];
 
-        let DATABASE_BASE_PATH = "public";
-        let authResolved = false;
+    /* ── STATUS ── */
 
-        function waitForAuth() {
-            return new Promise(resolve => {
-                if (authResolved) return resolve();
+    const statusEl = document.getElementById("save-status");
+    function setStatus(msg, type = "") {
+        statusEl.textContent = msg;
+        statusEl.className = type;
+        if (type === "ok") setTimeout(() => { statusEl.textContent = ""; statusEl.className = ""; }, 4000);
+    }
 
-                const unsub = onAuthStateChanged(auth, user => {
-                    DATABASE_BASE_PATH = user ? user.uid : "public";
-                    authResolved = true;
-                    unsub();
-                    resolve();
-                });
+    /* ── AUTH ── */
+
+    let DATABASE_BASE_PATH = "public";
+    let authResolved = false;
+
+    document.getElementById("login-btn").onclick = async () => {
+        try {
+            await signInWithEmailAndPassword(
+                auth,
+                document.getElementById("login-email").value,
+                document.getElementById("login-password").value
+            );
+        } catch (err) { setStatus("Login failed: " + err.message, "err"); }
+    };
+
+    document.getElementById("logout-btn").onclick = () => signOut(auth);
+
+    function waitForAuth() {
+        return new Promise(resolve => {
+            if (authResolved) return resolve();
+            const unsub = onAuthStateChanged(auth, user => {
+                DATABASE_BASE_PATH = user ? user.uid : "public";
+                authResolved = true;
+                unsub();
+                resolve();
             });
+        });
+    }
+
+    onAuthStateChanged(auth, user => {
+        DATABASE_BASE_PATH = user ? user.uid : "public";
+        authResolved = true;
+        const lf = document.getElementById("login-fields");
+        const lo = document.getElementById("logout-fields");
+        if (user) {
+            lf.style.display = "none";
+            lo.style.display = "flex";
+            document.getElementById("user-status").textContent = user.email;
+        } else {
+            lf.style.display = "flex";
+            lo.style.display = "none";
+            document.getElementById("user-status").textContent = "";
         }
+    });
 
-        /* ================= PATH HELPERS ================= */
+    /* ── SAVE PATH HELPERS ── */
 
-        function getBatteryExtension() {
-            const map = {
-                nes: "sav",
-                gb: "sav",
-                gba: "srm",
-                snes: "srm",
-                nds: "sav"
-            };
-            return map[window.EJS_core] || null;
+    function getBatteryPath() {
+        const map = { nes:"sav", gb:"sav", gba:"srm", snes:"srm", nds:"sav" };
+        const ext = map[window.EJS_core];
+        if (!ext || !window.EJS_gameName) return null;
+        return `${DATABASE_BASE_PATH}/emu/battery/${window.EJS_core}/${window.EJS_gameName}.${ext}`;
+    }
+
+    function getStatePath() {
+        if (!window.EJS_core || !window.EJS_gameName) return null;
+        return `${DATABASE_BASE_PATH}/emu/states/${window.EJS_core}/${window.EJS_gameName}.state`;
+    }
+
+    /* ── ROM BROWSER ── */
+
+    const tabsEl    = document.getElementById("system-tabs");
+    const listEl    = document.getElementById("game-list");
+    const searchEl  = document.getElementById("search");
+    const countEl   = document.getElementById("rom-count");
+
+    let allRoms = [];
+    let activeSystem = null;
+    let activeEntry  = null;
+
+    // Build system tabs
+    SYSTEMS.forEach(sys => {
+        const tab = document.createElement("div");
+        tab.className = "sys-tab";
+        tab.textContent = sys.name;
+        tab.onclick = () => loadSystem(sys, tab);
+        tabsEl.appendChild(tab);
+    });
+
+    async function loadSystem(sys, tab) {
+        // Update active tab
+        document.querySelectorAll(".sys-tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        activeSystem = sys;
+
+        listEl.innerHTML = '<div id="list-placeholder">Loading…</div>';
+        countEl.textContent = "";
+        searchEl.value = "";
+
+        try {
+            const res = await fetch(`${ROM_SERVER}/${sys.folder}/`);
+            if (!res.ok) throw new Error("Server returned " + res.status);
+            const files = await res.json();
+            allRoms = files
+                .filter(f => f.type === "file" && sys.exts.includes(f.name.split(".").pop().toLowerCase()))
+                .map(f => f.name)
+                .sort((a, b) => a.localeCompare(b));
+            renderList(allRoms, sys);
+        } catch (err) {
+            listEl.innerHTML = `<div id="list-placeholder">Could not reach ROM server.<br>${err.message}</div>`;
         }
+    }
 
-        function getBatteryPath() {
-            const ext = getBatteryExtension();
-            if (!ext || !window.EJS_gameName) return null;
-            return `${DATABASE_BASE_PATH}/emu/battery/${window.EJS_core}/${window.EJS_gameName}.${ext}`;
+    function renderList(roms, sys) {
+        countEl.textContent = `${roms.length} games`;
+        if (!roms.length) {
+            listEl.innerHTML = '<div id="list-placeholder">No games found.</div>';
+            return;
         }
+        listEl.innerHTML = "";
+        roms.forEach(name => {
+            const el = document.createElement("div");
+            el.className = "game-entry";
+            el.title = name;
+            el.textContent = name.replace(/\.[^.]+$/, ""); // strip extension
+            el.onclick = () => launchRom(name, sys, el);
+            listEl.appendChild(el);
+        });
+    }
 
-        function getStatePath() {
-            if (!window.EJS_core || !window.EJS_gameName) return null;
-            return `${DATABASE_BASE_PATH}/emu/states/${window.EJS_core}/${window.EJS_gameName}.state`;
-        }
+    searchEl.oninput = () => {
+        if (!activeSystem) return;
+        const q = searchEl.value.toLowerCase();
+        const filtered = allRoms.filter(n => n.toLowerCase().includes(q));
+        renderList(filtered, activeSystem);
+    };
 
-        /* ================= CLOUD BATTERY ================= */
+    /* ── LAUNCH ROM ── */
 
-        let CLOUD_BATTERY = null;
+    let CLOUD_BATTERY = null;
+    let autoSaveInterval = null;
 
-        async function fetchCloudBattery() {
-            const path = getBatteryPath();
-            if (!path) {
-                CLOUD_BATTERY = null;
-                return;
-            }
+    async function launchRom(filename, sys, entryEl) {
+        // Highlight entry
+        if (activeEntry) activeEntry.classList.remove("active");
+        activeEntry = entryEl;
+        entryEl.classList.add("active");
 
+        // Stop previous session
+        stopAutoSave();
+        window.EJS_emulator?.destroy?.();
+
+        await waitForAuth();
+
+        window.EJS_core     = sys.core;
+        window.EJS_gameName = filename.replace(/\.[^.]+$/, "");
+
+        setStatus("Fetching cloud save…");
+
+        // Fetch cloud battery
+        const bPath = getBatteryPath();
+        if (bPath) {
             try {
-                const bytes = await getBytes(storageRef(storage, path));
+                const bytes = await getBytes(storageRef(storage, bPath));
                 CLOUD_BATTERY = new Uint8Array(bytes);
-                console.log("Cloud battery downloaded.");
-            } catch {
-                CLOUD_BATTERY = null;
-                console.log("No cloud battery found.");
-            }
-        }
-
-        /* ================= EMULATOR BOOT ================= */
-
-        const input = document.getElementById("input");
-        const box = document.getElementById("box");
-
-        input.onchange = e => {
-            if (e.target.files?.[0]) run(e.target.files[0]);
-        };
-
-        async function run(file) {
-
-            await waitForAuth(); // ensure correct user path
-
-            const parts = file.name.split(".");
-            const ext = parts.pop().toLowerCase();
-            const gameName = parts.join(".");
-
-            const coreMap = {
-                nes: ["nes", "fds", "unif", "unf"],
-                snes: ["smc", "sfc"],
-                n64: ["z64", "n64"],
-                gba: ["gba"],
-                gb: ["gb"],
-                nds: ["nds"]
-            };
-
-            let core = null;
-            for (let c in coreMap) {
-                if (coreMap[c].includes(ext)) {
-                    core = c;
-                    break;
-                }
-            }
-
-            if (!core) {
-                alert("Unsupported file type");
-                return;
-            }
-
-            window.EJS_core = core;
-            window.EJS_gameName = gameName;
-
-            await fetchCloudBattery();
-
-            box.innerHTML = "<div id='game'></div>";
-
-            window.EJS_player = "#game";
-            window.EJS_gameUrl = file;
-            window.EJS_pathtodata = "data/";
-            window.EJS_startOnLoaded = true;
-
-            const script = document.createElement("script");
-            script.src = "data/loader.js";
-            document.body.appendChild(script);
-
-            window.EJS_onGameStart = function () {
-                console.log("Game fully ready");
-
-                startAutoSave();
-                autoLoadState();
-            };
-        }
-
-        /* ================= INJECT BATTERY ================= */
-
-        window.EJS_onLoadSave = function () {
-            return CLOUD_BATTERY || null;
-        };
-
-        /* ================= DEBOUNCED BATTERY AUTO-SYNC ================= */
-
-        let saveTimeout = null;
-
-        window.EJS_onSaveSave = function (data) {
-
-            if (!data || data.byteLength === 0) return;
-
-            const path = getBatteryPath();
-            if (!path) return;
-
-            clearTimeout(saveTimeout);
-
-            saveTimeout = setTimeout(async () => {
-                try {
-                    await uploadBytes(
-                        storageRef(storage, path),
-                        new Blob([data]),
-                        { contentType: "application/octet-stream" }
-                    );
-                    console.log("Battery auto-synced.");
-                } catch (err) {
-                    console.error("Battery upload failed:", err);
-                }
-            }, 1000);
-        };
-
-        /* ================= LOAD CLOUD STATE ================= */
-
-        document.getElementById("download-state").onclick = async () => {
-
-            if (!window.EJS_core) {
-                alert("Load a game first.");
-                return;
-            }
-
-            const path = getStatePath();
-            if (!path) return;
-
-            try {
-                const bytes = await getBytes(storageRef(storage, path));
-
-                try {
-                    (window.EJS_emulator?.gameManager || window.EJS_emulator)?.loadState(
-                        new Uint8Array(bytes)
-                    );
-                    alert("Cloud save state loaded.");
-                } catch (err) {
-                    console.error(err);
-                    alert("State file corrupted.");
-                }
-
-            } catch {
-                alert("No cloud save state found.");
-            }
-        };
-
-        /* ================= SAVE & QUIT ================= */
-
-        document.getElementById("save-quit").onclick = async () => {
-            stopAutoSave(); // 🔴 IMPORTANT
-
-            if (!window.EJS_core) {
-                alert("No game loaded.");
-                return;
-            }
-
-            const gm = window.EJS_emulator?.gameManager || window.EJS_emulator;
-            const path = getStatePath();
-
-            try {
-
-                if (gm?.getState && path) {
-                    const state = gm.getState();
-                    if (state) {
-                        await uploadBytes(
-                            storageRef(storage, path),
-                            new Blob([new Uint8Array(state)]),
-                            { contentType: "application/octet-stream" }
-                        );
-                    }
-                }
-
-                alert("Game synced to cloud.");
-
-            } catch (err) {
-                console.error(err);
-                alert("Cloud sync failed.");
-            }
-
-            // Clean shutdown
-            window.EJS_emulator?.destroy?.();
-
-            // Reset UI safely
+                setStatus("Cloud battery loaded.", "ok");
+            } catch { CLOUD_BATTERY = null; }
+        } else {
             CLOUD_BATTERY = null;
-            window.EJS_core = null;
-            window.EJS_gameName = null;
+        }
 
-            box.innerHTML = "Drag ROM file or click here";
-            box.appendChild(input);
-            input.value = "";
+        // Boot emulator
+        const wrap = document.getElementById("emulator-wrap");
+        wrap.innerHTML = "<div id='game'></div>";
+
+        window.EJS_player        = "#game";
+        window.EJS_gameUrl       = `${ROM_SERVER}/${sys.folder}/${encodeURIComponent(filename)}`;
+        window.EJS_pathtodata    = "data/";
+        window.EJS_startOnLoaded = true;
+
+        window.EJS_onGameStart = function () {
+            setStatus("Running. Auto-save every 60s.", "ok");
+            startAutoSave();
+            setTimeout(autoLoadState, 800);
         };
 
-        /* ================= AUTO SAVE LOOP ================= */
+        // Remove old loader if present
+        const old = document.getElementById("ejs-loader");
+        if (old) old.remove();
 
-        let autoSaveInterval = null;
-        /* ================= AUTO LOAD STATE ================= */
+        const script = document.createElement("script");
+        script.id  = "ejs-loader";
+        script.src = "data/loader.js";
+        document.body.appendChild(script);
+    }
 
-        async function autoLoadState() {
-            const path = getStatePath();
-            if (!path) return;
+    /* ── INJECT BATTERY ── */
 
+    window.EJS_onLoadSave = function () { return CLOUD_BATTERY || null; };
+
+    /* ── BATTERY AUTO-SYNC ── */
+
+    let saveTimeout = null;
+    window.EJS_onSaveSave = function (data) {
+        if (!data || data.byteLength === 0) return;
+        const path = getBatteryPath();
+        if (!path) return;
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(async () => {
             try {
-                const bytes = await getBytes(storageRef(storage, path));
+                await uploadBytes(storageRef(storage, path), new Blob([data]), { contentType: "application/octet-stream" });
+                setStatus("Battery synced.", "ok");
+            } catch (err) { setStatus("Battery sync failed.", "err"); }
+        }, 1000);
+    };
 
-                window.EJS_emulator?.gameManager?.loadState(
-                    new Uint8Array(bytes)
-                );
+    /* ── LOAD CLOUD STATE ── */
 
-                console.log("Auto-loaded cloud state.");
-            } catch {
-                console.log("No previous state found.");
-            }
-        }
-        function startAutoSave() {
-            stopAutoSave();
+    document.getElementById("download-state").onclick = async () => {
+        if (!window.EJS_core) { alert("Launch a game first."); return; }
+        const path = getStatePath();
+        if (!path) return;
+        setStatus("Loading cloud state…");
+        try {
+            const bytes = await getBytes(storageRef(storage, path));
+            const gm = window.EJS_emulator?.gameManager || window.EJS_emulator;
+            gm?.loadState(new Uint8Array(bytes));
+            setStatus("Cloud state loaded.", "ok");
+        } catch { setStatus("No cloud state found.", "err"); }
+    };
 
-            autoSaveInterval = setInterval(async () => {
-                try {
-                    const gm = window.EJS_emulator?.gameManager || window.EJS_emulator; const path = getStatePath();
+    /* ── SAVE & QUIT ── */
 
-                    if (!gm || !gm.getState || !path) return;
+    document.getElementById("save-quit").onclick = async () => {
+        stopAutoSave();
+        if (!window.EJS_core) { alert("No game loaded."); return; }
 
-                    const state = gm.getState();
-                    if (!state) return;
+        const gm   = window.EJS_emulator?.gameManager || window.EJS_emulator;
+        const path = getStatePath();
 
+        setStatus("Saving…");
+        try {
+            if (gm?.getState && path) {
+                const state = gm.getState();
+                if (state) {
                     await uploadBytes(
                         storageRef(storage, path),
                         new Blob([new Uint8Array(state)]),
                         { contentType: "application/octet-stream" }
                     );
-
-                    console.log("Auto state saved...");
-                } catch (err) {
-                    console.error("Auto-save failed:", err);
                 }
-            }, 60000); // ⏱ every 60 seconds (adjust if needed)
-        }
-
-        function stopAutoSave() {
-            if (autoSaveInterval) {
-                clearInterval(autoSaveInterval);
-                autoSaveInterval = null;
             }
-        }
-    </script>
+            setStatus("Saved to cloud.", "ok");
+        } catch (err) { setStatus("Save failed: " + err.message, "err"); }
 
+        window.EJS_emulator?.destroy?.();
+        CLOUD_BATTERY = null;
+        window.EJS_core = null;
+        window.EJS_gameName = null;
+
+        if (activeEntry) { activeEntry.classList.remove("active"); activeEntry = null; }
+        document.getElementById("emulator-wrap").innerHTML =
+            '<div id="drop-prompt">← Select a game from the library<span>SNES · GBA · N64 · NDS · PS1</span></div>';
+    };
+
+    /* ── AUTO SAVE LOOP ── */
+
+    function startAutoSave() {
+        stopAutoSave();
+        autoSaveInterval = setInterval(async () => {
+            const gm   = window.EJS_emulator?.gameManager || window.EJS_emulator;
+            const path = getStatePath();
+            if (!gm?.getState || !path) return;
+            const state = gm.getState();
+            if (!state) return;
+            try {
+                await uploadBytes(storageRef(storage, path), new Blob([new Uint8Array(state)]), { contentType: "application/octet-stream" });
+                setStatus("Auto-saved.", "ok");
+            } catch { setStatus("Auto-save failed.", "err"); }
+        }, 60000);
+    }
+
+    function stopAutoSave() {
+        if (autoSaveInterval) { clearInterval(autoSaveInterval); autoSaveInterval = null; }
+    }
+
+    /* ── AUTO LOAD STATE ── */
+
+    async function autoLoadState() {
+        const path = getStatePath();
+        if (!path) return;
+        try {
+            const bytes = await getBytes(storageRef(storage, path));
+            const gm = window.EJS_emulator?.gameManager || window.EJS_emulator;
+            if (gm?.loadState) {
+                gm.loadState(new Uint8Array(bytes));
+                setStatus("Previous session restored.", "ok");
+            }
+        } catch { /* no previous state */ }
+    }
+
+</script>
 </body>
-
 </html>
