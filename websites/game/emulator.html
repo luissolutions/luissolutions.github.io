@@ -127,7 +127,7 @@
         #controls {
             display: flex;
             gap: 8px;
-            padding: 10px 16px;
+            padding: 8px 16px;
             background: #1e1e1e;
             border-bottom: 1px solid #333;
             align-items: center;
@@ -146,16 +146,35 @@
         #controls button:hover { background: #444; color: #fff; }
         #controls button.primary { background: #e65c00; color: #fff; }
         #controls button.primary:hover { background: #cc4f00; }
+        #controls button:disabled { opacity: .35; cursor: default; }
+
+        /* Slot buttons */
+        .slot-group {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 2px 6px;
+        }
+        .slot-group label { font-size: .75rem; color: #666; margin-right: 2px; }
+        .slot-btn {
+            padding: 3px 8px !important;
+            font-size: .78rem !important;
+            background: #2a2a2a !important;
+        }
+        .slot-btn.active-slot { background: #e65c00 !important; color: #fff !important; }
 
         #save-status {
             margin-left: auto;
             font-size: .8rem;
             color: #666;
-            min-width: 180px;
+            min-width: 200px;
             text-align: right;
         }
         #save-status.ok  { color: #6c6; }
         #save-status.err { color: #f66; }
+        #save-status.info { color: #6af; }
 
         #emulator-wrap {
             flex: 1;
@@ -209,8 +228,15 @@
 
     <div id="main">
         <div id="controls">
-            <button id="download-state">Load Cloud Save</button>
-            <button id="save-quit" class="primary">Save &amp; Quit</button>
+            <div class="slot-group">
+                <label>SLOT</label>
+                <button class="slot-btn active-slot" data-slot="1">1</button>
+                <button class="slot-btn" data-slot="2">2</button>
+                <button class="slot-btn" data-slot="3">3</button>
+            </div>
+            <button id="btn-quick-save" disabled>Quick Save</button>
+            <button id="btn-load" disabled>Load Slot</button>
+            <button id="btn-save-quit" class="primary" disabled>Save &amp; Quit</button>
             <div id="save-status"></div>
         </div>
         <div id="emulator-wrap">
@@ -226,13 +252,37 @@
 <script type="module">
 
     import {
-        auth, storage, storageRef, uploadBytes, getBytes,
+        auth, database, ref, set, get,
         onAuthStateChanged, signInWithEmailAndPassword, signOut
     } from "../../assets/js/firebase-init.js";
 
+    /* ── RTDB SAVE HELPERS ── */
+    function toB64(bytes) {
+        let s = "";
+        for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+        return btoa(s);
+    }
+    function fromB64(b64) {
+        const s = atob(b64);
+        const out = new Uint8Array(s.length);
+        for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+        return out;
+    }
+    async function dbSave(path, bytes) {
+        await set(ref(database, path), { d: toB64(bytes), ts: Date.now() });
+    }
+    async function dbLoad(path) {
+        const snap = await get(ref(database, path));
+        if (!snap.exists()) throw new Error("no save");
+        return fromB64(snap.val().d);
+    }
+
     /* ── CONFIG ── */
 
-    const ROM_SERVER = "http://192.168.50.10:8090/roms";
+    const ROM_SERVER    = "http://192.168.50.10:8090/roms";
+    const AUTO_SAVE_MS  = 30000;   // 30s auto-save interval
+    const READY_POLL_MS = 250;     // how often to poll for emulator ready
+    const READY_TIMEOUT = 15000;   // max wait for emulator ready
 
     const SYSTEMS = [
         { id: "snes", name: "SNES", folder: "snes_roms", core: "snes", exts: ["smc","sfc","zip"] },
@@ -245,10 +295,55 @@
     /* ── STATUS ── */
 
     const statusEl = document.getElementById("save-status");
-    function setStatus(msg, type = "") {
+    let statusTimer = null;
+    function setStatus(msg, type = "", persist = false) {
+        clearTimeout(statusTimer);
         statusEl.textContent = msg;
         statusEl.className = type;
-        if (type === "ok") setTimeout(() => { statusEl.textContent = ""; statusEl.className = ""; }, 4000);
+        if (!persist && type === "ok") {
+            statusTimer = setTimeout(() => { statusEl.textContent = ""; statusEl.className = ""; }, 4000);
+        }
+    }
+
+    /* ── SLOT MANAGEMENT ── */
+
+    let currentSlot = 1;
+
+    document.querySelectorAll(".slot-btn").forEach(btn => {
+        btn.onclick = () => {
+            currentSlot = parseInt(btn.dataset.slot);
+            document.querySelectorAll(".slot-btn").forEach(b => b.classList.remove("active-slot"));
+            btn.classList.add("active-slot");
+            setStatus(`Slot ${currentSlot} selected.`);
+        };
+    });
+
+    function slotKey() {
+        if (!window.EJS_core || !window.EJS_gameName) return null;
+        return `emu:lastslot:${window.EJS_core}:${window.EJS_gameName}`;
+    }
+
+    function rememberSlot() {
+        const k = slotKey();
+        if (k) localStorage.setItem(k, currentSlot);
+    }
+
+    function recallSlot() {
+        const k = slotKey();
+        if (!k) return;
+        const saved = parseInt(localStorage.getItem(k) || "1");
+        currentSlot = saved;
+        document.querySelectorAll(".slot-btn").forEach(b => {
+            b.classList.toggle("active-slot", parseInt(b.dataset.slot) === currentSlot);
+        });
+    }
+
+    /* ── GAME BUTTONS ── */
+
+    function setGameButtons(enabled) {
+        ["btn-quick-save", "btn-load", "btn-save-quit"].forEach(id => {
+            document.getElementById(id).disabled = !enabled;
+        });
     }
 
     /* ── AUTH ── */
@@ -296,32 +391,69 @@
         }
     });
 
-    /* ── SAVE PATH HELPERS ── */
+    /* ── PATH HELPERS ── */
 
-    function getBatteryPath() {
-        const map = { nes:"sav", gb:"sav", gba:"srm", snes:"srm", nds:"sav" };
-        const ext = map[window.EJS_core];
-        if (!ext || !window.EJS_gameName) return null;
-        return `${DATABASE_BASE_PATH}/emu/battery/${window.EJS_core}/${window.EJS_gameName}.${ext}`;
+    function sanitizeKey(s) {
+        return s.replace(/[.#$[\]\s/]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
     }
 
-    function getStatePath() {
+    function getBatteryPath() {
         if (!window.EJS_core || !window.EJS_gameName) return null;
-        return `${DATABASE_BASE_PATH}/emu/states/${window.EJS_core}/${window.EJS_gameName}.state`;
+        return `${DATABASE_BASE_PATH}/emu/battery/${window.EJS_core}/${sanitizeKey(window.EJS_gameName)}`;
+    }
+
+    function getStatePath(slot = currentSlot) {
+        if (!window.EJS_core || !window.EJS_gameName) return null;
+        return `${DATABASE_BASE_PATH}/emu/states/${window.EJS_core}/${sanitizeKey(window.EJS_gameName)}/s${slot}`;
+    }
+
+    /* ── EMULATOR API HELPERS ── */
+
+    function getGameManager() {
+        return window.EJS_emulator?.gameManager ?? window.EJS_emulator ?? null;
+    }
+
+    async function waitForEmulatorReady() {
+        const deadline = Date.now() + READY_TIMEOUT;
+        while (Date.now() < deadline) {
+            const gm = getGameManager();
+            if (gm?.loadState && gm?.getState) return true;
+            await new Promise(r => setTimeout(r, READY_POLL_MS));
+        }
+        return false;
+    }
+
+    async function captureState() {
+        const gm = getGameManager();
+        if (!gm?.getState) return null;
+        try {
+            let raw = gm.getState();
+            if (raw?.then) raw = await raw;
+            if (!raw) return null;
+            return raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+        } catch { return null; }
+    }
+
+    async function applyState(bytes) {
+        const gm = getGameManager();
+        if (!gm?.loadState) return false;
+        try {
+            gm.loadState(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+            return true;
+        } catch { return false; }
     }
 
     /* ── ROM BROWSER ── */
 
-    const tabsEl    = document.getElementById("system-tabs");
-    const listEl    = document.getElementById("game-list");
-    const searchEl  = document.getElementById("search");
-    const countEl   = document.getElementById("rom-count");
+    const tabsEl   = document.getElementById("system-tabs");
+    const listEl   = document.getElementById("game-list");
+    const searchEl = document.getElementById("search");
+    const countEl  = document.getElementById("rom-count");
 
-    let allRoms = [];
+    let allRoms      = [];
     let activeSystem = null;
     let activeEntry  = null;
 
-    // Build system tabs
     SYSTEMS.forEach(sys => {
         const tab = document.createElement("div");
         tab.className = "sys-tab";
@@ -331,15 +463,12 @@
     });
 
     async function loadSystem(sys, tab) {
-        // Update active tab
         document.querySelectorAll(".sys-tab").forEach(t => t.classList.remove("active"));
         tab.classList.add("active");
         activeSystem = sys;
-
         listEl.innerHTML = '<div id="list-placeholder">Loading…</div>';
         countEl.textContent = "";
         searchEl.value = "";
-
         try {
             const res = await fetch(`${ROM_SERVER}/${sys.folder}/`);
             if (!res.ok) throw new Error("Server returned " + res.status);
@@ -356,16 +485,13 @@
 
     function renderList(roms, sys) {
         countEl.textContent = `${roms.length} games`;
-        if (!roms.length) {
-            listEl.innerHTML = '<div id="list-placeholder">No games found.</div>';
-            return;
-        }
+        if (!roms.length) { listEl.innerHTML = '<div id="list-placeholder">No games found.</div>'; return; }
         listEl.innerHTML = "";
         roms.forEach(name => {
             const el = document.createElement("div");
             el.className = "game-entry";
             el.title = name;
-            el.textContent = name.replace(/\.[^.]+$/, ""); // strip extension
+            el.textContent = name.replace(/\.[^.]+$/, "");
             el.onclick = () => launchRom(name, sys, el);
             listEl.appendChild(el);
         });
@@ -374,45 +500,40 @@
     searchEl.oninput = () => {
         if (!activeSystem) return;
         const q = searchEl.value.toLowerCase();
-        const filtered = allRoms.filter(n => n.toLowerCase().includes(q));
-        renderList(filtered, activeSystem);
+        renderList(allRoms.filter(n => n.toLowerCase().includes(q)), activeSystem);
     };
 
     /* ── LAUNCH ROM ── */
 
-    let CLOUD_BATTERY = null;
+    let CLOUD_BATTERY    = null;
     let autoSaveInterval = null;
 
     async function launchRom(filename, sys, entryEl) {
-        // Highlight entry
         if (activeEntry) activeEntry.classList.remove("active");
         activeEntry = entryEl;
         entryEl.classList.add("active");
 
-        // Stop previous session
         stopAutoSave();
-        window.EJS_emulator?.destroy?.();
+        await destroyEmulator();
+        setGameButtons(false);
 
         await waitForAuth();
 
         window.EJS_core     = sys.core;
         window.EJS_gameName = filename.replace(/\.[^.]+$/, "");
 
-        setStatus("Fetching cloud save…");
+        recallSlot();
+        setStatus("Fetching cloud save…", "info", true);
 
-        // Fetch cloud battery
+        // Load battery save
         const bPath = getBatteryPath();
         if (bPath) {
-            try {
-                const bytes = await getBytes(storageRef(storage, bPath));
-                CLOUD_BATTERY = new Uint8Array(bytes);
-                setStatus("Cloud battery loaded.", "ok");
-            } catch { CLOUD_BATTERY = null; }
+            try { CLOUD_BATTERY = await dbLoad(bPath); }
+            catch { CLOUD_BATTERY = null; }
         } else {
             CLOUD_BATTERY = null;
         }
 
-        // Boot emulator
         const wrap = document.getElementById("emulator-wrap");
         wrap.innerHTML = "<div id='game'></div>";
 
@@ -421,16 +542,36 @@
         window.EJS_pathtodata    = "data/";
         window.EJS_startOnLoaded = true;
 
-        window.EJS_onGameStart = function () {
-            setStatus("Running. Auto-save every 60s.", "ok");
+        window.EJS_onGameStart = async function () {
+            setGameButtons(true);
+            setStatus("Loading… waiting for core to be ready.", "info", true);
+
+            const ready = await waitForEmulatorReady();
+            if (!ready) {
+                setStatus("Core ready timeout — saves may not work.", "err");
+                startAutoSave();
+                return;
+            }
+
+            // Try to restore last state for this slot
+            const sPath = getStatePath();
+            if (sPath) {
+                try {
+                    const bytes = await dbLoad(sPath);
+                    const ok = await applyState(bytes);
+                    setStatus(ok ? `Slot ${currentSlot} restored.` : "State load failed.", ok ? "ok" : "err");
+                } catch {
+                    setStatus("No save found — starting fresh.", "");
+                }
+            } else {
+                setStatus("Running.", "ok");
+            }
+
             startAutoSave();
-            setTimeout(autoLoadState, 800);
         };
 
-        // Remove old loader if present
         const old = document.getElementById("ejs-loader");
         if (old) old.remove();
-
         const script = document.createElement("script");
         script.id  = "ejs-loader";
         script.src = "data/loader.js";
@@ -443,103 +584,112 @@
 
     /* ── BATTERY AUTO-SYNC ── */
 
-    let saveTimeout = null;
+    let batteryTimer = null;
     window.EJS_onSaveSave = function (data) {
         if (!data || data.byteLength === 0) return;
         const path = getBatteryPath();
         if (!path) return;
-        clearTimeout(saveTimeout);
-        saveTimeout = setTimeout(async () => {
-            try {
-                await uploadBytes(storageRef(storage, path), new Blob([data]), { contentType: "application/octet-stream" });
-                setStatus("Battery synced.", "ok");
-            } catch (err) { setStatus("Battery sync failed.", "err"); }
-        }, 1000);
+        clearTimeout(batteryTimer);
+        batteryTimer = setTimeout(async () => {
+            try { await dbSave(path, new Uint8Array(data)); }
+            catch { /* silent */ }
+        }, 1500);
     };
 
-    /* ── LOAD CLOUD STATE ── */
+    /* ── QUICK SAVE ── */
 
-    document.getElementById("download-state").onclick = async () => {
-        if (!window.EJS_core) { alert("Launch a game first."); return; }
+    document.getElementById("btn-quick-save").onclick = async () => {
         const path = getStatePath();
         if (!path) return;
-        setStatus("Loading cloud state…");
+        setStatus("Saving…", "info", true);
+        const state = await captureState();
+        if (!state) { setStatus("Could not read game state.", "err"); return; }
         try {
-            const bytes = await getBytes(storageRef(storage, path));
-            const gm = window.EJS_emulator?.gameManager || window.EJS_emulator;
-            gm?.loadState(new Uint8Array(bytes));
-            setStatus("Cloud state loaded.", "ok");
-        } catch { setStatus("No cloud state found.", "err"); }
+            await dbSave(path, state);
+            rememberSlot();
+            setStatus(`Saved to slot ${currentSlot}.`, "ok");
+        } catch (err) { setStatus("Save failed: " + err.message, "err"); }
     };
+
+    /* ── LOAD SLOT ── */
+
+    document.getElementById("btn-load").onclick = async () => {
+        const path = getStatePath();
+        if (!path) return;
+        setStatus("Loading slot…", "info", true);
+        try {
+            const bytes = await dbLoad(path);
+            const ok = await applyState(bytes);
+            setStatus(ok ? `Slot ${currentSlot} loaded.` : "State apply failed.", ok ? "ok" : "err");
+        } catch { setStatus(`No save in slot ${currentSlot}.`, "err"); }
+    };
+
+    /* ── DESTROY EMULATOR ── */
+
+    async function destroyEmulator() {
+        try { window.EJS_emulator?.pause?.(); } catch {}
+        // Close the Web Audio context — this is what keeps music playing after destroy()
+        try {
+            const al  = window.EJS_emulator?.Module?.AL;
+            const ctx = al?.currentCtx?.ctx ?? window.EJS_emulator?.Module?.audioContext;
+            if (ctx && ctx.state !== "closed") await ctx.close();
+        } catch {}
+        try { window.EJS_emulator?.Module?.pauseMainLoop?.(); } catch {}
+        try { window.EJS_emulator?.destroy?.(); } catch {}
+        window.EJS_emulator = null;
+    }
 
     /* ── SAVE & QUIT ── */
 
-    document.getElementById("save-quit").onclick = async () => {
+    document.getElementById("btn-save-quit").onclick = async () => {
         stopAutoSave();
-        if (!window.EJS_core) { alert("No game loaded."); return; }
-
-        const gm   = window.EJS_emulator?.gameManager || window.EJS_emulator;
+        setStatus("Saving…", "info", true);
         const path = getStatePath();
-
-        setStatus("Saving…");
-        try {
-            if (gm?.getState && path) {
-                const state = gm.getState();
-                if (state) {
-                    await uploadBytes(
-                        storageRef(storage, path),
-                        new Blob([new Uint8Array(state)]),
-                        { contentType: "application/octet-stream" }
-                    );
-                }
+        if (path) {
+            const state = await captureState();
+            if (state) {
+                try { await dbSave(path, state); rememberSlot(); }
+                catch { /* best effort */ }
             }
-            setStatus("Saved to cloud.", "ok");
-        } catch (err) { setStatus("Save failed: " + err.message, "err"); }
-
-        window.EJS_emulator?.destroy?.();
+        }
+        await destroyEmulator();
         CLOUD_BATTERY = null;
         window.EJS_core = null;
         window.EJS_gameName = null;
-
+        setGameButtons(false);
         if (activeEntry) { activeEntry.classList.remove("active"); activeEntry = null; }
         document.getElementById("emulator-wrap").innerHTML =
             '<div id="drop-prompt">← Select a game from the library<span>SNES · GBA · N64 · NDS · PS1</span></div>';
+        setStatus("Session saved.", "ok");
     };
 
     /* ── AUTO SAVE LOOP ── */
 
     function startAutoSave() {
         stopAutoSave();
+        let countdown = AUTO_SAVE_MS / 1000;
         autoSaveInterval = setInterval(async () => {
-            const gm   = window.EJS_emulator?.gameManager || window.EJS_emulator;
+            countdown -= 1;
+            if (countdown > 0) {
+                // update countdown every second silently — only show at 5s mark
+                if (countdown === 5) setStatus("Auto-save in 5s…");
+                return;
+            }
+            countdown = AUTO_SAVE_MS / 1000;
             const path = getStatePath();
-            if (!gm?.getState || !path) return;
-            const state = gm.getState();
+            if (!path) return;
+            const state = await captureState();
             if (!state) return;
             try {
-                await uploadBytes(storageRef(storage, path), new Blob([new Uint8Array(state)]), { contentType: "application/octet-stream" });
+                await dbSave(path, state);
+                rememberSlot();
                 setStatus("Auto-saved.", "ok");
             } catch { setStatus("Auto-save failed.", "err"); }
-        }, 60000);
+        }, 1000);
     }
 
     function stopAutoSave() {
         if (autoSaveInterval) { clearInterval(autoSaveInterval); autoSaveInterval = null; }
-    }
-
-    /* ── AUTO LOAD STATE ── */
-
-    async function autoLoadState() {
-        const path = getStatePath();
-        if (!path) return;
-        try {
-            const bytes = await getBytes(storageRef(storage, path));
-            const gm = window.EJS_emulator?.gameManager || window.EJS_emulator;
-            if (gm?.loadState) {
-                gm.loadState(new Uint8Array(bytes));
-                setStatus("Previous session restored.", "ok");
-            }
-        } catch { /* no previous state */ }
     }
 
 </script>
