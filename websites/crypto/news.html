@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News — Eco Lou</title>
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <script src="assets/js/html.js" defer></script>
+    <script src="assets/js/sidebar.js" defer></script>
+    <script type="module" src="assets/js/auth-handling.js" defer></script>
+</head>
+<body>
+
+<header></header>
+<nav></nav>
+
+<main>
+    <section class="hero">
+        <h2>News &amp; Updates</h2>
+        <p>Market commentary, investing strategy, and economic updates from the Eco Lou framework.</p>
+    </section>
+
+    <section class="our-services">
+        <div class="eco-news-filters">
+            <button class="eco-news-filter-btn active" data-cat="all">All</button>
+            <button class="eco-news-filter-btn" data-cat="market">Market</button>
+            <button class="eco-news-filter-btn" data-cat="investing">Investing</button>
+            <button class="eco-news-filter-btn" data-cat="economy">Economy</button>
+        </div>
+
+        <div id="eco-news-list"></div>
+        <div id="eco-news-article" style="display:none">
+            <button class="eco-news-back-btn" id="ecoNewsBack">&#8592; Back to News</button>
+            <div id="eco-news-article-body"></div>
+        </div>
+    </section>
+</main>
+
+<aside></aside>
+<footer></footer>
+
+<script src="assets/js/eco-news-data.js"></script>
+<script>
+const CAT_LABELS = { market: 'Market', investing: 'Investing', economy: 'Economy' };
+const CAT_COLORS = { market: '#1a6e2e', investing: '#ff6600', economy: '#1a4a8a' };
+
+function formatDate(d) {
+    const [y, m, day] = d.split('-');
+    return new Date(y, m-1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function renderList(cat) {
+    const list = document.getElementById('eco-news-list');
+    const article = document.getElementById('eco-news-article');
+    list.style.display = '';
+    article.style.display = 'none';
+
+    const posts = cat === 'all' ? ECO_NEWS : ECO_NEWS.filter(p => p.category === cat);
+    if (!posts.length) {
+        list.innerHTML = '<p class="eco-news-empty">No posts in this category yet.</p>';
+        return;
+    }
+
+    list.innerHTML = posts.map(p => `
+        <div class="eco-news-card" data-id="${p.id}" role="button" tabindex="0">
+            <div class="eco-news-card-meta">
+                <span class="eco-news-badge" style="background:${CAT_COLORS[p.category]}">${CAT_LABELS[p.category]}</span>
+                <span class="eco-news-date">${formatDate(p.date)}</span>
+            </div>
+            <h3 class="eco-news-card-title">${p.title}</h3>
+            <p class="eco-news-card-summary">${p.summary}</p>
+            <div class="eco-news-tags">${p.tags.map(t => `<span class="eco-news-tag">${t}</span>`).join('')}</div>
+            <span class="eco-news-read-more">Read more &#8594;</span>
+        </div>
+    `).join('');
+
+    list.querySelectorAll('.eco-news-card').forEach(el => {
+        const open = () => openArticle(el.dataset.id);
+        el.addEventListener('click', open);
+        el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') open(); });
+    });
+}
+
+function openArticle(id) {
+    const post = ECO_NEWS.find(p => p.id === id);
+    if (!post) return;
+    document.getElementById('eco-news-list').style.display = 'none';
+    document.getElementById('eco-news-article-body').innerHTML = `
+        <div class="eco-news-card-meta" style="margin-bottom:12px">
+            <span class="eco-news-badge" style="background:${CAT_COLORS[post.category]}">${CAT_LABELS[post.category]}</span>
+            <span class="eco-news-date">${formatDate(post.date)}</span>
+        </div>
+        <h2 class="eco-news-article-title">${post.title}</h2>
+        <div class="eco-news-tags" style="margin-bottom:20px">${post.tags.map(t => `<span class="eco-news-tag">${t}</span>`).join('')}</div>
+        <div class="eco-news-article-content">${post.content}</div>
+    `;
+    document.getElementById('eco-news-article').style.display = '';
+    window.scrollTo(0, 0);
+}
+
+document.getElementById('ecoNewsBack').addEventListener('click', () => {
+    const active = document.querySelector('.eco-news-filter-btn.active');
+    renderList(active ? active.dataset.cat : 'all');
+});
+
+document.querySelectorAll('.eco-news-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.eco-news-filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderList(btn.dataset.cat);
+    });
+});
+
+const hash = location.hash.slice(1);
+if (hash && ECO_NEWS.find(p => p.id === hash)) {
+    openArticle(hash);
+} else {
+    renderList('all');
+}
+</script>
+</body>
+</html>
