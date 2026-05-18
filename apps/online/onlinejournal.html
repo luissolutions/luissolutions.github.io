@@ -900,14 +900,51 @@
       listEl.innerHTML = "";
       Object.entries(allArticles)
         .sort(function (a, b) {
-          function getTime(article) {
-            if (article.date) {
-              var parts = article.date.split('-').map(Number);
-              return new Date(parts[0], parts[1] - 1, parts[2]).getTime();
+          function parseDateValue(value) {
+            if (value == null) return 0;
+            if (typeof value === "number" && !isNaN(value)) return value;
+            if (typeof value === "string") {
+              var s = value.trim();
+              if (!s) return 0;
+              if (/^\d+$/.test(s)) {
+                var n = Number(s);
+                return isNaN(n) ? 0 : n;
+              }
+              // Handle YYYY-MM-DD safely without timezone drift.
+              if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+                var p = s.split("-").map(Number);
+                return new Date(p[0], p[1] - 1, p[2]).getTime();
+              }
+              var t = Date.parse(s);
+              return isNaN(t) ? 0 : t;
             }
-            return article.updatedAt || article.createdAt || 0;
+            return 0;
           }
-          return getTime(b[1]) - getTime(a[1]);
+
+          function getTime(entry) {
+            var article = entry[1];
+            var rowKey  = entry[0]; // "private__1779119499686"
+            var candidates = [
+              parseDateValue(article.createdAt),
+              parseDateValue(article.date)
+            ].filter(function (x) { return x > 0; });
+            if (candidates.length) return Math.max.apply(null, candidates);
+
+            // Last resort: numeric part of known composite key formats.
+            var keyPart = rowKey;
+            var doubleUnderscore = rowKey.indexOf("__");
+            if (doubleUnderscore !== -1) keyPart = rowKey.slice(doubleUnderscore + 2);
+            var n = parseInt(keyPart, 10);
+            return isNaN(n) ? 0 : n;
+          }
+
+          var timeDiff = getTime(b) - getTime(a);
+          if (timeDiff !== 0) return timeDiff;
+
+          // Deterministic tie-breaker avoids browser-specific unstable ordering.
+          var ta = (a[1].title || "").toLowerCase();
+          var tb = (b[1].title || "").toLowerCase();
+          return ta.localeCompare(tb);
         })
         .forEach(function ([rowKey, a]) {
           var div = document.createElement("div");
