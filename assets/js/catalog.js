@@ -9,7 +9,7 @@ import {
   get,
   off,
   onAuthStateChanged,
-} from "./firebase-init-noauth.js";
+} from "./firebase-init.js";
 
 const grid = document.getElementById("catalogGrid");
 const emptyState = document.getElementById("emptyState");

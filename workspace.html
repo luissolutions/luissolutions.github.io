@@ -161,6 +161,23 @@
       opacity: 0.4;
     }
 
+    .hub-remove {
+      position: absolute;
+      top: 6px; left: 8px;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0 3px;
+      border-radius: 3px;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.15s;
+    }
+    .hub-card:hover .hub-remove { opacity: 0.5; }
+    .hub-remove:hover { opacity: 1 !important; color: var(--danger); }
+
     .hub-section-label {
       font-size: 0.65rem;
       letter-spacing: 1.5px;
@@ -168,6 +185,7 @@
       color: var(--muted);
       opacity: 0.5;
       margin: 20px 0 8px;
+      grid-column: 1 / -1;
     }
 
     /* ── Sites / Apps shared ── */
@@ -376,6 +394,14 @@
       catch { return []; }
     }
 
+    // ── Card colors ──
+    const PALETTE = ['#4a90d9','#3aaa7a','#9b6ed4','#d4813a','#d94a7a','#4ab8c8','#8aaa3a','#c84a4a'];
+    function hashColor(str) {
+      let h = 5381;
+      for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+      return PALETTE[h % PALETTE.length];
+    }
+
     // ── Hub ──
     function buildHubItems() {
       const siteItems = ALL_SITES.map(s => ({
@@ -413,16 +439,28 @@
 
       grid.innerHTML = '';
 
-      function addCard(item) {
+      function addCard(item, isFrequent) {
         const c = counts[item.id] || 0;
+        const color = hashColor(item.id);
         const el = document.createElement('div');
         el.className = 'hub-card';
+        el.style.boxShadow = `-3px 0 0 0 ${color}`;
         el.innerHTML = `
+          ${isFrequent ? `<button class="hub-remove" title="Remove from Frequent">×</button>` : ''}
           ${c > 0 ? `<span class="hub-count">${c}</span>` : ''}
           <span class="hub-type ${item.type}">${item.type}</span>
           <h3>${item.title}</h3>
           ${item.desc ? `<p>${item.desc}</p>` : ''}
         `;
+        if (isFrequent) {
+          el.querySelector('.hub-remove').addEventListener('click', e => {
+            e.stopPropagation();
+            const c = getCounts();
+            delete c[item.id];
+            localStorage.setItem(CLICKS_KEY, JSON.stringify(c));
+            renderHub();
+          });
+        }
         el.addEventListener('click', () => {
           bump(item.id);
           if (item.external) {
@@ -439,11 +477,7 @@
         lbl.className = 'hub-section-label';
         lbl.textContent = 'Frequent';
         grid.appendChild(lbl);
-        // put frequent items in grid after label — wrap in a grid div
-        const fg = document.createElement('div');
-        fg.className = 'hub-grid';
-        fg.style.marginTop = '0';
-        visited.forEach(i => { addCard(i); }); // add directly to main grid
+        visited.forEach(i => addCard(i, true));
       }
 
       if (unvisited.length > 0) {
@@ -453,7 +487,7 @@
           lbl.textContent = 'All';
           grid.appendChild(lbl);
         }
-        unvisited.forEach(i => addCard(i));
+        unvisited.forEach(i => addCard(i, false));
       }
     }
 
