@@ -21,6 +21,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const userInfo = document.getElementById('user-info');
   const logoutButton = document.getElementById('logout-button');
 
+  // Auth UI not present on this page — skip
+  if (!userInfo) return;
+
   onAuthStateChanged(auth, (user) => {
     if (user) {
       displayUserInfo(user);

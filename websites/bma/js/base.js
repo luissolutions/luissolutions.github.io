@@ -144,15 +144,6 @@ function setIframeSrc(appNameOrIndex) {
     document.getElementById("myIframe").src = path;
     localStorage.setItem("lastUsedApp", appName);
 
-    const sidebar = document.getElementById("sidebar");
-    const toggleSidebarBtn = document.getElementById("toggleSidebar");
-
-    if (sidebar && !sidebar.classList.contains("hidden")) {
-      sidebar.classList.add("hidden");
-      toggleSidebarBtn.classList.remove("xbutton");
-      toggleSidebarBtn.innerText = "Menu";
-    }
-
     const dropdown = document.getElementById("myDropdown");
     if (dropdown && dropdown.classList.contains("show")) {
       dropdown.classList.remove("show");
@@ -204,25 +195,6 @@ document.querySelectorAll(".clock").forEach(clock => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
-  const toggleButton = document.getElementById('toggleSidebar');
-  const sidebar = document.getElementById('sidebar');
-  const contentItems = sidebar.querySelectorAll('.sidebar-content');
-
-  function toggleSidebar() {
-    sidebar.classList.toggle('hidden');
-    toggleButton.classList.toggle('xbutton');
-    toggleButton.innerText = sidebar.classList.contains('hidden') ? "Menu" : "Close";
-    contentItems.forEach(item => item.classList.toggle('visible', !sidebar.classList.contains('hidden')));
-  }
-
-  toggleButton.addEventListener('click', toggleSidebar);
-
-  document.addEventListener('click', (event) => {
-    if (!sidebar.contains(event.target) && !toggleButton.contains(event.target) && !sidebar.classList.contains('hidden')) {
-      toggleSidebar();
-    }
-  });
-
   setupHeaderFooterLogo();
   initThemeSelector();
 
@@ -249,14 +221,6 @@ function setupHeaderFooterLogo() {
 document.getElementById('shortcutIconOne').addEventListener('click', () => setIframeSrc(4));
 document.getElementById('shortcutIconTwo').addEventListener('click', () => setIframeSrc(0));
 
-document.getElementById('toggleBookmarks').addEventListener('click', function () {
-  const linkIframe = document.getElementById('linkAppIframe');
-  const chatIframe = document.getElementById('chatAppIframe');
-  const isLinkVisible = linkIframe.style.display === "block";
-
-  linkIframe.style.display = isLinkVisible ? "none" : "block";
-  chatIframe.style.height = isLinkVisible ? "95vh" : "46vh";
-});
 
 function filterApps() {
   const searchInput = document.getElementById("appSearch").value.trim().toLowerCase();
@@ -287,29 +251,11 @@ function handleSearch(event) {
 
 document.addEventListener("DOMContentLoaded", () => {
   const dropdown = document.getElementById("myDropdown");
-  const sidebar = document.getElementById("sidebar");
-  const toggleSidebarBtn = document.getElementById("toggleSidebar");
-
   let closeDropdownTimer;
-  let closeSidebarTimer;
-
-  function closeDropdown() {
-    if (dropdown.classList.contains("show")) {
-      dropdown.classList.remove("show");
-    }
-  }
-
-  function closeSidebar() {
-    if (!sidebar.classList.contains("hidden")) {
-      sidebar.classList.add("hidden");
-      toggleSidebarBtn.classList.remove("xbutton");
-      toggleSidebarBtn.innerText = "Menu";
-    }
-  }
 
   dropdown.addEventListener("mouseleave", () => {
     closeDropdownTimer = setTimeout(() => {
-      closeDropdown();
+      if (dropdown.classList.contains("show")) dropdown.classList.remove("show");
     }, 2000);
   });
 

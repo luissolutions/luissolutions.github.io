@@ -100,14 +100,88 @@
             <p style="margin-top:8px;">Re-run MinecraftClientUpdater.exe whenever the server updates mods.</p>
         </div>
         <div class="card">
-            <h3>Latest Update: New Custom Mods</h3>
-            <img src="assets/img/mc/new-mods.png" alt="New Mods">
-            <p>Discover the latest custom mods added to the server, enhancing gameplay and adding new mechanics.</p>
+            <h3>Prerequisites</h3>
+            <ul>
+                <li>Docker + Docker Desktop installed</li>
+                <li>A <code>docker-compose.yml</code> (or add to existing stack)</li>
+                <li><a href="https://playit.gg" target="_blank">playit.gg</a> account (free) — external access without port forwarding</li>
+            </ul>
         </div>
         <div class="card">
-            <h3>Exclusive Server Features</h3>
-            <img src="assets/img/mc/server-features.png" alt="Server Features">
-            <p>Custom landscapes, unique gameplay mechanics, and features that set the server apart.</p>
+            <h3>docker-compose — Java Server</h3>
+            <pre><code>minecraft-java:
+  image: itzg/minecraft-server:latest
+  container_name: minecraft-java
+  restart: unless-stopped
+  environment:
+    - EULA=TRUE
+    - TYPE=PAPER
+    - MEMORY=4G
+    - DIFFICULTY=normal
+    - MODE=survival
+    - ENABLE_RCON=true
+    - RCON_PASSWORD=yourpassword
+    - RCON_PORT=25575
+  ports:
+    - "25565:25565"
+  volumes:
+    - ./minecraft-java:/data</code></pre>
+        </div>
+        <div class="card">
+            <h3>docker-compose — Bedrock + Playit</h3>
+            <pre><code>minecraft-bedrock:
+  image: itzg/minecraft-bedrock-server:latest
+  container_name: minecraft-bedrock
+  restart: unless-stopped
+  environment:
+    - EULA=TRUE
+    - GAMEMODE=survival
+  ports:
+    - "19132:19132/udp"
+  volumes:
+    - ./minecraft-bedrock:/data
+
+playit:
+  image: ghcr.io/playit-cloud/playit-agent:latest
+  container_name: playit
+  restart: unless-stopped
+  network_mode: host
+  environment:
+    - SECRET_KEY=${PLAYIT_SECRET_KEY}</code></pre>
+        </div>
+        <div class="card">
+            <h3>Setup Steps</h3>
+            <ol>
+                <li>Sign up at <a href="https://playit.gg" target="_blank">playit.gg</a> → Agents → Add Agent → copy secret key into <code>.env</code> as <code>PLAYIT_SECRET_KEY</code></li>
+                <li>Run <code>docker compose up -d</code> — first boot downloads server jar and generates world (~2 min)</li>
+                <li>In playit dashboard → Tunnels → Add Tunnel: Java = TCP port 25565, Bedrock = UDP port 19132</li>
+                <li>Playit assigns public addresses (e.g. <code>wish-midwest.gl.joinmc.link</code>)</li>
+            </ol>
+        </div>
+        <div class="card">
+            <h3>Verify &amp; Key Files</h3>
+            <pre><code># Check server is up
+docker logs minecraft-java --tail 20
+# look for: Done (Xs)!
+
+# Test RCON
+docker exec minecraft-java rcon-cli list</code></pre>
+            <table style="margin-top:10px;">
+                <tr><th>Path</th><th>Purpose</th></tr>
+                <tr><td>minecraft-java/server.properties</td><td>Game settings</td></tr>
+                <tr><td>minecraft-java/world/</td><td>World data</td></tr>
+                <tr><td>minecraft-java/plugins/</td><td>Paper plugins</td></tr>
+                <tr><td>minecraft-java/craftscripts/</td><td>WorldEdit JS scripts</td></tr>
+            </table>
+        </div>
+        <div class="card">
+            <h3>WorldEdit Setup</h3>
+            <ol>
+                <li>Download <a href="https://dev.bukkit.org/projects/worldedit" target="_blank">WorldEdit jar</a> → drop in <code>minecraft-java/plugins/</code></li>
+                <li>Download <a href="https://mvnrepository.com/artifact/org.mozilla/rhino" target="_blank">Rhino js.jar</a> → drop in <code>minecraft-java/plugins/WorldEdit/</code></li>
+                <li>Restart: <code>docker restart minecraft-java</code></li>
+                <li>Run scripts in-game with <code>//cs scriptname</code></li>
+            </ol>
         </div>
     </div>
 
@@ -125,10 +199,7 @@
         <div class="mc-status" id="mc-api-status"></div>
     </div>
     <div class="mc-controls" id="mc-controls-remote" style="display:none;">
-        <p class="mc-note">
-            Server controls are only available on the local network.<br>
-            Connect via <a href="http://192.168.50.10:8081/websites/game/minecraft.html">192.168.50.10:8081</a> to manage servers.
-        </p>
+        <p class="mc-note">Server controls are only available on the local network.</p>
     </div>
 
     <p class="section-head">Resources</p>
@@ -185,19 +256,42 @@
         } catch { el.innerHTML = '<span class="offline">Unreachable</span>'; }
     }
 
+    const API     = 'http://192.168.50.10:3001';
+    const isLocal = location.protocol === 'http:';
+    document.getElementById('mc-controls-local').style.display  = isLocal ? 'block' : 'none';
+    document.getElementById('mc-controls-remote').style.display = isLocal ? 'none'  : 'block';
+
+    function renderLocalStatus(state) {
+        const up = state === 'running';
+        return '<span class="' + (up ? 'online' : 'offline') + '">'
+             + (up ? 'Running' : state) + '</span>'
+             + (up ? ' &middot; container up' : '');
+    }
+
+    async function updateLocalStatuses() {
+        try {
+            const data = await fetch(API + '/status').then(r => r.json());
+            const s = data.status || {};
+            document.getElementById('statusJava').innerHTML    = renderLocalStatus(s.java    || 'unknown');
+            document.getElementById('statusBedrock').innerHTML = renderLocalStatus(s.bedrock || 'unknown');
+        } catch {
+            document.getElementById('statusJava').innerHTML    = '<span class="offline">API unreachable</span>';
+            document.getElementById('statusBedrock').innerHTML = '<span class="offline">API unreachable</span>';
+        }
+    }
+
     function updateStatuses() {
-        fetchJava('wish-midwest.gl.joinmc.link', 25565, 'statusJava');
-        fetchBedrock('wish-midwest.gl.at.ply.gg', 27443, 'statusBedrock');
+        if (isLocal) {
+            updateLocalStatuses();
+        } else {
+            fetchJava('wish-midwest.gl.joinmc.link', 25565, 'statusJava');
+            fetchBedrock('wish-midwest.gl.at.ply.gg', 27443, 'statusBedrock');
+        }
         fetchJava('oddohome.asuscomm.com', 25566, 'statusTriforce1');
         fetchJava('oddohome.asuscomm.com', 25565, 'statusTriforce2');
     }
     updateStatuses();
     setInterval(updateStatuses, 30000);
-
-    const API     = 'http://192.168.50.10:3001';
-    const isLocal = location.protocol === 'http:';
-    document.getElementById('mc-controls-local').style.display  = isLocal ? 'block' : 'none';
-    document.getElementById('mc-controls-remote').style.display = isLocal ? 'none'  : 'block';
 
     const mcStatusEl = document.getElementById('mc-api-status');
     async function mcAction(action) {
