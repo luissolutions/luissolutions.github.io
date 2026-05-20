@@ -5,6 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "components/header.html",
     "../components/header.html",
   ).then(() => {
+    import("./header-auth.js").then(m => m.init()).catch(() => {});
     // Theme toggle — AFTER header loads
     const html = document.documentElement;
     const btn = document.getElementById("theme-toggle");
