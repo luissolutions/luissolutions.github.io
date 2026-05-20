@@ -101,29 +101,11 @@
         #game { width: 100%; height: 100%; }
 
         @media (max-width: 900px) {
-            #app {
-                flex-direction: column;
-                height: auto;
-                min-height: calc(100vh - 48px);
-            }
-            #main {
-                order: 1;
-                min-height: 55vh;
-            }
-            #sidebar {
-                order: 2;
-                width: 100%;
-                min-width: 0;
-                max-height: 40vh;
-                border-right: none;
-                border-top: 1px solid #333;
-            }
+            #app { flex-direction: column; height: auto; min-height: calc(100vh - 48px); }
+            #main { order: 1; min-height: 55vh; }
+            #sidebar { order: 2; width: 100%; min-width: 0; max-height: 40vh; border-right: none; border-top: 1px solid #333; }
             #game-list { min-height: 180px; }
-            #save-status {
-                margin-left: 0;
-                width: 100%;
-                text-align: left;
-            }
+            #save-status { margin-left: 0; width: 100%; text-align: left; }
         }
     </style>
 </head>
@@ -174,7 +156,7 @@
         <div id="emulator-wrap">
             <div id="drop-prompt">
                 &larr; Select a game from the library
-                <span>SNES &middot; GBA &middot; N64 &middot; NDS &middot; PS1</span>
+                <span>GBA &middot; GBC &middot; N64 &middot; NDS</span>
             </div>
         </div>
     </div>
@@ -187,28 +169,41 @@
         onAuthStateChanged, signInWithEmailAndPassword, signOut
     } from "../../assets/js/firebase-init.js";
 
-    const ROM_SERVER   = "http://192.168.50.10:8090/roms";
+    const ROMM_BASE    = "https://romm.luissolutions.us";
+    const ROMM_API_KEY = "rmm_42f331b1b98a376af643d8bb50f0507afd7365b6b0cf65d917ca4b7ffe6c7bef";
     const EJS_CDN      = "https://cdn.emulatorjs.org/stable/data/";
     const AUTO_SAVE_MS = 30000;
     const READY_TIMEOUT = 15000;
 
     const SYSTEMS = [
-        { id:"snes", name:"SNES", folder:"snes_roms", core:"snes", exts:["smc","sfc","zip"] },
-        { id:"gba",  name:"GBA",  folder:"gba_roms",  core:"gba",  exts:["gba","zip"] },
-        { id:"n64",  name:"N64",  folder:"n64_roms",  core:"n64",  exts:["z64","n64","v64","zip"] },
-        { id:"nds",  name:"NDS",  folder:"ds_roms",   core:"nds",  exts:["nds","zip"] },
-        { id:"ps1",  name:"PS1",  folder:"ps1_roms",  core:"psx",  exts:["bin","iso","zip"] },
+        { id:"gba", name:"GBA", core:"gba", exts:["gba","zip"] },
+        { id:"gbc", name:"GBC", core:"gbc", exts:["gbc","gb","zip"] },
+        { id:"n64", name:"N64", core:"n64", exts:["z64","n64","v64","zip"] },
+        { id:"nds", name:"NDS", core:"nds", exts:["nds","zip"] },
     ];
+
+    function rommFetch(path) {
+        return fetch(ROMM_BASE + path, {
+            headers: ROMM_API_KEY ? { "Authorization": `Bearer ${ROMM_API_KEY}` } : {}
+        });
+    }
+
+    let platformCache = null;
+    async function getPlatforms() {
+        if (platformCache) return platformCache;
+        const r = await rommFetch("/api/platforms");
+        if (!r.ok) throw new Error("RomM unreachable (" + r.status + ")");
+        platformCache = await r.json();
+        return platformCache;
+    }
 
     /* ── RTDB HELPERS ── */
     function toB64(bytes) {
-        let s = "";
-        for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+        let s = ""; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
         return btoa(s);
     }
     function fromB64(b64) {
-        const s = atob(b64);
-        const out = new Uint8Array(s.length);
+        const s = atob(b64); const out = new Uint8Array(s.length);
         for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
         return out;
     }
@@ -226,8 +221,7 @@
     let statusTimer = null;
     function setStatus(msg, type = "", persist = false) {
         clearTimeout(statusTimer);
-        statusEl.textContent = msg;
-        statusEl.className = type;
+        statusEl.textContent = msg; statusEl.className = type;
         if (!persist && type === "ok")
             statusTimer = setTimeout(() => { statusEl.textContent = ""; statusEl.className = ""; }, 4000);
     }
@@ -242,9 +236,9 @@
             setStatus(`Slot ${currentSlot} selected.`);
         };
     });
-    function slotKey()    { return window.EJS_core && window.EJS_gameName ? `emu:slot:${window.EJS_core}:${window.EJS_gameName}` : null; }
-    function rememberSlot() { const k = slotKey(); if (k) localStorage.setItem(k, currentSlot); }
-    function recallSlot()   {
+    function slotKey()     { return window.EJS_core && window.EJS_gameName ? `emu:slot:${window.EJS_core}:${window.EJS_gameName}` : null; }
+    function rememberSlot(){ const k = slotKey(); if (k) localStorage.setItem(k, currentSlot); }
+    function recallSlot()  {
         const k = slotKey(); if (!k) return;
         currentSlot = parseInt(localStorage.getItem(k) || "1");
         document.querySelectorAll(".slot-btn").forEach(b =>
@@ -334,8 +328,6 @@
     async function captureState() {
         const gm     = window.EJS_emulator?.gameManager ?? window.EJS_emulator ?? null;
         const Module = window.EJS_emulator?.Module ?? null;
-
-        // Primary: gameManager / emulator API
         if (gm?.getState) {
             try {
                 let raw = gm.getState();
@@ -346,8 +338,6 @@
                     return new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
             } catch {}
         }
-
-        // Fallback: RetroArch Module exports
         if (Module) {
             for (const [szFn, serFn] of [
                 ["EmulatorJSGetStateSize",  "EmulatorJSGetState"],
@@ -375,13 +365,9 @@
         const data   = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
         const gm     = window.EJS_emulator?.gameManager ?? window.EJS_emulator ?? null;
         const Module = window.EJS_emulator?.Module ?? null;
-
-        // Primary: gameManager / emulator API
         if (gm?.loadState) {
             try { gm.loadState(data); return true; } catch {}
         }
-
-        // Fallback: RetroArch Module exports
         if (Module) {
             for (const fn of ["EmulatorJSLoadState","_EmulatorJSLoadState","_retro_unserialize","retro_unserialize"]) {
                 if (typeof Module[fn] !== "function") continue;
@@ -417,15 +403,18 @@
         listEl.innerHTML = '<div id="list-placeholder">Loading&hellip;</div>';
         countEl.textContent = ""; searchEl.value = "";
         try {
-            const res = await fetch(`${ROM_SERVER}/${sys.folder}/`);
-            if (!res.ok) throw new Error("Server returned " + res.status);
-            const files = await res.json();
-            allRoms = files
-                .filter(f => f.type === "file" && sys.exts.includes(f.name.split(".").pop().toLowerCase()))
-                .map(f => f.name).sort((a,b) => a.localeCompare(b));
+            const platforms = await getPlatforms();
+            const platform  = platforms.find(p => p.slug === sys.id);
+            if (!platform) throw new Error(`${sys.name} not found in RomM`);
+            const r = await rommFetch(`/api/roms?platform_id=${platform.id}&limit=2000`);
+            if (!r.ok) throw new Error("ROM fetch failed (" + r.status + ")");
+            const data = await r.json();
+            allRoms = (data.items || data)
+                .filter(rom => rom.fs_extension && sys.exts.includes(rom.fs_extension.toLowerCase()))
+                .sort((a, b) => (a.name || a.fs_name_no_ext || a.fs_name).localeCompare(b.name || b.fs_name_no_ext || b.fs_name));
             renderList(allRoms, sys);
         } catch (err) {
-            listEl.innerHTML = `<div id="list-placeholder">Could not reach ROM server.<br>${err.message}</div>`;
+            listEl.innerHTML = `<div id="list-placeholder">Could not load library.<br>${err.message}</div>`;
         }
     }
 
@@ -433,11 +422,12 @@
         countEl.textContent = `${roms.length} games`;
         if (!roms.length) { listEl.innerHTML = '<div id="list-placeholder">No games found.</div>'; return; }
         listEl.innerHTML = "";
-        roms.forEach(name => {
+        roms.forEach(rom => {
             const el = document.createElement("div");
-            el.className = "game-entry"; el.title = name;
-            el.textContent = name.replace(/\.[^.]+$/, "");
-            el.onclick = () => launchRom(name, sys, el);
+            el.className   = "game-entry";
+            el.title       = rom.fs_name;
+            el.textContent = rom.name || rom.fs_name_no_ext || rom.fs_name?.replace(/\.[^.]+$/, "");
+            el.onclick = () => launchRom(rom, sys, el);
             listEl.appendChild(el);
         });
     }
@@ -445,42 +435,57 @@
     searchEl.oninput = () => {
         if (!activeSystem) return;
         const q = searchEl.value.toLowerCase();
-        renderList(allRoms.filter(n => n.toLowerCase().includes(q)), activeSystem);
+        renderList(
+            allRoms.filter(r => (r.name || r.fs_name || "").toLowerCase().includes(q)),
+            activeSystem
+        );
     };
 
     /* ── LAUNCH ROM ── */
     let CLOUD_BATTERY = null, autoSaveInterval = null;
-    let launchSeq = 0;  // prevents stale launch from winning if user clicks fast
+    let launchSeq = 0;
 
-    async function launchRom(filename, sys, entryEl) {
+    async function launchRom(rom, sys, entryEl) {
         if (activeEntry) activeEntry.classList.remove("active");
         activeEntry = entryEl; entryEl.classList.add("active");
 
         const seq = ++launchSeq;
         stopAutoSave();
         await destroyEmulator();
-        if (seq !== launchSeq) return;  // superseded by a newer click
+        if (seq !== launchSeq) return;
 
         setGameButtons(false);
         await waitForAuth();
         if (seq !== launchSeq) return;
 
         window.EJS_core     = sys.core;
-        window.EJS_gameName = filename.replace(/\.[^.]+$/, "");
+        window.EJS_gameName = rom.name || rom.fs_name_no_ext || rom.fs_name?.replace(/\.[^.]+$/, "");
         recallSlot();
 
         setStatus("Fetching cloud save…", "info", true);
         const bPath = getBatteryPath();
         if (bPath) {
-            try { CLOUD_BATTERY = await dbLoad(bPath); }
-            catch { CLOUD_BATTERY = null; }
+            try { CLOUD_BATTERY = await dbLoad(bPath); } catch { CLOUD_BATTERY = null; }
         } else { CLOUD_BATTERY = null; }
         if (seq !== launchSeq) return;
+
+        setStatus("Downloading ROM…", "info", true);
+        let gameUrl;
+        try {
+            const romRes = await rommFetch(`/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}`);
+            if (!romRes.ok) throw new Error("HTTP " + romRes.status);
+            gameUrl = URL.createObjectURL(await romRes.blob());
+        } catch (err) {
+            setStatus("ROM download failed: " + err.message, "err");
+            if (activeEntry) { activeEntry.classList.remove("active"); activeEntry = null; }
+            return;
+        }
+        if (seq !== launchSeq) { URL.revokeObjectURL(gameUrl); return; }
 
         document.getElementById("emulator-wrap").innerHTML = "<div id='game'></div>";
 
         window.EJS_player        = "#game";
-        window.EJS_gameUrl       = `${ROM_SERVER}/${sys.folder}/${encodeURIComponent(filename)}`;
+        window.EJS_gameUrl       = gameUrl;
         window.EJS_pathtodata    = EJS_CDN;
         window.EJS_startOnLoaded = true;
 
@@ -494,11 +499,9 @@
 
             if (!gm) {
                 setStatus("Core ready timeout — saves may not work.", "err");
-                startAutoSave();
-                return;
+                startAutoSave(); return;
             }
 
-            // Restore last saved slot
             const sPath = getStatePath();
             if (sPath) {
                 try {
@@ -525,41 +528,35 @@
 
     /* ── BATTERY ── */
     window.EJS_onLoadSave = function () { return CLOUD_BATTERY || null; };
-
     let batteryTimer = null;
     window.EJS_onSaveSave = function (data) {
         if (!data || data.byteLength === 0) return;
-        const path = getBatteryPath();
-        if (!path) return;
+        const path = getBatteryPath(); if (!path) return;
         clearTimeout(batteryTimer);
         batteryTimer = setTimeout(async () => {
-            try { await dbSave(path, new Uint8Array(data)); }
-            catch {}
+            try { await dbSave(path, new Uint8Array(data)); } catch {}
         }, 1500);
     };
 
     /* ── QUICK SAVE ── */
     document.getElementById("btn-quick-save").onclick = async () => {
-        const path = getStatePath();
-        if (!path) return;
+        const path = getStatePath(); if (!path) return;
         setStatus("Saving…", "info", true);
         const state = await captureState();
         if (!state) { setStatus("Could not read game state.", "err"); return; }
         try {
-            await dbSave(path, state);
-            rememberSlot();
+            await dbSave(path, state); rememberSlot();
             setStatus(`Saved to slot ${currentSlot}.`, "ok");
         } catch (err) { setStatus("Save failed: " + err.message, "err"); }
     };
 
     /* ── LOAD SLOT ── */
     document.getElementById("btn-load").onclick = async () => {
-        const path = getStatePath();
-        if (!path) return;
+        const path = getStatePath(); if (!path) return;
         setStatus("Loading slot…", "info", true);
         try {
             const bytes = await dbLoad(path);
-            const ok = await applyState(bytes);
+            const ok    = await applyState(bytes);
             setStatus(ok ? `Slot ${currentSlot} loaded.` : "State apply failed.", ok ? "ok" : "err");
         } catch { setStatus(`No save in slot ${currentSlot}.`, "err"); }
     };
@@ -571,9 +568,7 @@
         const path = getStatePath();
         if (path) {
             const state = await captureState();
-            if (state) {
-                try { await dbSave(path, state); rememberSlot(); } catch {}
-            }
+            if (state) { try { await dbSave(path, state); rememberSlot(); } catch {} }
         }
         await destroyEmulator();
         CLOUD_BATTERY = null;
@@ -581,7 +576,7 @@
         setGameButtons(false);
         if (activeEntry) { activeEntry.classList.remove("active"); activeEntry = null; }
         document.getElementById("emulator-wrap").innerHTML =
-            '<div id="drop-prompt">&larr; Select a game from the library<span>SNES &middot; GBA &middot; N64 &middot; NDS &middot; PS1</span></div>';
+            '<div id="drop-prompt">&larr; Select a game from the library<span>GBA &middot; GBC &middot; N64 &middot; NDS</span></div>';
         setStatus("Session saved.", "ok");
     };
 
@@ -589,10 +584,8 @@
     function startAutoSave() {
         stopAutoSave();
         autoSaveInterval = setInterval(async () => {
-            const path = getStatePath();
-            if (!path) return;
-            const state = await captureState();
-            if (!state) return;
+            const path = getStatePath(); if (!path) return;
+            const state = await captureState(); if (!state) return;
             try { await dbSave(path, state); rememberSlot(); setStatus("Auto-saved.", "ok"); }
             catch { setStatus("Auto-save failed.", "err"); }
         }, AUTO_SAVE_MS);
