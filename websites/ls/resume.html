@@ -234,6 +234,14 @@
         .pdf-export .job { margin-bottom: 10px !important; }
         .pdf-export #qrLinkInput { display: none !important; }
 
+        .view-mode [contenteditable] {
+            cursor: default;
+            outline: none;
+            box-shadow: none;
+        }
+
+        .view-mode #qrLinkInput { display: none; }
+
         @media (max-width: 860px) {
             body {
                 padding: 12px;
@@ -406,7 +414,11 @@
 
 <body>
 
-    <div class="toolbar">
+    <div class="toolbar" id="viewToolbar" style="display:none">
+        <button class="btn" id="viewExportPdfBtn">Download PDF</button>
+    </div>
+
+    <div class="toolbar" id="editorToolbar">
 
         <select id="resumeSelector"></select>
 
@@ -1277,9 +1289,37 @@
 
         document.addEventListener("keydown", handleEnterNavigation);
 
-        loadResumeList();
+        const _hashId = location.hash.slice(1);
 
-        loadResume();
+        if (_hashId) {
+            document.getElementById('editorToolbar').style.display = 'none';
+            document.getElementById('viewToolbar').style.display = 'flex';
+            document.getElementById('viewExportPdfBtn').addEventListener('click', exportPDF);
+            document.body.classList.add('view-mode');
+            currentResumeId = _hashId;
+            await loadResume(_hashId);
+
+            // Hide empty content (must run before stripping contenteditable)
+            document.querySelectorAll('#resume section').forEach(section => {
+                if (!sectionHasData(section)) section.style.display = 'none';
+            });
+            document.querySelectorAll('#resume .job').forEach(job => {
+                if (isBlankJob(job)) job.style.display = 'none';
+            });
+            document.querySelectorAll('#resume li').forEach(li => {
+                if (!li.textContent.trim()) li.style.display = 'none';
+            });
+            if (!document.getElementById('qrLinkInput').value.trim()) {
+                document.getElementById('qrArea').style.display = 'none';
+            }
+
+            // Strip editor UI
+            document.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+            document.querySelectorAll('.section-add-btn, .section-toggle').forEach(el => el.remove());
+        } else {
+            loadResumeList();
+            loadResume();
+        }
 
     </script>
 
