@@ -236,6 +236,23 @@
     #load-data {
       width: 195px;
     }
+
+    /* Budget vs Actual panel */
+    .budget-bar-wrap {
+      background: var(--border, #ddd);
+      border-radius: 4px;
+      height: 10px;
+      width: 130px;
+      overflow: hidden;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .budget-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+    .budget-over  { color: #e05; }
+    .budget-under { color: #2a9; }
+    #budget-panel table { width: 100%; }
+    #budget-panel tfoot td { border-top: 2px solid var(--border, #ccc); padding-top: 6px; }
+    #budget-summary-badge { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border, #ccc); }
   </style>
 </head>
 
@@ -375,25 +392,24 @@
       </section>
 
       <section>
-        <h2>Year Totals</h2>
-        <table id="yearly-totals-table">
-          <thead>
-            <tr>
-              <th>Transactions</th>
-              <th>Income</th>
-              <th>Spending</th>
-              <th>Net</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td id="total-transactions">0</td>
-              <td id="total-income">0</td>
-              <td id="total-expenses">0</td>
-              <td id="yearly-balance">0</td>
-            </tr>
-          </tbody>
-        </table>
+        <h2>Budget vs Actual</h2>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+          <label>View:
+            <select id="budget-view-mode">
+              <option value="month">This Month</option>
+              <option value="ytd">Year to Date</option>
+            </select>
+          </label>
+          <label id="budget-month-label">Month:
+            <select id="budget-month-select"></select>
+          </label>
+          <span id="budget-summary-badge"></span>
+        </div>
+        <div id="budget-panel"></div>
+        <span id="total-transactions" hidden></span>
+        <span id="total-income" hidden></span>
+        <span id="total-expenses" hidden></span>
+        <span id="yearly-balance" hidden></span>
 
         <h2>All-Time Totals</h2>
         <table id="overall-totals-table">
@@ -416,16 +432,6 @@
         <br />
       </section>
 
-      <section>
-        <div id="detailsModal">
-          <div class="modal">
-            <span id="closeModal">&times;</span>
-            <h2><span id="date-selected"></span></h2>
-            <div id="modalContent"></div>
-          </div>
-        </div>
-      </section>
-
       <section id="daily-tracker">
         <h2>Daily Activity</h2>
         <div id="date-toggle" class="tag-bar small">
@@ -435,6 +441,16 @@
           </label>
         </div>
         <div id="year-grid" class="year-grid"></div>
+      </section>
+
+      <section>
+        <div id="detailsModal">
+          <div class="modal">
+            <span id="closeModal">&times;</span>
+            <h2><span id="date-selected"></span></h2>
+            <div id="modalContent"></div>
+          </div>
+        </div>
       </section>
 
       <button id="export-tags-csv">Export Tag Summary (CSV)</button>
@@ -670,6 +686,8 @@
     let _amtSortAsc = true;
     let carouselChart = null;
     let chartSlideIndex = 0; // 0 = Monthly Bar, 1 = Pie
+    let _budgetPlan = null;
+    let _budgetUnsub = null;
     const CHART_SLIDES = ["monthly", "pie"];
     let _openDayYMD = null;
     let _isRefreshingModal = false;
@@ -911,6 +929,172 @@
     }
 
     /* =========================
+     Budget vs Actual
+  ========================== */
+    function attachBudgetListener() {
+      if (typeof _budgetUnsub === "function") { _budgetUnsub(); _budgetUnsub = null; }
+      const r = ref(database, `${DATABASE_BASE_PATH}/budgetPlan/${currentYear}`);
+      _budgetUnsub = onValue(r, (snap) => {
+        _budgetPlan = snap.exists() ? snap.val() : null;
+        renderBudgetPanel();
+      });
+    }
+
+    function renderBudgetPanel() {
+      const panel = document.getElementById("budget-panel");
+      if (!panel) return;
+
+      const viewMode = document.getElementById("budget-view-mode")?.value || "month";
+      const monthSel = document.getElementById("budget-month-select");
+
+      const txYear = txInCurrentYear().filter(t => t.type === "expense");
+      const nowMonth = new Date().getUTCMonth();
+
+      // Populate month selector once
+      if (monthSel && !monthSel.dataset.built) {
+        monthSel.dataset.built = "1";
+        monthSel.innerHTML = MONTHS_ABBR.map((m, i) =>
+          `<option value="${i}" ${i === nowMonth ? "selected" : ""}>${m}</option>`
+        ).join("");
+      }
+      const selectedMonth = parseInt(monthSel?.value ?? nowMonth, 10);
+
+      // Filter by selected period
+      const filtered = viewMode === "ytd"
+        ? txYear.filter(t => new Date(Number(t.date)).getUTCMonth() <= nowMonth)
+        : txYear.filter(t => new Date(Number(t.date)).getUTCMonth() === selectedMonth);
+
+      const monthsElapsed = viewMode === "ytd" ? nowMonth + 1 : 1;
+
+      // Budget targets
+      const categories = _budgetPlan?.categories || [];
+      const budgetByTag = {};
+      for (const cat of categories) {
+        if (cat.name && cat.monthly) budgetByTag[cat.name] = cat.monthly;
+      }
+
+      // Actuals by tag
+      const actualByTag = {};
+      let untaggedTotal = 0;
+      for (const tx of filtered) {
+        if (!tx.tags || tx.tags.length === 0) {
+          untaggedTotal += tx.amt;
+        } else {
+          for (const tag of tx.tags) {
+            actualByTag[tag] = (actualByTag[tag] || 0) + tx.amt;
+          }
+        }
+      }
+
+      // Build rows
+      const allTags = new Set([...Object.keys(budgetByTag), ...Object.keys(actualByTag)]);
+      let totalBudget = 0, totalActual = 0;
+      const rows = [];
+
+      for (const tag of Array.from(allTags).sort()) {
+        const monthly = budgetByTag[tag] || 0;
+        const budget = monthly * monthsElapsed;
+        const actual = actualByTag[tag] || 0;
+        totalBudget += budget;
+        totalActual += actual;
+        rows.push({ tag, budget, actual, monthly });
+      }
+      rows.sort((a, b) => b.actual - a.actual);
+      if (untaggedTotal > 0) {
+        rows.push({ tag: "Untagged", budget: 0, actual: untaggedTotal, monthly: 0, isUntagged: true });
+        totalActual += untaggedTotal;
+      }
+
+      // Summary badge
+      const net = totalBudget - totalActual;
+      const badge = document.getElementById("budget-summary-badge");
+      if (badge) {
+        badge.textContent = net >= 0
+          ? `Under budget ${fmtUSD(net)}`
+          : `Over budget ${fmtUSD(Math.abs(net))}`;
+        badge.style.color = net >= 0 ? "#2a9" : "#e05";
+      }
+
+      panel.innerHTML = `
+        <div class="table">
+          <table>
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Monthly Budget</th>
+                <th>Actual</th>
+                <th>Remaining</th>
+                <th>Progress</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(r => buildBudgetRow(r)).join("")}
+            </tbody>
+            <tfoot>
+              <tr style="font-weight:700">
+                <td>Total</td>
+                <td>${fmtUSD(totalBudget)}</td>
+                <td>${fmtUSD(totalActual)}</td>
+                <td class="${net >= 0 ? "budget-under" : "budget-over"}">${net >= 0 ? "+" : ""}${fmtUSD(net)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>`;
+
+      panel.querySelectorAll('.budget-input').forEach(input => {
+        const save = async () => {
+          const val = parseFloat(input.value);
+          if (!Number.isFinite(val) || val < 0) return;
+          await saveBudgetCategory(input.dataset.tag, val);
+        };
+        input.addEventListener('blur', save);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+      });
+    }
+
+    function buildBudgetRow({ tag, budget, actual, monthly, isUntagged }) {
+      const diff = budget - actual;
+      const pct = budget > 0 ? Math.min((actual / budget) * 100, 100) : (actual > 0 ? 100 : 0);
+      const over = budget > 0 && actual > budget;
+      const barColor = over ? "#e05" : "#2a9";
+      const diffClass = diff >= 0 ? "budget-under" : "budget-over";
+      const pctLabel = budget > 0 ? `${Math.round((actual / budget) * 100)}%` : "";
+      const budgetCell = isUntagged
+        ? "—"
+        : `<input class="budget-input" data-tag="${tag}" type="number" min="0" step="1"
+            value="${monthly > 0 ? monthly.toFixed(2) : ""}"
+            placeholder="—"
+            title="Monthly budget for ${tag} — press Enter or click away to save"
+            style="width:90px;background:transparent;border:none;border-bottom:1px dashed var(--border,#aaa);text-align:right;font:inherit;color:inherit;padding:2px 0;" />`;
+      return `
+        <tr>
+          <td>${isUntagged ? '<em style="opacity:.65">Untagged</em>' : tag}</td>
+          <td>${budgetCell}</td>
+          <td>${fmtUSD(actual)}</td>
+          <td class="${diffClass}">${budget > 0 ? (diff >= 0 ? "+" : "") + fmtUSD(diff) : ""}</td>
+          <td>
+            <div class="budget-bar-wrap">
+              <div class="budget-bar-fill" style="width:${pct}%;background:${barColor}"></div>
+            </div>
+            <span class="small" style="margin-left:6px">${pctLabel}</span>
+          </td>
+        </tr>`;
+    }
+
+    async function saveBudgetCategory(tag, monthly) {
+      if (!_budgetPlan) _budgetPlan = {};
+      if (!Array.isArray(_budgetPlan.categories)) _budgetPlan.categories = [];
+      const existing = _budgetPlan.categories.find(c => c.name === tag);
+      if (existing) {
+        existing.monthly = monthly;
+      } else {
+        _budgetPlan.categories.push({ name: tag, monthly });
+      }
+      await set(ref(database, `${DATABASE_BASE_PATH}/budgetPlan/${currentYear}`), _budgetPlan);
+    }
+
+    /* =========================
      Tabs
   ========================== */
     function initTabsOnce() {
@@ -949,6 +1133,7 @@
       setupEventListenersOnce();
       wireSearchEngine();
       attachLedgerListener();
+      attachBudgetListener();
       initTabsOnce();
     });
 
@@ -986,6 +1171,7 @@
       displayAllTransactions();
       populateMonths();
       calculateYearlyTotals();
+      renderBudgetPanel();
       renderOverallTotals();
       generateYearGrid();
       renderCharts();
@@ -1139,6 +1325,14 @@
 
       wireImportTab();
       setupPostedDateToggle();
+
+      document.getElementById("budget-view-mode")?.addEventListener("change", () => {
+        const isMonth = document.getElementById("budget-view-mode").value === "month";
+        const label = document.getElementById("budget-month-label");
+        if (label) label.style.display = isMonth ? "" : "none";
+        renderBudgetPanel();
+      });
+      document.getElementById("budget-month-select")?.addEventListener("change", renderBudgetPanel);
     }
 
     /* =========================
@@ -1173,6 +1367,7 @@
         10,
       );
       saveSelectedYear(currentYear);
+      attachBudgetListener();
       renderAll();
       refreshOpenDayModalIfNeeded();
     }
