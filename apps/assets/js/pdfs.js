@@ -106,7 +106,9 @@ async function renderList() {
 
             const row = document.createElement('div');
             row.className = 'pdf-item';
+            row.style.display = 'flex';
             row.style.alignItems = 'center';
+            row.style.justifyContent = 'space-between';
             row.style.gap = '8px';
             row.style.margin = '6px 0';
 
@@ -115,7 +117,7 @@ async function renderList() {
 
             const info = document.createElement('small');
             info.style.opacity = '.8';
-            info.textContent = [size && ` Size: ${size}`]
+            info.textContent = [size && `${size}`, uploadedAt && `${uploadedAt}`]
                 .filter(Boolean).join('  •  ');
 
             const openBtn = document.createElement('button');
@@ -142,12 +144,15 @@ async function renderList() {
             });
 
             const left = document.createElement('div');
+            left.style.display = 'flex';
             left.style.flexDirection = 'column';
             left.appendChild(nameSpan);
             if (info.textContent) left.appendChild(info);
 
             const right = document.createElement('div');
+            right.style.display = 'flex';
             right.style.gap = '8px';
+            right.style.flexShrink = '0';
             right.appendChild(openBtn);
             right.appendChild(delBtn);
 
