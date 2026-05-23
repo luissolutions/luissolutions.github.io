@@ -55,8 +55,6 @@ async function updateLoginStatusUI() {
 
     if (!statusEl || !msControls) return;
 
-    msControls.style.display = "block";
-
     if (!accessToken) {
         statusEl.textContent = "Not logged in.";
         if (loginBtn) loginBtn.style.display = "inline-block";

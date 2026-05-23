@@ -38,10 +38,14 @@
           <button id="logoutButton">Logout of MS</button>
           <p id="loginStatus">Login status...</p>
         </div>
-        <button id="uploadImagesToOneDriveBtn">
-          Upload Images to OneDrive
-        </button>
-        <button id="uploadQCBtn">Update to OneDrive</button>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
+          <button id="uploadImagesToOneDriveBtn">Upload Images to OneDrive</button>
+          <small id="uploadImagesStatus" style="color:var(--muted,#888);font-size:0.72rem"></small>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
+          <button id="uploadQCBtn">Update to OneDrive</button>
+          <small id="uploadQCStatus" style="color:var(--muted,#888);font-size:0.72rem"></small>
+        </div>
       </section>
     </header>
 
@@ -1338,6 +1342,9 @@
             $("field_sensorTotal").value = state.expectedSensors;
 
           populateSensorDropdown(state.expectedSensors);
+
+          if ($("uploadQCStatus")) $("uploadQCStatus").textContent = data.lastUploadedQC ? `Last uploaded: ${data.lastUploadedQC}` : "";
+          if ($("uploadImagesStatus")) $("uploadImagesStatus").textContent = data.lastUploadedImages ? `Last uploaded: ${data.lastUploadedImages}` : "";
 
           await Promise.all([updateGallery(), loadQCChecklist(projectId, seq)]);
           if (seq !== state.loadSeq) return;
@@ -3114,6 +3121,10 @@
             uploadedFiles.push(await uploadChecklistPDFToOneDrive());
 
             logUploadedFiles("QC + reports upload complete", uploadedFiles);
+            const qcTs = new Date().toLocaleString();
+            await set(dbRef(database, `${getTaskPath()}/lastUploadedQC`), qcTs);
+            const qcStatus = $("uploadQCStatus");
+            if (qcStatus) qcStatus.textContent = `Last uploaded: ${qcTs}`;
             alert(
               `OneDrive upload complete: ${uploadedFiles.length} file(s). See console for details.`,
             );
@@ -3137,6 +3148,10 @@
             }
             const uploadedFiles = await uploadAllImagesToOneDrive();
             logUploadedFiles("Image upload complete", uploadedFiles);
+            const imgTs = new Date().toLocaleString();
+            await set(dbRef(database, `${getTaskPath()}/lastUploadedImages`), imgTs);
+            const imgStatus = $("uploadImagesStatus");
+            if (imgStatus) imgStatus.textContent = `Last uploaded: ${imgTs}`;
             alert(
               `Uploaded ${uploadedFiles.length} image(s) to OneDrive. See console for details.`,
             );
@@ -3204,6 +3219,7 @@
           return;
         }
         await populateProjects();
+
       });
 
       async function uploadAllImagesToOneDrive() {
