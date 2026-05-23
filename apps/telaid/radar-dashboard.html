@@ -92,7 +92,13 @@
       text-align: left;
       background: rgba(20, 20, 20, 0.98);
       backdrop-filter: blur(6px);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
     }
+    .radar-sheet th:hover { background: rgba(40,40,40,0.98); }
+    .radar-sheet th.sort-active { color: #7ab8ff; }
+    .sort-arrow { margin-left: 4px; opacity: 0.7; font-size: 0.75em; }
 
     .sheet-row {
       cursor: pointer;
@@ -238,6 +244,18 @@
       white-space: nowrap;
     }
 
+    .admin-editable {
+      display: inline-block;
+      min-width: 60px;
+      border-radius: 4px;
+      padding: 1px 4px;
+      cursor: text;
+      outline: none;
+      transition: background 0.15s;
+    }
+    .admin-editable:hover { background: rgba(255,255,255,0.07); }
+    .admin-editable:focus { background: rgba(255,255,255,0.11); outline: 1px solid rgba(255,255,255,0.22); }
+
     .truncate {
       max-width: 260px;
       white-space: nowrap;
@@ -316,21 +334,21 @@
     <div class="table-shell">
       <table class="radar-sheet">
         <thead>
-          <tr>
-            <th>Site</th>
-            <th>Customer</th>
-            <th>Status</th>
-            <th>Lowest</th>
-            <th>Worst</th>
-            <th>Radar</th>
-            <th>Remote</th>
-            <th>Audit</th>
-            <th>Sensors</th>
-            <th>Serials</th>
-            <th>Flags</th>
-            <th>Partner / Lead</th>
-            <th>QC Lead</th>
-            <th>Updated</th>
+          <tr id="headerRow">
+            <th data-sort="site">Site</th>
+            <th data-sort="customer">Customer</th>
+            <th data-sort="status">Status</th>
+            <th data-sort="lowest">Lowest</th>
+            <th data-sort="worst">Worst</th>
+            <th data-sort="radar">Radar</th>
+            <th data-sort="remote">Remote</th>
+            <th data-sort="audit">Audit</th>
+            <th data-sort="sensors">Sensors</th>
+            <th data-sort="serials">Serials</th>
+            <th data-sort="flags">Flags</th>
+            <th data-sort="partner">Partner / Lead</th>
+            <th data-sort="qclead">QC Lead</th>
+            <th data-sort="updated">Updated</th>
           </tr>
         </thead>
         <tbody id="tbody">
@@ -348,7 +366,8 @@
       onAuthStateChanged,
       database,
       ref as dbRef,
-      get
+      get,
+      update
     } from "../assets/js/firebase-init.js";
 
     const CONFIG = {
@@ -366,6 +385,9 @@
     let PDF_LOOKUP = {};
     let CURRENT_FILTER = "ALL";
     let CURRENT_SEARCH = "";
+    let IS_ADMIN = false;
+    let SORT_KEY = "status";
+    let SORT_DIR = 1;
 
     function setLoadingMessage(message) {
       const tbody = document.getElementById("tbody");
@@ -818,37 +840,43 @@
       return `<div class="pill-list">${items.map(x => `<span class="mini-pill">${escapeHtml(x)}</span>`).join("")}</div>`;
     }
 
+    function editableVal(text, path) {
+      const display = (text === "-" || text == null) ? "" : String(text);
+      if (!IS_ADMIN) return escapeHtml(text || "-");
+      return `<span class="admin-editable" contenteditable="true" data-path="${escapeHtml(path)}">${escapeHtml(display)}</span>`;
+    }
+
     function renderDetailRow(record) {
       const r = record.analysis.scores.radar;
       const re = record.analysis.scores.remote;
       const a = record.analysis.scores.audit;
 
       return `
-        <div class="detail-grid">
+        <div class="detail-grid" data-record-name="${escapeHtml(record.name)}">
           <section class="detail-card">
             <h3>Overview</h3>
             <div class="kv">
               <div>Status</div><div class="${statusClass(record.analysis.status)}">${record.analysis.status}</div>
               <div>Lowest score</div><div>${record.analysis.lowestScore ?? "-"}</div>
               <div>Worst checklist</div><div>${record.analysis.worstType ?? "-"}</div>
-              <div>Project</div><div class="mono">${escapeHtml(record.info.project || "-")}</div>
-              <div>Customer</div><div>${escapeHtml(record.info.customer || "-")}</div>
-              <div>Address</div><div>${escapeHtml(record.info.address || "-")}</div>
+              <div>Project</div><div class="mono">${editableVal(record.info.project, "project")}</div>
+              <div>Customer</div><div>${editableVal(record.info.customer, "customerName")}</div>
+              <div>Address</div><div>${editableVal(record.info.address, "customerAddress")}</div>
               <div>Updated</div><div>${formatDateTime(getUpdatedAt(record.data))}</div>
-              <div>Visit date</div><div>${escapeHtml(record.info.visitDate || "-")}</div>
+              <div>Visit date</div><div>${editableVal(record.info.visitDate, "qcData_audit/sections/audit_info/fields/visitDate/value")}</div>
             </div>
           </section>
 
           <section class="detail-card">
             <h3>Team / Site</h3>
             <div class="kv">
-              <div>Partner</div><div>${escapeHtml(record.info.partnerCompany || "-")}</div>
-              <div>Lead tech</div><div>${escapeHtml(record.info.leadTech || "-")}</div>
-              <div>Additional techs</div><div>${escapeHtml(record.info.additionalTechs || "-")}</div>
-              <div>QC lead</div><div>${escapeHtml(record.info.qcLead || "-")}</div>
-              <div>Manager</div><div>${escapeHtml(record.info.managerName || "-")}</div>
-              <div>Auditor</div><div>${escapeHtml(record.info.auditor || "-")}</div>
-              <div>Total nights</div><div>${escapeHtml(record.info.totalNights || "-")}</div>
+              <div>Partner</div><div>${editableVal(record.info.partnerCompany, "qcData_radar/sections/site_info/fields/partnerCompany/value")}</div>
+              <div>Lead tech</div><div>${editableVal(record.info.leadTech, "qcData_radar/sections/site_info/fields/leadTech/value")}</div>
+              <div>Additional techs</div><div>${editableVal(record.info.additionalTechs, "qcData_radar/sections/site_info/fields/additionalTechs/value")}</div>
+              <div>QC lead</div><div>${editableVal(record.info.qcLead, "qcData_radar/sections/site_info/fields/qcLead/value")}</div>
+              <div>Manager</div><div>${editableVal(record.info.managerName, "qcData_audit/sections/audit_info/fields/managerName/value")}</div>
+              <div>Auditor</div><div>${editableVal(record.info.auditor, "qcData_audit/sections/audit_info/fields/auditor/value")}</div>
+              <div>Total nights</div><div>${editableVal(record.info.totalNights, "qcData_radar/sections/site_info/fields/totalNights/value")}</div>
             </div>
           </section>
 
@@ -974,22 +1002,55 @@
       });
     }
 
+    const STATUS_ORDER = { FAIL: 0, REVIEW: 1, PASS: 2, INCOMPLETE: 3 };
+
+    function getSortValue(record, key) {
+      switch (key) {
+        case "site":    return (record.info.project || record.name || "").toLowerCase();
+        case "customer": return (record.info.customer || "").toLowerCase();
+        case "status":  return STATUS_ORDER[record.analysis.status] ?? 9;
+        case "lowest":  return record.analysis.lowestScore ?? -1;
+        case "worst":   return (record.analysis.worstType || "").toLowerCase();
+        case "radar":   return record.analysis.scores.radar ?? -1;
+        case "remote":  return record.analysis.scores.remote ?? -1;
+        case "audit":   return record.analysis.scores.audit ?? -1;
+        case "sensors": return record.sensors.sensorCount;
+        case "serials": return record.sensors.serialCount;
+        case "flags":   return record.qcFlags.length + record.auditFlags.length + record.auditSensorFlags.length;
+        case "partner": return (record.info.partnerCompany || "").toLowerCase();
+        case "qclead":  return (record.info.qcLead || "").toLowerCase();
+        case "updated": return getUpdatedAt(record.data);
+        default:        return "";
+      }
+    }
+
     function sortRecords(records) {
-      const order = { FAIL: 0, REVIEW: 1, PASS: 2, INCOMPLETE: 3 };
       records.sort((a, b) => {
-        const s = (order[a.analysis.status] ?? 9) - (order[b.analysis.status] ?? 9);
-        if (s !== 0) return s;
-
-        const la = a.analysis.lowestScore ?? 9999;
-        const lb = b.analysis.lowestScore ?? 9999;
-        if (la !== lb) return la - lb;
-
-        return String(a.info.project || a.name).localeCompare(String(b.info.project || b.name));
+        const va = getSortValue(a, SORT_KEY);
+        const vb = getSortValue(b, SORT_KEY);
+        if (va < vb) return -1 * SORT_DIR;
+        if (va > vb) return  1 * SORT_DIR;
+        return 0;
       });
       return records;
     }
 
+    function updateHeaderArrows() {
+      document.querySelectorAll("#headerRow th[data-sort]").forEach(th => {
+        th.classList.toggle("sort-active", th.dataset.sort === SORT_KEY);
+        const arrow = th.querySelector(".sort-arrow");
+        if (arrow) arrow.remove();
+        if (th.dataset.sort === SORT_KEY) {
+          const span = document.createElement("span");
+          span.className = "sort-arrow";
+          span.textContent = SORT_DIR === 1 ? "▲" : "▼";
+          th.appendChild(span);
+        }
+      });
+    }
+
     function render() {
+      updateHeaderArrows();
       const summary = document.getElementById("summaryPills");
       const tbody = document.getElementById("tbody");
 
@@ -1092,6 +1153,50 @@
       loadAll();
     }
 
+    document.getElementById("headerRow").addEventListener("click", (e) => {
+      const th = e.target.closest("th[data-sort]");
+      if (!th) return;
+      const key = th.dataset.sort;
+      if (key === SORT_KEY) {
+        SORT_DIR *= -1;
+      } else {
+        SORT_KEY = key;
+        SORT_DIR = 1;
+      }
+      render();
+    });
+
+    document.getElementById("tbody").addEventListener("focusout", async (e) => {
+      const span = e.target.closest(".admin-editable[data-path]");
+      if (!span || !IS_ADMIN) return;
+      const grid = span.closest("[data-record-name]");
+      if (!grid) return;
+      const recordName = grid.dataset.recordName;
+      const path = span.dataset.path;
+      const newValue = span.textContent.trim();
+      try {
+        await update(dbRef(database, `${FIREBASE_BASE_PATH}/tasks/${recordName}`), { [path]: newValue });
+        const rec = ALL_SITES.find(r => r.name === recordName);
+        if (rec) {
+          const keys = path.split("/");
+          let node = rec.data;
+          for (let i = 0; i < keys.length - 1; i++) {
+            if (node[keys[i]] == null) node[keys[i]] = {};
+            node = node[keys[i]];
+          }
+          node[keys[keys.length - 1]] = newValue;
+          Object.assign(rec.info, getSiteInfo(rec.data));
+          rec.searchText = getSearchText(rec);
+        }
+        const openIds = new Set([...document.querySelectorAll(".detail-row.open")].map(r => r.id));
+        render();
+        openIds.forEach(id => document.getElementById(id)?.classList.add("open"));
+      } catch (err) {
+        console.error("[EDIT SAVE]", err);
+        alert("Save failed: " + err.message);
+      }
+    });
+
     document.getElementById("searchInput").addEventListener("input", e => {
       CURRENT_SEARCH = e.target.value.trim().toLowerCase();
       render();
@@ -1156,9 +1261,16 @@
       });
     });
 
-    onAuthStateChanged(auth, (user) => {
+    onAuthStateChanged(auth, async (user) => {
       FIREBASE_BASE_PATH = user ? user.uid : "public";
+      if (user) {
+        const roleSnap = await get(dbRef(database, `${user.uid}/info/role`));
+        IS_ADMIN = roleSnap.exists() && roleSnap.val() === "admin";
+      } else {
+        IS_ADMIN = false;
+      }
       if (CURRENT_SOURCE === "firebase") loadAll();
+      else if (ALL_SITES.length) render();
     });
 
     loadAll();
