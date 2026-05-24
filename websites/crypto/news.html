@@ -28,7 +28,7 @@
             <button class="eco-news-filter-btn" data-cat="economy">Economy</button>
         </div>
 
-        <div id="eco-news-list"></div>
+        <div id="eco-news-list"><p class="eco-news-empty">Loading...</p></div>
         <div id="eco-news-article" style="display:none">
             <button class="eco-news-back-btn" id="ecoNewsBack">&#8592; Back to News</button>
             <div id="eco-news-article-body"></div>
@@ -39,37 +39,71 @@
 <aside></aside>
 <footer></footer>
 
-<script src="assets/js/eco-news-data.js"></script>
-<script>
+<script type="module">
+import { database, ref, get } from '../../assets/js/firebase-init.js';
+
+const ECO_TAGS   = ['market', 'investing', 'economy'];
 const CAT_LABELS = { market: 'Market', investing: 'Investing', economy: 'Economy' };
 const CAT_COLORS = { market: '#1a6e2e', investing: '#ff6600', economy: '#1a4a8a' };
 
-function formatDate(d) {
-    const [y, m, day] = d.split('-');
-    return new Date(y, m-1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+let NEWS = [];
+let currentCat = 'all';
+
+function getCategory(tags) {
+    for (const cat of ECO_TAGS) {
+        if (tags.includes(cat)) return cat;
+    }
+    return 'investing';
+}
+
+function formatDate(ts) {
+    return new Date(Number(ts)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+function renderArticleBody(article) {
+    if (article.body) return article.body;
+    if (article.sections?.length) {
+        return article.sections.map(s => `
+            ${s.title ? `<h4>${s.title}</h4>` : ''}
+            ${s.summary ? `<p>${s.summary}</p>` : ''}
+            ${s.steps?.length ? '<ul>' + s.steps.map(st => `<li>${st}</li>`).join('') + '</ul>' : ''}
+        `).join('');
+    }
+    return `<p>${article.description || ''}</p>`;
 }
 
 function renderList(cat) {
-    const list = document.getElementById('eco-news-list');
-    const article = document.getElementById('eco-news-article');
-    list.style.display = '';
-    article.style.display = 'none';
+    currentCat = cat;
+    document.getElementById('eco-news-list').style.display = '';
+    document.getElementById('eco-news-article').style.display = 'none';
 
-    const posts = cat === 'all' ? ECO_NEWS : ECO_NEWS.filter(p => p.category === cat);
+    const posts = cat === 'all' ? NEWS : NEWS.filter(p => p.category === cat);
+    const list  = document.getElementById('eco-news-list');
+
     if (!posts.length) {
         list.innerHTML = '<p class="eco-news-empty">No posts in this category yet.</p>';
         return;
     }
 
+    const extraTags = p => (p.tags || []).filter(t => !ECO_TAGS.includes(t));
+
     list.innerHTML = posts.map(p => `
         <div class="eco-news-card" data-id="${p.id}" role="button" tabindex="0">
             <div class="eco-news-card-meta">
                 <span class="eco-news-badge" style="background:${CAT_COLORS[p.category]}">${CAT_LABELS[p.category]}</span>
-                <span class="eco-news-date">${formatDate(p.date)}</span>
+                <span class="eco-news-date">${formatDate(p.createdAt)}</span>
             </div>
             <h3 class="eco-news-card-title">${p.title}</h3>
-            <p class="eco-news-card-summary">${p.summary}</p>
-            <div class="eco-news-tags">${p.tags.map(t => `<span class="eco-news-tag">${t}</span>`).join('')}</div>
+            <p class="eco-news-card-summary">${p.description || ''}</p>
+            <div class="eco-news-tags">${extraTags(p).map(t => `<span class="eco-news-tag">${t}</span>`).join('')}</div>
             <span class="eco-news-read-more">Read more &#8594;</span>
         </div>
     `).join('');
@@ -82,25 +116,25 @@ function renderList(cat) {
 }
 
 function openArticle(id) {
-    const post = ECO_NEWS.find(p => p.id === id);
+    const post = NEWS.find(p => p.id === id);
     if (!post) return;
     document.getElementById('eco-news-list').style.display = 'none';
+    const extraTags = (post.tags || []).filter(t => !ECO_TAGS.includes(t));
     document.getElementById('eco-news-article-body').innerHTML = `
         <div class="eco-news-card-meta" style="margin-bottom:12px">
             <span class="eco-news-badge" style="background:${CAT_COLORS[post.category]}">${CAT_LABELS[post.category]}</span>
-            <span class="eco-news-date">${formatDate(post.date)}</span>
+            <span class="eco-news-date">${formatDate(post.createdAt)}</span>
         </div>
         <h2 class="eco-news-article-title">${post.title}</h2>
-        <div class="eco-news-tags" style="margin-bottom:20px">${post.tags.map(t => `<span class="eco-news-tag">${t}</span>`).join('')}</div>
-        <div class="eco-news-article-content">${post.content}</div>
+        <div class="eco-news-tags" style="margin-bottom:20px">${extraTags.map(t => `<span class="eco-news-tag">${t}</span>`).join('')}</div>
+        <div class="eco-news-article-content">${renderArticleBody(post)}</div>
     `;
     document.getElementById('eco-news-article').style.display = '';
     window.scrollTo(0, 0);
 }
 
 document.getElementById('ecoNewsBack').addEventListener('click', () => {
-    const active = document.querySelector('.eco-news-filter-btn.active');
-    renderList(active ? active.dataset.cat : 'all');
+    renderList(currentCat);
 });
 
 document.querySelectorAll('.eco-news-filter-btn').forEach(btn => {
@@ -111,8 +145,22 @@ document.querySelectorAll('.eco-news-filter-btn').forEach(btn => {
     });
 });
 
+try {
+    const snap = await get(ref(database, 'public/journalArticles'));
+    if (snap.exists()) {
+        NEWS = shuffle(
+            Object.entries(snap.val())
+                .map(([key, val]) => ({ ...val, id: key }))
+                .filter(a => Array.isArray(a.tags) && a.tags.some(t => ECO_TAGS.includes(t)))
+                .map(a => ({ ...a, category: getCategory(a.tags) }))
+        );
+    }
+} catch (e) {
+    console.error('Firebase fetch failed:', e);
+}
+
 const hash = location.hash.slice(1);
-if (hash && ECO_NEWS.find(p => p.id === hash)) {
+if (hash && NEWS.find(p => p.id === hash)) {
     openArticle(hash);
 } else {
     renderList('all');

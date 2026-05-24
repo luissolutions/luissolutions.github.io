@@ -89,72 +89,60 @@
             </div>
         </section>
 
-        <section class="our-services">
-            <h2>From the Journal</h2>
-            <p>Thoughts on economy, investing, and building wealth — from the Eco Lou journal.</p>
-            <div class="service-grid" id="journal-cards">
-                <div class="service-item"><p class="muted-text">Loading journal entries…</p></div>
-            </div>
-            <div class="section-footer">
-                <a href="https://luissolutions.github.io/apps/online/onlinejournal.html" class="cta-button" target="_blank">Browse All Journal Entries</a>
-            </div>
-        </section>
     </main>
 
     <aside></aside>
 
     <footer></footer>
 
-    <script src="assets/js/eco-news-data.js"></script>
-    <script>
-    (function() {
-        const CAT_COLORS = { market: '#1a6e2e', investing: '#ff6600', economy: '#1a4a8a' };
-        const CAT_LABELS = { market: 'Market', investing: 'Investing', economy: 'Economy' };
+    <script type="module">
+    import { database, ref, get } from '../../assets/js/firebase-init.js';
+
+    const ECO_TAGS   = ['market', 'investing', 'economy'];
+    const CAT_COLORS = { market: '#1a6e2e', investing: '#ff6600', economy: '#1a4a8a' };
+    const CAT_LABELS = { market: 'Market', investing: 'Investing', economy: 'Economy' };
+
+    function getCategory(tags) {
+        for (const cat of ECO_TAGS) { if (tags.includes(cat)) return cat; }
+        return 'investing';
+    }
+
+    try {
+        const snap = await get(ref(database, 'public/journalArticles'));
+        if (!snap.exists()) throw new Error('empty');
+
+        const articles = Object.entries(snap.val())
+            .map(([key, val]) => ({ ...val, id: key }))
+            .filter(a => Array.isArray(a.tags) && a.tags.some(t => ECO_TAGS.includes(t)));
+
+        for (let i = articles.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [articles[i], articles[j]] = [articles[j], articles[i]];
+        }
+
         const container = document.getElementById('eco-news-index');
-        ECO_NEWS.slice(0, 3).forEach(p => {
+        articles.slice(0, 3).forEach(p => {
+            const cat = getCategory(p.tags);
+            const dateStr = new Date(Number(p.createdAt)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
             const a = document.createElement('a');
             a.className = 'eco-news-preview-card';
             a.href = `news.html#${p.id}`;
-            const [y, m, day] = p.date.split('-');
-            const dateStr = new Date(y, m-1, day).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
             a.innerHTML = `
                 <div class="eco-news-card-meta">
-                    <span class="eco-news-badge" style="background:${CAT_COLORS[p.category]}">${CAT_LABELS[p.category]}</span>
+                    <span class="eco-news-badge" style="background:${CAT_COLORS[cat]}">${CAT_LABELS[cat]}</span>
                     <span class="eco-news-date">${dateStr}</span>
                 </div>
                 <h3>${p.title}</h3>
-                <p>${p.summary}</p>
+                <p>${p.description || ''}</p>
                 <span class="eco-news-read-more">Read more &#8594;</span>
             `;
             container.appendChild(a);
         });
-    })();
+    } catch (e) {
+        console.error('Eco news fetch failed:', e);
+    }
     </script>
 
-    <script type="module">
-        import { database, ref, get } from '../../assets/js/firebase-init.js';
-
-        const JOURNAL_URL = 'https://luissolutions.github.io/apps/online/onlinejournal.html';
-        const container = document.getElementById('journal-cards');
-
-        try {
-            const snap = await get(ref(database, 'public/journalArticles'));
-            if (!snap.exists()) throw new Error('empty');
-
-            const entries = Object.entries(snap.val());
-            const shuffled = entries.sort(() => Math.random() - 0.5).slice(0, 3);
-
-            container.innerHTML = shuffled.map(([id, a]) => `
-                <div class="service-item">
-                    <h3>${a.title || 'Untitled'}</h3>
-                    <p>${a.description || ''}</p>
-                    <a href="${JOURNAL_URL}?id=public__${id}"
-                       class="service-button" target="_blank">Read Entry</a>
-                </div>`).join('');
-        } catch {
-            container.innerHTML = '<div class="service-item"><p style="color:#aaa;">No journal entries yet.</p></div>';
-        }
-    </script>
 </body>
 </html>
 
