@@ -74,9 +74,11 @@
 
     <div class="panel" id="hudPanel">
         <span class="hint" id="authHint"></span><br>
+        <span id="roomName" style="color:#d4af37; font-weight:bold;"></span><br>
         Coins: <span id="coins">0</span> |
         XP: <span id="xp">0</span> |
         Level: <span id="level">1</span>
+        <div id="questHUD" style="display:none; margin-top:4px; font-size:12px; color:#d4af37;"></div>
     </div>
 
     <!-- =========================================================
@@ -114,9 +116,10 @@
                         <option value="door">Door</option>
                         <option value="app">App</option>
                         <option value="editor">Editor</option>
+                        <option value="questboard">Quest Board</option>
                     </select>
                     <br>
-                    <input type="text" id="appUrlInput" placeholder="App URL (e.g. onlinenotes.html)">
+                    <input type="text" id="appUrlInput" placeholder="App URL / Quest ID">
                     <br>
                     <select id="blockShapeSelect">
                         <option value="1x1">1×1</option>
@@ -178,6 +181,21 @@
         <div id="shopPanel"></div>
     </div>
 
+    <!-- QUESTBOARD -->
+    <div id="questboard" class="panel mode">
+        <div class="row">
+            <h3 id="questPanelTitle">Quest Board</h3>
+            <span id="questStatus" class="hint"></span>
+            <button id="closeQuestboardBtn">✖ Close</button>
+        </div>
+        <div id="questDescription" class="hint" style="margin-bottom:12px;"></div>
+        <div id="questItemList" class="panel"></div>
+        <div style="margin-top:12px;">
+            <button id="acceptQuestBtn">Accept Quest</button>
+            <button id="checkQuestBtn" style="display:none">Check Progress</button>
+        </div>
+    </div>
+
     <!-- APP MODE -->
     <div id="app" class="panel mode">
         <div class="row">
@@ -225,6 +243,7 @@
             xp: 0,
             level: 1,
             roomItems: {},
+            backpack: {},
             player: { x: 3, y: 3, dir: 'down' }
         };
 
@@ -233,6 +252,12 @@
         let TILE = 64;
 
         let shopItems = [];
+
+        // quests
+        let quests = {};
+        let activeQuest = null;
+        let completedQuests = [];
+        let currentQuestboardObj = null;
 
         // input/drag
         let drag = null, hover = null;
@@ -285,9 +310,44 @@
             door: '../assets/img/door.png',
             app: '../assets/img/app.png',
             editor: '../assets/img/editor.png',
+            questboard: '../assets/img/quest.png',
             room: '../assets/img/room.png',
             player: '../assets/img/player.png',
             fallback: '../assets/img/default.png'
+        };
+
+        // Emoji fallbacks — used when no image URL is set and no image file exists
+        const TYPE_EMOJI = {
+            npc:        '🧑',
+            quiz:       '❓',
+            math:       '➕',
+            shop:       '🛒',
+            door:       '🚪',
+            app:        '📱',
+            editor:     '✏️',
+            questboard: '📋',
+            fallback:   '📦'
+        };
+
+        const SKU_EMOJI = {
+            server_tower:   '🖥️',
+            network_switch: '🔀',
+            gateway_router: '📡',
+            wifi_ap:        '📶',
+            nvme_ssd:       '💾',
+            sata_ssd:       '💿',
+            nas_hdd:        '🗄️',
+            eth_cables:     '🔌',
+            ups:            '🔋',
+            rpi4:           '🍓',
+        };
+
+        const CAT_EMOJI = {
+            compute:     '🖥️',
+            networking:  '🌐',
+            storage:     '💾',
+            accessories: '🔌',
+            power:       '🔋',
         };
 
         const defaultImageCache = {};
@@ -338,7 +398,6 @@
                 }
 
                 const img = new Image();
-                img.crossOrigin = "anonymous";
 
                 img.onerror = () => {
                     console.warn("Image failed, using type fallback:", url);
@@ -354,6 +413,17 @@
 
             // No URL provided → use type fallback
             return defaultImageCache[type] || defaultImageCache.fallback;
+        }
+
+        /* ======================= EMOJI RENDERER ======================= */
+
+        function drawEmoji(emoji, px, py, size) {
+            ctx.save();
+            ctx.font = `${Math.floor(size * 0.55)}px serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(emoji, px + size / 2, py + size / 2);
+            ctx.restore();
         }
 
         /* ======================= UTILITIES ======================= */
@@ -412,6 +482,28 @@
             coinsEl.textContent = (state.coins / 100).toFixed(2);
             xpEl.textContent = state.xp;
             levelEl.textContent = state.level;
+
+            const roomNameEl = document.getElementById('roomName');
+            if (roomNameEl && currentRoom) {
+                const room = rooms[currentRoom];
+                const label = room?.displayName || currentRoom.replace(/_/g, ' ');
+                roomNameEl.textContent = `📍 ${label}`;
+            }
+
+            const questHUD = document.getElementById('questHUD');
+            if (questHUD) {
+                if (activeQuest) {
+                    const quest = activeQuest.data;
+                    const targetItems = state.roomItems[quest.targetRoom] || {};
+                    const done = quest.requiredItems.filter(r =>
+                        (targetItems[r.sku] || []).length >= (r.qty || 1)
+                    ).length;
+                    questHUD.style.display = 'block';
+                    questHUD.textContent = `⚡ Quest: ${quest.name} — ${done}/${quest.requiredItems.length} items placed`;
+                } else {
+                    questHUD.style.display = 'none';
+                }
+            }
         }
 
         function levelFromXP(xp) {
@@ -943,6 +1035,8 @@
                         setMode('editor');
                         roomEditor.open(currentRoom, rooms, DATABASE_BASE_PATH);
                     }
+                    if (obj.type === 'door') await enterDoor(obj);
+                    if (obj.type === 'questboard') openQuestBoard(obj);
                 }
 
                 return;
@@ -970,6 +1064,10 @@
             if (obj.type === 'editor') {
                 setMode('editor');
                 roomEditor.open(currentRoom, rooms, DATABASE_BASE_PATH);
+            }
+            if (obj.type === 'questboard') {
+                openQuestBoard(obj);
+                return;
             }
             if (obj.type === 'door') {
                 await enterDoor(obj);
@@ -1020,6 +1118,9 @@
                 }
 
                 state.roomItems = data.roomItems || {};
+                state.backpack = data.backpack || {};
+                activeQuest = data.activeQuest || null;
+                completedQuests = data.completedQuests || [];
 
                 if (rooms[currentRoom]?.bg) {
                     bgLoaded = false;
@@ -1041,8 +1142,137 @@
                 level: state.level ?? 1,
                 room: safeRoom,
                 roomItems: state.roomItems ?? {},
-                player: state.player ?? { x: 0, y: 0, dir: 'down' }
+                backpack: state.backpack ?? {},
+                player: state.player ?? { x: 0, y: 0, dir: 'down' },
+                activeQuest: activeQuest ?? null,
+                completedQuests: completedQuests ?? []
             });
+        }
+
+        /* ======================= QUESTS ======================= */
+
+        function loadQuests() {
+            onValue(ref(database, 'public/gameData/quests'), (snap) => {
+                if (snap.exists()) quests = snap.val();
+            });
+        }
+
+        function openQuestBoard(obj) {
+            currentQuestboardObj = obj;
+            const questId = obj.questId || 'homelab_quest';
+            const quest = quests[questId];
+
+            if (!quest) {
+                infoPanel.innerHTML = '<div class="panel">No quest data found for this board.</div>';
+                return;
+            }
+
+            const isCompleted = completedQuests.includes(questId);
+            const isActive = activeQuest?.id === questId;
+
+            document.getElementById('questPanelTitle').textContent = quest.name;
+            document.getElementById('questDescription').textContent = quest.description;
+
+            const listEl = document.getElementById('questItemList');
+            listEl.innerHTML = '';
+
+            const targetItems = state.roomItems[quest.targetRoom] || {};
+
+            quest.requiredItems.forEach(req => {
+                const have = (targetItems[req.sku] || []).length;
+                const need = req.qty || 1;
+                const done = have >= need;
+
+                const div = document.createElement('div');
+                div.textContent = `${done ? '✓' : '○'} ${req.name} (${have}/${need})`;
+                div.style.color = done ? '#4caf50' : 'inherit';
+                div.style.padding = '4px 0';
+                listEl.appendChild(div);
+            });
+
+            const rewardDiv = document.createElement('div');
+            rewardDiv.className = 'hint';
+            rewardDiv.style.marginTop = '12px';
+            rewardDiv.textContent = `Reward: $${(quest.reward.coins / 100).toFixed(2)} + ${quest.reward.xp} XP`;
+            listEl.appendChild(rewardDiv);
+
+            const statusEl = document.getElementById('questStatus');
+            const acceptBtn = document.getElementById('acceptQuestBtn');
+            const checkBtn = document.getElementById('checkQuestBtn');
+
+            if (isCompleted) {
+                statusEl.textContent = '✓ Complete!';
+                statusEl.style.color = '#4caf50';
+                acceptBtn.style.display = 'none';
+                checkBtn.style.display = 'none';
+            } else if (isActive) {
+                statusEl.textContent = 'Active';
+                statusEl.style.color = '#d4af37';
+                acceptBtn.style.display = 'none';
+                checkBtn.style.display = 'inline-block';
+            } else {
+                statusEl.textContent = '';
+                acceptBtn.style.display = 'inline-block';
+                checkBtn.style.display = 'none';
+            }
+
+            setMode('questboard');
+        }
+
+        function acceptQuest(questId) {
+            const quest = quests[questId];
+            if (!quest) return;
+
+            activeQuest = { id: questId, data: quest };
+
+            if (!rooms[quest.targetRoom]) {
+                createRoom(quest.targetRoom, currentRoom);
+            }
+
+            document.getElementById('questStatus').textContent = 'Active';
+            document.getElementById('acceptQuestBtn').style.display = 'none';
+            document.getElementById('checkQuestBtn').style.display = 'inline-block';
+
+            renderHUD();
+            persistPlayer();
+        }
+
+        function checkQuestCompletion() {
+            if (!activeQuest) return;
+
+            const quest = activeQuest.data;
+            const targetItems = state.roomItems[quest.targetRoom] || {};
+
+            const allDone = quest.requiredItems.every(req =>
+                (targetItems[req.sku] || []).length >= (req.qty || 1)
+            );
+
+            if (allDone) completeQuest();
+        }
+
+        function completeQuest() {
+            const quest = activeQuest.data;
+            const questId = activeQuest.id;
+
+            state.coins += quest.reward.coins;
+            state.xp += quest.reward.xp;
+            state.level = levelFromXP(state.xp);
+
+            completedQuests.push(questId);
+            activeQuest = null;
+
+            renderHUD();
+            persistPlayer();
+            setMode('room');
+
+            infoPanel.innerHTML = `
+                <div class="panel">
+                    <strong>🏆 Quest Complete!</strong><br><br>
+                    ${quest.name}<br><br>
+                    +$${(quest.reward.coins / 100).toFixed(2)} coins<br>
+                    +${quest.reward.xp} XP
+                </div>
+            `;
         }
 
         /* ======================= SHOP ======================= */
@@ -1074,7 +1304,8 @@
                             desc: v.desc || '',
                             cat: v.cat || '',
                             link: v.link || '',
-                            size: isXL ? 2 : 1
+                            w: Number(v.w) || (isXL ? 2 : 1),
+                            h: Number(v.h) || (isXL ? 2 : 1),
                         });
                     });
                 });
@@ -1100,7 +1331,10 @@
 
             shopItems.forEach(item => {
                 const btn = document.createElement('button');
-                btn.textContent = `Buy ${item.name} (${item.price})`;
+                const w = item.w || 1;
+                const h = item.h || 1;
+                const sizeLabel = (w === 1 && h === 1) ? '' : ` [${w}×${h}]`;
+                btn.textContent = `Buy ${item.name}${sizeLabel} ($${Number(item.price).toFixed(2)})`;
 
                 btn.onclick = () => {
                     const priceInCents = Math.round(item.price * 100);
@@ -1112,21 +1346,20 @@
                     state.coins -= priceInCents;
 
                     const key = safeKey(item.sku);
-                    const roomInventory = getCurrentRoomItems();
-                    if (!roomInventory[key]) roomInventory[key] = [];
-
-                    roomInventory[key].push({
-                        x: 0,
-                        y: 0,
-                        name: item.name,
-                        sku: item.sku,
-                        price: item.price,
-                        img: item.img || '',
-                        desc: item.desc || '',
-                        cat: item.cat || '',
-                        link: item.link || '',
-                        size: item.size || 1
-                    });
+                    if (!state.backpack[key]) {
+                        state.backpack[key] = {
+                            name: item.name,
+                            sku: item.sku,
+                            img: item.img || '',
+                            desc: item.desc || '',
+                            cat: item.cat || '',
+                            link: item.link || '',
+                            w: item.w || 1,
+                            h: item.h || 1,
+                            qty: 0
+                        };
+                    }
+                    state.backpack[key].qty++;
 
                     renderHUD();
                     renderInventory();
@@ -1140,24 +1373,79 @@
         /* ======================= INVENTORY PANEL ======================= */
 
         function renderInventory() {
+            inventoryPanel.innerHTML = '<h3>Backpack</h3>';
 
-            inventoryPanel.innerHTML = '<h3>Inventory</h3>';
-
-            const roomInventory = getCurrentRoomItems();
-
-            const entries = Object.entries(roomInventory).filter(([, v]) => Array.isArray(v));
+            const entries = Object.entries(state.backpack).filter(([, v]) => v.qty > 0);
 
             if (!entries.length) {
-                inventoryPanel.innerHTML += '<div class="hint">No items yet in this room.</div>';
+                inventoryPanel.innerHTML += '<div class="hint">Backpack empty.</div>';
                 return;
             }
 
-            for (const [key, list] of entries) {
+            for (const [key, item] of entries) {
                 const div = document.createElement('div');
                 div.className = 'inventory-line';
-                div.textContent = `${list[0]?.name || key} x ${list.length}`;
+                div.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;';
+
+                const label = document.createElement('span');
+                label.textContent = `${item.name} ×${item.qty}`;
+
+                const btn = document.createElement('button');
+                btn.textContent = 'Place';
+                btn.onclick = () => placeFromBackpack(key);
+
+                div.appendChild(label);
+                div.appendChild(btn);
                 inventoryPanel.appendChild(div);
             }
+        }
+
+        function placeFromBackpack(key) {
+            const item = state.backpack[key];
+            if (!item || item.qty <= 0) return;
+
+            const w = item.w || 1;
+            const h = item.h || 1;
+
+            // find nearest spot that fits the item's footprint
+            let spot = null;
+            for (let r = 0; r <= 10; r++) {
+                for (let dx = -r; dx <= r; dx++) {
+                    for (let dy = -r; dy <= r; dy++) {
+                        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+                        const tx = state.player.x + dx;
+                        const ty = state.player.y + dy;
+                        if (isAreaFree(tx, ty, w, h)) { spot = { x: tx, y: ty }; break; }
+                    }
+                    if (spot) break;
+                }
+                if (spot) break;
+            }
+
+            if (!spot) { infoPanel.innerHTML = 'No space to place item here.'; return; }
+
+            const roomInventory = getCurrentRoomItems();
+            if (!roomInventory[key]) roomInventory[key] = [];
+
+            roomInventory[key].push({
+                x: spot.x,
+                y: spot.y,
+                name: item.name,
+                sku: item.sku,
+                img: item.img || '',
+                desc: item.desc || '',
+                cat: item.cat || '',
+                link: item.link || '',
+                w,
+                h
+            });
+
+            item.qty--;
+            if (item.qty <= 0) delete state.backpack[key];
+
+            renderInventory();
+            persistPlayer();
+            checkQuestCompletion();
         }
 
         /* ======================= DRAWING ======================= */
@@ -1180,19 +1468,15 @@
                     const px = obj.x * TILE;
                     const py = obj.y * TILE;
 
-                    const img = getCachedImage(obj.img, 'fallback');
+                    const img = obj.img ? getCachedImage(obj.img, null) : null;
 
                     if (img && img.complete && img.naturalWidth > 0) {
-                        ctx.drawImage(
-                            img,
-                            px,
-                            py,
-                            TILE * w,
-                            TILE * h
-                        );
+                        ctx.drawImage(img, px, py, TILE * w, TILE * h);
                     } else {
-                        ctx.fillStyle = '#ff3cff';
-                        ctx.fillRect(px + 4, py + 4, TILE * w - 8, TILE * h - 8);
+                        const emoji = SKU_EMOJI[obj.sku] || CAT_EMOJI[obj.cat] || '📦';
+                        for (let dy = 0; dy < h; dy++)
+                            for (let dx = 0; dx < w; dx++)
+                                drawEmoji(emoji, px + dx * TILE, py + dy * TILE, TILE);
                     }
                 });
             }
@@ -1275,13 +1559,15 @@
 
                 if (locked) ctx.globalAlpha = 0.5;
 
-                const img = getCachedImage(obj.img, obj.type);
+                const img = obj.img ? getCachedImage(obj.img, obj.type) : (defaultImageCache[obj.type] || null);
 
                 if (img && img.complete && img.naturalWidth > 0) {
                     ctx.drawImage(img, px, py, TILE * w, TILE * h);
                 } else {
-                    ctx.fillStyle = locked ? '#880000' : '#ff3cff';
-                    ctx.fillRect(px + 4, py + 4, TILE * w - 8, TILE * h - 8);
+                    const emoji = TYPE_EMOJI[obj.type] || TYPE_EMOJI.fallback;
+                    for (let dy = 0; dy < h; dy++)
+                        for (let dx = 0; dx < w; dx++)
+                            drawEmoji(emoji, px + dx * TILE, py + dy * TILE, TILE);
                 }
 
                 if (locked) ctx.globalAlpha = 1;
@@ -1373,8 +1659,41 @@
                     </div>
                 </div>
 
+                <div style="margin-top:10px;">
+                    <button id="pickUpBtn">Pick Up</button>
+                </div>
                 <div class="hint">Triple-click to delete • Drag to move</div>
             `;
+
+            document.getElementById('pickUpBtn')?.addEventListener('click', () => {
+                const roomInventory = getCurrentRoomItems();
+                const arr = roomInventory[item.key];
+                const idx = arr?.indexOf(item.obj);
+                if (idx == null || idx < 0) return;
+
+                arr.splice(idx, 1);
+                if (arr.length === 0) delete roomInventory[item.key];
+
+                const key = safeKey(obj.sku || obj.name);
+                if (!state.backpack[key]) {
+                    state.backpack[key] = {
+                        name: obj.name || key,
+                        sku: obj.sku || key,
+                        img: obj.img || '',
+                        desc: obj.desc || '',
+                        cat: obj.cat || '',
+                        link: obj.link || '',
+                        w: obj.w || 1,
+                        h: obj.h || 1,
+                        qty: 0
+                    };
+                }
+                state.backpack[key].qty++;
+
+                renderInventory();
+                persistPlayer();
+                infoPanel.innerHTML = `<div class="panel">${escapeHTML(obj.name || key)} picked up.</div>`;
+            });
         }
 
         /* ======================= DRAG + DELETE ======================= */
@@ -1641,6 +1960,7 @@
                 drag.obj.y = hover.y;
 
                 persistPlayer();
+                checkQuestCompletion();
             }
 
             drag = null;
@@ -1787,6 +2107,16 @@
                     "Press E again to open it."
                 ];
             }
+
+            if (type === "questboard") {
+                const questId = document.getElementById("appUrlInput").value.trim() || 'homelab_quest';
+                baseBlock.questId = questId;
+                baseBlock.dialogue = [
+                    "A Quest Board. Adventures await.",
+                    "Press E again to view available quests."
+                ];
+            }
+
             addBlockToRoom(currentRoom, baseBlock);
         }
 
@@ -1884,7 +2214,8 @@
                     if (frame) frame.src = '';
                     setMode('room');
                 },
-                closeEditorBtn: () => setMode('room')
+                closeEditorBtn: () => setMode('room'),
+                closeQuestboardBtn: () => setMode('room')
             };
 
             Object.entries(closeButtons).forEach(([id, handler]) => {
@@ -1919,6 +2250,20 @@
                     }
                 });
 
+            // QUEST
+            document.getElementById('acceptQuestBtn')
+                ?.addEventListener('click', () => {
+                    if (currentQuestboardObj) {
+                        acceptQuest(currentQuestboardObj.questId || 'homelab_quest');
+                    }
+                });
+
+            document.getElementById('checkQuestBtn')
+                ?.addEventListener('click', () => {
+                    checkQuestCompletion();
+                    if (currentQuestboardObj) openQuestBoard(currentQuestboardObj);
+                });
+
             // UPLOADS
             document.getElementById('bgUpload')
                 ?.addEventListener('change', handleBackgroundUpload);
@@ -1945,6 +2290,7 @@
             loadRooms();
             loadPlayer();
             loadShop();
+            loadQuests();
 
             quiz.loadQuizProgress();
             quiz.populateQuizIndex();
