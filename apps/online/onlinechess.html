@@ -90,7 +90,7 @@
     <script src="../assets/js/links-aside.js" defer></script>
 
     <script type="module">
-        import { auth, database, ref, onValue, set, onAuthStateChanged } from '../../assets/js/firebase-init.js';
+        import { auth, database, ref, onValue, set, off, onAuthStateChanged } from '../../assets/js/firebase-init.js';
 
         // Chess Unicode — proper white (outline) and black (filled) symbols
         const SYMBOLS = {
@@ -103,7 +103,13 @@
         const W = SQ * COLS, H = SQ * ROWS;
 
         let uid = 'public';
-        onAuthStateChanged(auth, u => { if (u) uid = u.uid; });
+        let activeStateRef = null;
+
+        onAuthStateChanged(auth, u => {
+            uid = u ? u.uid : 'public';
+            document.getElementById('auth-label').textContent = u ? u.email : 'Not signed in';
+            if (currentScene) loadState(currentScene);
+        });
 
         const config = {
             type: Phaser.AUTO,
@@ -208,7 +214,9 @@
         }
 
         function loadState(scene) {
-            onValue(ref(database, `${uid}/gameState/chess`), snap => {
+            if (activeStateRef) off(activeStateRef);
+            activeStateRef = ref(database, `${uid}/gameState/chess`);
+            onValue(activeStateRef, snap => {
                 chessPieces.forEach(p => p.sprite?.destroy());
                 chessPieces = [];
                 carriedPiece = null;
