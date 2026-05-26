@@ -261,17 +261,6 @@
     .app-tile p  { font-size: 0.73rem; color: var(--muted); line-height: 1.5; margin-bottom: 5px; }
     .app-tile .tag { display: inline-block; font-size: 0.62rem; background: rgba(42,157,143,0.12); color: #4ac8ba; border-radius: 3px; padding: 2px 5px; }
 
-    /* ── Iframe ── */
-    .ws-iframe-wrap { display: none; height: calc(100vh - var(--nav-h) - 60px); }
-    .ws-iframe-wrap.active { display: block; }
-    .ws-iframe-header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 9px 16px;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-    }
-    .ws-iframe-header h3 { margin: 0; font-size: 0.9rem; color: var(--plight); }
-    .ws-iframe { width: 100%; height: calc(100% - 46px); border: none; background: var(--surface); }
 
     @media (max-width: 768px) {
       .workspace-layout { flex-direction: column; }
@@ -307,7 +296,11 @@
         <!-- Hub (auth-gated) -->
         <div class="ws-panel" id="panel-hub">
           <h2 style="margin-bottom:4px;">Hub</h2>
-          <p style="color:var(--muted);font-size:var(--sm);margin-bottom:16px;">Most visited rise to the top automatically.</p>
+          <input type="search" id="hubSearch" placeholder="Filter…" autocomplete="off" style="
+            width:100%; max-width:320px; padding:7px 12px; margin-bottom:14px;
+            background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+            color:var(--text); font-size:var(--sm); font-family:var(--font); outline:none;
+          ">
           <div class="hub-grid" id="hubGrid"></div>
         </div>
 
@@ -336,14 +329,6 @@
           <div id="appsGrid"></div>
         </div>
 
-        <!-- App iframe -->
-        <div class="ws-iframe-wrap" id="iframeWrap">
-          <div class="ws-iframe-header">
-            <h3 id="iframeTitle"></h3>
-            <button class="btn" id="iframeBack" style="font-size:0.8rem;padding:5px 13px;">← Back</button>
-          </div>
-          <iframe class="ws-iframe" id="appFrame" src=""></iframe>
-        </div>
 
       </div>
     </div>
@@ -459,14 +444,11 @@
             renderHub();
           });
         }
-        el.addEventListener('click', () => {
+        el.addEventListener('click', e => {
           bump(item.id);
           renderHub();
-          if (item.external) {
-            window.open(item.url, '_blank', 'noopener');
-          } else {
-            loadAppInFrame(item.title, item.url);
-          }
+          if (e.shiftKey) window.open(item.url, '_blank', 'noopener');
+          else window.location.href = item.url;
         });
         grid.appendChild(el);
       }
@@ -536,10 +518,11 @@
           el.dataset.link  = a.link;
           el.dataset.title = a.title;
           el.innerHTML = `<h3>${a.title}</h3><span class="tag">${a.tag || a.cat}</span><p>${a.desc || ''}</p>`;
-          el.addEventListener('click', () => {
+          el.addEventListener('click', e => {
             bump(a.link);
             renderHub();
-            loadAppInFrame(a.title, a.link);
+            if (e.shiftKey) window.open(a.link, '_blank', 'noopener');
+            else window.location.href = a.link;
           });
           g.appendChild(el);
         });
@@ -547,34 +530,6 @@
       });
     }
 
-    // ── Iframe ──
-    let lastPanel = 'apps';
-
-    function loadAppInFrame(title, url) {
-      const wrap  = document.getElementById('iframeWrap');
-      const frame = document.getElementById('appFrame');
-      const ttl   = document.getElementById('iframeTitle');
-      if (!wrap || !frame) return;
-      const active = document.querySelector('.ws-panel.active');
-      if (active) lastPanel = active.id.replace('panel-', '');
-      ttl.textContent = title;
-      frame.src = url;
-      wrap.classList.add('active');
-      document.querySelectorAll('.ws-panel').forEach(p => p.classList.remove('active'));
-      setCollapsed(true);
-    }
-
-    document.getElementById('iframeBack')?.addEventListener('click', () => {
-      const wrap  = document.getElementById('iframeWrap');
-      const frame = document.getElementById('appFrame');
-      wrap?.classList.remove('active');
-      if (frame) frame.src = '';
-      document.querySelectorAll('.ws-panel').forEach(p => p.classList.remove('active'));
-      document.getElementById('panel-' + lastPanel)?.classList.add('active');
-      document.querySelectorAll('.ws-btn[data-panel]').forEach(b => b.classList.remove('active'));
-      document.querySelector(`.ws-btn[data-panel='${lastPanel}']`)?.classList.add('active');
-      setCollapsed(false);
-    });
 
     // ── Panel switching ──
     document.addEventListener('click', e => {
@@ -584,7 +539,6 @@
       document.querySelectorAll('.ws-btn[data-panel]').forEach(b => b.classList.remove('active'));
       document.getElementById('panel-' + btn.dataset.panel)?.classList.add('active');
       btn.classList.add('active');
-      document.getElementById('iframeWrap')?.classList.remove('active');
     });
 
     // ── Pill filters ──
@@ -614,6 +568,18 @@
       renderHub();
       renderSites();
       renderApps();
+    });
+
+    document.getElementById('hubSearch').addEventListener('input', function () {
+      const q = this.value.trim().toLowerCase();
+      document.querySelectorAll('#hubGrid .hub-card').forEach(card => {
+        const title = (card.querySelector('h3')?.textContent || '').toLowerCase();
+        const desc  = (card.querySelector('p')?.textContent  || '').toLowerCase();
+        card.style.display = (!q || title.includes(q) || desc.includes(q)) ? '' : 'none';
+      });
+      document.querySelectorAll('#hubGrid .hub-section-label').forEach(label => {
+        label.style.display = q ? 'none' : '';
+      });
     });
   </script>
 
@@ -652,12 +618,6 @@
       } else {
         hubBtn.style.display   = 'none';
         hubPanel.style.display = 'none';
-        // close any open iframe
-        const iframeWrap = document.getElementById('iframeWrap');
-        if (iframeWrap) {
-          iframeWrap.classList.remove('active');
-          document.getElementById('appFrame').src = '';
-        }
         // ensure sites is active
         if (!document.querySelector('.ws-panel.active')) {
           document.getElementById('panel-sites')?.classList.add('active');

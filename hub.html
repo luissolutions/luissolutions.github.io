@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control Hub</title>
+    <link rel="stylesheet" href="assets/css/master.css">
+    <link rel="icon" href="assets/img/favicon.ico">
+    <style>
+        #hub-body { display: block; }
+
+        main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
+
+        .hcard {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px;
+            margin-bottom: 16px;
+            overflow: auto;
+        }
+        .hcard h3 {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--muted);
+            margin-bottom: 14px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* Token rows */
+        .token-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .token-field {
+            flex: 1; font-family: monospace; font-size: 0.75rem;
+            background: var(--bg); border: 1px solid var(--border);
+            color: var(--muted); border-radius: 6px; padding: 7px 10px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .token-label { font-size: 0.78rem; color: var(--muted); min-width: 90px; }
+
+        /* Buttons */
+        .hbtn {
+            padding: 7px 16px; border-radius: 6px; border: 1px solid var(--border);
+            background: var(--bg); color: var(--text); font-size: 0.82rem; cursor: pointer;
+            transition: border-color .15s, color .15s;
+        }
+        .hbtn:hover { border-color: var(--accent); color: var(--accent); }
+        .hbtn.primary { background: steelblue; border-color: steelblue; color: #fff; }
+        .hbtn.primary:hover { background: #3a7ab8; border-color: #3a7ab8; }
+
+        /* Service links */
+        .svc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        @media (max-width: 600px) { .svc-grid { grid-template-columns: 1fr; } }
+        .svc-link {
+            display: flex; align-items: center; gap: 9px; padding: 9px 12px;
+            background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+            text-decoration: none; color: var(--text); font-size: 0.88rem;
+            transition: border-color .15s, background .15s;
+        }
+        .svc-link:hover { border-color: var(--accent); background: #0f2030; color: var(--text); }
+        .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .dot-g { background: #4ade80; box-shadow: 0 0 5px #4ade80aa; }
+        .dot-b { background: steelblue; box-shadow: 0 0 5px steelblueaa; }
+        .dot-y { background: #facc15; }
+        .svc-url { font-size: 0.72rem; color: var(--muted); margin-left: auto; }
+
+        /* Commands */
+        .cmd-row {
+            display: flex; align-items: center; gap: 8px;
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: 6px; padding: 8px 12px; margin-bottom: 6px;
+        }
+        .cmd-label { font-size: 0.75rem; color: var(--muted); min-width: 150px; flex-shrink: 0; }
+        .cmd-text {
+            font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.75rem;
+            color: #7dd3fc; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .copy-btn {
+            background: none; border: 1px solid var(--border); color: var(--muted);
+            border-radius: 4px; padding: 3px 8px; font-size: 0.68rem; cursor: pointer; flex-shrink: 0;
+        }
+        .copy-btn:hover { border-color: steelblue; color: steelblue; }
+        .copy-btn.copied { border-color: #4ade80; color: #4ade80; }
+
+        /* Tables */
+        .htable { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+        .htable th {
+            text-align: left; color: var(--muted); font-size: 0.68rem;
+            text-transform: uppercase; letter-spacing: 1px; padding: 5px 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .htable td { padding: 7px 8px; border-bottom: 1px solid #15273d; }
+        .htable td:first-child { color: steelblue; font-family: monospace; }
+        .htable td:nth-child(2) { font-family: monospace; color: #7dd3fc; }
+        .htable tr:last-child td { border-bottom: none; }
+        .htable tr:hover td { background: #0f2030; }
+
+        /* Creds */
+        .cred-row { display: flex; gap: 10px; padding: 6px 8px; border-bottom: 1px solid #15273d; font-size: 0.82rem; }
+        .cred-row:last-child { border-bottom: none; }
+        .cred-svc { color: var(--muted); min-width: 110px; }
+        .cred-val { color: steelblue; font-family: monospace; }
+        .cred-note { color: var(--muted); font-size: 0.72rem; margin-left: 4px; }
+
+        /* Auth bar */
+        #auth-bar {
+            display: flex; gap: 12px; align-items: center; padding: 10px 16px;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); margin-bottom: 20px; font-size: 0.82rem; flex-wrap: wrap;
+        }
+        .auth-badge {
+            display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+            border-radius: 20px; border: 1px solid var(--border); font-size: 0.78rem;
+        }
+        .auth-badge.active { border-color: #4ade80; color: #4ade80; }
+        .auth-badge.inactive { color: var(--muted); }
+        #auth-bar .spacer { flex: 1; }
+        #hub-clock { color: var(--muted); font-size: 0.8rem; text-align: right; line-height: 1.6; }
+
+        /* Gate / no-data states */
+        #hub-gate {
+            text-align: center; padding: 60px 20px; color: var(--muted);
+        }
+        #hub-gate p { margin-bottom: 16px; font-size: 0.9rem; }
+        #hub-content { display: none; }
+
+        section.hub-section { margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+    <div id="header-placeholder"></div>
+
+    <div id="hub-body">
+    <main>
+
+        <!-- Auth bar -->
+        <div id="auth-bar">
+            <span id="fb-badge" class="auth-badge inactive">
+                <span class="dot dot-y" style="width:7px;height:7px"></span>
+                Firebase: <span id="fb-status">not signed in</span>
+            </span>
+            <span id="ms-badge" class="auth-badge inactive">
+                <span class="dot dot-y" style="width:7px;height:7px"></span>
+                Microsoft: <span id="ms-status">not signed in</span>
+            </span>
+            <span class="spacer"></span>
+            <div id="hub-clock"></div>
+        </div>
+
+        <!-- Token panel (always visible once hub unlocked) -->
+        <section class="hub-section">
+            <div class="grid-2">
+                <div class="hcard">
+                    <h3>Firebase Token</h3>
+                    <div id="fb-signed-out" style="color:var(--muted);font-size:0.85rem">Sign in via the header to retrieve token.</div>
+                    <div id="fb-signed-in" style="display:none">
+                        <div class="token-row">
+                            <span class="token-label">UID</span>
+                            <span class="token-field" id="fb-uid">—</span>
+                            <button class="copy-btn" data-target="fb-uid">copy</button>
+                        </div>
+                        <div class="token-row">
+                            <span class="token-label">ID Token</span>
+                            <span class="token-field" id="fb-token">—</span>
+                            <button class="copy-btn" data-target="fb-token">copy</button>
+                        </div>
+                        <div style="margin-top:8px">
+                            <button class="hbtn" id="fb-refresh-btn">Refresh Token</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hcard">
+                    <h3>Microsoft / OneDrive</h3>
+                    <div id="ms-signed-out">
+                        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:12px">Sign in with your Microsoft account to get an access token.</p>
+                        <button class="hbtn primary" id="ms-login-btn">Sign in with Microsoft</button>
+                    </div>
+                    <div id="ms-signed-in" style="display:none">
+                        <div class="token-row">
+                            <span class="token-label">Account</span>
+                            <span class="token-field" id="ms-account">—</span>
+                        </div>
+                        <div class="token-row">
+                            <span class="token-label">Access Token</span>
+                            <span class="token-field" id="ms-token">—</span>
+                            <button class="copy-btn" data-target="ms-token">copy</button>
+                        </div>
+                        <div style="margin-top:8px;display:flex;gap:8px">
+                            <button class="hbtn" id="ms-refresh-btn">Refresh</button>
+                            <button class="hbtn" id="ms-logout-btn">Sign out</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Gate shown when not signed into Firebase -->
+        <div id="hub-gate">
+            <p>Sign in via the header to load your hub data.</p>
+        </div>
+
+        <!-- Dynamic content — rendered from Firebase after auth -->
+        <div id="hub-content">
+            <section class="hub-section">
+                <div class="grid-2">
+                    <div class="hcard"><h3>External — Cloudflare</h3><div class="svc-grid" id="svc-external"></div></div>
+                    <div class="hcard"><h3>Local — LAN Only</h3><div class="svc-grid" id="svc-local"></div></div>
+                </div>
+            </section>
+
+            <section class="hub-section">
+                <div class="hcard"><h3>Quick Commands</h3><div id="cmd-list"></div></div>
+            </section>
+
+            <section class="hub-section">
+                <div class="grid-2">
+                    <div class="hcard">
+                        <h3>Network</h3>
+                        <table class="htable">
+                            <thead><tr><th>Host</th><th>IP</th><th>Role</th></tr></thead>
+                            <tbody id="net-rows"></tbody>
+                        </table>
+                    </div>
+                    <div class="hcard">
+                        <h3>Credentials</h3>
+                        <div id="cred-rows"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="hub-section">
+                <div class="grid-2">
+                    <div class="hcard">
+                        <h3>Wazuh Agents</h3>
+                        <table class="htable">
+                            <thead><tr><th>Host</th><th>ID</th><th>Status</th></tr></thead>
+                            <tbody id="agent-rows"></tbody>
+                        </table>
+                    </div>
+                    <div class="hcard">
+                        <h3>Server Drives (se)</h3>
+                        <table class="htable">
+                            <thead><tr><th>Drive</th><th>Label</th><th>Role</th></tr></thead>
+                            <tbody id="drive-rows"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+
+    </main>
+    </div>
+
+    <div id="footer-placeholder"></div>
+    <script src="assets/js/main.js" defer></script>
+
+    <script type="module">
+        import { auth, database, onAuthStateChanged, ref, get, set } from './assets/js/firebase-init.js';
+        import { loginToMicrosoft, logoutFromMicrosoft, getUserInfo, isLoggedIn } from './apps/assets/js/microsoftAuth.js';
+
+        /* ── Clock ── */
+        const clockEl = document.getElementById('hub-clock');
+        const tick = () => {
+            const n = new Date();
+            clockEl.innerHTML = n.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric' })
+                + '<br>' + n.toLocaleTimeString('en-US', { hour12: false });
+        };
+        tick(); setInterval(tick, 1000);
+
+        /* ── Render helpers ── */
+        function renderServices(containerId, items) {
+            const el = document.getElementById(containerId);
+            el.innerHTML = items.map(s => `
+                <a class="svc-link" href="${s.url}" target="_blank">
+                    <span class="dot dot-${s.dot || 'b'}"></span>
+                    ${s.name}
+                    <span class="svc-url">${s.tag || ''}</span>
+                </a>`).join('');
+        }
+
+        function renderCommands(items) {
+            document.getElementById('cmd-list').innerHTML = items.map(c => `
+                <div class="cmd-row">
+                    <span class="cmd-label">${c.label}</span>
+                    <span class="cmd-text">${c.cmd}</span>
+                    <button class="copy-btn" data-copy="${c.cmd.replace(/"/g, '&quot;')}">copy</button>
+                </div>`).join('');
+        }
+
+        function renderTable(tbodyId, rows, cols) {
+            document.getElementById(tbodyId).innerHTML = rows.map(r =>
+                `<tr>${cols.map((c, i) => {
+                    const val = r[c] ?? '';
+                    const style = (c === 'status') ? ` style="color:${val === 'Active' ? '#4ade80' : 'var(--muted)'}"` : '';
+                    return `<td${style}>${val}</td>`;
+                }).join('')}</tr>`
+            ).join('');
+        }
+
+        function renderCreds(items) {
+            document.getElementById('cred-rows').innerHTML = items.map(c => `
+                <div class="cred-row">
+                    <span class="cred-svc">${c.service}</span>
+                    <span class="cred-val">${c.user}</span>
+                    ${c.note ? `<span class="cred-note">${c.note}</span>` : ''}
+                </div>`).join('');
+        }
+
+        function renderAll(d) {
+            if (d.external)    renderServices('svc-external', d.external);
+            if (d.local)       renderServices('svc-local', d.local);
+            if (d.commands)    renderCommands(d.commands);
+            if (d.network)     renderTable('net-rows', d.network, ['host', 'ip', 'role']);
+            if (d.credentials) renderCreds(d.credentials);
+            if (d.agents)      renderTable('agent-rows', d.agents, ['host', 'id', 'status']);
+            if (d.drives)      renderTable('drive-rows', d.drives, ['drive', 'label', 'role']);
+        }
+
+        /* ── Default seed data ── */
+        const DEFAULTS = {
+            external: [
+                { name: 'Main Site',       url: 'https://luissolutions.us',         tag: 'luissolutions.us',         dot: 'g' },
+                { name: 'AI / Open WebUI', url: 'https://ai.luissolutions.us',      tag: 'ai.luissolutions.us',      dot: 'g' },
+                { name: 'Jellyfin',        url: 'https://jellyfin.luissolutions.us',tag: 'jellyfin.luissolutions.us',dot: 'g' },
+                { name: 'RomM',            url: 'https://romm.luissolutions.us',    tag: 'romm.luissolutions.us',    dot: 'g' },
+                { name: 'ComfyUI',         url: 'https://comfy.luissolutions.us',   tag: 'comfy.luissolutions.us',   dot: 'g' },
+            ],
+            local: [
+                { name: 'Portainer',    url: 'http://192.168.50.10:9000',  tag: ':9000',    dot: 'b' },
+                { name: 'UniFi',        url: 'https://192.168.50.10:8443', tag: ':8443',    dot: 'b' },
+                { name: 'Wazuh SIEM',   url: 'https://192.168.50.10:5601', tag: ':5601',    dot: 'b' },
+                { name: 'AdGuard',      url: 'http://192.168.50.20:3000',  tag: ':3000 VM', dot: 'b' },
+                { name: 'Nextcloud',    url: 'http://192.168.50.10:8082',  tag: ':8082',    dot: 'y' },
+                { name: 'The Grid',     url: 'http://192.168.50.10:8081/apps/online/onlinegame.html', tag: ':8081', dot: 'b' },
+            ],
+            commands: [
+                { label: 'SSH → web-server VM',  cmd: 'ssh louserver@192.168.50.20' },
+                { label: 'RDP → se',             cmd: 'mstsc /v:192.168.50.10' },
+                { label: 'Docker restart all',   cmd: 'docker compose -f E:\\Containers\\docker-compose.yml restart' },
+                { label: 'ComfyUI start',        cmd: 'E:\\ComfyUI\\run.bat' },
+                { label: 'SD WebUI start',       cmd: 'C:\\Users\\homelab\\OneDrive\\stable-diffusion-webui\\webui-user.bat' },
+                { label: 'Wazuh pw change',      cmd: 'docker exec -it single-node-wazuh.indexer-1 bash -c "export JAVA_HOME=/usr/share/wazuh-indexer/jdk && /usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh -u admin -p \'NEWPASSWORD\'"' },
+                { label: 'Tailscale subnet',     cmd: 'tailscale up --advertise-routes=192.168.50.0/24' },
+                { label: 'Docker logs (follow)', cmd: 'docker logs -f ' },
+            ],
+            network: [
+                { host: 'gateway', ip: '192.168.50.1',   role: 'Cradlepoint' },
+                { host: 'switch',  ip: '192.168.50.2',   role: 'EdgeSwitch 8' },
+                { host: 'se',      ip: '192.168.50.10',  role: 'Server · Ryzen 9 · RTX 3080' },
+                { host: 'ws',      ip: '192.168.50.11',  role: 'Workstation · Ryzen 5 · RTX 5070' },
+                { host: 'web-vm',  ip: '192.168.50.20',  role: 'Ubuntu · AdGuard · SSH' },
+                { host: 'kali',    ip: '192.168.50.40',  role: 'Kali 2026.1 · Hyper-V' },
+                { host: 'ap',      ip: '192.168.50.117', role: 'UniFi U6' },
+                { host: 'laptop',  ip: '192.168.50.17',  role: 'WiFi' },
+            ],
+            credentials: [
+                { service: 'Portainer',   user: 'admin',                      note: '' },
+                { service: 'Wazuh',       user: 'admin',                      note: 'change via indexer tool' },
+                { service: 'UniFi',       user: 'luis.a.curbelo@gmail.com',   note: '' },
+                { service: 'AdGuard',     user: 'louman61',                   note: '' },
+                { service: 'RomM',        user: 'louman61',                   note: '' },
+                { service: 'Sunshine',    user: 'louman61',                   note: '' },
+                { service: 'SSH / se',    user: 'louserver',                  note: '' },
+                { service: 'Firebase',    user: 'luis.a.curbelo@gmail.com',   note: '' },
+                { service: 'Tailscale',   user: '100.117.19.105',             note: 'se IP' },
+            ],
+            agents: [
+                { host: 'se',     id: '001', status: 'Active' },
+                { host: 'web-vm', id: '002', status: 'Active' },
+                { host: 'ws',     id: '003', status: 'Active' },
+            ],
+            drives: [
+                { drive: 'C:\\', label: 'OS',      role: '2TB NVMe' },
+                { drive: 'D:\\', label: 'ARCHIVE', role: '4TB HDD — slow' },
+                { drive: 'E:\\', label: 'ACTIVE',  role: '4TB SSD — containers, VMs' },
+                { drive: 'F:\\', label: 'VAULT',   role: '4TB WD Purple — media' },
+            ],
+        };
+
+        /* ── Firebase auth → load hub ── */
+        onAuthStateChanged(auth, async user => {
+            if (!user) {
+                document.getElementById('fb-badge').className = 'auth-badge inactive';
+                document.getElementById('fb-status').textContent = 'not signed in';
+                document.getElementById('fb-signed-out').style.display = 'block';
+                document.getElementById('fb-signed-in').style.display  = 'none';
+                document.getElementById('hub-gate').style.display    = 'block';
+                document.getElementById('hub-content').style.display = 'none';
+                return;
+            }
+
+            // Show Firebase token
+            const token = await user.getIdToken(true);
+            document.getElementById('fb-uid').textContent    = user.uid;
+            document.getElementById('fb-token').textContent  = token;
+            document.getElementById('fb-status').textContent = user.email;
+            document.getElementById('fb-badge').className    = 'auth-badge active';
+            document.getElementById('fb-signed-out').style.display = 'none';
+            document.getElementById('fb-signed-in').style.display  = 'block';
+            document.getElementById('fb-refresh-btn').onclick = async () => {
+                document.getElementById('fb-token').textContent = await user.getIdToken(true);
+            };
+
+            // Load hub data from Firebase
+            const snap = await get(ref(database, `${user.uid}/hub`));
+            document.getElementById('hub-gate').style.display    = 'none';
+            document.getElementById('hub-content').style.display = 'block';
+
+            if (snap.exists()) {
+                renderAll(snap.val());
+            }
+        });
+
+
+        /* ── Microsoft / OneDrive ── */
+        function showMsIn(token, name) {
+            document.getElementById('ms-signed-out').style.display = 'none';
+            document.getElementById('ms-signed-in').style.display  = 'block';
+            document.getElementById('ms-account').textContent = name || '—';
+            document.getElementById('ms-token').textContent   = token;
+            document.getElementById('ms-status').textContent  = name || 'signed in';
+            document.getElementById('ms-badge').className = 'auth-badge active';
+        }
+        function showMsOut() {
+            document.getElementById('ms-signed-out').style.display = 'block';
+            document.getElementById('ms-signed-in').style.display  = 'none';
+            document.getElementById('ms-status').textContent = 'not signed in';
+            document.getElementById('ms-badge').className = 'auth-badge inactive';
+        }
+
+        if (isLoggedIn()) {
+            const token = localStorage.getItem('accessToken');
+            const info  = await getUserInfo().catch(() => null);
+            showMsIn(token, info?.displayName || info?.userPrincipalName);
+        }
+
+        document.getElementById('ms-login-btn').addEventListener('click', () => loginToMicrosoft());
+        document.getElementById('ms-refresh-btn').addEventListener('click', async () => {
+            const token = localStorage.getItem('accessToken');
+            const info  = await getUserInfo().catch(() => null);
+            if (token) showMsIn(token, info?.displayName || info?.userPrincipalName);
+        });
+        document.getElementById('ms-logout-btn').addEventListener('click', () => {
+            logoutFromMicrosoft(); showMsOut();
+        });
+
+        /* ── Copy buttons (delegated) ── */
+        document.addEventListener('click', e => {
+            const t = e.target;
+            if (t.dataset.copy !== undefined) {
+                navigator.clipboard.writeText(t.dataset.copy).then(() => {
+                    t.textContent = 'copied'; t.classList.add('copied');
+                    setTimeout(() => { t.textContent = 'copy'; t.classList.remove('copied'); }, 1500);
+                });
+            }
+            if (t.dataset.target) {
+                const val = document.getElementById(t.dataset.target)?.textContent;
+                if (val) navigator.clipboard.writeText(val).then(() => {
+                    t.textContent = 'copied'; t.classList.add('copied');
+                    setTimeout(() => { t.textContent = 'copy'; t.classList.remove('copied'); }, 1500);
+                });
+            }
+        });
+    </script>
+</body>
+</html>
