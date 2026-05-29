@@ -346,10 +346,10 @@
     <script type="module" src="../assets/js/auth.js"></script>
     <script src="../assets/js/links-aside.js" charset="utf-8" defer></script>
     <script type="module">
-        import { database, ref, onValue, push, set, query, limitToLast, remove, get, storage, storageRef, uploadBytes, getDownloadURL } from '../assets/js/firebase-init.js';
+        import { database, ref, onValue, push, set, query, limitToLast, remove, get, storage, storageRef, uploadBytes, getDownloadURL, runTransaction } from '../assets/js/firebase-init.js';
         import { onUserReady } from '../assets/js/auth.js';
 
-        const OLLAMA_URL  = 'http://192.168.50.10:11435/api/chat';
+        const OLLAMA_URL  = 'https://api.luissolutions.us/chat';
         const BOT_MODEL   = 'dolphin3';
         const BOT_NAME    = '🌸 Yuki';
         const INVENTORY_KEYWORDS  = /inventory|item|stock|product|emporium|price|quantity|how many|available|shop|sell|buy|catalog|listing|merchandise|goods|supplies|parts|do you have|do you carry|do you sell|what does.{0,20}cost|how much is|in stock|out of stock|what.{0,10}sell|what.{0,10}carry|what.{0,10}got/i;
@@ -1129,15 +1129,14 @@ const BODY_PART_MAP = {
                     if (isHistory) return;
 
                     if (chatMode === 'internal' && currentUsername && msg.username === currentUsername) {
-                        const claimKey = `yuki_claim_${key}`;
                         const tabId    = sessionStorage.getItem('tab_id') || (() => { const id = Math.random().toString(36).slice(2); sessionStorage.setItem('tab_id', id); return id; })();
-                        localStorage.setItem(claimKey, tabId);
-                        setTimeout(() => {
-                            if (localStorage.getItem(claimKey) === tabId) {
+                        const claimRef = ref(database, `yuki_claims/${key}`);
+                        runTransaction(claimRef, current => current !== null ? undefined : tabId)
+                            .then(({ committed }) => {
+                                if (!committed) return;
                                 askYuki(msg.username, msg.text);
-                            }
-                            localStorage.removeItem(claimKey);
-                        }, 80);
+                                setTimeout(() => set(claimRef, null), 120000);
+                            });
                     }
                 });
                 injectGeneratedImages();
@@ -1156,6 +1155,10 @@ const BODY_PART_MAP = {
         onUserReady(user => {
             currentUser = user;
             if (user) {
+                if (location.hash === '#yuki') {
+                    history.replaceState(null, '', location.pathname);
+                    internalTab.click();
+                }
                 currentUsername = user.displayName || user.email.split('@')[0];
                 usernameRow.style.display = 'none';
                 userBadge.textContent = `Signed in as ${currentUsername}`;
