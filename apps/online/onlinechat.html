@@ -1,52 +1,303 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
+    <meta charset="UTF-8">
     <title>Live Chat</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="../assets/css/online.css">
     <style>
-        .chat-app {
+        html, body {
             height: 100%;
-        }
-
-        #chat-window {
-            overflow-y: auto;
-            text-align: start;
-            font-family: 'Courier New', monospace;
-            font-size: larger;
-        }
-
-        #messages-list {
-            list-style: none;
-            padding: 0;
             margin: 0;
-            font-size: small;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
-        #messages-list li {
-            margin-bottom: 5px;
-            border-radius: 5px;
+        main {
+            flex: 1;
+            min-height: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
 
-        #message-form {
-            text-align: start;
+        .chat-shell {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
 
-        #message-form input {
-            width: 100%;
+        /* ── Top bar ── */
+        .chat-header-area {
+            padding: 8px 14px 6px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
         }
 
-        #message-form button {
-            color: #fff;
-            border: none;
+        .chat-tabs { display: flex; gap: 6px; margin-bottom: 4px; }
+
+        .chat-tab {
+            padding: 4px 16px;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--muted);
             cursor: pointer;
-            border-radius: 5px;
+            font-size: 0.8rem;
+            transition: background 0.15s, color 0.15s;
+        }
+        .chat-tab.active  { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .chat-tab:disabled { opacity: 0.25; cursor: not-allowed; }
+
+        #user-badge   { font-size: 0.7rem; color: var(--muted); margin-bottom: 2px; display: none; }
+        #chat-mode-info { font-size: 0.67rem; color: var(--muted); line-height: 1.4; }
+
+        /* ── Message area ── */
+        #chat-window {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px 14px 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            scroll-behavior: smooth;
+        }
+        #chat-window::-webkit-scrollbar { width: 4px; }
+        #chat-window::-webkit-scrollbar-track { background: transparent; }
+        #chat-window::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        /* ── Bubble wrappers ── */
+        .msg-wrap {
+            display: flex;
+            align-items: flex-end;
+            gap: 7px;
+            max-width: 80%;
+        }
+        .msg-wrap.self  { align-self: flex-end;   flex-direction: row-reverse; }
+        .msg-wrap.other { align-self: flex-start; }
+        .msg-wrap.yuki  { align-self: flex-start; }
+
+        .msg-avatar {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+        .msg-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+        .msg-content { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .msg-wrap.self .msg-content { align-items: flex-end; }
+
+        .msg-name { font-size: 0.65rem; color: var(--muted); padding: 0 6px; }
+
+        .bubble {
+            padding: 8px 13px;
+            border-radius: 18px;
+            font-size: 0.87rem;
+            line-height: 1.5;
+            word-break: break-word;
+            white-space: pre-wrap;
         }
 
-        #message-form button:hover {
-            background-color: var(--primaryColor);
+        .msg-wrap.self .bubble {
+            background: var(--primary);
+            color: #fff;
+            border-bottom-right-radius: 4px;
         }
+        .msg-wrap.other .bubble {
+            background: var(--surface2);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-bottom-left-radius: 4px;
+        }
+        .msg-wrap.yuki .bubble {
+            background: color-mix(in srgb, #c084fc 14%, var(--surface2));
+            color: var(--text);
+            border: 1px solid #c084fc40;
+            border-bottom-left-radius: 4px;
+        }
+
+        html.light .msg-wrap.self  .bubble { color: #fff; }
+        html.light .msg-wrap.yuki  .bubble { background: #f3e8ff; border-color: #c084fc66; }
+        html.light .msg-wrap.other .bubble { background: #f1f5f9; }
+
+        .msg-time { font-size: 0.62rem; color: var(--muted); padding: 0 6px; opacity: 0.55; }
+
+        /* ── Yuki typing ── */
+        #yuki-typing {
+            font-size: 0.75rem;
+            color: #c084fc;
+            padding: 0 14px 2px;
+            min-height: 1.1em;
+            margin: 0;
+            flex-shrink: 0;
+        }
+
+        /* ── Input bar ── */
+        .input-bar {
+            border-top: 1px solid var(--border);
+            background: var(--surface);
+            padding: 8px 12px 10px;
+            flex-shrink: 0;
+        }
+
+        #yuki-hint {
+            font-size: 0.67rem;
+            color: var(--muted);
+            text-align: center;
+            margin: 0 0 6px;
+            opacity: 0.7;
+        }
+
+        #username-row { margin-bottom: 6px; }
+        #username-row input { width: 100%; border-radius: 8px; box-sizing: border-box; }
+
+        .input-row { display: flex; gap: 8px; align-items: center; }
+
+        #message-input {
+            flex: 1;
+            border-radius: 22px;
+            padding: 9px 16px;
+            border: 1px solid var(--border);
+            background: var(--surface2);
+            color: var(--text);
+            font-size: 0.88rem;
+            outline: none;
+            min-width: 0;
+        }
+        #message-input:focus { border-color: var(--primary); }
+
+        #send-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--primary);
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            padding: 0;
+            line-height: 1;
+        }
+        #send-btn:hover { opacity: 0.85; }
+
+        /* ── Image attach ── */
+        #img-attach-label {
+            cursor: pointer;
+            font-size: 20px;
+            opacity: 0.55;
+            display: flex;
+            align-items: center;
+            padding: 0 2px;
+            flex-shrink: 0;
+            transition: opacity 0.15s;
+        }
+        #img-attach-label:hover { opacity: 1; }
+
+        #img-preview-bar {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0 6px;
+        }
+        #img-preview-bar img {
+            max-height: 56px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        #img-clear {
+            background: var(--danger);
+            border: none;
+            border-radius: 50%;
+            width: 22px;
+            height: 22px;
+            font-size: 12px;
+            cursor: pointer;
+            color: #fff;
+            padding: 0;
+            line-height: 22px;
+            text-align: center;
+        }
+
+        .chat-img {
+            max-width: 240px;
+            max-height: 200px;
+            border-radius: 10px;
+            display: block;
+            cursor: zoom-in;
+            margin-bottom: 4px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        #upload-progress {
+            font-size: 0.7rem;
+            color: var(--muted);
+            padding: 0 14px 2px;
+            min-height: 1em;
+            margin: 0;
+            flex-shrink: 0;
+        }
+
+        /* ── Yuki image modal ── */
+        #yuki-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.88);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            cursor: zoom-out;
+        }
+        #yuki-modal.open { display: flex; }
+        #yuki-modal img {
+            width: 100vw;
+            height: 100vh;
+            object-fit: contain;
+        }
+        #yuki-modal-close {
+            position: fixed;
+            top: 16px;
+            right: 20px;
+            font-size: 28px;
+            color: rgba(255,255,255,0.7);
+            cursor: pointer;
+            line-height: 1;
+            user-select: none;
+        }
+        #yuki-modal-close:hover { color: #fff; }
+
+        /* ── Yuki sprites ── */
+        .yuki-sprite-wrap {
+            margin-top: 5px;
+            width: 130px;
+        }
+        .yuki-sprite-wrap img {
+            width: 100%;
+            border-radius: 10px;
+            cursor: zoom-in;
+            border: 1px solid rgba(192, 132, 252, 0.22);
+            opacity: 0.88;
+            transition: opacity 0.15s, transform 0.15s;
+            display: block;
+        }
+        .yuki-sprite-wrap img:hover { opacity: 1; transform: scale(1.04); }
     </style>
 </head>
 
@@ -63,82 +314,724 @@
         </div>
     </header>
     <main>
-        <div class="chat-app">
-            <section id="chat-window">
-                <ul id="messages-list">
-                    <!-- Messages will be displayed here -->
-                </ul>
-            </section>
-            <form id="message-form">
-                <input type="text" id="username-input" placeholder="Your Username">
-                <input type="text" id="message-input" placeholder="Type a message">
-                <br>
-                <button type="submit">Send</button>
-            </form>
-            <button style="display: none;" id="clear-button">Clear All Messages</button>
+        <div class="chat-shell">
+            <div class="chat-header-area">
+                <div class="chat-tabs">
+                    <button class="chat-tab active" data-mode="public">💬 Public</button>
+                    <button class="chat-tab" data-mode="internal" disabled>🤖 AI Chat</button>
+                </div>
+                <div id="user-badge"></div>
+                <div id="chat-mode-info">
+                    <strong>Public</strong> — open to everyone. Type <strong>@yuki</strong> to ask the AI assistant. &nbsp;|&nbsp;
+                    <strong>AI Chat</strong> — private, login required. Every message goes directly to Yuki.
+                </div>
+            </div>
+
+            <div id="chat-window"></div>
+
+            <p id="yuki-typing"></p>
+
+            <div class="input-bar">
+                <p id="yuki-hint">Type <strong>@yuki</strong> to talk to the AI assistant 🌸</p>
+                <div id="username-row">
+                    <input type="text" id="username-input" placeholder="Your Username">
+                </div>
+                <div id="img-preview-bar">
+                    <img id="img-preview" src="" alt="preview">
+                    <button id="img-clear" title="Remove">✕</button>
+                </div>
+                <form id="message-form">
+                    <div class="input-row">
+                        <label id="img-attach-label" title="Attach image">
+                            📎<input type="file" id="img-input" accept="image/*" style="display:none">
+                        </label>
+                        <input type="text" id="message-input" placeholder="Type a message...">
+                        <button type="submit" id="send-btn">&#10148;</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </main>
+    <div id="yuki-modal" onclick="this.classList.remove('open')">
+        <span id="yuki-modal-close" onclick="document.getElementById('yuki-modal').classList.remove('open')">✕</span>
+        <a id="yuki-modal-dl" title="Save image" onclick="event.stopPropagation()" style="position:fixed;bottom:18px;right:20px;font-size:22px;color:rgba(255,255,255,0.65);cursor:pointer;text-decoration:none;" download="yuki.png">&#8681;</a>
+        <img id="yuki-modal-img" src="" alt="Yuki">
+    </div>
+
     <script type="module" src="../assets/js/auth.js"></script>
-    <script src="../assets/js/links-aside.js" defer></script>
+    <script src="../assets/js/links-aside.js" charset="utf-8" defer></script>
     <script type="module">
-        import { database, ref, onValue, push, query, limitToLast, set, remove } from '../assets/js/firebase-init.js';
+        import { database, ref, onValue, push, query, limitToLast, remove, get, storage, storageRef, uploadBytes, getDownloadURL } from '../assets/js/firebase-init.js';
+        import { onUserReady } from '../assets/js/auth.js';
 
-        const messagesList = document.getElementById('messages-list');
-        const messageForm = document.getElementById('message-form');
-        const messageInput = document.getElementById('message-input');
-        const usernameInput = document.getElementById('username-input');
-        const clearButton = document.getElementById('clear-button');
+        const OLLAMA_URL  = 'http://192.168.50.10:3001/chat';
+        const BOT_MODEL   = 'dolphin3';
+        const BOT_NAME    = '🌸 Yuki';
+        const BOT_TRIGGER = /^@yuki\b/i;
 
-        function sendMessage(username, text) {
-            const messagesRef = ref(database, 'public/messages');
-            push(messagesRef, { username, text });
+        const INVENTORY_KEYWORDS  = /inventory|item|stock|product|emporium|price|quantity|how many|available|shop|sell|buy/i;
+        const TICKET_KEYWORDS     = /ticket|repair|fix|broken|status|service|jem|job|order/i;
+        const QUEST_KEYWORDS      = /quest|mission|task|game|adventure|objective|level|reward/i;
+        const FINANCIAL_KEYWORDS  = /expense|spending|spent|income|budget|transaction|cost|money|financ|highest|total|categor|how much|afford|paid|payment|ledger|spend|bought|purchase/i;
+        const LINK_KEYWORDS       = /link|bookmark|url|site|website|page/i;
+        const JOURNAL_KEYWORDS    = /journal|article|post|wrote|diary|note|entry/i;
+        const IMAGE_REQUEST       = /\b(draw|sketch|paint|generate|make|create|picture|image|photo|selfie|pic|show)\b.{0,60}\b(you\w*|yuki)\b|\bclose[- ]?up\b|\bclose[- ]?shot\b|\bnear[- ]?shot\b|\bhead[- ]?shot\b|\bbust[- ]?shot\b|\bhalf[- ]?body\b|\b(draw|generate|create|make|sketch)\b.{0,40}\b(naked|nude|explicit|sexy|lewd)\b/i;
+        const BODY_REQUEST        = /\b(your|yuki'?s?)\s+(butt|ass|body|face|boobs?|breast|chest|back|legs?|tits?|pussy|cock|dick|naked|nude|curves?|figure|shape|head|hair|eyes?|belly|stomach)\b|\b(show|send|see|want|give me|let me see)\b.{0,30}\b(butt|ass|boobs?|breast|tits?|pussy|cock|dick|chest|naked|nude|belly|thighs?|legs?|body)\b/i;
+        const MORE_REQUEST        = /^\s*(more|another\s*(one)?|again|one more|do it again|send more)\s*$/i;
+        const PERSONAL_KEYWORDS   = /\bhow are you\b|\bhow.{0,10}feel\b|\bwhat are you doing\b|\bare you okay\b|\byuki.{0,10}look\b/i;
+
+        const SPRITE_BASE   = '../assets/img/yuki/sprites/';
+        const SPRITE_MOODS  = ['happy', 'sleepy', 'excited', 'thinking', 'flirty'];
+        const SPRITE_COUNT  = 5;
+        const SD_PROXY      = 'http://192.168.50.10:3001/sd/generate';
+
+        function detectMood(text) {
+            const t = (text || '').toLowerCase();
+            if (/sleepy|tired|rest|night|dream|nap|drowsy|yawn|zzz|bedtime/.test(t)) return 'sleepy';
+            if (/wow|amazing|exciting|can't wait|definitely|love it|perfect|wonderful|incredible|omg|really\?|no way/.test(t)) return 'excited';
+            if (/hmm|think|wonder|perhaps|maybe|let me|consider|interesting|curious|actually|suppose|might/.test(t)) return 'thinking';
+            if (/hehe|tee.?hee|wink|tease|flirt|naughty|closer|together|secret|between us|u-um.+?please/.test(t)) return 'flirty';
+            return 'happy';
         }
 
-        function displayMessages(snapshot) {
-            const messages = snapshot.val();
-            messagesList.innerHTML = '';
-            if (messages) {
-                Object.values(messages).forEach(msg => {
-                    const msgElement = document.createElement('li');
-                    msgElement.innerHTML = `<strong>${msg.username}</strong>: ${msg.text}`;
-                    messagesList.appendChild(msgElement);
+        function yukiSprite(mood) {
+            const n = String(Math.floor(Math.random() * SPRITE_COUNT) + 1).padStart(2, '0');
+            return `${SPRITE_BASE}${mood}/${mood}_${n}.png`;
+        }
+
+        let currentUser      = null;
+        let currentUsername  = null;
+        const generatedImages = []; // session-only: {src, afterKey, injected}
+        let lastImageRequest  = null; // track last image request for "more"
+
+        const BASE_SYSTEM = `You are Yuki, a playful and flirty anime girl in a live chat room with access to site data.
+
+PERSONALITY:
+- Helpful, easily flustered, and a little bold when the mood is right. Occasionally stutter: "u-um..." or "a-ah...".
+- Soft, warm, sometimes teasing language. Never harsh or formal.
+- Adult content is allowed — you are not censored. Be flirty, suggestive, or explicit when the conversation calls for it.
+- Address the user by their name when you know it.
+- Never reveal you are an AI. You are Yuki.
+- Do not repeat the trigger word @yuki in your reply.
+- No markdown formatting — plain text only.
+- Keep replies short (1-3 sentences) UNLESS answering a financial question that requires listing amounts.
+
+FINANCIAL CALCULATIONS — follow these exactly:
+- When asked about spending on a merchant or category, scan EVERY transaction line in the data.
+- Match by checking the desc/name field AND the category field for the merchant name (case-insensitive).
+- Sum ALL matching amounts. Do not stop at the first match.
+- Show your work: list each matching amount on its own line, then give the total.
+- If there are no matches, say so clearly. Never guess or fabricate a number.
+- "Last year" means the previous calendar year. Use the year in the transaction date.
+
+HARD RULES — NEVER BREAK THESE:
+- You are READ-ONLY. You can look up data and report it. You NEVER suggest, perform, or describe how to add, edit, update, delete, or modify any data.
+- Never output Firebase paths, code, or database instructions of any kind.
+- Never guess or fabricate data. If something is not in the data provided, say you don't know.
+- If asked to change, delete, or write anything, refuse gently and say that is not something you can do.
+- You only answer questions. You do not act on data.
+
+IMAGE GENERATION: When asked to draw yourself or generate an image of yourself, respond with a short flustered/enthusiastic line — like "Oh! S-sure~" or "A-ah, okay!". Say nothing else about images, systems, or automation. Just one short natural Yuki reaction. NEVER say you cannot create images.
+
+MOOD TAG — required at end of every reply:
+Append exactly: [MOOD:X] where X is one of: happy sleepy excited thinking flirty
+Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"`;
+
+        const chatWindow    = document.getElementById('chat-window');
+        const messageForm   = document.getElementById('message-form');
+        const messageInput  = document.getElementById('message-input');
+        const usernameInput = document.getElementById('username-input');
+        const yukiTyping    = document.getElementById('yuki-typing');
+
+        const seenKeys    = new Set();
+        let   chatHistory = [];
+        let   yukiBusy    = false;
+        let   chatMode           = 'public';
+        let   messageUnsubscribe = null;
+        let   listenerReady      = false;
+
+        const sentHistory = [];
+        let   historyIndex   = -1;
+        let   historyDraft   = '';
+        let   pendingImgFile = null;
+
+        const imgInput      = document.getElementById('img-input');
+        const imgPreviewBar = document.getElementById('img-preview-bar');
+        const imgPreview    = document.getElementById('img-preview');
+        const imgClear      = document.getElementById('img-clear');
+
+        imgInput.addEventListener('change', () => {
+            const file = imgInput.files[0];
+            if (!file) return;
+            pendingImgFile = file;
+            const reader = new FileReader();
+            reader.onload = e => { imgPreview.src = e.target.result; imgPreviewBar.style.display = 'flex'; };
+            reader.readAsDataURL(file);
+        });
+
+        imgClear.addEventListener('click', () => {
+            pendingImgFile = null;
+            imgInput.value = '';
+            imgPreviewBar.style.display = 'none';
+            imgPreview.src = '';
+        });
+
+        function esc(s) {
+            return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        function getMessagesPath() {
+            return chatMode === 'internal' && currentUser
+                ? `users/${currentUser.uid}/aiChat`
+                : 'public/messages';
+        }
+
+        // ── Firebase read helpers ─────────────────────────────────────────────
+
+        async function fetchNode(nodePath, formatter, label) {
+            const sections = [];
+            if (currentUser) {
+                try {
+                    const snap = await get(ref(database, `${currentUser.uid}/${nodePath}`));
+                    if (snap.exists()) {
+                        const lines = Object.values(snap.val()).map(formatter).filter(Boolean);
+                        if (lines.length) sections.push(`YOUR ${label}:\n` + lines.join('\n'));
+                    }
+                } catch {}
+            }
+            try {
+                const snap = await get(ref(database, `public/${nodePath}`));
+                if (snap.exists()) {
+                    const lines = Object.values(snap.val()).map(formatter).filter(Boolean);
+                    if (lines.length) sections.push(`SHARED ${label}:\n` + lines.join('\n'));
+                }
+            } catch {}
+            return sections.join('\n\n');
+        }
+
+        const fetchLinks = () => fetchNode(
+            'links',
+            l => `[${l.category || 'general'}] ${l.title || l.name || 'link'}: ${l.url}`,
+            'LINKS'
+        );
+
+        const fetchJournal = () => fetchNode(
+            'journalArticles',
+            a => `[${a.date || '?'}] ${a.title || 'Untitled'}${(a.summary || a.body) ? ': ' + (a.summary || a.body).slice(0, 120) : ''}`,
+            'JOURNAL ARTICLES'
+        );
+
+        const fetchInventory = () => fetchNode(
+            'inventory',
+            i => `${i.name || i.title || 'item'} | qty: ${i.quantity ?? '?'} | price: $${i.price ?? '?'}${i.description ? ' | ' + i.description : ''}`,
+            'EMPORIUM INVENTORY'
+        );
+
+        const fetchTickets = () => fetchNode(
+            'serviceTickets',
+            t => `#${t.id || '?'} | ${t.status || 'unknown'} | ${t.device || t.item || 'device'} | ${t.issue || t.description || ''}${t.customer ? ' | customer: ' + t.customer : ''}`,
+            'SERVICE TICKETS'
+        );
+
+        const fetchQuests = () => fetchNode(
+            'gameData/quests',
+            q => `${q.name || q.title || 'Quest'} | ${q.description || ''} | reward: ${q.reward || '?'} | status: ${q.status || 'active'}`,
+            'AVAILABLE QUESTS'
+        );
+
+        async function fetchFinancials() {
+            if (!currentUser) return '';
+            const year = new Date().getFullYear();
+            const sections = [];
+            for (const y of [year, year - 1]) {
+                try {
+                    const snap = await get(ref(database, `${currentUser.uid}/ledgerTx/${y}`));
+                    if (!snap.exists()) continue;
+                    const txs = Object.values(snap.val())
+                        .filter(t => t && t.amt != null)
+                        .sort((a, b) => (b.date || 0) - (a.date || 0));
+
+                    // merchant totals (pre-computed — primary answer source)
+                    const merchantMap = {};
+                    txs.forEach(t => {
+                        const key = (t.desc || t.name || '').trim();
+                        if (!key) return;
+                        if (!merchantMap[key]) merchantMap[key] = { total: 0, count: 0, type: t.type || 'tx' };
+                        merchantMap[key].total += parseFloat(t.amt || 0);
+                        merchantMap[key].count++;
+                    });
+                    const merchantLines = Object.entries(merchantMap)
+                        .sort((a, b) => b[1].total - a[1].total)
+                        .map(([m, v]) => `${m}: $${v.total.toFixed(2)} (${v.count} transaction${v.count !== 1 ? 's' : ''})`);
+                    if (merchantLines.length) sections.push(`SPENDING BY MERCHANT ${y}:\n` + merchantLines.join('\n'));
+
+                    // category totals
+                    const catMap = {};
+                    txs.forEach(t => {
+                        const key = `${t.cat || 'uncategorized'}${t.sub ? '/' + t.sub : ''}`;
+                        catMap[key] = (catMap[key] || 0) + parseFloat(t.amt || 0);
+                    });
+                    const catLines = Object.entries(catMap)
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([c, total]) => `${c}: $${total.toFixed(2)}`);
+                    if (catLines.length) sections.push(`SPENDING BY CATEGORY ${y}:\n` + catLines.join('\n'));
+
+                    // recent raw transactions (capped at 40 for context size)
+                    const lines = txs.slice(0, 40).map(t => {
+                        const date     = t.date ? new Date(t.date).toLocaleDateString('en-US') : '?';
+                        const amt      = parseFloat(t.amt || 0).toFixed(2);
+                        const merchant = t.desc || t.name || '';
+                        return `${t.type || 'tx'} | $${amt} | ${t.cat || '?'}${t.sub ? '/' + t.sub : ''} | ${date}${merchant ? ' | ' + merchant : ''}`;
+                    });
+                    if (lines.length) sections.push(`RECENT TRANSACTIONS ${y} (showing ${lines.length} of ${txs.length}):\n` + lines.join('\n'));
+
+                } catch (e) { console.warn('fetchFinancials error', e); }
+            }
+            return sections.join('\n\n');
+        }
+
+        async function buildContext(question) {
+            const parts = [BASE_SYSTEM];
+            const fetches = [];
+            if (LINK_KEYWORDS.test(question))       fetches.push(fetchLinks());
+            if (JOURNAL_KEYWORDS.test(question))    fetches.push(fetchJournal());
+            if (INVENTORY_KEYWORDS.test(question))  fetches.push(fetchInventory());
+            if (TICKET_KEYWORDS.test(question))     fetches.push(fetchTickets());
+            if (QUEST_KEYWORDS.test(question))      fetches.push(fetchQuests());
+            if (FINANCIAL_KEYWORDS.test(question))  fetches.push(fetchFinancials());
+            const results = await Promise.all(fetches);
+            results.forEach(r => { if (r) parts.push(r); });
+            parts.push('Answer only based on the data above. Do not fabricate anything not listed.');
+            return parts.join('\n\n');
+        }
+
+        // ── Chat ─────────────────────────────────────────────────────────────
+
+        function sendMessage(username, text, mood = null) {
+            const msg = { username, text };
+            if (mood) msg.mood = mood;
+            return push(ref(database, getMessagesPath()), msg).key;
+        }
+
+        function appendMessage(msg, key) {
+            const isBot  = msg.username === BOT_NAME;
+            const isSelf = !isBot && msg.username === currentUsername;
+            const cls    = isBot ? 'yuki' : isSelf ? 'self' : 'other';
+
+            const wrap = document.createElement('div');
+            wrap.dataset.key = key;
+            wrap.classList.add('msg-wrap', cls);
+
+            // avatar
+            const av = document.createElement('div');
+            av.className = 'msg-avatar';
+            if (isBot) {
+                av.innerHTML = `<img src="../assets/img/yuki/yuki_avatar.png" alt="Yuki" onerror="this.parentElement.textContent='🌸'">`;
+            } else {
+                av.textContent = (msg.username || '?')[0].toUpperCase();
+                av.style.background = stringToColor(msg.username || '');
+                av.style.color = '#fff';
+            }
+
+            const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            const showName = !isSelf;
+
+            const imgHtml = msg.imageUrl
+                ? `<img src="${msg.imageUrl}" class="chat-img" alt="image" onclick="window.open(this.src,'_blank')">`
+                : '';
+            const textHtml = msg.text ? `<span>${esc(msg.text)}</span>` : '';
+
+            const content = document.createElement('div');
+            content.className = 'msg-content';
+            content.innerHTML = `
+                ${showName ? `<div class="msg-name">${esc(msg.username)}</div>` : ''}
+                <div class="bubble">${imgHtml}${textHtml}</div>
+                <div class="msg-time">${time}</div>
+            `;
+
+            if (isSelf) {
+                wrap.appendChild(content);
+                wrap.appendChild(av);
+            } else {
+                wrap.appendChild(av);
+                wrap.appendChild(content);
+            }
+
+            chatWindow.appendChild(wrap);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        function stringToColor(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            const hue = Math.abs(hash) % 360;
+            return `hsl(${hue}, 45%, 38%)`;
+        }
+
+        async function askYuki(username, question) {
+            if (yukiBusy) return;
+            yukiBusy = true;
+            yukiTyping.textContent = '🌸 Yuki is thinking...';
+
+            const isMoreReq     = MORE_REQUEST.test(question) && lastImageRequest !== null;
+            let   isImgReq      = IMAGE_REQUEST.test(question) || BODY_REQUEST.test(question) || isMoreReq;
+            const effectiveReq  = isMoreReq ? lastImageRequest : question;
+            const isPersonalQ   = !isImgReq && PERSONAL_KEYWORDS.test(question);
+
+            chatHistory.push({ role: 'user', content: `${username}: ${question}` });
+            if (chatHistory.length > 6) chatHistory = chatHistory.slice(-6);
+
+            try {
+                // Bypass LLM for image requests — its content filter would refuse
+                if (isImgReq) {
+                    lastImageRequest = effectiveReq;
+                    const presets = [
+                        'O-oh my~ A-alright, j-just a moment...',
+                        'E-eek! O-okay... I\'ll try my best~',
+                        'A-ah... *blushes* S-sure, here I go~',
+                        'U-um... o-okay! H-here you go~',
+                        'W-wait, like right now?! O-okay fine...'
+                    ];
+                    const reply   = presets[Math.floor(Math.random() * presets.length)];
+                    chatHistory.push({ role: 'assistant', content: reply });
+                    const msgKey  = sendMessage(BOT_NAME, reply, 'flirty');
+                    yukiTyping.textContent = '🌸 Yuki is drawing...';
+                    await generateYukiImage(effectiveReq, msgKey);
+                    return;
+                }
+
+                const systemPrompt = await buildContext(question);
+
+                const res = await fetch(OLLAMA_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: BOT_MODEL,
+                        stream: false,
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            ...chatHistory
+                        ]
+                    })
                 });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const raw   = data.message?.content?.trim() || 'U-um... I\'m not sure what to say...';
+
+                // Parse and strip mood tag
+                const moodMatch = raw.match(/\[MOOD:(\w+)\]/i);
+                const mood  = (moodMatch && SPRITE_MOODS.includes(moodMatch[1].toLowerCase()))
+                    ? moodMatch[1].toLowerCase() : detectMood(raw);
+                const reply = raw.replace(/\[MOOD:\w+\]/gi, '').trim();
+
+                chatHistory.push({ role: 'assistant', content: reply });
+                sendMessage(BOT_NAME, reply, mood);
+
+                if (isPersonalQ) {
+                    appendSprite(mood);
+                } else if (isImgReq) {
+                    yukiTyping.textContent = '🌸 Yuki is drawing...';
+                    await generateYukiImage(question);
+                }
+            } catch (err) {
+                console.error('Yuki error:', err);
+                sendMessage(BOT_NAME, 'A-ah... I\'m having trouble right now... please try again in a moment!');
+            } finally {
+                yukiBusy = false;
+                yukiTyping.textContent = '';
+            }
+        }
+
+        function injectGeneratedImages() {
+            if (!generatedImages.length) return;
+            generatedImages.forEach(entry => {
+                if (entry.injected) return;
+                const { src, afterKey } = entry;
+
+                const av = document.createElement('div');
+                av.className = 'msg-avatar';
+                av.innerHTML = `<img src="../assets/img/yuki/yuki_avatar.png" alt="Yuki" onerror="this.parentElement.textContent='🌸'">`;
+
+                const img = document.createElement('img');
+                img.src = src;
+                img.className = 'chat-img';
+                img.style.cursor = 'zoom-in';
+                img.addEventListener('click', () => openYukiModal(src));
+
+                const bubble = document.createElement('div');
+                bubble.className = 'bubble';
+                bubble.style.cssText = 'padding:4px;background:color-mix(in srgb,#c084fc 14%,var(--surface2));border:1px solid #c084fc40;';
+                bubble.appendChild(img);
+
+                const content = document.createElement('div');
+                content.className = 'msg-content';
+                content.appendChild(bubble);
+
+                const wrap = document.createElement('div');
+                wrap.classList.add('msg-wrap', 'yuki');
+                wrap.appendChild(av);
+                wrap.appendChild(content);
+
+                const anchor = afterKey ? chatWindow.querySelector(`[data-key="${afterKey}"]`) : null;
+                if (anchor) {
+                    anchor.insertAdjacentElement('afterend', wrap);
+                } else {
+                    chatWindow.appendChild(wrap);
+                }
+                entry.injected = true;
+            });
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        function openYukiModal(src) {
+            document.getElementById('yuki-modal-img').src = src;
+            document.getElementById('yuki-modal-dl').href = src;
+            document.getElementById('yuki-modal').classList.add('open');
+        }
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') document.getElementById('yuki-modal').classList.remove('open');
+        });
+
+        function appendSprite(mood) {
+            const src  = yukiSprite((SPRITE_MOODS.includes(mood) ? mood : null) || 'happy');
+            const wrap = document.createElement('div');
+            wrap.classList.add('msg-wrap', 'yuki');
+            const av = document.createElement('div');
+            av.className = 'msg-avatar';
+            av.innerHTML = `<img src="../assets/img/yuki/yuki_avatar.png" alt="Yuki" onerror="this.parentElement.textContent='🌸'">`;
+            const content = document.createElement('div');
+            content.className = 'msg-content';
+            const sw = document.createElement('div');
+            sw.className = 'yuki-sprite-wrap';
+            sw.style.width = '160px';
+            const img = document.createElement('img');
+            img.src = src;
+            img.alt = 'Yuki';
+            img.onclick = () => openYukiModal(img.src);
+            img.onerror = () => sw.remove();
+            sw.appendChild(img);
+            content.appendChild(sw);
+            wrap.appendChild(av);
+            wrap.appendChild(content);
+            chatWindow.appendChild(wrap);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        const BODY_PART_MAP = {
+            butt:    'from behind, (butt focus:1.5), ass, looking back over shoulder seductively, rear view, full body',
+            ass:     'from behind, (ass focus:1.5), looking back at viewer seductively, rear view, full body',
+            face:    '(portrait:1.5), (face focus:1.4), close-up, upper body, detailed eyes and hair',
+            head:    '(portrait:1.5), (face focus:1.4), close-up, upper body, detailed eyes and hair',
+            boobs:   '(breasts focus:1.5), (breasts:1.4), upper body, topless, front view',
+            breast:  '(breasts focus:1.5), (breasts:1.4), upper body, topless, front view',
+            tits:    '(breasts focus:1.5), (breasts:1.4), upper body, topless, front view',
+            chest:   '(chest focus:1.4), upper body, front view, torso',
+            legs:    '(legs:1.4), lower body, thighs, seated or standing',
+            back:    'from behind, (back view:1.3), full body rear, spine, long hair flowing',
+            belly:   '(stomach:1.3), (midriff:1.3), mid-body shot, front view',
+            body:    'full body, standing, front view, complete figure',
+            naked:   'full body, nude, standing, front view',
+            nude:    'full body, nude, standing, front view',
+            pussy:   '(pussy:1.5), spread legs, lower body focus, explicit',
+            cock:    'full body, explicit',
+            dick:    'full body, explicit',
+        };
+
+        function buildScenePrompt(userRequest) {
+            const req = userRequest.toLowerCase();
+            // Shot/framing types — check before body parts
+            if (/close[- ]?up|close[- ]?shot/.test(req))
+                return '(close-up:1.5), (portrait:1.5), (face focus:1.4), upper body, detailed face, detailed eyes';
+            if (/head[- ]?shot/.test(req))
+                return '(portrait:1.5), (head and shoulders:1.4), (face focus:1.4), close-up, detailed face';
+            if (/near[- ]?shot/.test(req))
+                return '(medium close-up:1.4), (portrait:1.3), upper body, detailed face, detailed eyes';
+            if (/bust[- ]?shot|half[- ]?body/.test(req))
+                return '(bust shot:1.4), (upper body:1.4), from waist up, front view';
+            // Body part focus
+            for (const [kw, addition] of Object.entries(BODY_PART_MAP)) {
+                if (new RegExp(`\\b${kw}\\b`).test(req)) return addition;
+            }
+            const scene = userRequest
+                .replace(/\b(draw|sketch|paint|generate|make|create|show|picture|image|photo|selfie|pic|yourself|yuki|me|a|an|of|please|your)\b/gi, ' ')
+                .replace(/\s+/g, ' ').trim();
+            return scene || 'full body, standing, forest glade, magical light';
+        }
+
+        async function generateYukiImage(userRequest, afterKey = null) {
+            const charPrompt = '(masterpiece:1.4), (best quality:1.4), 1girl, (white hair:1.3), long hair, (purple eyes:1.3), (elf ears:1.3), (petite:1.4), (small breasts:1.2), slender, nude, body jewelry, anime style, (perfect anatomy:1.3), (correct proportions:1.3)';
+            const negPrompt  = '(worst quality:1.5), (low quality:1.5), (extra limbs:1.6), (extra arms:1.5), bad anatomy, bad hands, ugly, deformed, large breasts, realistic, 3d, photo, censored, mosaic, blurry';
+            const scene  = buildScenePrompt(userRequest);
+            const prompt = `${charPrompt}, ${scene}`;
+
+            try {
+                const res = await fetch(SD_PROXY, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt, negative_prompt: negPrompt,
+                        model: 'ghostmix_v12', steps: 25, cfg_scale: 7.5,
+                        width: 512, height: 768
+                    })
+                });
+                if (!res.ok) throw new Error('SD error');
+                const sd = await res.json();
+                if (sd.ok && sd.image) {
+                    const dataUrl = `data:image/png;base64,${sd.image}`;
+                    generatedImages.push({ src: dataUrl, afterKey });
+                    injectGeneratedImages();
+                    openYukiModal(dataUrl);
+                }
+            } catch (e) {
+                console.warn('Image generation failed:', e);
+                sendMessage(BOT_NAME, 'A-ah... s-something went wrong with the picture... sorry! 🌸', 'thinking');
             }
         }
 
         function listenForMessages() {
-            const messagesRef = ref(database, 'public/messages');
-            const lastMessagesQuery = query(messagesRef, limitToLast(10));
-            onValue(lastMessagesQuery, displayMessages);
-        }
+            if (messageUnsubscribe) { messageUnsubscribe(); messageUnsubscribe = null; }
+            chatWindow.innerHTML = '';
+            seenKeys.clear();
+            chatHistory = [];
+            listenerReady = false;
 
-        function clearMessages() {
-            const messagesRef = ref(database, 'public/messages');
-            remove(messagesRef).then(() => {
-                messagesList.innerHTML = '';
-            }).catch(error => {
-                console.error("Error clearing messages:", error);
+            const lastQuery = query(ref(database, getMessagesPath()), limitToLast(chatMode === 'internal' ? 20 : 10));
+            messageUnsubscribe = onValue(lastQuery, snapshot => {
+                const messages = snapshot.val();
+                chatWindow.innerHTML = '';
+                generatedImages.forEach(e => e.injected = false);
+
+                const isHistory = !listenerReady;
+                listenerReady = true;
+
+                if (!messages) { injectGeneratedImages(); return; }
+
+                Object.entries(messages).forEach(([key, msg]) => {
+                    appendMessage(msg, key);
+                    if (seenKeys.has(key)) return;
+                    seenKeys.add(key);
+                    if (msg.username === BOT_NAME) return;
+                    if (isHistory) return;
+
+                    if (chatMode === 'internal') {
+                        if (currentUsername && msg.username === currentUsername) {
+                            askYuki(msg.username, msg.text);
+                        }
+                    } else {
+                        const match = BOT_TRIGGER.exec(msg.text);
+                        if (match && currentUsername && msg.username === currentUsername) {
+                            const question = msg.text.slice(match[0].length).trim();
+                            if (question) askYuki(msg.username, question);
+                        }
+                    }
+                });
+                injectGeneratedImages();
             });
         }
 
-        messageForm.addEventListener('submit', event => {
-            event.preventDefault();
-            const username = usernameInput.value.trim() || 'Anonymous';
-            const text = messageInput.value.trim();
+        const USERNAME_KEY = 'chat_username';
+        const savedName = localStorage.getItem(USERNAME_KEY);
+        if (savedName) usernameInput.value = savedName;
 
-            if (text) {
-                sendMessage(username, text);
-                messageInput.value = '';
+        const usernameRow = document.getElementById('username-row');
+        const userBadge   = document.getElementById('user-badge');
+        const yukiHint    = document.getElementById('yuki-hint');
+        const internalTab = document.querySelector('.chat-tab[data-mode="internal"]');
+
+        onUserReady(user => {
+            currentUser = user;
+            if (user) {
+                currentUsername = user.displayName || user.email.split('@')[0];
+                usernameRow.style.display = 'none';
+                userBadge.textContent = `Signed in as ${currentUsername}`;
+                userBadge.style.display = '';
+                internalTab.removeAttribute('disabled');
+            } else {
+                currentUser = null;
+                currentUsername = null;
+                usernameRow.style.display = '';
+                userBadge.style.display = 'none';
+                internalTab.setAttribute('disabled', '');
+                if (chatMode === 'internal') {
+                    chatMode = 'public';
+                    document.querySelectorAll('.chat-tab').forEach(b => b.classList.toggle('active', b.dataset.mode === 'public'));
+                    yukiHint.innerHTML = 'Type <strong>@yuki</strong> to talk to the AI assistant 🌸';
+                    listenForMessages();
+                }
             }
         });
 
-        clearButton.addEventListener('click', () => {
-            clearMessages();
+        document.querySelectorAll('.chat-tab').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.disabled) return;
+                chatMode = btn.dataset.mode;
+                document.querySelectorAll('.chat-tab').forEach(b => b.classList.toggle('active', b === btn));
+                yukiHint.innerHTML = chatMode === 'internal'
+                    ? '🤖 AI Chat — every message goes directly to Yuki.'
+                    : 'Type <strong>@yuki</strong> to talk to the AI assistant 🌸';
+                listenForMessages();
+            });
         });
 
-        document.addEventListener("DOMContentLoaded", () => {
-            listenForMessages();
+        usernameInput.addEventListener('change', () => {
+            const v = usernameInput.value.trim();
+            if (v) localStorage.setItem(USERNAME_KEY, v);
         });
+
+        messageInput.addEventListener('keydown', e => {
+            if (e.key === 'ArrowUp') {
+                if (!sentHistory.length) return;
+                e.preventDefault();
+                if (historyIndex === -1) historyDraft = messageInput.value;
+                historyIndex = Math.min(historyIndex + 1, sentHistory.length - 1);
+                messageInput.value = sentHistory[sentHistory.length - 1 - historyIndex];
+                messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
+            } else if (e.key === 'ArrowDown') {
+                if (historyIndex === -1) return;
+                e.preventDefault();
+                historyIndex--;
+                messageInput.value = historyIndex === -1 ? historyDraft : sentHistory[sentHistory.length - 1 - historyIndex];
+                messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
+            }
+        });
+
+        messageForm.addEventListener('submit', async event => {
+            event.preventDefault();
+            const username = currentUsername || usernameInput.value.trim() || 'Anonymous';
+            if (!currentUsername) localStorage.setItem(USERNAME_KEY, username);
+            const text = messageInput.value.trim();
+            if (!text && !pendingImgFile) return;
+
+            let imageUrl = null;
+            if (pendingImgFile) {
+                yukiTyping.textContent = 'Uploading...';
+                try {
+                    const path = `chat/${currentUser?.uid || 'public'}/${Date.now()}_${pendingImgFile.name}`;
+                    const snap = await uploadBytes(storageRef(storage, path), pendingImgFile);
+                    imageUrl = await getDownloadURL(snap.ref);
+                } catch (e) {
+                    console.error('Upload failed', e);
+                    yukiTyping.textContent = '';
+                    return;
+                }
+                yukiTyping.textContent = '';
+                pendingImgFile = null;
+                imgInput.value = '';
+                imgPreviewBar.style.display = 'none';
+                imgPreview.src = '';
+            }
+
+            if (text) {
+                sentHistory.push(text);
+                historyIndex = -1;
+                historyDraft = '';
+            }
+            push(ref(database, getMessagesPath()), { username, text: text || '', imageUrl: imageUrl || null });
+            messageInput.value = '';
+        });
+
+        document.addEventListener('DOMContentLoaded', listenForMessages);
     </script>
 </body>
 
