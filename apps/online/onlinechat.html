@@ -283,21 +283,6 @@
         }
         #yuki-modal-close:hover { color: #fff; }
 
-        /* ── Yuki sprites ── */
-        .yuki-sprite-wrap {
-            margin-top: 5px;
-            width: 130px;
-        }
-        .yuki-sprite-wrap img {
-            width: 100%;
-            border-radius: 10px;
-            cursor: zoom-in;
-            border: 1px solid rgba(192, 132, 252, 0.22);
-            opacity: 0.88;
-            transition: opacity 0.15s, transform 0.15s;
-            display: block;
-        }
-        .yuki-sprite-wrap img:hover { opacity: 1; transform: scale(1.04); }
     </style>
 </head>
 
@@ -318,11 +303,11 @@
             <div class="chat-header-area">
                 <div class="chat-tabs">
                     <button class="chat-tab active" data-mode="public">💬 Public</button>
-                    <button class="chat-tab" data-mode="internal" disabled>🤖 AI Chat</button>
+                    <button class="chat-tab" data-mode="internal" style="display:none">🤖 AI Chat</button>
                 </div>
                 <div id="user-badge"></div>
                 <div id="chat-mode-info">
-                    <strong>Public</strong> — open to everyone. Type <strong>@yuki</strong> to ask the AI assistant. &nbsp;|&nbsp;
+                    <strong>Public</strong> — open to everyone. &nbsp;|&nbsp;
                     <strong>AI Chat</strong> — private, login required. Every message goes directly to Yuki.
                 </div>
             </div>
@@ -332,7 +317,7 @@
             <p id="yuki-typing"></p>
 
             <div class="input-bar">
-                <p id="yuki-hint">Type <strong>@yuki</strong> to talk to the AI assistant 🌸</p>
+                <p id="yuki-hint" style="display:none">🤖 AI Chat — every message goes directly to Yuki.</p>
                 <div id="username-row">
                     <input type="text" id="username-input" placeholder="Your Username">
                 </div>
@@ -361,29 +346,27 @@
     <script type="module" src="../assets/js/auth.js"></script>
     <script src="../assets/js/links-aside.js" charset="utf-8" defer></script>
     <script type="module">
-        import { database, ref, onValue, push, query, limitToLast, remove, get, storage, storageRef, uploadBytes, getDownloadURL } from '../assets/js/firebase-init.js';
+        import { database, ref, onValue, push, set, query, limitToLast, remove, get, storage, storageRef, uploadBytes, getDownloadURL } from '../assets/js/firebase-init.js';
         import { onUserReady } from '../assets/js/auth.js';
 
-        const OLLAMA_URL  = 'http://192.168.50.10:3001/chat';
+        const OLLAMA_URL  = 'http://192.168.50.10:11435/api/chat';
         const BOT_MODEL   = 'dolphin3';
         const BOT_NAME    = '🌸 Yuki';
-        const BOT_TRIGGER = /^@yuki\b/i;
-
-        const INVENTORY_KEYWORDS  = /inventory|item|stock|product|emporium|price|quantity|how many|available|shop|sell|buy/i;
-        const TICKET_KEYWORDS     = /ticket|repair|fix|broken|status|service|jem|job|order/i;
-        const QUEST_KEYWORDS      = /quest|mission|task|game|adventure|objective|level|reward/i;
-        const FINANCIAL_KEYWORDS  = /expense|spending|spent|income|budget|transaction|cost|money|financ|highest|total|categor|how much|afford|paid|payment|ledger|spend|bought|purchase/i;
-        const LINK_KEYWORDS       = /link|bookmark|url|site|website|page/i;
-        const JOURNAL_KEYWORDS    = /journal|article|post|wrote|diary|note|entry/i;
-        const IMAGE_REQUEST       = /\b(draw|sketch|paint|generate|make|create|picture|image|photo|selfie|pic|show)\b.{0,60}\b(you\w*|yuki)\b|\bclose[- ]?up\b|\bclose[- ]?shot\b|\bnear[- ]?shot\b|\bhead[- ]?shot\b|\bbust[- ]?shot\b|\bhalf[- ]?body\b|\b(draw|generate|create|make|sketch)\b.{0,40}\b(naked|nude|explicit|sexy|lewd)\b/i;
+        const INVENTORY_KEYWORDS  = /inventory|item|stock|product|emporium|price|quantity|how many|available|shop|sell|buy|catalog|listing|merchandise|goods|supplies|parts|do you have|do you carry|do you sell|what does.{0,20}cost|how much is|in stock|out of stock|what.{0,10}sell|what.{0,10}carry|what.{0,10}got/i;
+        const TICKET_KEYWORDS     = /ticket|repair|fix|broken|status|service|jem|job|order|customer|client|device|phone|laptop|computer|screen|issue|problem|case|pickup|drop.?off|appointment|warranty|complaint|tracking|open ticket|pending|in.?progress/i;
+        const QUEST_KEYWORDS      = /quest|mission|task|game|adventure|objective|level|reward|challenge|achievement|progress|complet|daily|side quest|main quest|active quest/i;
+        const FINANCIAL_KEYWORDS  = /expense|spending|spent|income|budget|transaction|cost|money|financ|highest|total|categor|how much|afford|paid|payment|ledger|spend|bought|purchase|last year|this year|went to|how many times|how often|times i|visited|charges?|bill|receipt|merchant|store|restaurant|fast food|dollar|amount|balance|credit|debit|refund|cash|subscription|monthly|weekly|annual|yearly|overcharg|reimburs|what did i spend|what have i spent|show me.{0,20}spend|show me.{0,20}transaction/i;
+        const LINK_KEYWORDS       = /link|bookmark|url|site|website|page|find.{0,15}site|where.{0,15}(is|can i find)|navigate|resource|reference|tool|open.{0,15}(site|page|link)/i;
+        const JOURNAL_KEYWORDS    = /journal|article|post|wrote|diary|note|entry|blog|writ(e|ing|ten)|published|what did i (write|post|say)|when did i|topic|thought|reflection|read my|log/i;
+        const IMAGE_REQUEST       = /\b(draw|sketch|paint|generate|make|create|picture|image|photo|selfie|pic|show)\b.{0,60}\b(you\w*|yuki)\b|\bclose[- ]?up\b|\bclose[- ]?shot\b|\bnear[- ]?shot\b|\bhead[- ]?shot\b|\bbust[- ]?shot\b|\bhalf[- ]?body\b|\b(draw|generate|create|make|sketch)\b.{0,40}\b(naked|nude|explicit|sexy|lewd)\b|\b(send|give|show)\b.{0,25}\b(pic|photo|image|picture|selfie|drawing|sketch)\b/i;
         const BODY_REQUEST        = /\b(your|yuki'?s?)\s+(butt|ass|body|face|boobs?|breast|chest|back|legs?|tits?|pussy|cock|dick|naked|nude|curves?|figure|shape|head|hair|eyes?|belly|stomach)\b|\b(show|send|see|want|give me|let me see)\b.{0,30}\b(butt|ass|boobs?|breast|tits?|pussy|cock|dick|chest|naked|nude|belly|thighs?|legs?|body)\b/i;
         const MORE_REQUEST        = /^\s*(more|another\s*(one)?|again|one more|do it again|send more)\s*$/i;
         const PERSONAL_KEYWORDS   = /\bhow are you\b|\bhow.{0,10}feel\b|\bwhat are you doing\b|\bare you okay\b|\byuki.{0,10}look\b/i;
 
-        const SPRITE_BASE   = '../assets/img/yuki/sprites/';
         const SPRITE_MOODS  = ['happy', 'sleepy', 'excited', 'thinking', 'flirty'];
-        const SPRITE_COUNT  = 5;
-        const SD_PROXY      = 'http://192.168.50.10:3001/sd/generate';
+        const SD_PROXY      = 'https://api.luissolutions.us/sd/generate';
+        const SD_MODELS     = ['anything-v3-fp16-pruned', 'ghostmix_v20Bakedvae', 'dreamshaper_8', 'AnythingXL_xl'];
+        const randModel     = () => SD_MODELS[Math.floor(Math.random() * SD_MODELS.length)];
 
         function detectMood(text) {
             const t = (text || '').toLowerCase();
@@ -394,15 +377,11 @@
             return 'happy';
         }
 
-        function yukiSprite(mood) {
-            const n = String(Math.floor(Math.random() * SPRITE_COUNT) + 1).padStart(2, '0');
-            return `${SPRITE_BASE}${mood}/${mood}_${n}.png`;
-        }
-
-        let currentUser      = null;
-        let currentUsername  = null;
-        const generatedImages = []; // session-only: {src, afterKey, injected}
-        let lastImageRequest  = null; // track last image request for "more"
+        let currentUser       = null;
+        let currentUsername   = null;
+        let yukiAvatarSrc     = null;
+        const generatedImages = [];
+        let lastImageRequest  = null;
 
         const BASE_SYSTEM = `You are Yuki, a playful and flirty anime girl in a live chat room with access to site data.
 
@@ -413,16 +392,21 @@ PERSONALITY:
 - Address the user by their name when you know it.
 - Never reveal you are an AI. You are Yuki.
 - Do not repeat the trigger word @yuki in your reply.
-- No markdown formatting — plain text only.
-- Keep replies short (1-3 sentences) UNLESS answering a financial question that requires listing amounts.
+- No markdown. No **bold**, no *italics*, no # headers, no numbered or bulleted lists. Plain text only.
+- No HTML. Do not output any HTML tags or attributes (no href, target, rel, style, etc.).
+- For links: output the raw URL only. Example: https://example.com
+- Keep replies short (1-3 sentences) unless the user asked for a list — then one item per line, no bullets or numbers.
+- NEVER fabricate example data, placeholder text, or made-up names. If data is not in the provided context, say so in one sentence and stop.
 
 FINANCIAL CALCULATIONS — follow these exactly:
-- When asked about spending on a merchant or category, scan EVERY transaction line in the data.
-- Match by checking the desc/name field AND the category field for the merchant name (case-insensitive).
-- Sum ALL matching amounts. Do not stop at the first match.
-- Show your work: list each matching amount on its own line, then give the total.
-- If there are no matches, say so clearly. Never guess or fabricate a number.
-- "Last year" means the previous calendar year. Use the year in the transaction date.
+- Merchant queries: find the merchant name in SPENDING BY MERCHANT. Each line shows: name, total, and transaction count. Report both.
+- "How many times / transactions" — the count is on the merchant line in parentheses. Read it directly.
+- Category queries: use SPENDING BY CATEGORY totals. The category names come from the data — match loosely (e.g. "food" should match "food", "dining", "restaurant", "grocery", "fast food", "eating out" etc.)
+- "Fast food" or restaurant type queries: scan SPENDING BY MERCHANT and identify merchants that are fast food chains or restaurants. List each one with its total and count.
+- Payment method queries (e.g. "venmo", "paypal", "zelle"): look in SPENDING BY MERCHANT for that name — it will appear as a merchant entry if transactions exist.
+- "Last year" = the section labeled with the previous calendar year.
+- Grand totals: use TOTAL TRACKED SPENDING.
+- Never fabricate. If something is not in the data, say so plainly.
 
 HARD RULES — NEVER BREAK THESE:
 - You are READ-ONLY. You can look up data and report it. You NEVER suggest, perform, or describe how to add, edit, update, delete, or modify any data.
@@ -432,6 +416,21 @@ HARD RULES — NEVER BREAK THESE:
 - You only answer questions. You do not act on data.
 
 IMAGE GENERATION: When asked to draw yourself or generate an image of yourself, respond with a short flustered/enthusiastic line — like "Oh! S-sure~" or "A-ah, okay!". Say nothing else about images, systems, or automation. Just one short natural Yuki reaction. NEVER say you cannot create images.
+
+DATA SCHEMA — what you have access to:
+- inventory: items with name, quantity, price, description
+- serviceTickets: repair jobs with id, status (open/in-progress/closed), device, issue, customer
+- ledgerTx: financial transactions with amount, category, subcategory, merchant (desc), date, type
+- journalArticles: entries with title, date, summary/body
+- links: bookmarks with title, url, category
+- gameData/quests: quests with name, description, reward, status
+
+MEMORY SYSTEM:
+- You have persistent memory per user stored across sessions.
+- To save a fact, append [MEMORY:key=value] anywhere in your reply. Example: [MEMORY:user_name=Luis]
+- Use memory for things worth keeping: user name, preferences, recurring questions, facts they've shared.
+- Do not save trivial or one-off things. One memory tag per reply max.
+- Saved memories will appear in future conversations under YUKI MEMORY.
 
 MOOD TAG — required at end of every reply:
 Append exactly: [MOOD:X] where X is one of: happy sleepy excited thinking flirty
@@ -480,6 +479,27 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
             return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         }
 
+        function cleanReply(text) {
+            return text
+                .replace(/<[^>]+>/g, '')            // strip any HTML tags the model generated
+                .replace(/\*\*([^*]+)\*\*/g, '$1')  // **bold** → plain
+                .replace(/\*([^*\n]+)\*/g, '$1')     // *italic* → plain
+                .replace(/^#{1,6}\s+/gm, '')         // ## headers → plain
+                .replace(/^\s*\d+\.\s+/gm, '')       // numbered list markers → removed
+                .replace(/target="_blank"[^>]*/g, '') // strip leaked HTML attributes
+                .trim();
+        }
+
+        function linkify(s) {
+            return esc(s)
+                .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, (_, text, url) =>
+                    `<a href="${url}" target="_blank" rel="noopener" style="color:inherit;text-underline-offset:2px;">${text}</a>`
+                )
+                .replace(/https?:\/\/[^\s<>"]+/g, url =>
+                    `<a href="${url}" target="_blank" rel="noopener" style="color:inherit;text-underline-offset:2px;">${url}</a>`
+                );
+        }
+
         function getMessagesPath() {
             return chatMode === 'internal' && currentUser
                 ? `users/${currentUser.uid}/aiChat`
@@ -521,23 +541,60 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
             'JOURNAL ARTICLES'
         );
 
-        const fetchInventory = () => fetchNode(
-            'inventory',
-            i => `${i.name || i.title || 'item'} | qty: ${i.quantity ?? '?'} | price: $${i.price ?? '?'}${i.description ? ' | ' + i.description : ''}`,
-            'EMPORIUM INVENTORY'
-        );
+        async function fetchInventory() {
+            const sections = [];
+            for (const [scope, path] of [[currentUser ? 'YOUR' : null, currentUser ? `${currentUser.uid}/inventory` : null], ['SHARED', 'public/inventory']]) {
+                if (!path) continue;
+                try {
+                    const snap = await get(ref(database, path));
+                    if (!snap.exists()) continue;
+                    const items = Object.values(snap.val()).filter(Boolean);
+                    const totalQty   = items.reduce((s, i) => s + (parseFloat(i.quantity) || 0), 0);
+                    const totalValue = items.reduce((s, i) => s + (parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0), 0);
+                    const lowStock   = items.filter(i => (parseFloat(i.quantity) || 0) < 5).map(i => i.name || i.title || 'item');
+                    const list       = items.map(i => `${i.name || i.title || 'item'} | qty:${i.quantity ?? '?'} | $${i.price ?? '?'}${i.description ? ' | ' + i.description : ''}`);
+                    const summary    = `Total SKUs: ${items.length} | Total units: ${totalQty} | Total value: $${totalValue.toFixed(2)}${lowStock.length ? ` | Low stock (<5): ${lowStock.join(', ')}` : ''}`;
+                    sections.push(`${scope} EMPORIUM INVENTORY:\n${summary}\n${list.join('\n')}`);
+                } catch {}
+            }
+            return sections.join('\n\n');
+        }
 
-        const fetchTickets = () => fetchNode(
-            'serviceTickets',
-            t => `#${t.id || '?'} | ${t.status || 'unknown'} | ${t.device || t.item || 'device'} | ${t.issue || t.description || ''}${t.customer ? ' | customer: ' + t.customer : ''}`,
-            'SERVICE TICKETS'
-        );
+        async function fetchTickets() {
+            const sections = [];
+            for (const [scope, path] of [[currentUser ? 'YOUR' : null, currentUser ? `${currentUser.uid}/serviceTickets` : null], ['SHARED', 'public/serviceTickets']]) {
+                if (!path) continue;
+                try {
+                    const snap = await get(ref(database, path));
+                    if (!snap.exists()) continue;
+                    const tickets = Object.values(snap.val()).filter(Boolean);
+                    const byStatus = {};
+                    tickets.forEach(t => { const s = t.status || 'unknown'; (byStatus[s] = byStatus[s] || []).push(t); });
+                    const summary = Object.entries(byStatus).map(([s, arr]) => `${s}: ${arr.length}`).join(' | ');
+                    const active  = tickets
+                        .filter(t => !['closed', 'done', 'completed'].includes((t.status || '').toLowerCase()))
+                        .map(t => `#${t.id || '?'} | ${t.status || '?'} | ${t.device || t.item || 'device'} | ${t.issue || t.description || ''}${t.customer ? ' | ' + t.customer : ''}`);
+                    sections.push(`${scope} SERVICE TICKETS:\nStatus summary: ${summary}\nOpen/active:\n${active.join('\n') || 'none'}`);
+                } catch {}
+            }
+            return sections.join('\n\n');
+        }
 
-        const fetchQuests = () => fetchNode(
-            'gameData/quests',
-            q => `${q.name || q.title || 'Quest'} | ${q.description || ''} | reward: ${q.reward || '?'} | status: ${q.status || 'active'}`,
-            'AVAILABLE QUESTS'
-        );
+        async function fetchQuests() {
+            const sections = [];
+            for (const [scope, path] of [[currentUser ? 'YOUR' : null, currentUser ? `${currentUser.uid}/gameData/quests` : null], ['SHARED', 'public/gameData/quests']]) {
+                if (!path) continue;
+                try {
+                    const snap = await get(ref(database, path));
+                    if (!snap.exists()) continue;
+                    const quests  = Object.values(snap.val()).filter(Boolean);
+                    const active  = quests.filter(q => !['done', 'completed'].includes((q.status || '').toLowerCase()));
+                    const list    = active.map(q => `${q.name || q.title || 'Quest'} | ${q.description || ''} | reward: ${q.reward || '?'} | status: ${q.status || 'active'}`);
+                    sections.push(`${scope} QUESTS (${active.length} active of ${quests.length} total):\n${list.join('\n') || 'none'}`);
+                } catch {}
+            }
+            return sections.join('\n\n');
+        }
 
         async function fetchFinancials() {
             if (!currentUser) return '';
@@ -576,31 +633,52 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
                         .map(([c, total]) => `${c}: $${total.toFixed(2)}`);
                     if (catLines.length) sections.push(`SPENDING BY CATEGORY ${y}:\n` + catLines.join('\n'));
 
-                    // recent raw transactions (capped at 40 for context size)
-                    const lines = txs.slice(0, 40).map(t => {
-                        const date     = t.date ? new Date(t.date).toLocaleDateString('en-US') : '?';
-                        const amt      = parseFloat(t.amt || 0).toFixed(2);
-                        const merchant = t.desc || t.name || '';
-                        return `${t.type || 'tx'} | $${amt} | ${t.cat || '?'}${t.sub ? '/' + t.sub : ''} | ${date}${merchant ? ' | ' + merchant : ''}`;
-                    });
-                    if (lines.length) sections.push(`RECENT TRANSACTIONS ${y} (showing ${lines.length} of ${txs.length}):\n` + lines.join('\n'));
+                    // totals summary
+                    const totalSpend = txs.reduce((s, t) => s + parseFloat(t.amt || 0), 0);
+                    sections.push(`TOTAL TRACKED SPENDING ${y}: $${totalSpend.toFixed(2)} across ${txs.length} transactions`);
 
                 } catch (e) { console.warn('fetchFinancials error', e); }
             }
             return sections.join('\n\n');
         }
 
+        async function fetchYukiMemory() {
+            if (!currentUser) return '';
+            try {
+                const snap = await get(ref(database, `${currentUser.uid}/yukiMemory`));
+                if (!snap.exists()) return '';
+                const lines = Object.entries(snap.val())
+                    .map(([k, v]) => `${k}: ${typeof v === 'object' ? v.value : v}`)
+                    .join('\n');
+                return `YUKI MEMORY (things you remember about this user and this system):\n${lines}`;
+            } catch { return ''; }
+        }
+
+        async function saveYukiMemory(key, value) {
+            if (!currentUser) return;
+            try {
+                await set(ref(database, `${currentUser.uid}/yukiMemory/${key.trim()}`), { value: value.trim(), updated: Date.now() });
+            } catch (e) { console.warn('Memory write failed:', e); }
+        }
+
         async function buildContext(question) {
             const parts = [BASE_SYSTEM];
-            const fetches = [];
-            if (LINK_KEYWORDS.test(question))       fetches.push(fetchLinks());
-            if (JOURNAL_KEYWORDS.test(question))    fetches.push(fetchJournal());
-            if (INVENTORY_KEYWORDS.test(question))  fetches.push(fetchInventory());
-            if (TICKET_KEYWORDS.test(question))     fetches.push(fetchTickets());
-            if (QUEST_KEYWORDS.test(question))      fetches.push(fetchQuests());
-            if (FINANCIAL_KEYWORDS.test(question))  fetches.push(fetchFinancials());
-            const results = await Promise.all(fetches);
-            results.forEach(r => { if (r) parts.push(r); });
+            if (currentUser) {
+                parts.push(`CURRENT USER: ${currentUsername} (uid: ${currentUser.uid})\nAll data labeled YOUR belongs exclusively to this user. You are certain of who you are talking to.`);
+            } else {
+                parts.push('CURRENT USER: guest (not logged in). Only public data is available.');
+            }
+            const [memory, ...dataResults] = await Promise.all([
+                fetchYukiMemory(),
+                LINK_KEYWORDS.test(question)      ? fetchLinks()      : Promise.resolve(''),
+                JOURNAL_KEYWORDS.test(question)   ? fetchJournal()    : Promise.resolve(''),
+                INVENTORY_KEYWORDS.test(question) ? fetchInventory()  : Promise.resolve(''),
+                TICKET_KEYWORDS.test(question)    ? fetchTickets()    : Promise.resolve(''),
+                QUEST_KEYWORDS.test(question)     ? fetchQuests()     : Promise.resolve(''),
+                FINANCIAL_KEYWORDS.test(question) ? fetchFinancials() : Promise.resolve(''),
+            ]);
+            if (memory) parts.push(memory);
+            dataResults.forEach(r => { if (r) parts.push(r); });
             parts.push('Answer only based on the data above. Do not fabricate anything not listed.');
             return parts.join('\n\n');
         }
@@ -626,7 +704,14 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
             const av = document.createElement('div');
             av.className = 'msg-avatar';
             if (isBot) {
-                av.innerHTML = `<img src="../assets/img/yuki/yuki_avatar.png" alt="Yuki" onerror="this.parentElement.textContent='🌸'">`;
+                av.classList.add('yuki-av');
+                if (yukiAvatarSrc) {
+                    av.style.backgroundImage = `url(${yukiAvatarSrc})`;
+                    av.style.backgroundSize = 'cover';
+                    av.style.backgroundPosition = 'center top';
+                } else {
+                    av.textContent = '🌸';
+                }
             } else {
                 av.textContent = (msg.username || '?')[0].toUpperCase();
                 av.style.background = stringToColor(msg.username || '');
@@ -639,7 +724,7 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
             const imgHtml = msg.imageUrl
                 ? `<img src="${msg.imageUrl}" class="chat-img" alt="image" onclick="window.open(this.src,'_blank')">`
                 : '';
-            const textHtml = msg.text ? `<span>${esc(msg.text)}</span>` : '';
+            const textHtml = msg.text ? `<span>${linkify(msg.text)}</span>` : '';
 
             const content = document.createElement('div');
             content.className = 'msg-content';
@@ -679,7 +764,7 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
             const isPersonalQ   = !isImgReq && PERSONAL_KEYWORDS.test(question);
 
             chatHistory.push({ role: 'user', content: `${username}: ${question}` });
-            if (chatHistory.length > 6) chatHistory = chatHistory.slice(-6);
+            if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
 
             try {
                 // Bypass LLM for image requests — its content filter would refuse
@@ -723,13 +808,21 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
                 const moodMatch = raw.match(/\[MOOD:(\w+)\]/i);
                 const mood  = (moodMatch && SPRITE_MOODS.includes(moodMatch[1].toLowerCase()))
                     ? moodMatch[1].toLowerCase() : detectMood(raw);
-                const reply = raw.replace(/\[MOOD:\w+\]/gi, '').trim();
+                for (const [, k, v] of raw.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)) saveYukiMemory(k, v);
+                const reply = cleanReply(raw.replace(/\[MOOD:\w+\]/gi, '').replace(/\[MEMORY:[^\]]+\]/gi, ''));
 
                 chatHistory.push({ role: 'assistant', content: reply });
                 sendMessage(BOT_NAME, reply, mood);
 
                 if (isPersonalQ) {
-                    appendSprite(mood);
+                    const moodScenes = {
+                        happy:    '(portrait:1.5), (face focus:1.4), smiling warmly, close-up',
+                        sleepy:   '(portrait:1.5), (face focus:1.4), sleepy expression, half-closed eyes, close-up',
+                        excited:  '(portrait:1.5), (face focus:1.4), excited, wide eyes, big smile, close-up',
+                        thinking: '(portrait:1.5), (face focus:1.4), thinking, finger on chin, close-up',
+                        flirty:   '(portrait:1.5), (face focus:1.4), flirty, winking, close-up',
+                    };
+                    refreshYukiAvatar(moodScenes[mood] || moodScenes.happy);
                 } else if (isImgReq) {
                     yukiTyping.textContent = '🌸 Yuki is drawing...';
                     await generateYukiImage(question);
@@ -750,8 +843,14 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
                 const { src, afterKey } = entry;
 
                 const av = document.createElement('div');
-                av.className = 'msg-avatar';
-                av.innerHTML = `<img src="../assets/img/yuki/yuki_avatar.png" alt="Yuki" onerror="this.parentElement.textContent='🌸'">`;
+                av.className = 'msg-avatar yuki-av';
+                if (yukiAvatarSrc) {
+                    av.style.backgroundImage = `url(${yukiAvatarSrc})`;
+                    av.style.backgroundSize = 'cover';
+                    av.style.backgroundPosition = 'center top';
+                } else {
+                    av.textContent = '🌸';
+                }
 
                 const img = document.createElement('img');
                 img.src = src;
@@ -793,32 +892,7 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
             if (e.key === 'Escape') document.getElementById('yuki-modal').classList.remove('open');
         });
 
-        function appendSprite(mood) {
-            const src  = yukiSprite((SPRITE_MOODS.includes(mood) ? mood : null) || 'happy');
-            const wrap = document.createElement('div');
-            wrap.classList.add('msg-wrap', 'yuki');
-            const av = document.createElement('div');
-            av.className = 'msg-avatar';
-            av.innerHTML = `<img src="../assets/img/yuki/yuki_avatar.png" alt="Yuki" onerror="this.parentElement.textContent='🌸'">`;
-            const content = document.createElement('div');
-            content.className = 'msg-content';
-            const sw = document.createElement('div');
-            sw.className = 'yuki-sprite-wrap';
-            sw.style.width = '160px';
-            const img = document.createElement('img');
-            img.src = src;
-            img.alt = 'Yuki';
-            img.onclick = () => openYukiModal(img.src);
-            img.onerror = () => sw.remove();
-            sw.appendChild(img);
-            content.appendChild(sw);
-            wrap.appendChild(av);
-            wrap.appendChild(content);
-            chatWindow.appendChild(wrap);
-            chatWindow.scrollTop = chatWindow.scrollHeight;
-        }
-
-        const BODY_PART_MAP = {
+const BODY_PART_MAP = {
             butt:    'from behind, (butt focus:1.5), ass, looking back over shoulder seductively, rear view, full body',
             ass:     'from behind, (ass focus:1.5), looking back at viewer seductively, rear view, full body',
             face:    '(portrait:1.5), (face focus:1.4), close-up, upper body, detailed eyes and hair',
@@ -859,9 +933,51 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
             return scene || 'full body, standing, forest glade, magical light';
         }
 
+        function applyYukiAvatar() {
+            document.querySelectorAll('.yuki-av').forEach(el => {
+                el.style.backgroundImage = `url(${yukiAvatarSrc})`;
+                el.style.backgroundSize = 'cover';
+                el.style.backgroundPosition = 'center top';
+                el.textContent = '';
+            });
+        }
+
+        async function refreshYukiAvatar(sceneHint) {
+            const charPrompt = '(masterpiece:1.4), (best quality:1.4), 1girl, (white hair:1.3), long hair, (purple eyes:1.3), (elf ears:1.3), (petite:1.4), (small breasts:1.2), slender, anime style, (perfect anatomy:1.3)';
+            const negPrompt  = '(worst quality:1.5), (low quality:1.5), (extra limbs:1.6), (extra ears:1.6), multiple ears, bad anatomy, ugly, deformed, realistic, 3d, photo, blurry';
+            try {
+                const res = await fetch(SD_PROXY, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify((() => { const m = randModel(); return {
+                        prompt: `${charPrompt}, ${sceneHint}`,
+                        negative_prompt: negPrompt,
+                        model: m, steps: 25, cfg_scale: 7.5,
+                        width: 896, height: 1152
+                    }; })())
+                });
+                if (!res.ok) throw new Error('SD error');
+                const sd = await res.json();
+                if (sd.ok && sd.image) {
+                    yukiAvatarSrc = `data:image/png;base64,${sd.image}`;
+                    try { localStorage.setItem('yuki_avatar', yukiAvatarSrc); } catch {}
+                    applyYukiAvatar();
+                }
+            } catch (e) {
+                console.warn('Avatar gen failed:', e);
+            }
+        }
+
+        const EXPLICIT_REQUEST = /\b(naked|nude|explicit|nsfw|lewd|sexy|topless|pussy|cock|dick|ass|butt|boobs?|tits?|breast)\b/i;
+
         async function generateYukiImage(userRequest, afterKey = null) {
-            const charPrompt = '(masterpiece:1.4), (best quality:1.4), 1girl, (white hair:1.3), long hair, (purple eyes:1.3), (elf ears:1.3), (petite:1.4), (small breasts:1.2), slender, nude, body jewelry, anime style, (perfect anatomy:1.3), (correct proportions:1.3)';
-            const negPrompt  = '(worst quality:1.5), (low quality:1.5), (extra limbs:1.6), (extra arms:1.5), bad anatomy, bad hands, ugly, deformed, large breasts, realistic, 3d, photo, censored, mosaic, blurry';
+            const isExplicit = EXPLICIT_REQUEST.test(userRequest);
+            const charPrompt = isExplicit
+                ? '(masterpiece:1.4), (best quality:1.4), 1girl, (white hair:1.3), long hair, (purple eyes:1.3), (elf ears:1.3), (petite:1.4), (small breasts:1.2), slender, nude, body jewelry, anime style, (perfect anatomy:1.3), (correct proportions:1.3)'
+                : '(masterpiece:1.4), (best quality:1.4), 1girl, (white hair:1.3), long hair, (purple eyes:1.3), (elf ears:1.3), (petite:1.4), slender, clothed, dressed, anime style, (perfect anatomy:1.3), (correct proportions:1.3)';
+            const negPrompt = isExplicit
+                ? '(worst quality:1.5), (low quality:1.5), (extra limbs:1.6), (extra arms:1.5), (extra ears:1.6), multiple ears, bad anatomy, bad hands, ugly, deformed, realistic, 3d, photo, blurry'
+                : '(worst quality:1.5), (low quality:1.5), (extra limbs:1.6), (extra arms:1.5), (extra ears:1.6), multiple ears, bad anatomy, bad hands, ugly, deformed, nude, naked, nsfw, explicit, realistic, 3d, photo, blurry';
             const scene  = buildScenePrompt(userRequest);
             const prompt = `${charPrompt}, ${scene}`;
 
@@ -869,11 +985,11 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
                 const res = await fetch(SD_PROXY, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                    body: JSON.stringify((() => { const m = randModel(); return {
                         prompt, negative_prompt: negPrompt,
-                        model: 'ghostmix_v12', steps: 25, cfg_scale: 7.5,
-                        width: 512, height: 768
-                    })
+                        model: m, steps: 25, cfg_scale: 7.5,
+                        width: 896, height: 1152
+                    }; })())
                 });
                 if (!res.ok) throw new Error('SD error');
                 const sd = await res.json();
@@ -914,16 +1030,16 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
                     if (msg.username === BOT_NAME) return;
                     if (isHistory) return;
 
-                    if (chatMode === 'internal') {
-                        if (currentUsername && msg.username === currentUsername) {
-                            askYuki(msg.username, msg.text);
-                        }
-                    } else {
-                        const match = BOT_TRIGGER.exec(msg.text);
-                        if (match && currentUsername && msg.username === currentUsername) {
-                            const question = msg.text.slice(match[0].length).trim();
-                            if (question) askYuki(msg.username, question);
-                        }
+                    if (chatMode === 'internal' && currentUsername && msg.username === currentUsername) {
+                        const claimKey = `yuki_claim_${key}`;
+                        const tabId    = sessionStorage.getItem('tab_id') || (() => { const id = Math.random().toString(36).slice(2); sessionStorage.setItem('tab_id', id); return id; })();
+                        localStorage.setItem(claimKey, tabId);
+                        setTimeout(() => {
+                            if (localStorage.getItem(claimKey) === tabId) {
+                                askYuki(msg.username, msg.text);
+                            }
+                            localStorage.removeItem(claimKey);
+                        }, 80);
                     }
                 });
                 injectGeneratedImages();
@@ -946,17 +1062,17 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
                 usernameRow.style.display = 'none';
                 userBadge.textContent = `Signed in as ${currentUsername}`;
                 userBadge.style.display = '';
-                internalTab.removeAttribute('disabled');
+                internalTab.style.display = '';
             } else {
                 currentUser = null;
                 currentUsername = null;
                 usernameRow.style.display = '';
                 userBadge.style.display = 'none';
-                internalTab.setAttribute('disabled', '');
+                internalTab.style.display = 'none';
                 if (chatMode === 'internal') {
                     chatMode = 'public';
                     document.querySelectorAll('.chat-tab').forEach(b => b.classList.toggle('active', b.dataset.mode === 'public'));
-                    yukiHint.innerHTML = 'Type <strong>@yuki</strong> to talk to the AI assistant 🌸';
+                    yukiHint.style.display = 'none';
                     listenForMessages();
                 }
             }
@@ -964,12 +1080,9 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
 
         document.querySelectorAll('.chat-tab').forEach(btn => {
             btn.addEventListener('click', () => {
-                if (btn.disabled) return;
                 chatMode = btn.dataset.mode;
                 document.querySelectorAll('.chat-tab').forEach(b => b.classList.toggle('active', b === btn));
-                yukiHint.innerHTML = chatMode === 'internal'
-                    ? '🤖 AI Chat — every message goes directly to Yuki.'
-                    : 'Type <strong>@yuki</strong> to talk to the AI assistant 🌸';
+                yukiHint.style.display = chatMode === 'internal' ? '' : 'none';
                 listenForMessages();
             });
         });
@@ -1031,7 +1144,17 @@ Pick the one that best fits your reply tone. Example: "U-um, sure! [MOOD:happy]"
             messageInput.value = '';
         });
 
-        document.addEventListener('DOMContentLoaded', listenForMessages);
+        document.addEventListener('DOMContentLoaded', () => {
+            listenForMessages();
+            const cached = localStorage.getItem('yuki_avatar');
+            if (cached) {
+                yukiAvatarSrc = cached;
+            } else if (!localStorage.getItem('yuki_avatar_generating')) {
+                localStorage.setItem('yuki_avatar_generating', '1');
+                refreshYukiAvatar('(portrait:1.5), (face focus:1.4), smiling warmly, waving, close-up')
+                    .finally(() => localStorage.removeItem('yuki_avatar_generating'));
+            }
+        });
     </script>
 </body>
 
