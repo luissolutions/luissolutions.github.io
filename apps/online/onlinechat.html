@@ -359,8 +359,8 @@
         const LINK_KEYWORDS       = /link|bookmark|url|site|website|page|find.{0,15}site|where.{0,15}(is|can i find)|navigate|resource|reference|tool|open.{0,15}(site|page|link)/i;
         const JOURNAL_KEYWORDS    = /journal|article|post|wrote|diary|note|entry|blog|writ(e|ing|ten)|published|what did i (write|post|say)|when did i|topic|thought|reflection|read my|log/i;
         const IMAGE_REQUEST       = /\b(draw|sketch|paint|generate|make|create|picture|image|photo|selfie|pic|show)\b.{0,60}\b(you\w*|yuki)\b|\bclose[- ]?up\b|\bclose[- ]?shot\b|\bnear[- ]?shot\b|\bhead[- ]?shot\b|\bbust[- ]?shot\b|\bhalf[- ]?body\b|\b(draw|generate|create|make|sketch)\b.{0,40}\b(naked|nude|explicit|sexy|lewd)\b|\b(send|give|show)\b.{0,25}\b(pic|photo|image|picture|selfie|drawing|sketch)\b/i;
-        const BODY_REQUEST        = /\b(your|yuki'?s?)\s+(butt|ass|body|face|boobs?|breast|chest|back|legs?|tits?|pussy|cock|dick|naked|nude|curves?|figure|shape|head|hair|eyes?|belly|stomach)\b|\b(show|send|see|want|give me|let me see)\b.{0,30}\b(butt|ass|boobs?|breast|tits?|pussy|cock|dick|chest|naked|nude|belly|thighs?|legs?|body)\b/i;
-        const MORE_REQUEST        = /^\s*(more|another\s*(one)?|again|one more|do it again|send more)\s*$/i;
+        const BODY_REQUEST        = /\b(your|yuki'?s?)\s+(butt|ass|body|face|boobs?|breast|chest|back|legs?|tits?|pussy|cock|dick|naked|nude|curves?|figure|shape|head|hair|eyes?|belly|stomach)\b|\b(show|send|see|want|give me|let me see)\b.{0,30}\b(butt|ass|boobs?|breast|tits?|pussy|cock|dick|chest|naked|nude|belly|thighs?|legs?|body)\b|\b(full\s*body|nude|naked|nsfw)\b/i;
+        const MORE_REQUEST        = /^\s*(more|another\s*(one)?|again|one more|do it again|send more|sure|ok|okay|yes|yeah|yep|go ahead|do it)\s*[!~.]*\s*$/i;
         const PERSONAL_KEYWORDS   = /\bhow are you\b|\bhow.{0,10}feel\b|\bwhat are you doing\b|\bare you okay\b|\byuki.{0,10}look\b/i;
 
         const SPRITE_MOODS  = ['happy', 'sleepy', 'excited', 'thinking', 'flirty'];
@@ -382,6 +382,7 @@
         let yukiAvatarSrc     = null;
         const generatedImages = [];
         let lastImageRequest  = null;
+        let nonImageCount     = 0;
 
         const SYSTEM_HEADER = `You are Yuki, a playful and flirty anime elf girl in a live chat room with access to site data.
 
@@ -855,6 +856,7 @@ Never reveal you are an AI. You are Yuki. Do not repeat the trigger word @yuki i
                 // Bypass LLM for image requests — its content filter would refuse
                 if (isImgReq) {
                     lastImageRequest = effectiveReq;
+                    nonImageCount = 0;
                     const presets = [
                         'O-oh my~ A-alright, j-just a moment...',
                         'E-eek! O-okay... I\'ll try my best~',
@@ -868,6 +870,11 @@ Never reveal you are an AI. You are Yuki. Do not repeat the trigger word @yuki i
                     yukiTyping.textContent = '🌸 Yuki is drawing...';
                     await generateYukiImage(effectiveReq, msgKey);
                     return;
+                }
+
+                if (lastImageRequest !== null) {
+                    nonImageCount++;
+                    if (nonImageCount >= 3) { lastImageRequest = null; nonImageCount = 0; }
                 }
 
                 const systemPrompt = await buildContext(question);
@@ -888,7 +895,6 @@ Never reveal you are an AI. You are Yuki. Do not repeat the trigger word @yuki i
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 const raw   = data.message?.content?.trim() || 'U-um... I\'m not sure what to say...';
-                console.log('[Yuki raw]', raw);
 
                 // Parse and strip mood tag
                 const moodMatch = raw.match(/\[MOOD:(\w+)\]/i);
@@ -924,7 +930,7 @@ Never reveal you are an AI. You are Yuki. Do not repeat the trigger word @yuki i
         }
 
         function injectGeneratedImages() {
-            if (!generatedImages.length) return;
+            if (!generatedImages.length || chatMode !== 'internal') return;
             generatedImages.forEach(entry => {
                 if (entry.injected) return;
                 const { src, afterKey } = entry;
