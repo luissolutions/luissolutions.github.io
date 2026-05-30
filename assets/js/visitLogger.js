@@ -6,51 +6,63 @@ import {
 } from '../../apps/assets/js/firebase-init.js';
 
 export async function updateVisitCount(ipAddress) {
-    const db = getDatabase();
-    const sanitizedIP = ipAddress.replace(/\./g, '-');
-    const visitCountRef = ref(db, 'public/log/visitCount');
-    const visitsLogRef = ref(db, `public/log/visits/${sanitizedIP}`);
-    const visitTime = new Date().toISOString();
-    const visitURL = window.location.href;
+    const db  = getDatabase();
+    const now  = new Date().toISOString();
+    const page = window.location.pathname.replace(/^\//, '') || 'index';
+    const sanitizedIP   = (ipAddress || 'unknown').replace(/\./g, '-');
+    const sanitizedPage = page.replace(/[.#$\[\]\/]/g, '_') || 'index';
 
     try {
-        const snapshot = await get(visitCountRef);
-        let visitCount = snapshot.exists() ? snapshot.val() : 0;
-        visitCount += 1;
+        // Total visit counter
+        const countRef  = ref(db, 'public/log/visitCount');
+        const countSnap = await get(countRef);
+        const newCount  = (countSnap.exists() ? countSnap.val() : 0) + 1;
+        await set(countRef, newCount);
 
-        const counterElement = document.getElementById("visit-counter");
-        if (counterElement) {
-            counterElement.textContent = ` | Visits: ${visitCount}`;
-        }
+        const el = document.getElementById('visit-counter');
+        if (el) el.textContent = ` | Visits: ${newCount}`;
 
-        await set(visitCountRef, visitCount);
-
-        const logSnapshot = await get(visitsLogRef);
-        const visitEntry = { time: visitTime, url: visitURL };
-
-        if (logSnapshot.exists()) {
-            const existingData = logSnapshot.val();
-            if (!existingData.visits) existingData.visits = [];
-            existingData.visits.push(visitEntry);
-            await set(visitsLogRef, existingData);
+        // Aggregated per-IP record
+        const ipRef  = ref(db, `public/log/ips/${sanitizedIP}`);
+        const ipSnap = await get(ipRef);
+        if (ipSnap.exists()) {
+            const d = ipSnap.val();
+            await set(ipRef, { ip: ipAddress, count: (d.count || 0) + 1, firstSeen: d.firstSeen || now, lastSeen: now, lastPage: page });
         } else {
-            await set(visitsLogRef, {
-                ip: ipAddress,
-                visits: [visitEntry]
-            });
+            await set(ipRef, { ip: ipAddress, count: 1, firstSeen: now, lastSeen: now, lastPage: page });
         }
 
-    } catch (error) {
-        console.error("Error logging visit:", error);
+        // Aggregated per-page record
+        const pageRef  = ref(db, `public/log/pages/${sanitizedPage}`);
+        const pageSnap = await get(pageRef);
+        if (pageSnap.exists()) {
+            const d = pageSnap.val();
+            await set(pageRef, { page, count: (d.count || 0) + 1 });
+        } else {
+            await set(pageRef, { page, count: 1 });
+        }
+
+        // Individual visit timeline (for detailed log view)
+        const visitsRef  = ref(db, `public/log/visits/${sanitizedIP}`);
+        const visitsSnap = await get(visitsRef);
+        const entry = { time: now, url: window.location.href };
+        if (visitsSnap.exists()) {
+            const d = visitsSnap.val();
+            const visits = Array.isArray(d.visits) ? d.visits : [];
+            visits.push(entry);
+            await set(visitsRef, { ip: ipAddress, visits });
+        } else {
+            await set(visitsRef, { ip: ipAddress, visits: [entry] });
+        }
+
+    } catch (err) {
+        console.error('Visit log error:', err);
     }
 }
 
 export function getIP() {
     return fetch('https://api.ipify.org?format=json')
-        .then((response) => response.json())
-        .then((data) => data.ip)
-        .catch((error) => {
-            console.error("Error fetching IP address:", error);
-            return "Unknown IP";
-        });
+        .then(r => r.json())
+        .then(d => d.ip)
+        .catch(() => 'unknown');
 }

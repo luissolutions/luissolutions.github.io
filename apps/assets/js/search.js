@@ -51,7 +51,7 @@
         function buildTermPredicate(raw) {
             let fieldName = null, expr = raw;
             const idx = raw.indexOf(':');
-            if (idx > 0) { fieldName = raw.slice(0, idx).trim(); expr = raw.slice(idx + 1).trim(); }
+            if (idx > 0 && raw.slice(idx, idx + 3) !== '://') { fieldName = raw.slice(0, idx).trim(); expr = raw.slice(idx + 1).trim(); }
 
             const ops = ['>=', '<=', '!=', '>', '<', '='];
             let op = null;

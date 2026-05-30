@@ -58,6 +58,8 @@ document.addEventListener("DOMContentLoaded", () => {
     "../components/footer.html",
   );
 
+  import('./visitLogger.js').then(m => m.getIP().then(ip => m.updateVisitCount(ip))).catch(() => {});
+
   if (document.getElementById("projects-container")) {
     populateThumbnails(projects, "projects-container");
   }

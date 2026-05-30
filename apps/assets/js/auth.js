@@ -95,3 +95,7 @@ document.addEventListener("DOMContentLoaded", () => {
 export function getCurrentUserUID() {
   return localStorage.getItem("currentUserUID");
 }
+
+import('../../../assets/js/visitLogger.js')
+  .then(m => m.getIP().then(ip => m.updateVisitCount(ip)))
+  .catch(() => {});

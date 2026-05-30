@@ -308,7 +308,6 @@
                 <div id="user-badge"></div>
                 <div id="chat-mode-info">
                     <strong>Public</strong> — open to everyone. &nbsp;|&nbsp;
-                    <strong>AI Chat</strong> — private, login required. Every message goes directly to Yuki.
                 </div>
             </div>
 
@@ -351,7 +350,7 @@
 
         const OLLAMA_URL  = 'https://api.luissolutions.us/chat';
         const BOT_MODEL   = 'dolphin3';
-        const BOT_NAME    = '🌸 Yuki';
+        let   BOT_NAME    = '🌸 Yuki';
         const INVENTORY_KEYWORDS  = /inventory|item|stock|product|emporium|price|quantity|how many|available|shop|sell|buy|catalog|listing|merchandise|goods|supplies|parts|do you have|do you carry|do you sell|what does.{0,20}cost|how much is|in stock|out of stock|what.{0,10}sell|what.{0,10}carry|what.{0,10}got/i;
         const TICKET_KEYWORDS     = /ticket|repair|fix|broken|status|service|jem|job|order|customer|client|device|phone|laptop|computer|screen|issue|problem|case|pickup|drop.?off|appointment|warranty|complaint|tracking|open ticket|pending|in.?progress/i;
         const QUEST_KEYWORDS      = /quest|mission|task|game|adventure|objective|level|reward|challenge|achievement|progress|complet|daily|side quest|main quest|active quest/i;
@@ -359,13 +358,14 @@
         const LINK_KEYWORDS       = /link|bookmark|url|site|website|page|find.{0,15}site|where.{0,15}(is|can i find)|navigate|resource|reference|tool|open.{0,15}(site|page|link)/i;
         const JOURNAL_KEYWORDS    = /journal|article|post|wrote|diary|note|entry|blog|writ(e|ing|ten)|published|what did i (write|post|say)|when did i|topic|thought|reflection|read my|log/i;
         const IMAGE_REQUEST       = /\b(draw|sketch|paint|generate|make|create|picture|image|photo|selfie|pic|show)\b.{0,60}\b(you\w*|yuki)\b|\bclose[- ]?up\b|\bclose[- ]?shot\b|\bnear[- ]?shot\b|\bhead[- ]?shot\b|\bbust[- ]?shot\b|\bhalf[- ]?body\b|\b(draw|generate|create|make|sketch)\b.{0,40}\b(naked|nude|explicit|sexy|lewd)\b|\b(send|give|show)\b.{0,25}\b(pic|photo|image|picture|selfie|drawing|sketch)\b/i;
-        const BODY_REQUEST        = /\b(your|yuki'?s?)\s+(butt|ass|body|face|boobs?|breast|chest|back|legs?|tits?|pussy|cock|dick|naked|nude|curves?|figure|shape|head|hair|eyes?|belly|stomach)\b|\b(show|send|see|want|give me|let me see)\b.{0,30}\b(butt|ass|boobs?|breast|tits?|pussy|cock|dick|chest|naked|nude|belly|thighs?|legs?|body)\b|\b(full\s*body|nude|naked|nsfw)\b/i;
+        const BODY_REQUEST        = /\b(your|yuki'?s?)\s+(butt|ass|body|face|boobs?|breast|chest|back|legs?|tits?|pussy|cock|dick|naked|nude|curves?|figure|shape|head|hair|eyes?|belly|stomach)\b|\b(show|send|see|want|give me|let me see)\b.{0,30}\b(butt|ass|boobs?|breast|tits?|pussy|cock|dick|chest|naked|nude|belly|thighs?|legs?|body)\b|\b(full\s*body|nude|naked|nsfw)\b|\b(you|yuki)\b.{0,35}\b(bathing\s*suit|bikini|swimsuit|lingerie|underwear|outfit|costume|uniform|dressed|wearing)\b|\b(bathing\s*suit|bikini|swimsuit|outfit|costume)\b.{0,30}\b(you|yuki)\b/i;
         const MORE_REQUEST        = /^\s*(more|another\s*(one)?|again|one more|do it again|send more|sure|ok|okay|yes|yeah|yep|go ahead|do it)\s*[!~.]*\s*$/i;
         const PERSONAL_KEYWORDS   = /\bhow are you\b|\bhow.{0,10}feel\b|\bwhat are you doing\b|\bare you okay\b|\byuki.{0,10}look\b/i;
 
         const SPRITE_MOODS  = ['happy', 'sleepy', 'excited', 'thinking', 'flirty'];
         const SD_PROXY      = 'https://api.luissolutions.us/sd/generate';
         const SD_MODELS     = ['anything-v3-fp16-pruned', 'ghostmix_v12', 'dreamshaper_331BakedVae'];
+        const SD_NSFW_MODEL = 'meinamix_meinaV11';
         const randModel     = () => SD_MODELS[Math.floor(Math.random() * SD_MODELS.length)];
 
         function detectMood(text) {
@@ -380,6 +380,7 @@
         let currentUser       = null;
         let currentUsername   = null;
         let yukiAvatarSrc     = null;
+        let userSdModel       = null;
         const generatedImages = [];
         let lastImageRequest  = null;
         let nonImageCount     = 0;
@@ -478,8 +479,9 @@ Never reveal you are an AI. You are Yuki. Do not repeat the trigger word @yuki i
         const usernameInput = document.getElementById('username-input');
         const yukiTyping    = document.getElementById('yuki-typing');
 
-        const seenKeys    = new Set();
-        let   chatHistory = [];
+        const seenKeys     = new Set();
+        const renderedKeys = new Set();
+        let   chatHistory  = [];
         let   yukiBusy    = false;
         let   chatMode           = 'public';
         let   messageUnsubscribe = null;
@@ -544,13 +546,26 @@ Never reveal you are an AI. You are Yuki. Do not repeat the trigger word @yuki i
 
         // ── Firebase read helpers ─────────────────────────────────────────────
 
-        async function fetchNode(nodePath, formatter, label) {
+        function extractKeywords(question) {
+            const stop = new Set(['what','where','when','show','give','have','that','with','from','this','about','find','list','does','your','yuki','link','site','page','item','ticket','journal','quest','the','and','for','are','was','any','all','how','did','can','get']);
+            return question.toLowerCase().split(/\W+/).filter(w => w.length >= 3 && !stop.has(w));
+        }
+
+        function makeFilter(question, getText) {
+            const kw = extractKeywords(question);
+            if (!kw.length) return null;
+            return item => kw.some(k => getText(item).toLowerCase().includes(k));
+        }
+
+        async function fetchNode(nodePath, formatter, label, filter = null) {
             const sections = [];
             if (currentUser) {
                 try {
                     const snap = await get(ref(database, `${currentUser.uid}/${nodePath}`));
                     if (snap.exists()) {
-                        const lines = Object.values(snap.val()).map(formatter).filter(Boolean);
+                        let items = Object.values(snap.val());
+                        if (filter) { const hit = items.filter(filter); if (hit.length) items = hit; }
+                        const lines = items.map(formatter).filter(Boolean);
                         if (lines.length) sections.push(`YOUR ${label}:\n` + lines.join('\n'));
                     }
                 } catch {}
@@ -558,33 +573,39 @@ Never reveal you are an AI. You are Yuki. Do not repeat the trigger word @yuki i
             try {
                 const snap = await get(ref(database, `public/${nodePath}`));
                 if (snap.exists()) {
-                    const lines = Object.values(snap.val()).map(formatter).filter(Boolean);
+                    let items = Object.values(snap.val());
+                    if (filter) { const hit = items.filter(filter); if (hit.length) items = hit; }
+                    const lines = items.map(formatter).filter(Boolean);
                     if (lines.length) sections.push(`SHARED ${label}:\n` + lines.join('\n'));
                 }
             } catch {}
             return sections.join('\n\n');
         }
 
-        const fetchLinks = () => fetchNode(
+        const fetchLinks = (q = '') => fetchNode(
             'links',
             l => `[${l.category || 'general'}] ${l.title || l.name || 'link'}: ${l.url}`,
-            'LINKS'
+            'LINKS',
+            makeFilter(q, l => `${l.title || ''} ${l.category || ''} ${l.url || ''}`)
         );
 
-        const fetchJournal = () => fetchNode(
+        const fetchJournal = (q = '') => fetchNode(
             'journalArticles',
             a => `[${a.date || '?'}] ${a.title || 'Untitled'}${(a.summary || a.body) ? ': ' + (a.summary || a.body).slice(0, 120) : ''}`,
-            'JOURNAL ARTICLES'
+            'JOURNAL ARTICLES',
+            makeFilter(q, a => `${a.title || ''} ${a.summary || a.body || ''}`)
         );
 
-        async function fetchInventory() {
+        async function fetchInventory(q = '') {
+            const filter = makeFilter(q, i => `${i.name || i.title || ''} ${i.description || ''}`);
             const sections = [];
             for (const [scope, path] of [[currentUser ? 'YOUR' : null, currentUser ? `${currentUser.uid}/inventory` : null], ['SHARED', 'public/inventory']]) {
                 if (!path) continue;
                 try {
                     const snap = await get(ref(database, path));
                     if (!snap.exists()) continue;
-                    const items = Object.values(snap.val()).filter(Boolean);
+                    let items = Object.values(snap.val()).filter(Boolean);
+                    if (filter) { const hit = items.filter(filter); if (hit.length) items = hit; }
                     const totalQty   = items.reduce((s, i) => s + (parseFloat(i.quantity) || 0), 0);
                     const totalValue = items.reduce((s, i) => s + (parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0), 0);
                     const lowStock   = items.filter(i => (parseFloat(i.quantity) || 0) < 5).map(i => i.name || i.title || 'item');
@@ -596,14 +617,16 @@ Never reveal you are an AI. You are Yuki. Do not repeat the trigger word @yuki i
             return sections.join('\n\n');
         }
 
-        async function fetchTickets() {
+        async function fetchTickets(q = '') {
+            const filter = makeFilter(q, t => `${t.device || t.item || ''} ${t.issue || t.description || ''} ${t.customer || ''} ${t.status || ''}`);
             const sections = [];
             for (const [scope, path] of [[currentUser ? 'YOUR' : null, currentUser ? `${currentUser.uid}/serviceTickets` : null], ['SHARED', 'public/serviceTickets']]) {
                 if (!path) continue;
                 try {
                     const snap = await get(ref(database, path));
                     if (!snap.exists()) continue;
-                    const tickets = Object.values(snap.val()).filter(Boolean);
+                    let tickets = Object.values(snap.val()).filter(Boolean);
+                    if (filter) { const hit = tickets.filter(filter); if (hit.length) tickets = hit; }
                     const byStatus = {};
                     tickets.forEach(t => { const s = t.status || 'unknown'; (byStatus[s] = byStatus[s] || []).push(t); });
                     const summary = Object.entries(byStatus).map(([s, arr]) => `${s}: ${arr.length}`).join(' | ');
@@ -632,11 +655,13 @@ Never reveal you are an AI. You are Yuki. Do not repeat the trigger word @yuki i
             return sections.join('\n\n');
         }
 
-        async function fetchFinancials() {
+        async function fetchFinancials(q = '') {
             if (!currentUser) return '';
             const year = new Date().getFullYear();
+            const wantsLastYear = /last\s*year|previous\s*year|\byear\s*before\b/i.test(q);
+            const years = wantsLastYear ? [year, year - 1] : [year];
             const sections = [];
-            for (const y of [year, year - 1]) {
+            for (const y of years) {
                 try {
                     const snap = await get(ref(database, `${currentUser.uid}/ledgerTx/${y}`));
                     if (!snap.exists()) continue;
@@ -744,26 +769,29 @@ Never reveal you are an AI. You are Yuki. Do not repeat the trigger word @yuki i
         }
 
         async function buildContext(question) {
+            const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
             const [personality, schema, memory, ...dataResults] = await Promise.all([
                 fetchYukiPersonality(),
                 fetchYukiSchema(),
                 fetchYukiMemory(),
-                LINK_KEYWORDS.test(question)      ? fetchLinks()      : Promise.resolve(''),
-                JOURNAL_KEYWORDS.test(question)   ? fetchJournal()    : Promise.resolve(''),
-                INVENTORY_KEYWORDS.test(question) ? fetchInventory()  : Promise.resolve(''),
-                TICKET_KEYWORDS.test(question)    ? fetchTickets()    : Promise.resolve(''),
-                QUEST_KEYWORDS.test(question)     ? fetchQuests()     : Promise.resolve(''),
-                FINANCIAL_KEYWORDS.test(question) ? fetchFinancials() : Promise.resolve(''),
+                LINK_KEYWORDS.test(question)      ? fetchLinks(question)      : Promise.resolve(''),
+                JOURNAL_KEYWORDS.test(question)   ? fetchJournal(question)    : Promise.resolve(''),
+                INVENTORY_KEYWORDS.test(question) ? fetchInventory(question)  : Promise.resolve(''),
+                TICKET_KEYWORDS.test(question)    ? fetchTickets(question)    : Promise.resolve(''),
+                QUEST_KEYWORDS.test(question)     ? fetchQuests(question)     : Promise.resolve(''),
+                FINANCIAL_KEYWORDS.test(question) ? fetchFinancials(question) : Promise.resolve(''),
             ]);
+            const hasData = dataResults.some(r => r && r.length > 0);
             const parts = [SYSTEM_HEADER, personality];
             if (currentUser) {
-                parts.push(`CURRENT USER: ${currentUsername} (uid: ${currentUser.uid})\nAll data labeled YOUR belongs exclusively to this user. You are certain of who you are talking to.`);
+                parts.push(`CURRENT USER: ${currentUsername} (uid: ${currentUser.uid})\nAll data labeled YOUR belongs exclusively to this user. You are certain of who you are talking to.\nTODAY'S DATE: ${today}`);
             } else {
-                parts.push('CURRENT USER: guest (not logged in). Only public data is available.');
+                parts.push(`CURRENT USER: guest (not logged in). Only public data is available.\nTODAY'S DATE: ${today}`);
             }
+            if (hasData) parts.push('DATA MODE: Data is loaded below. You may use up to 10 lines to answer — one item per line, no bullets or numbers. Keep Yuki\'s voice but prioritize completeness. Still end with [MOOD:X]. Do NOT say you cannot find data that is clearly present above.');
             parts.push(SYSTEM_TAIL);
-            if (schema) parts.push(schema);
             if (memory) parts.push(memory);
+            if (schema) parts.push(schema);
             dataResults.forEach(r => { if (r) parts.push(r); });
             parts.push('Answer only based on the data above. Do not fabricate anything not listed.');
             return parts.join('\n\n');
@@ -1042,7 +1070,7 @@ const BODY_PART_MAP = {
                 const res = await fetch(SD_PROXY, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify((() => { const m = randModel(); return {
+                    body: JSON.stringify((() => { const m = userSdModel || randModel(); return {
                         prompt: `${charPrompt}, ${sceneHint}`,
                         negative_prompt: negPrompt,
                         model: m, steps: 15, cfg_scale: 7.5,
@@ -1080,7 +1108,7 @@ const BODY_PART_MAP = {
                 const res = await fetch(SD_PROXY, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify((() => { const m = randModel(); return {
+                    body: JSON.stringify((() => { const m = userSdModel || (isExplicit ? SD_NSFW_MODEL : randModel()); return {
                         prompt, negative_prompt: negPrompt,
                         model: m,
                         steps:      hq ? 30  : 15,
@@ -1107,14 +1135,14 @@ const BODY_PART_MAP = {
             if (messageUnsubscribe) { messageUnsubscribe(); messageUnsubscribe = null; }
             chatWindow.innerHTML = '';
             seenKeys.clear();
+            renderedKeys.clear();
+            generatedImages.length = 0;
             chatHistory = [];
             listenerReady = false;
 
             const lastQuery = query(ref(database, getMessagesPath()), limitToLast(chatMode === 'internal' ? 20 : 10));
             messageUnsubscribe = onValue(lastQuery, snapshot => {
                 const messages = snapshot.val();
-                chatWindow.innerHTML = '';
-                generatedImages.forEach(e => e.injected = false);
 
                 const isHistory = !listenerReady;
                 listenerReady = true;
@@ -1122,7 +1150,10 @@ const BODY_PART_MAP = {
                 if (!messages) { injectGeneratedImages(); return; }
 
                 Object.entries(messages).forEach(([key, msg]) => {
-                    appendMessage(msg, key);
+                    if (!renderedKeys.has(key)) {
+                        appendMessage(msg, key);
+                        renderedKeys.add(key);
+                    }
                     if (seenKeys.has(key)) return;
                     seenKeys.add(key);
                     if (msg.username === BOT_NAME) return;
@@ -1130,7 +1161,7 @@ const BODY_PART_MAP = {
 
                     if (chatMode === 'internal' && currentUsername && msg.username === currentUsername) {
                         const tabId    = sessionStorage.getItem('tab_id') || (() => { const id = Math.random().toString(36).slice(2); sessionStorage.setItem('tab_id', id); return id; })();
-                        const claimRef = ref(database, `yuki_claims/${key}`);
+                        const claimRef = ref(database, `yuki/claims/${key}`);
                         runTransaction(claimRef, current => current !== null ? undefined : tabId)
                             .then(({ committed }) => {
                                 if (!committed) return;
@@ -1152,7 +1183,7 @@ const BODY_PART_MAP = {
         const yukiHint    = document.getElementById('yuki-hint');
         const internalTab = document.querySelector('.chat-tab[data-mode="internal"]');
 
-        onUserReady(user => {
+        onUserReady(async user => {
             currentUser = user;
             if (user) {
                 if (location.hash === '#yuki') {
@@ -1160,6 +1191,10 @@ const BODY_PART_MAP = {
                     internalTab.click();
                 }
                 currentUsername = user.displayName || user.email.split('@')[0];
+                try {
+                    const modelSnap = await get(ref(database, `${user.uid}/yuki/sdModel`));
+                    userSdModel = modelSnap.exists() && modelSnap.val() ? modelSnap.val() : null;
+                } catch { userSdModel = null; }
                 usernameRow.style.display = 'none';
                 userBadge.textContent = `Signed in as ${currentUsername}`;
                 userBadge.style.display = '';
@@ -1249,7 +1284,11 @@ const BODY_PART_MAP = {
             if (yukiBusy) navigator.sendBeacon(SD_PROXY.replace('/sd/generate', '/sd/interrupt'));
         });
 
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const nameSnap = await get(ref(database, 'public/yuki/name'));
+                if (nameSnap.exists() && nameSnap.val()) BOT_NAME = nameSnap.val();
+            } catch {}
             listenForMessages();
             const cached = localStorage.getItem('yuki_avatar');
             if (cached) {
