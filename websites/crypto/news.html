@@ -50,8 +50,9 @@ let NEWS = [];
 let currentCat = 'all';
 
 function getCategory(tags) {
+    const lower = tags.map(t => t.toLowerCase());
     for (const cat of ECO_TAGS) {
-        if (tags.includes(cat)) return cat;
+        if (lower.includes(cat)) return cat;
     }
     return 'investing';
 }
@@ -68,12 +69,24 @@ function shuffle(arr) {
     return arr;
 }
 
+function renderContentItem(item) {
+    switch (item.type) {
+        case 'text':        return `<p>${item.value || ''}</p>`;
+        case 'code':        return `<pre><code>${item.value || ''}</code></pre>`;
+        case 'list':        return '<ul>' + (item.items || []).map(i => `<li>${i}</li>`).join('') + '</ul>';
+        case 'image':       return item.src ? `<img src="${item.src}" style="max-width:100%;border-radius:6px;margin:12px 0">` : '';
+        case 'link_button': return `<a href="${item.href || '#'}" class="eco-news-link-btn" target="_blank" rel="noopener">${item.label || item.href}</a>`;
+        default:            return item.value ? `<p>${item.value}</p>` : '';
+    }
+}
+
 function renderArticleBody(article) {
     if (article.body) return article.body;
     if (article.sections?.length) {
         return article.sections.map(s => `
             ${s.title ? `<h4>${s.title}</h4>` : ''}
             ${s.summary ? `<p>${s.summary}</p>` : ''}
+            ${s.content?.length ? s.content.map(renderContentItem).join('') : ''}
             ${s.steps?.length ? '<ul>' + s.steps.map(st => `<li>${st}</li>`).join('') + '</ul>' : ''}
         `).join('');
     }
@@ -151,7 +164,7 @@ try {
         NEWS = shuffle(
             Object.entries(snap.val())
                 .map(([key, val]) => ({ ...val, id: key }))
-                .filter(a => Array.isArray(a.tags) && a.tags.some(t => ECO_TAGS.includes(t)))
+                .filter(a => Array.isArray(a.tags) && a.tags.some(t => ECO_TAGS.includes(t.toLowerCase())))
                 .map(a => ({ ...a, category: getCategory(a.tags) }))
         );
     }
