@@ -33,7 +33,7 @@ const projects = [
         title: "Kame House",
         image: "assets/img/kamehouse-thumbnail.png",
         link: "websites/kamehouse/index.html",
-        description: "A community website for Kame House enthusiasts.",
+        description: "Household hub: shopping list, meal plan, and chore tracker — shared via Firebase.",
     },
     {
         title: "Honey Do Helper",

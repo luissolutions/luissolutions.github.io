@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meal Plan — Kame House</title>
+  <link rel="stylesheet" href="../../assets/css/master.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="img/icons/favicon-32x32.png">
+  <style>
+    body { padding: 16px; }
+    .kh-nav { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; }
+    .kh-nav .brand { font-weight: 700; margin-right: auto; font-size: 1.1rem; }
+    .kh-nav a { color: var(--text); text-decoration: none; padding: 6px 12px; border-radius: 6px; }
+    .kh-nav a.active, .kh-nav a:hover { background: var(--primary); color: #fff; }
+    .auth-pill { font-size: var(--sm); padding: 6px 12px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border); }
+    .auth-pill button { margin-left: 8px; background: var(--primary); color: #fff; border: 0; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+    .container { max-width: 1000px; margin: 0 auto; }
+    .week-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .week-nav button { background: var(--primary); color: #fff; border: 0; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 1rem; }
+    .week-nav .label { font-weight: 600; flex: 1; text-align: center; }
+    .meal-grid { display: grid; grid-template-columns: 100px repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .meal-grid .head { background: var(--surface2); padding: 10px; font-weight: 600; text-align: center; font-size: var(--sm); }
+    .meal-grid .day { background: var(--surface2); padding: 14px 10px; font-weight: 600; font-size: var(--sm); }
+    .meal-grid .day .date { display: block; color: var(--muted); font-weight: 400; font-size: 0.8rem; }
+    .meal-grid .day.today { background: var(--primary); color: #fff; }
+    .meal-grid .day.today .date { color: rgba(255,255,255,.85); }
+    .meal-grid .cell { background: var(--surface); padding: 12px 10px; min-height: 56px; cursor: text; outline: none; font-size: var(--sm); }
+    .meal-grid .cell:hover { background: var(--surface2); }
+    .meal-grid .cell:focus { background: var(--bg); box-shadow: inset 0 0 0 2px var(--primary); }
+    .meal-grid .cell:empty::before { content: '—'; color: var(--muted); opacity: .4; }
+    .status { font-size: 0.8rem; color: var(--muted); margin-top: 8px; min-height: 1em; text-align: right; }
+    @media (max-width: 700px) {
+      .meal-grid { grid-template-columns: 80px repeat(3, 1fr); }
+      .meal-grid .day, .meal-grid .head { padding: 8px 4px; font-size: 0.78rem; }
+      .meal-grid .cell { padding: 10px 6px; font-size: 0.85rem; }
+    }
+    /* Links aside */
+    #links-aside { position: fixed; top: 0; right: -360px; width: 340px; height: 100vh; background: var(--surface); border-left: 1px solid var(--border); z-index: 200; transition: right .25s ease; overflow: hidden; display: flex; flex-direction: column; }
+    body.links-aside-open #links-aside { right: 0; }
+    #links-aside iframe { flex: 1; border: none; width: 100%; display: block; background: var(--bg); }
+    #links-overlay { display: none; position: fixed; inset: 0; z-index: 199; background: rgba(0,0,0,.3); }
+    body.links-aside-open #links-overlay { display: block; }
+    #links-toggle { background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 14px; padding: 4px 10px; cursor: pointer; border-radius: 6px; margin-left: 8px; }
+    #links-toggle:hover { border-color: var(--primary); color: var(--text); }
+  </style>
+</head>
+<body>
+  <header class="kh-nav">
+    <span class="brand">🏠 Kame House</span>
+    <a href="index.html">Dashboard</a>
+    <a href="shopping.html">Shopping</a>
+    <a href="meals.html" class="active">Meals</a>
+    <a href="chores.html">Chores</a>
+    <a href="../../index.html">← Main Site</a>
+    <span class="auth-pill" id="auth-pill">Not signed in <button id="auth-btn">Sign In</button></span>
+  </header>
+
+  <div class="container">
+    <div class="week-nav">
+      <button id="prev-week">← Prev</button>
+      <span class="label" id="week-label">Week</span>
+      <button id="this-week">Today</button>
+      <button id="next-week">Next →</button>
+    </div>
+
+    <div class="meal-grid" id="meal-grid">
+      <div class="head">Day</div>
+      <div class="head">🥞 Breakfast</div>
+      <div class="head">🥗 Lunch</div>
+      <div class="head">🍽️ Dinner</div>
+    </div>
+    <p class="status" id="status">Click a cell to edit — saves automatically when you click away.</p>
+  </div>
+
+  <script>window.LINKS_ASIDE_HREF = '../../apps/online/onlinelinks.html';</script>
+  <script src="../../apps/assets/js/links-aside.js" defer></script>
+  <script type="module">
+    import { auth, onAuthStateChanged, signInWithEmailAndPassword, signOut, database, ref, onValue, set } from '../../assets/js/firebase-init.js';
+
+    let basePath = 'public';
+    let weekStart = startOfWeek(new Date());
+    const pill = document.getElementById('auth-pill');
+    const status = document.getElementById('status');
+    let unsubscribers = [];
+
+    onAuthStateChanged(auth, (user) => {
+      basePath = user ? user.uid : 'public';
+      if (user) {
+        pill.innerHTML = `Signed in: ${user.email} <button id="auth-btn">Sign Out</button>`;
+        document.getElementById('auth-btn').addEventListener('click', () => signOut(auth));
+      } else {
+        pill.innerHTML = `Not signed in <button id="auth-btn">Sign In</button>`;
+        document.getElementById('auth-btn').addEventListener('click', promptLogin);
+      }
+      render();
+    });
+
+    function promptLogin() {
+      const email = prompt('Email:');
+      if (!email) return;
+      const password = prompt('Password:');
+      if (!password) return;
+      signInWithEmailAndPassword(auth, email, password).catch(e => alert('Sign in failed: ' + e.message));
+    }
+
+    function startOfWeek(d) {
+      const date = new Date(d);
+      date.setHours(0, 0, 0, 0);
+      const day = date.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      date.setDate(date.getDate() + diff);
+      return date;
+    }
+
+    function addDays(d, n) {
+      const r = new Date(d);
+      r.setDate(r.getDate() + n);
+      return r;
+    }
+
+    function isoDate(d) {
+      return d.toISOString().slice(0, 10);
+    }
+
+    document.getElementById('prev-week').addEventListener('click', () => { weekStart = addDays(weekStart, -7); render(); });
+    document.getElementById('next-week').addEventListener('click', () => { weekStart = addDays(weekStart, 7); render(); });
+    document.getElementById('this-week').addEventListener('click', () => { weekStart = startOfWeek(new Date()); render(); });
+
+    function render() {
+      const todayISO = isoDate(new Date());
+      const endDate = addDays(weekStart, 6);
+      document.getElementById('week-label').textContent =
+        `Week of ${weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+      const grid = document.getElementById('meal-grid');
+      grid.querySelectorAll('.day, .cell').forEach(el => el.remove());
+
+      const slots = ['breakfast', 'lunch', 'dinner'];
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+      for (let i = 0; i < 7; i++) {
+        const d = addDays(weekStart, i);
+        const iso = isoDate(d);
+        const dayCell = document.createElement('div');
+        dayCell.className = 'day' + (iso === todayISO ? ' today' : '');
+        dayCell.innerHTML = `${days[i]}<span class="date">${d.getMonth() + 1}/${d.getDate()}</span>`;
+        grid.appendChild(dayCell);
+
+        slots.forEach(slot => {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.contentEditable = 'true';
+          cell.dataset.date = iso;
+          cell.dataset.slot = slot;
+          grid.appendChild(cell);
+
+          let lastSaved = '';
+          const path = `${basePath}/household/meals/${iso}/${slot}`;
+          const r = ref(database, path);
+          onValue(r, snap => {
+            const val = snap.val() || '';
+            lastSaved = val;
+            if (document.activeElement !== cell) {
+              cell.textContent = val;
+            }
+          });
+
+          cell.addEventListener('blur', () => {
+            const val = cell.textContent.trim();
+            if (val !== lastSaved) {
+              set(ref(database, `${basePath}/household/meals/${iso}/${slot}`), val || null);
+              status.textContent = `Saved ${days[i]} ${slot} at ${new Date().toLocaleTimeString()}`;
+            }
+          });
+
+          cell.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); cell.blur(); }
+            if (e.key === 'Escape') { cell.textContent = lastSaved; cell.blur(); }
+          });
+        });
+      }
+    }
+  </script>
+</body>
+</html>

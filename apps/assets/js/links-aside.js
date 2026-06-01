@@ -8,7 +8,7 @@
 
   const frame = document.createElement("iframe");
   frame.id = "links-frame";
-  frame.src = "./onlinelinks.html";
+  frame.src = window.LINKS_ASIDE_HREF || "./onlinelinks.html";
   frame.setAttribute("frameborder", "0");
   aside.appendChild(frame);
   document.body.appendChild(aside);
