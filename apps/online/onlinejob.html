@@ -13,6 +13,7 @@
     })();
   </script>
   <script type="module" src="../assets/js/auth.js"></script>
+  <script type="module" src="../assets/js/microsoftAuth.js"></script>
   <script src="../assets/js/search.js" defer></script>
   <script src="../assets/js/links-aside.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
@@ -49,6 +50,12 @@
       <input type="password" id="pass-in" placeholder="Password" />
       <button class="btn" id="do-login">Sign In</button>
       <p id="auth-err"></p>
+    </div>
+
+    <div class="ms" style="margin:10px 0;">
+      <button id="loginButton">Login to MS</button>
+      <button id="logoutButton">Logout of MS</button>
+      <span id="loginStatus" style="margin-left:8px;"></span>
     </div>
 
   </header>
@@ -216,6 +223,7 @@
           </select>
           <button id="imgPickerViewBtn" class="btn-sm">View</button>
           <button id="timerDownloadAllBtn">Download All</button>
+          <button id="uploadFolderToOneDrive">Upload to OneDrive</button>
         </div>
         <div id="imgGallery"></div>
       </div>
@@ -256,6 +264,8 @@
       uploadBytesResumable, uploadBytes, getDownloadURL,
       deleteObject, listAll, storageRef,
     } from "../assets/js/firebase-init.js";
+
+    import { accessToken, isTokenExpired } from "../assets/js/microsoftAuth.js";
 
     // ════════════════════════════════════
     // SHARED
@@ -1574,7 +1584,142 @@
       catch (e) { console.error(e); alert("Failed to delete."); }
     };
 
+    // ════════════════════════════════════
+    // ONEDRIVE UPLOAD — mirrors the current job's Firebase Storage folder
+    // (everything under `${DB}/tasks/images/${safeProj}`) into OneDrive at
+    // `Jobs/{customer_project}/...`. Pattern lifted from onlinedetails.html
+    // but rooted at "Jobs" instead of "JobPhotos".
+    // ════════════════════════════════════
+    const ONE_DRIVE_ROOT = "Jobs";
 
+    // Encode each path segment individually so spaces / unicode become %xx
+    // while the slashes between segments remain.
+    function odEncode(path) {
+      return path.split("/").map(encodeURIComponent).join("/");
+    }
+
+    async function getBlobFromStorage(item) {
+      const url = await getDownloadURL(item);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`download failed: ${item.name}`);
+      return await res.blob();
+    }
+
+    async function ensureOneDriveFolder(path) {
+      const parts = path.split("/").filter(Boolean);
+      let cur = "";
+      for (const part of parts) {
+        cur += (cur ? "/" : "") + part;
+        const checkUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${odEncode(cur)}:/`;
+        const res = await fetch(checkUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (res.status === 404) {
+          const parent = cur.includes("/") ? cur.slice(0, cur.lastIndexOf("/")) : "";
+          const createUrl = parent
+            ? `https://graph.microsoft.com/v1.0/me/drive/root:/${odEncode(parent)}:/children`
+            : `https://graph.microsoft.com/v1.0/me/drive/root/children`;
+          const createRes = await fetch(createUrl, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              name: part,
+              folder: {},
+              "@microsoft.graph.conflictBehavior": "rename",
+            }),
+          });
+          if (!createRes.ok) {
+            throw new Error(`folder create failed (${part}): ${await createRes.text()}`);
+          }
+        }
+      }
+    }
+
+    // Recursively mirror a Firebase Storage folder into OneDrive.
+    // Returns { ok, failed } counts so the UI can summarize.
+    async function mirrorStorageToOneDrive(fbPath, odPath, progressFn) {
+      await ensureOneDriveFolder(odPath);
+      let ok = 0, failed = 0;
+      let result;
+      try {
+        result = await listAll(storageRef(storage, fbPath));
+      } catch (e) {
+        console.warn(`[onedrive] listAll failed at ${fbPath}:`, e);
+        return { ok, failed };
+      }
+      for (const item of result.items) {
+        // Skip placeholder files used to materialize empty folders.
+        if (item.name === ".keep" || item.name === ".init.txt") continue;
+        try {
+          const blob = await getBlobFromStorage(item);
+          const target = `${odPath}/${item.name}`;
+          const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${odEncode(target)}:/content`;
+          const res = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: { Authorization: `Bearer ${accessToken}` },
+            body: blob,
+          });
+          if (!res.ok) {
+            console.error(`[onedrive] PUT failed: ${target}`, await res.text());
+            failed++;
+          } else {
+            ok++;
+            progressFn?.(target);
+          }
+        } catch (e) {
+          console.error(`[onedrive] upload error for ${item.fullPath}:`, e);
+          failed++;
+        }
+      }
+      for (const prefix of result.prefixes) {
+        const sub = await mirrorStorageToOneDrive(
+          prefix.fullPath,
+          `${odPath}/${prefix.name}`,
+          progressFn,
+        );
+        ok += sub.ok;
+        failed += sub.failed;
+      }
+      return { ok, failed };
+    }
+
+    document.getElementById("uploadFolderToOneDrive").addEventListener("click", async () => {
+      const btn = document.getElementById("uploadFolderToOneDrive");
+
+      if (!currentProject) { alert("Select or load a job first."); return; }
+      if (!accessToken) { alert("Log in to Microsoft first."); return; }
+      if (isTokenExpired(accessToken)) { alert("MS session expired. Log in again."); return; }
+
+      const safeProj = sanitize(currentProjectName || currentProject);
+      const fbBase = `${DB}/tasks/images/${safeProj}`;
+      const jobPrefix = (getPhotoNamePrefix?.() || safeProj || "").trim();
+      if (!jobPrefix) { alert("Job missing customer/project name."); return; }
+      const odBase = `${ONE_DRIVE_ROOT}/${jobPrefix}`;
+
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = "Uploading…";
+
+      try {
+        const { ok, failed } = await mirrorStorageToOneDrive(fbBase, odBase, (target) => {
+          btn.textContent = `Uploading… ${target.split("/").pop()}`;
+        });
+        alert(
+          failed
+            ? `Uploaded ${ok} file(s) to OneDrive: ${odBase}. ${failed} failed — see console.`
+            : `Uploaded ${ok} file(s) to OneDrive: ${odBase}.`,
+        );
+      } catch (e) {
+        console.error("[onedrive] upload failed:", e);
+        alert(`OneDrive upload failed: ${e.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    });
 
   </script>
 </body>

@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="../../assets/css/app-styles.css" />
   <script>(function () { var t = localStorage.getItem("ss-theme"); if (t === "light") document.documentElement.classList.add("light"); }());</script>
   <link rel="icon" href="../assets/img/t_logo.png" sizes="32x32" type="image/png" />
-  <script type="module" src="../assets/js/auth.js" defer></script>
+  <script type="module" src="../assets/js/auth.js"></script>
   <script src="../assets/js/links-aside.js" defer></script>
   <script type="module" src="../assets/js/pdfs.js"></script>
   <script src="../assets/js/search.js" defer></script>
@@ -47,6 +47,56 @@
       border: 1px solid #ccc;
       background-color: #f9f9f9;
     }
+
+    /* Auth UI — app-styles.css has no rules for these, so define them here
+       to match the behavior of the other online apps that use online.css. */
+    header {
+      position: relative;
+    }
+
+    .auth-bar {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #login-inline {
+      background: #fff;
+      color: #111;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 12px;
+      position: absolute;
+      top: 100%;
+      right: 10px;
+      z-index: 100;
+      display: none;
+      min-width: 240px;
+      text-align: left;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    #login-inline h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+
+    #login-inline input {
+      display: block;
+      width: 100%;
+      margin: 0 0 8px;
+      box-sizing: border-box;
+    }
+
+    #login-inline button {
+      width: 100%;
+    }
+
+    #auth-err {
+      color: #c00;
+      font-size: 12px;
+      margin: 4px 0 0;
+    }
   </style>
 </head>
 
@@ -57,22 +107,12 @@
     <button id="theme-toggle" title="Toggle theme">☀️</button>
     <script>(function () { var b = document.getElementById("theme-toggle"), h = document.documentElement; b.textContent = h.classList.contains("light") ? "🌙" : "☀️"; b.addEventListener("click", function () { var n = h.classList.contains("light") ? "dark" : "light"; h.classList.toggle("light", n === "light"); localStorage.setItem("ss-theme", n); b.textContent = n === "light" ? "🌙" : "☀️"; }); })();</script>
     <div id="login-inline">
-      <h3>Sign In</h3><input type="email" id="email-in" placeholder="Email" /><input type="password" id="pass-in"
-        placeholder="Password" /><button id="do-login">Sign In</button>
+      <h3>Sign In</h3>
+      <input type="email" id="email-in" placeholder="Email" />
+      <input type="password" id="pass-in" placeholder="Password" />
+      <button id="do-login">Sign In</button>
       <p id="auth-err"></p>
     </div>
-    <section id="login-section" style="display:none">
-      <form id="login-form">
-        <label for="username">Email:</label>
-        <input type="email" id="username" required />
-        <br />
-        <label for="password">Password:</label>
-        <input type="password" id="password" required />
-        <br />
-        <button type="submit">Login</button>
-      </form>
-      <button id="logout" style="display: none">Logout</button>
-    </section>
 
     <section class="stats">
       <div id="scoreDisplay">Learned: 0% (0 correct / 0 wrong)</div>
@@ -168,9 +208,9 @@
         <input type="text" id="options" placeholder="Enter Options" />
         <input type="text" id="correctAnswer" placeholder="Enter Answer" />
         <textarea id="explanation" placeholder="Enter Explanation"></textarea>
-        <button id="addQuestionButton">Add Question</button>
-        <button id="deleteQuestionButton">Delete Current Question</button>
-        <button id="downloadData">Download Questions</button>
+        <button type="button" id="addQuestionButton">Add Question</button>
+        <button type="button" id="deleteQuestionButton">Delete Current Question</button>
+        <button type="button" id="downloadData">Download Questions</button>
       </form>
     </section>
 
@@ -363,7 +403,7 @@
 
     function updateHighScore() {
       const highScoresPath = "highScores";
-      const highScores = loadFromLocalStorage("highScores", "[]");
+      const highScores = loadFromLocalStorage("highScores", []);
 
       const totalQuestions = correctAnswersCount + wrongAnswersCount;
       if (totalQuestions === 0) {
@@ -394,10 +434,13 @@
 
     function displayHighScores(highScores) {
       const highScoreElement = document.getElementById("highScore");
-      highScoreElement.innerHTML = "High Scores:<br>";
-
-      highScores.forEach((scoreEntry) => {
-        highScoreElement.innerHTML += `${scoreEntry.name}:  ${scoreEntry.percentage}% (${scoreEntry.correctAnswers} out of ${scoreEntry.totalQuestions}) ${scoreEntry.time}<br>`;
+      highScoreElement.textContent = "";
+      highScoreElement.appendChild(document.createTextNode("High Scores:"));
+      highScoreElement.appendChild(el("br"));
+      (Array.isArray(highScores) ? highScores : []).forEach((s) => {
+        const line = `${s.name}: ${s.percentage}% (${s.correctAnswers} out of ${s.totalQuestions}) ${s.time}`;
+        highScoreElement.appendChild(document.createTextNode(line));
+        highScoreElement.appendChild(el("br"));
       });
     }
 
@@ -407,7 +450,12 @@
 
     function loadFromLocalStorage(key, defaultValue) {
       const value = localStorage.getItem(key);
-      return value ? JSON.parse(value) : defaultValue;
+      if (!value) return defaultValue;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return defaultValue;
+      }
     }
 
     function shuffleArray(array) {
@@ -419,6 +467,30 @@
       }
 
       return arr;
+    }
+
+    // Safe DOM builder — escapes content by routing strings through textContent.
+    function el(tag, attrs, ...children) {
+      const node = document.createElement(tag);
+      if (attrs) {
+        for (const k in attrs) {
+          if (k === "class") node.className = attrs[k];
+          else node.setAttribute(k, attrs[k]);
+        }
+      }
+      for (const child of children) {
+        if (child == null) continue;
+        node.appendChild(
+          typeof child === "string" ? document.createTextNode(child) : child,
+        );
+      }
+      return node;
+    }
+
+    // Strip Firebase-forbidden characters (. $ # [ ] / and control chars) so
+    // descriptions can be used as path keys without silently corrupting the tree.
+    function sanitizeKey(s) {
+      return String(s ?? "").trim().replace(/[.$#\[\]\/\x00-\x1F\x7F]/g, "_");
     }
 
     function isShuffleEnabled() {
@@ -512,9 +584,16 @@
         const data = snapshot.val();
 
         if (data) {
-          for (const [description, questionsData] of Object.entries(data)) {
+          for (const [pathKey, questionsData] of Object.entries(data)) {
             for (const [key, value] of Object.entries(questionsData)) {
-              allQuestions.push({ id: key, description, ...value });
+              // Prefer the description stored in the payload (preserves the
+              // user's display string verbatim); fall back to the path key
+              // for legacy entries written before that field existed.
+              allQuestions.push({
+                ...value,
+                id: key,
+                description: value.description ?? pathKey,
+              });
             }
           }
         }
@@ -552,38 +631,57 @@
       });
     }
 
+    function showEndOfQuiz() {
+      const quizSection = document.getElementById("quizSection");
+      quizSection.textContent = "";
+      quizSection.appendChild(el("p", null, "No more questions to display."));
+      const resetBtn = el("button", { id: "resetQuiz", type: "button" }, "Reset");
+      resetBtn.addEventListener("click", resetQuiz);
+      quizSection.appendChild(resetBtn);
+    }
+
     function displayQuestion(question) {
       const quizSection = document.getElementById("quizSection");
       if (!question) {
-        quizSection.innerHTML =
-          '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
-        document
-          .getElementById("resetQuiz")
-          .addEventListener("click", resetQuiz);
+        showEndOfQuiz();
         return;
       }
 
       currentQuestionId = question.id;
       currentDescription = question.description;
 
-      quizSection.innerHTML = `<p><strong>${question.description}:</strong><br>${question.question}</p>`;
+      quizSection.textContent = "";
+      quizSection.appendChild(
+        el(
+          "p",
+          null,
+          el("strong", null, `${question.description}:`),
+          el("br"),
+          question.question,
+        ),
+      );
 
       const questionType = document.querySelector(
         'input[name="questionType"]:checked',
       ).value;
 
       if (questionType === "textInput") {
-        quizSection.innerHTML += `<input type="text" id="textInputAnswer" placeholder="Type your answer">`;
-      } else if (questionType === "multipleChoice" && question.options) {
-        let options = shuffleArray([...question.options]);
-        quizSection.innerHTML += generateOptionsHTML(
-          options,
-          question.correctAnswer,
+        quizSection.appendChild(
+          el("input", {
+            type: "text",
+            id: "textInputAnswer",
+            placeholder: "Type your answer",
+          }),
         );
+      } else if (questionType === "multipleChoice" && question.options) {
+        const options = shuffleArray([...question.options]);
+        appendOptions(quizSection, options, question.correctAnswer);
       } else if (questionType === "flashcard") {
-        const revealButton = document.createElement("button");
-        revealButton.textContent = "Show Answer";
-        revealButton.id = "revealAnswer";
+        const revealButton = el(
+          "button",
+          { id: "revealAnswer", type: "button" },
+          "Show Answer",
+        );
         revealButton.addEventListener("click", () =>
           revealFlashcardAnswer(question),
         );
@@ -597,6 +695,19 @@
       if (addQuestionSection.style.display === "block") {
         populateEditForm(question);
       }
+    }
+
+    function appendOptions(parent, options, correctAnswer) {
+      const inputType = Array.isArray(correctAnswer) ? "checkbox" : "radio";
+      options.forEach((option, idx) => {
+        if (idx > 0) parent.appendChild(el("br"));
+        const input = el("input", {
+          type: inputType,
+          name: "question",
+          value: option,
+        });
+        parent.appendChild(el("label", null, input, option));
+      });
     }
 
     function populateEditForm(question) {
@@ -660,11 +771,7 @@
         }
       }
 
-      document.getElementById("quizSection").innerHTML =
-        '<p>No more questions to display.</p> <button id="resetQuiz">Reset</button>';
-      document
-        .getElementById("resetQuiz")
-        .addEventListener("click", resetQuiz);
+      showEndOfQuiz();
       toggleNavigationButtons();
       updateQuestionCounter();
     }
@@ -803,29 +910,22 @@
       });
     }
 
-    function generateOptionsHTML(options, correctAnswer) {
-      return options
-        .map((option) => {
-          const inputType = Array.isArray(correctAnswer)
-            ? "checkbox"
-            : "radio";
-          return `<label><input type="${inputType}" name="question" value="${option}">${option}</label>`;
-        })
-        .join("<br>");
-    }
-
     function revealFlashcardAnswer(question) {
       const quizSection = document.getElementById("quizSection");
-      const optionsHTML = (question.options || [])
-        .map((option) => {
-          const isCorrect = Array.isArray(question.correctAnswer)
-            ? question.correctAnswer.includes(option)
-            : question.correctAnswer === option;
-          return isCorrect ? `<strong>${option}</strong>` : option;
-        })
-        .join("<br>");
-
-      quizSection.innerHTML += `<div>${optionsHTML}</div>`;
+      const div = el("div");
+      const options = question.options || [];
+      options.forEach((option, idx) => {
+        if (idx > 0) div.appendChild(el("br"));
+        const isCorrect = Array.isArray(question.correctAnswer)
+          ? question.correctAnswer.includes(option)
+          : question.correctAnswer === option;
+        div.appendChild(
+          isCorrect
+            ? el("strong", null, option)
+            : document.createTextNode(option),
+        );
+      });
+      quizSection.appendChild(div);
     }
 
     function submitAnswer() {
@@ -1011,7 +1111,12 @@
       correctAnswer,
       explanation,
     ) {
-      const questionsRef = ref(database, `share/questions/${description}`);
+      const safeKey = sanitizeKey(description);
+      if (!safeKey) {
+        alert("Description is required.");
+        return;
+      }
+      const questionsRef = ref(database, `share/questions/${safeKey}`);
       const newQuestionRef = push(questionsRef);
 
       set(newQuestionRef, {
@@ -1019,6 +1124,7 @@
         options,
         correctAnswer,
         explanation,
+        description,
       }).then(() => {
         alert("Question added to the database.");
         resetAddQuestionForm();
@@ -1034,13 +1140,19 @@
       correctAnswer,
       explanation,
     ) {
+      const safeNew = sanitizeKey(newDescription);
+      const safeOld = sanitizeKey(currentDescription);
+      if (!safeNew) {
+        alert("Description is required.");
+        return;
+      }
       const oldRef = ref(
         database,
-        `share/questions/${currentDescription}/${questionId}`,
+        `share/questions/${safeOld}/${questionId}`,
       );
       const newRef = ref(
         database,
-        `share/questions/${newDescription}/${questionId}`,
+        `share/questions/${safeNew}/${questionId}`,
       );
 
       const payload = {
@@ -1048,11 +1160,12 @@
         options,
         correctAnswer,
         explanation,
+        description: newDescription,
       };
 
       const writeNew = set(newRef, payload);
 
-      if (newDescription !== currentDescription) {
+      if (safeNew !== safeOld) {
         writeNew
           .then(() => remove(oldRef))
           .then(() => {
@@ -1099,7 +1212,7 @@
           .then(() => {
             const savedQuestions = loadFromLocalStorage(
               "savedQuestions",
-              "[]",
+              [],
             );
             const exists = savedQuestions.some((q) => q.id === question.id);
             if (!exists) {
@@ -1115,7 +1228,7 @@
           .then(() => {
             const savedQuestions = loadFromLocalStorage(
               "savedQuestions",
-              "[]",
+              [],
             ).filter((q) => q.id !== question.id);
             saveToLocalStorage("savedQuestions", savedQuestions);
           })
@@ -1126,8 +1239,10 @@
     }
 
     function checkIfQuestionSaved(questionId) {
-      const savedQuestions = loadFromLocalStorage("savedQuestions", "[]");
-      return savedQuestions.some((q) => q.id === questionId);
+      const savedQuestions = loadFromLocalStorage("savedQuestions", []);
+      return Array.isArray(savedQuestions)
+        ? savedQuestions.some((q) => q.id === questionId)
+        : false;
     }
 
     function loadSavedQuestions() {
@@ -1262,7 +1377,7 @@
       if (confirm("Are you sure you want to delete this question?")) {
         const questionRef = ref(
           database,
-          `share/questions/${currentDescription}/${currentQuestionId}`,
+          `share/questions/${sanitizeKey(currentDescription)}/${currentQuestionId}`,
         );
         remove(questionRef)
           .then(() => {
@@ -1429,12 +1544,15 @@
         let count = 0;
         for (const q of questionsArray) {
           if (!q.description || !q.question) continue;
-          const qRef = push(ref(database, `share/questions/${q.description}`));
+          const safeKey = sanitizeKey(q.description);
+          if (!safeKey) continue;
+          const qRef = push(ref(database, `share/questions/${safeKey}`));
           await set(qRef, {
             question: q.question,
             options: q.options || [],
             correctAnswer: q.correctAnswer || "",
-            explanation: q.explanation || ""
+            explanation: q.explanation || "",
+            description: q.description,
           });
           count++;
         }
