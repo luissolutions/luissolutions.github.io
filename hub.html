@@ -799,6 +799,14 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                 document.getElementById('fb-token').textContent = await user.getIdToken(true);
             };
 
+            // Load mc-api bearer token (RTDB rules gate this path to auth.uid == $uid)
+            try {
+                const tokSnap = await get(ref(database, `${user.uid}/api/mcApiToken`));
+                window.__mcApiToken = tokSnap.exists() ? String(tokSnap.val()).trim() : '';
+            } catch {
+                window.__mcApiToken = '';
+            }
+
             // Load hub data from Firebase
             const snap = await get(ref(database, `${user.uid}/hub`));
             document.getElementById('hub-gate').style.display    = 'none';
@@ -945,13 +953,22 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
         /* ── MC Status ── */
         const MC_API = 'http://192.168.50.10:3001';
 
+        // Wraps fetch(MC_API + path) with the Authorization: Bearer <token> header.
+        // Token comes from Firebase RTDB (loaded once on sign-in). If no token,
+        // header is omitted — works against an mc-api with auth disabled.
+        function mcApiFetch(path, opts = {}) {
+            const headers = { ...(opts.headers || {}) };
+            if (window.__mcApiToken) headers['Authorization'] = `Bearer ${window.__mcApiToken}`;
+            return fetch(`${MC_API}${path}`, { ...opts, headers });
+        }
+
         async function loadMCStatus() {
             const el = document.getElementById('mc-status-body');
             if (!el) return;
             try {
                 const [sr, pr] = await Promise.all([
-                    fetch(`${MC_API}/status`,  { signal: AbortSignal.timeout(4000) }),
-                    fetch(`${MC_API}/players`, { signal: AbortSignal.timeout(4000) }),
+                    mcApiFetch('/status',  { signal: AbortSignal.timeout(4000) }),
+                    mcApiFetch('/players', { signal: AbortSignal.timeout(4000) }),
                 ]);
                 const sd = sr.ok  ? await sr.json()  : null;
                 const pd = pr.ok  ? await pr.json()  : null;
@@ -983,7 +1000,7 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
             const el = document.getElementById('svc-containers');
             if (!el) return;
             try {
-                const res = await fetch(`${MC_API}/containers`, { signal: AbortSignal.timeout(5000) });
+                const res = await mcApiFetch('/containers', { signal: AbortSignal.timeout(5000) });
                 if (!res.ok) throw new Error();
                 const data = await res.json();
                 const containers = (data.containers || []).sort((a, b) => (b.running ? 1 : 0) - (a.running ? 1 : 0));
