@@ -314,7 +314,7 @@ const apps = [
     {
         title: "Online Task Manager",
         image: "assets/img/livetasker-thumbnail.png",
-        link: "apps/online/onlinetasker.html",
+        link: "apps/online/onlinejob.html",
         description: "Manage tasks with live collaboration.",
         category: "Cloud",
         requiresLogin: true,
@@ -390,7 +390,7 @@ const apps = [
     {
         title: "Personal Task Manager",
         image: "assets/img/tasker-thumbnail.png",
-    link: "apps/online/onlinetasker.html",
+    link: "apps/online/onlinejob.html",
         description: "Organize and track your tasks.",
         requiresLogin: true,
     },

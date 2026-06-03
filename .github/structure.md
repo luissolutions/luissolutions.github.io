@@ -107,7 +107,7 @@
 - apps/online/onlineproject.html - Frontend page: Job Information Manager
 - apps/online/onlinereg.html - Frontend page: Login & Registration
 - apps/online/onlineschedule.html - Frontend page: Appointment Scheduler
-- apps/online/onlinetasker.html - Frontend page: Online Task Manager
+- apps/online/onlinejob.html - Frontend page: Job Manager
 - apps/online/onlinetext.html - Frontend page: Text Playback App
 - apps/telaid/ - Directory
 - apps/telaid/assets/ - Directory
