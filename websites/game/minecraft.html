@@ -202,6 +202,31 @@ docker exec minecraft-java rcon-cli list</code></pre>
         <p class="mc-note">Server controls are only available on the local network.</p>
     </div>
 
+    <p class="section-head">Schematic Tools</p>
+    <div class="cards-grid">
+        <div class="card" style="grid-column:1/-1;">
+            <h3>NBT &rarr; Schematic Converter</h3>
+            <p>Convert Minecraft structure <code>.nbt</code> files or Litematica <code>.litematic</code> files into Sponge-format schematics that WorldEdit / FAWE can <code>//schem load</code>. Pick multiple files for batch &mdash; you'll get a zip back.</p>
+            <div class="schem-tool">
+                <div class="schem-drop" id="schemDrop">
+                    <input type="file" id="schemFiles" multiple accept=".nbt,.litematic">
+                    <p>Drop <code>.nbt</code> / <code>.litematic</code> files here, or click to choose.</p>
+                </div>
+                <div class="schem-row">
+                    <label>Output extension:
+                        <select id="schemOutExt">
+                            <option value="schem" selected>.schem (modern, FAWE)</option>
+                            <option value="schematic">.schematic (legacy filename, Sponge contents)</option>
+                        </select>
+                    </label>
+                    <button class="btn btn-primary" id="schemConvertBtn">Convert</button>
+                </div>
+                <div class="schem-status" id="schemStatus"></div>
+                <ul class="schem-results" id="schemResults"></ul>
+            </div>
+        </div>
+    </div>
+
     <p class="section-head">Resources</p>
     <div class="chip-row">
         <a class="chip" href="https://minecraft.fandom.com/wiki/Minecraft_Wiki" target="_blank">MC Wiki</a>
@@ -311,6 +336,90 @@ docker exec minecraft-java rcon-cli list</code></pre>
         } catch { mcStatusEl.textContent = '✗ API unreachable.'; }
     }
     if (isLocal) mcStatus();
+
+    // ── Schematic Tools ─────────────────────────────────────────────
+    const SCHEM_API = (location.protocol === 'http:')
+        ? 'http://192.168.50.10:3001/convert/schem'
+        : 'https://api.luissolutions.us/convert/schem';
+
+    const schemDrop    = document.getElementById('schemDrop');
+    const schemFiles   = document.getElementById('schemFiles');
+    const schemOutExt  = document.getElementById('schemOutExt');
+    const schemBtn     = document.getElementById('schemConvertBtn');
+    const schemStatus  = document.getElementById('schemStatus');
+    const schemResults = document.getElementById('schemResults');
+    let schemQueue = [];
+
+    function schemRenderQueue() {
+        schemResults.innerHTML = '';
+        schemQueue.forEach((f, i) => {
+            const li = document.createElement('li');
+            li.textContent = f.name + ' (' + (f.size / 1024).toFixed(1) + ' KB)';
+            schemResults.appendChild(li);
+        });
+        schemStatus.textContent = schemQueue.length
+            ? schemQueue.length + ' file(s) ready'
+            : '';
+    }
+
+    schemFiles.addEventListener('change', () => {
+        schemQueue = Array.from(schemFiles.files);
+        schemRenderQueue();
+    });
+
+    schemDrop.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        schemDrop.classList.add('hover');
+    });
+    schemDrop.addEventListener('dragleave', () => schemDrop.classList.remove('hover'));
+    schemDrop.addEventListener('drop', (e) => {
+        e.preventDefault();
+        schemDrop.classList.remove('hover');
+        schemQueue = Array.from(e.dataTransfer.files);
+        schemRenderQueue();
+    });
+
+    schemBtn.addEventListener('click', async () => {
+        if (!schemQueue.length) {
+            schemStatus.textContent = 'Pick at least one file first.';
+            return;
+        }
+        const fd = new FormData();
+        schemQueue.forEach(f => fd.append('files', f, f.name));
+        const url = SCHEM_API + '?out=' + encodeURIComponent(schemOutExt.value);
+        schemStatus.textContent = 'Converting ' + schemQueue.length + ' file(s)...';
+        schemBtn.disabled = true;
+        try {
+            const res = await fetch(url, { method: 'POST', body: fd });
+            if (!res.ok) {
+                let detail = '';
+                try { detail = JSON.stringify(await res.json()); } catch {}
+                throw new Error('HTTP ' + res.status + ' ' + detail);
+            }
+            const errsHeader = res.headers.get('X-Convert-Errors');
+            const cd = res.headers.get('Content-Disposition') || '';
+            const fnMatch = /filename="([^"]+)"/.exec(cd);
+            const fallback = (schemQueue.length === 1)
+                ? schemQueue[0].name.replace(/\.(nbt|litematic)$/i, '.' + schemOutExt.value)
+                : 'schematics.zip';
+            const downloadName = fnMatch ? fnMatch[1] : fallback;
+            const blob = await res.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = downloadName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(a.href);
+            let msg = '✓ Converted — downloaded ' + downloadName;
+            if (errsHeader) msg += ' (some files failed: ' + errsHeader + ')';
+            schemStatus.textContent = msg;
+        } catch (err) {
+            schemStatus.textContent = '✗ ' + err.message;
+        } finally {
+            schemBtn.disabled = false;
+        }
+    });
 </script>
 
 </body>
