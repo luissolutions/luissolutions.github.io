@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Property Watchlist — Eco Lou Real Estate</title>
+  <link rel="stylesheet" href="assets/css/styles.css"/>
+  <script src="assets/js/html.js" defer></script>
+  <script src="assets/js/sidebar.js" defer></script>
+  <script type="module" src="assets/js/auth-handling.js" defer></script>
+  <style>
+    /* Reuse .wl-wrap / .wl-card / .wl-btn from styles.css. Property-specific extras only. */
+    .pw-form-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr 0.6fr auto; gap: 8px; align-items: end; }
+    .pw-form-grid label { display: block; font-size: .78em; color: var(--primaryColor); margin-bottom: 3px; opacity: .75; }
+    .pw-form-grid input, .pw-form-grid textarea { width: 100%; padding: 7px 9px; background: #fff; color: var(--primaryColor); border: 1px solid #ccc; border-radius: 4px; font-size: .92em; font-family: inherit; }
+    .pw-form-grid .span-2 { grid-column: span 2; }
+    .pw-form-grid .span-full { grid-column: 1 / -1; }
+
+    .pw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+    .pw-prop { background: #fff; border-radius: 8px; box-shadow: rgba(0,0,0,.06) 0 3px 12px, rgba(0,0,0,.04) 0 0 0 1px; padding: 14px; display: flex; flex-direction: column; gap: 8px; text-align: left; color: var(--primaryColor); }
+    .pw-prop h3 { margin: 0; font-size: 1.05em; color: var(--primaryColor); }
+    .pw-prop .addr { font-size: .85em; opacity: .65; margin: -4px 0 4px; }
+    .pw-prop .row { display: flex; justify-content: space-between; font-size: .9em; }
+    .pw-prop .row .label { opacity: .65; }
+
+    .pw-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; padding-top: 8px; border-top: 1px dashed #ddd; }
+    .pw-metrics .m { background: var(--backgroundColor); padding: 6px 8px; border-radius: 5px; font-size: .85em; }
+    .pw-metrics .m .label { opacity: .65; font-size: .9em; }
+    .pw-metrics .m .v { font-weight: 700; color: var(--primaryColor); }
+    .pw-metrics .m .v.good { color: #1f8a3a; }
+    .pw-metrics .m .v.bad  { color: #c0392b; }
+    .pw-metrics .m .v.meh  { color: #b27800; }
+
+    .pw-notes { font-size: .82em; opacity: .7; font-style: italic; margin-top: 4px; }
+    .pw-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+    .pw-tags span { background: var(--formBackground); padding: 2px 8px; border-radius: 10px; font-size: .72em; color: var(--primaryColor); }
+    .pw-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+    .pw-actions button { padding: 4px 10px; font-size: .8em; margin-top: 0; }
+
+    .pw-info-note { font-size: .78em; opacity: .65; margin: 6px 0 0; color: var(--primaryColor); }
+    .pw-empty { text-align: center; padding: 40px 20px; opacity: .55; color: var(--primaryColor); }
+
+    .pw-detail { display: none; background: var(--formBackground); border-radius: 6px; padding: 14px; margin-top: 10px; border: 1px solid #ccc; }
+    .pw-detail.open { display: block; }
+    .pw-detail h4 { margin: 0 0 10px; color: var(--secondaryColor); font-size: .95em; }
+    .pw-assumptions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+    .pw-assumptions label { font-size: .75em; opacity: .7; display: block; margin-bottom: 3px; }
+    .pw-assumptions input { width: 100%; padding: 6px 8px; background: #fff; color: var(--primaryColor); border: 1px solid #ccc; border-radius: 4px; font-size: .88em; }
+
+    @media (max-width: 720px) {
+      .pw-form-grid { grid-template-columns: 1fr 1fr; }
+      .pw-form-grid .span-2 { grid-column: span 2; }
+    }
+  </style>
+</head>
+<body>
+  <header></header>
+  <nav></nav>
+
+  <div class="page-hero">
+    <h1>Property Watchlist</h1>
+    <p>Track properties you're considering. Type an address, click <strong>Look up</strong> for live value + rent estimates via RentCast, then save. Numbers persist to Firebase under your account. <span id="pw-auth-badge">Checking auth…</span></p>
+  </div>
+
+  <div class="breadcrumb">
+    <a href="market.html">&larr; Eco Lou Market</a> &middot;
+    <a href="housing.html">Housing Toolkit</a> &middot;
+    <a href="calculators.html">Calculators</a>
+  </div>
+
+  <div class="wl-wrap">
+
+    <!-- Add Property -->
+    <div class="wl-card">
+      <strong>Add Property</strong>
+      <div class="pw-form-grid">
+        <div class="span-2">
+          <label for="pw-address">Address (Street, City, State Zip)</label>
+          <div style="display:flex;gap:6px;">
+            <input id="pw-address" type="text" placeholder="670 Tremont Pl, Chattanooga, TN 37405" style="flex:1;"/>
+            <button class="wl-btn outline" onclick="pwLookup()" id="pw-lookup-btn" title="RentCast lookup — fills value, rent, and units">Look up</button>
+          </div>
+          <div id="pw-lookup-status" style="font-size:.75em;opacity:.7;margin-top:3px;min-height:1.1em;"></div>
+        </div>
+        <div>
+          <label for="pw-nickname">Nickname (optional)</label>
+          <input id="pw-nickname" type="text" placeholder="e.g. Tremont fixer"/>
+        </div>
+        <div>
+          <label for="pw-value">Est. Value ($)</label>
+          <input id="pw-value" type="number" min="0" step="1000" placeholder="350000"/>
+        </div>
+        <div>
+          <label for="pw-rent">Est. Total Rent ($/mo)</label>
+          <input id="pw-rent" type="number" min="0" step="50" placeholder="2200"/>
+        </div>
+        <div>
+          <label for="pw-units">Units</label>
+          <input id="pw-units" type="number" min="1" max="20" step="1" value="1"/>
+        </div>
+        <div>
+          <button class="wl-btn" onclick="pwAdd()">+ Add</button>
+        </div>
+        <div class="span-full">
+          <label for="pw-tags">Tags (comma-separated)</label>
+          <input id="pw-tags-input" type="text" placeholder="buy, fixer, multifamily"/>
+        </div>
+        <div class="span-full">
+          <label for="pw-notes">Notes</label>
+          <textarea id="pw-notes-input" rows="2" placeholder="Short notes — distance, condition, plan…"></textarea>
+        </div>
+      </div>
+      <p class="pw-info-note">Look up fills value + rent from RentCast (cached by week to stretch the 50-call budget). Always verify against Zillow/Redfin before saving. Default assumptions used in metrics: 20% down · 7% rate · 30yr · 1.2% tax · 0.5% insurance · 5% vacancy · 8% maintenance. Per-property overrides in detail view.</p>
+    </div>
+
+    <!-- Controls -->
+    <div class="wl-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button class="wl-btn outline" onclick="pwExportJSON()">Export JSON</button>
+      <button class="wl-btn outline" onclick="pwExportCSV()">Export CSV</button>
+      <button class="wl-btn danger" onclick="pwClearAll()">Clear All</button>
+      <span style="flex:1"></span>
+      <span id="pw-count" style="font-size:.85em;opacity:.6;"></span>
+    </div>
+
+    <!-- Properties grid -->
+    <div id="pw-grid" class="pw-grid"></div>
+    <div id="pw-empty" class="pw-empty" style="display:none;">No properties yet — add one above to start tracking.</div>
+
+  </div>
+
+  <footer></footer>
+
+<script type="module">
+import {
+  auth, database, onAuthStateChanged,
+  ref, onValue, set, push, remove, update, off
+} from "../../assets/js/firebase-init.js";
+
+const DEFAULTS = {
+  downPct: 20,        // % down payment
+  rate: 7.0,          // % annual interest
+  termYears: 30,
+  taxPct: 1.2,        // % of value, annual
+  insurePct: 0.5,     // % of value, annual
+  vacancyPct: 5,      // % of gross rent
+  maintPct: 8,        // % of gross rent
+};
+
+const grid = document.getElementById('pw-grid');
+const empty = document.getElementById('pw-empty');
+const count = document.getElementById('pw-count');
+const authBadge = document.getElementById('pw-auth-badge');
+
+let basePath = 'public/realestate/watchlist';  // updated when auth resolves
+let unsubscribe = null;
+let cache = {};
+
+// --- Calc helpers ---
+function monthlyPI(value, downPct, ratePct, termYears) {
+  const loan = value * (1 - downPct / 100);
+  const r = (ratePct / 100) / 12;
+  const n = termYears * 12;
+  if (r === 0) return loan / n;
+  return loan * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+}
+
+function deriveMetrics(p) {
+  const a = { ...DEFAULTS, ...(p.assumptions || {}) };
+  const value = +p.estValue || 0;
+  const rent = +p.estRent || 0;
+  const units = +p.units || 1;
+
+  const grossAnnual = rent * 12;
+  const vacancy = grossAnnual * (a.vacancyPct / 100);
+  const taxAnnual = value * (a.taxPct / 100);
+  const insAnnual = value * (a.insurePct / 100);
+  const maintAnnual = grossAnnual * (a.maintPct / 100);
+  const opex = vacancy + taxAnnual + insAnnual + maintAnnual;
+  const noi = grossAnnual - opex;
+
+  const piMonthly = monthlyPI(value, a.downPct, a.rate, a.termYears);
+  const piAnnual = piMonthly * 12;
+  const taxMonthly = taxAnnual / 12;
+  const insMonthly = insAnnual / 12;
+  const pitiMonthly = piMonthly + taxMonthly + insMonthly;
+  const cashFlowMonthly = (grossAnnual - opex) / 12 - piMonthly;
+
+  const grm = grossAnnual > 0 ? value / grossAnnual : null;
+  const capRate = value > 0 ? (noi / value) * 100 : null;
+  const onePct = (value > 0 && rent > 0) ? (rent / value) * 100 : null;
+
+  // FHA Self-Sufficiency Test (only meaningful for 3-4 unit owner-occupied properties).
+  // Required net rental income = 75% of gross monthly rent across all units; must >= PITI.
+  let sstApplies = units >= 3 && units <= 4;
+  let sstPass = null;
+  let sstMargin = null;
+  if (sstApplies && rent > 0 && pitiMonthly > 0) {
+    const netRent = rent * 0.75;
+    sstMargin = netRent - pitiMonthly;
+    sstPass = sstMargin >= 0;
+  }
+  const fhaEligible = units >= 1 && units <= 4;
+
+  return { piMonthly, piAnnual, pitiMonthly, taxMonthly, insMonthly, cashFlowMonthly, grm, capRate, onePct, noi, opex, sstApplies, sstPass, sstMargin, fhaEligible, units };
+}
+
+function fmtMoney(n) {
+  if (n == null || isNaN(n)) return '—';
+  return '$' + Math.round(n).toLocaleString();
+}
+function fmtPct(n, digits = 2) {
+  if (n == null || isNaN(n)) return '—';
+  return n.toFixed(digits) + '%';
+}
+
+function classifyOnePct(p) {
+  if (p == null) return '';
+  if (p >= 1) return 'good';
+  if (p >= 0.7) return 'meh';
+  return 'bad';
+}
+function classifyCashFlow(cf) {
+  if (cf == null) return '';
+  if (cf >= 200) return 'good';
+  if (cf >= 0) return 'meh';
+  return 'bad';
+}
+function classifyCapRate(c) {
+  if (c == null) return '';
+  if (c >= 8) return 'good';
+  if (c >= 5) return 'meh';
+  return 'bad';
+}
+
+// --- Render ---
+function render() {
+  const ids = Object.keys(cache);
+  count.textContent = ids.length ? `${ids.length} ${ids.length === 1 ? 'property' : 'properties'}` : '';
+  empty.style.display = ids.length ? 'none' : 'block';
+  grid.innerHTML = '';
+
+  const sorted = ids
+    .map(id => ({ id, ...cache[id] }))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+  for (const p of sorted) {
+    const m = deriveMetrics(p);
+    const card = document.createElement('div');
+    card.className = 'pw-prop';
+    card.dataset.id = p.id;
+    const sstBlock = m.sstApplies
+      ? `<div class="m" style="grid-column: span 2;"><div class="label">FHA Self-Sufficiency (3-4 unit)</div><div class="v ${m.sstPass ? 'good' : 'bad'}">${m.sstPass ? 'PASS' : 'FAIL'} (${fmtMoney(m.sstMargin)}/mo margin)</div></div>`
+      : '';
+    const unitsLine = (m.units > 1)
+      ? `<div class="row"><span class="label">Units</span><span>${m.units}${m.fhaEligible ? '' : ' · NOT FHA-eligible (5+ commercial)'}</span></div>`
+      : '';
+    card.innerHTML = `
+      <h3>${escape(p.nickname || p.address || '(unnamed)')}</h3>
+      <div class="addr">${p.nickname ? escape(p.address || '') : ''}</div>
+      <div class="row"><span class="label">Value</span><span>${fmtMoney(+p.estValue)}</span></div>
+      <div class="row"><span class="label">Rent (total)</span><span>${fmtMoney(+p.estRent)}/mo</span></div>
+      ${unitsLine}
+      <div class="pw-metrics">
+        <div class="m"><div class="label">1% rule</div><div class="v ${classifyOnePct(m.onePct)}">${fmtPct(m.onePct)}</div></div>
+        <div class="m"><div class="label">Cap rate</div><div class="v ${classifyCapRate(m.capRate)}">${fmtPct(m.capRate)}</div></div>
+        <div class="m"><div class="label">GRM</div><div class="v">${m.grm != null ? m.grm.toFixed(2) : '—'}</div></div>
+        <div class="m"><div class="label">Mortgage P&amp;I</div><div class="v">${fmtMoney(m.piMonthly)}/mo</div></div>
+        <div class="m"><div class="label">PITI</div><div class="v">${fmtMoney(m.pitiMonthly)}/mo</div></div>
+        <div class="m"><div class="label">Cash flow</div><div class="v ${classifyCashFlow(m.cashFlowMonthly)}">${fmtMoney(m.cashFlowMonthly)}/mo</div></div>
+        ${sstBlock}
+      </div>
+      ${p.tags && p.tags.length ? `<div class="pw-tags">${p.tags.map(t => `<span>${escape(t)}</span>`).join('')}</div>` : ''}
+      ${p.notes ? `<div class="pw-notes">${escape(p.notes)}</div>` : ''}
+      <div class="pw-actions">
+        <button class="wl-btn outline" data-act="edit">Edit</button>
+        <button class="wl-btn danger" data-act="del">Delete</button>
+      </div>
+      <div class="pw-detail">
+        <h4>Assumptions for this property</h4>
+        <div class="pw-assumptions">
+          <div><label>Down %</label><input type="number" step="0.5" data-k="downPct" value="${p.assumptions?.downPct ?? DEFAULTS.downPct}"></div>
+          <div><label>Rate %</label><input type="number" step="0.05" data-k="rate" value="${p.assumptions?.rate ?? DEFAULTS.rate}"></div>
+          <div><label>Term (yrs)</label><input type="number" step="1" data-k="termYears" value="${p.assumptions?.termYears ?? DEFAULTS.termYears}"></div>
+          <div><label>Tax %</label><input type="number" step="0.05" data-k="taxPct" value="${p.assumptions?.taxPct ?? DEFAULTS.taxPct}"></div>
+          <div><label>Insurance %</label><input type="number" step="0.05" data-k="insurePct" value="${p.assumptions?.insurePct ?? DEFAULTS.insurePct}"></div>
+          <div><label>Vacancy %</label><input type="number" step="0.5" data-k="vacancyPct" value="${p.assumptions?.vacancyPct ?? DEFAULTS.vacancyPct}"></div>
+          <div><label>Maint %</label><input type="number" step="0.5" data-k="maintPct" value="${p.assumptions?.maintPct ?? DEFAULTS.maintPct}"></div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;">
+          <button class="wl-btn" data-act="save-assumptions">Save Assumptions</button>
+          <button class="wl-btn outline" data-act="reset-assumptions">Reset to Defaults</button>
+        </div>
+      </div>
+    `;
+    card.querySelector('[data-act="del"]').onclick = () => pwDelete(p.id);
+    card.querySelector('[data-act="edit"]').onclick = () => card.querySelector('.pw-detail').classList.toggle('open');
+    card.querySelector('[data-act="save-assumptions"]').onclick = () => saveAssumptions(p.id, card);
+    card.querySelector('[data-act="reset-assumptions"]').onclick = () => resetAssumptions(p.id);
+    grid.appendChild(card);
+  }
+}
+
+function escape(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+// --- Data ops ---
+function subscribe() {
+  if (unsubscribe) unsubscribe();
+  const r = ref(database, basePath);
+  unsubscribe = onValue(r, snap => {
+    cache = snap.val() || {};
+    render();
+  });
+}
+
+const RENTCAST_PROXY = 'https://rentcast.luissolutions.us';
+
+window.pwLookup = async function () {
+  const addressInput = document.getElementById('pw-address');
+  const address = addressInput.value.trim();
+  const status = document.getElementById('pw-lookup-status');
+  const btn = document.getElementById('pw-lookup-btn');
+  if (!address || address.length < 5) {
+    status.textContent = 'Enter an address first.';
+    status.style.color = '#c0392b';
+    return;
+  }
+  btn.disabled = true;
+  status.style.color = 'inherit';
+  status.textContent = 'Looking up…';
+  try {
+    const res = await fetch(`${RENTCAST_PROXY}/lookup?address=${encodeURIComponent(address)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      status.style.color = '#c0392b';
+      status.textContent = `Lookup failed (${res.status}): ${data.detail?.error || data.error || 'unknown'}`;
+      return;
+    }
+    const v = data.value?.amount;
+    const r = data.rent?.amount;
+    const sp = data.value?.subjectProperty;
+    if (v) document.getElementById('pw-value').value = v;
+    if (r) document.getElementById('pw-rent').value = r;
+    if (sp?.propertyType === 'Multi-Family' && sp?.bedrooms >= 3) {
+      // crude heuristic — RentCast doesn't always return unit count
+      document.getElementById('pw-units').value = Math.min(4, Math.max(2, Math.floor(sp.bedrooms / 2)));
+    }
+    const sub = sp ? ` · ${sp.propertyType || '?'} · ${sp.bedrooms ?? '?'}BR/${sp.bathrooms ?? '?'}BA · ${sp.squareFootage ?? '?'} sqft · built ${sp.yearBuilt ?? '?'}` : '';
+    status.style.color = data.fromCache ? '#888' : '#1f8a3a';
+    status.textContent = `Filled${data.fromCache ? ' (from cache)' : ''}${sub}. Verify before saving.`;
+  } catch (err) {
+    status.style.color = '#c0392b';
+    status.textContent = `Network error: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+window.pwAdd = function () {
+  const address = document.getElementById('pw-address').value.trim();
+  if (!address || address.length < 5) { alert('Enter an address.'); return; }
+  const nickname = document.getElementById('pw-nickname').value.trim();
+  const estValue = parseFloat(document.getElementById('pw-value').value) || 0;
+  const estRent = parseFloat(document.getElementById('pw-rent').value) || 0;
+  const units = Math.max(1, parseInt(document.getElementById('pw-units').value, 10) || 1);
+  const tagsRaw = document.getElementById('pw-tags-input').value.trim();
+  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const notes = document.getElementById('pw-notes-input').value.trim();
+
+  const now = Date.now();
+  const r = push(ref(database, basePath));
+  set(r, { address, nickname, estValue, estRent, units, tags, notes, createdAt: now, updatedAt: now })
+    .then(() => {
+      ['pw-address','pw-nickname','pw-value','pw-rent','pw-tags-input','pw-notes-input'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('pw-units').value = '1';
+    })
+    .catch(err => alert('Save failed: ' + err.message));
+};
+
+window.pwDelete = function (id) {
+  if (!confirm('Delete this property?')) return;
+  remove(ref(database, `${basePath}/${id}`)).catch(err => alert('Delete failed: ' + err.message));
+};
+
+window.pwClearAll = function () {
+  const n = Object.keys(cache).length;
+  if (!n) return;
+  if (!confirm(`Delete all ${n} properties?`)) return;
+  set(ref(database, basePath), null).catch(err => alert('Clear failed: ' + err.message));
+};
+
+window.pwExportJSON = function () {
+  const blob = new Blob([JSON.stringify(cache, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, `properties-${new Date().toISOString().slice(0,10)}.json`);
+};
+
+window.pwExportCSV = function () {
+  const rows = [['Address','Nickname','Units','EstValue','EstRent','Tags','Notes','OnePctRule','CapRate','GRM','PI','PITI','CashFlow','FHA_SST']];
+  for (const id of Object.keys(cache)) {
+    const p = cache[id];
+    const m = deriveMetrics(p);
+    rows.push([
+      p.address || '', p.nickname || '', p.units || 1, p.estValue || '', p.estRent || '',
+      (p.tags || []).join(';'), (p.notes || '').replace(/\n/g,' '),
+      m.onePct != null ? m.onePct.toFixed(3) : '',
+      m.capRate != null ? m.capRate.toFixed(2) : '',
+      m.grm != null ? m.grm.toFixed(2) : '',
+      Math.round(m.piMonthly || 0),
+      Math.round(m.pitiMonthly || 0),
+      Math.round(m.cashFlowMonthly || 0),
+      m.sstApplies ? (m.sstPass ? 'PASS' : 'FAIL') : 'N/A',
+    ]);
+  }
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  downloadBlob(new Blob([csv], { type: 'text/csv' }), `properties-${new Date().toISOString().slice(0,10)}.csv`);
+};
+
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function saveAssumptions(id, card) {
+  const inputs = card.querySelectorAll('.pw-assumptions input');
+  const a = {};
+  inputs.forEach(i => { a[i.dataset.k] = parseFloat(i.value); });
+  update(ref(database, `${basePath}/${id}`), { assumptions: a, updatedAt: Date.now() })
+    .catch(err => alert('Save failed: ' + err.message));
+}
+
+function resetAssumptions(id) {
+  update(ref(database, `${basePath}/${id}`), { assumptions: null, updatedAt: Date.now() })
+    .catch(err => alert('Reset failed: ' + err.message));
+}
+
+// --- Auth wiring ---
+onAuthStateChanged(auth, user => {
+  if (user) {
+    basePath = `${user.uid}/realestate/watchlist`;
+    authBadge.textContent = `· logged in as ${user.email}`;
+    authBadge.style.color = '#5cd17a';
+  } else {
+    basePath = 'public/realestate/watchlist';
+    authBadge.textContent = '· guest mode (writes to public space)';
+    authBadge.style.color = '#d6b85a';
+  }
+  subscribe();
+});
+</script>
+</body>
+</html>
