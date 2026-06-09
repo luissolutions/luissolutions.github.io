@@ -539,6 +539,24 @@
         const IMAGE_REQUEST = /\b(draw|sketch|paint|generate|make|create|picture|image|photo|selfie|pic|show)\b.{0,60}\b(you\w*)\b|\bclose[- ]?up\b|\bclose[- ]?shot\b|\bnear[- ]?shot\b|\bhead[- ]?shot\b|\bbust[- ]?shot\b|\bhalf[- ]?body\b|\b(draw|generate|create|make|sketch)\b.{0,40}\b(naked|nude|explicit|sexy|lewd)\b|\b(send|give|show)\b.{0,25}\b(pic|photo|image|picture|selfie|drawing|sketch)\b/i;
         const BODY_REQUEST = /\b(your)\s+(butt|ass|body|face|boobs?|breast|chest|back|legs?|tits?|pussy|cock|dick|naked|nude|curves?|figure|shape|head|hair|eyes?|belly|stomach)\b|\b(show|send|see|want|give me|let me see)\b.{0,30}\b(butt|ass|boobs?|breast|tits?|pussy|cock|dick|chest|naked|nude|belly|thighs?|legs?|body)\b|\b(full\s*body|nude|naked|nsfw)\b|\b(you)\b.{0,35}\b(bathing\s*suit|bikini|swimsuit|lingerie|underwear|outfit|costume|uniform|dressed|wearing)\b|\b(bathing\s*suit|bikini|swimsuit|outfit|costume)\b.{0,30}\b(you)\b/i;
         const MORE_REQUEST = /^\s*(more|another\s*(one)?|again|one more|do it again|send more|sure|ok|okay|yes|yeah|yep|go ahead|do it)\s*[!~.]*\s*$/i;
+
+        // Parse "send 3 images" / "5 pictures" / "give me 2 pics" — capped at 5
+        function extractImageCount(text) {
+            const wordToN = { one:1, two:2, three:3, four:4, five:5, a:1, an:1, single:1, couple:2, few:3 };
+            // Digit form: "send N", "give me N", "N images", "N pics", etc.
+            const digitMatch = text.match(/\b(?:send|give|show|draw|sketch|make|generate|create|do)\s+(?:me\s+|us\s+)?([1-9])\b|\b([1-9])\s+(?:images?|pictures?|pics?|photos?|selfies?|drawings?|sketches?|shots?)\b/i);
+            if (digitMatch) {
+                const n = parseInt(digitMatch[1] || digitMatch[2], 10);
+                return Math.max(1, Math.min(5, n));
+            }
+            // Word form: "send three images", "give me a couple pics"
+            const wordMatch = text.match(/\b(?:send|give|show|draw|sketch|make|generate|create|do)\s+(?:me\s+|us\s+)?(one|two|three|four|five|a|an|couple|few)\b|\b(one|two|three|four|five|couple|few)\s+(?:images?|pictures?|pics?|photos?|selfies?|drawings?|sketches?|shots?)\b/i);
+            if (wordMatch) {
+                const n = wordToN[(wordMatch[1] || wordMatch[2]).toLowerCase()] || 1;
+                return Math.max(1, Math.min(5, n));
+            }
+            return 1;
+        }
         const PERSONAL_KEYWORDS = /\bhow are you\b|\bhow.{0,10}feel\b|\bwhat are you doing\b|\bare you okay\b|\bwhat do you look\b/i;
 
         const SPRITE_MOODS = ['happy', 'sleepy', 'excited', 'thinking', 'flirty'];
@@ -546,6 +564,12 @@
         const SD_MODELS = ['anything-v3-fp16-pruned', 'ghostmix_v12', 'dreamshaper_331BakedVae'];
         const SD_NSFW_MODEL = 'meinamix_meinaV11';
         const randModel = () => SD_MODELS[Math.floor(Math.random() * SD_MODELS.length)];
+
+        // Video gen via comfy-proxy-svc on se. HTTP for LAN-hosted onlinechat, tunnel for public github.io.
+        const ANIMATE_REQUEST = /\banimate\b/i;
+        const ANIMATE_PROXY = location.protocol === 'https:'
+            ? 'https://animate.luissolutions.us'   // requires CF tunnel: animate.luissolutions.us -> host.docker.internal:3020
+            : 'http://192.168.50.10:3020';          // LAN direct
 
         function detectMood(text) {
             const t = (text || '').toLowerCase();
@@ -564,6 +588,7 @@
         let userNegPrompt  = null;
         let userNsfw       = false;
         const generatedImages = [];
+        const generatedVideos = [];
         let lastImageRequest = null;
         let nonImageCount = 0;
 
@@ -1043,30 +1068,59 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             botTyping.textContent = BOT_NAME + ' thinking...';
 
             const isMoreReq = MORE_REQUEST.test(question) && lastImageRequest !== null;
-            let isImgReq = IMAGE_REQUEST.test(question) || BODY_REQUEST.test(question) || isMoreReq;
+            const isAnimateReq = ANIMATE_REQUEST.test(question);
+            let isImgReq = !isAnimateReq && (IMAGE_REQUEST.test(question) || BODY_REQUEST.test(question) || isMoreReq);
             const effectiveReq = isMoreReq ? lastImageRequest : question;
-            const isPersonalQ = !isImgReq && PERSONAL_KEYWORDS.test(question);
+            const isPersonalQ = !isImgReq && !isAnimateReq && PERSONAL_KEYWORDS.test(question);
 
             chatHistory.push({ role: 'user', content: `${username}: ${question}` });
             if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
 
             try {
+                // Bypass LLM for video requests — long-running, async
+                if (isAnimateReq) {
+                    const presets = [
+                        'O-oh~ a-animating now... give me a few minutes...',
+                        'E-eek! O-okay... rendering a clip for you~',
+                        'A-ah... *blushes* h-hold on, the camera\'s rolling...',
+                        'M-mmm... animating~ this might take a bit...',
+                    ];
+                    const reply = presets[Math.floor(Math.random() * presets.length)];
+                    chatHistory.push({ role: 'assistant', content: reply });
+                    const msgKey = sendMessage(BOT_NAME, reply, 'flirty');
+                    botTyping.textContent = BOT_NAME + ' animating...';
+                    await generateBotVideo(question, msgKey);
+                    return;
+                }
+
                 // Bypass LLM for image requests — its content filter would refuse
                 if (isImgReq) {
                     lastImageRequest = effectiveReq;
                     nonImageCount = 0;
-                    const presets = [
+                    const count = extractImageCount(question);
+                    const singles = [
                         'O-oh my~ A-alright, j-just a moment...',
                         'E-eek! O-okay... I\'ll try my best~',
                         'A-ah... *blushes* S-sure, here I go~',
                         'U-um... o-okay! H-here you go~',
                         'W-wait, like right now?! O-okay fine...'
                     ];
-                    const reply = presets[Math.floor(Math.random() * presets.length)];
+                    const multis = [
+                        `O-oh~ ${count} of them?! O-okay, give me a sec...`,
+                        `E-eek! ${count}?! Alright... here I go~`,
+                        `A-ah... *blushes* ${count} pictures coming up...`,
+                        `U-um... okay! ${count} pics, drawing now~`
+                    ];
+                    const pool = count > 1 ? multis : singles;
+                    const reply = pool[Math.floor(Math.random() * pool.length)];
                     chatHistory.push({ role: 'assistant', content: reply });
                     const msgKey = sendMessage(BOT_NAME, reply, 'flirty');
-                    botTyping.textContent = BOT_NAME + ' drawing...';
-                    await generateBotImage(effectiveReq, msgKey);
+                    botTyping.textContent = BOT_NAME + (count > 1 ? ` drawing ${count}...` : ' drawing...');
+                    for (let i = 0; i < count; i++) {
+                        botTyping.textContent = count > 1 ? `${BOT_NAME} drawing ${i+1}/${count}...` : BOT_NAME + ' drawing...';
+                        await generateBotImage(effectiveReq, msgKey, { suppressModal: i < count - 1 });
+                    }
+                    botTyping.textContent = '';
                     return;
                 }
 
@@ -1169,6 +1223,55 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 } else {
                     chatWindow.appendChild(wrap);
                 }
+                entry.injected = true;
+            });
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        function injectGeneratedVideos() {
+            if (!generatedVideos.length || chatMode !== 'internal') return;
+            generatedVideos.forEach(entry => {
+                if (entry.injected) return;
+                const { src, afterKey } = entry;
+
+                const av = document.createElement('div');
+                av.className = 'msg-avatar bot-av';
+                if (botAvatarSrc) {
+                    av.style.backgroundImage = `url(${botAvatarSrc})`;
+                    av.style.backgroundSize = 'cover';
+                    av.style.backgroundPosition = 'center top';
+                } else {
+                    av.textContent = BOT_NAME[0] || '?';
+                }
+
+                const vid = document.createElement('video');
+                vid.src = src;
+                vid.controls = true;
+                vid.autoplay = true;
+                vid.loop = true;
+                vid.muted = true;
+                vid.playsInline = true;
+                vid.className = 'chat-img';
+                vid.style.maxWidth = '320px';
+                vid.style.borderRadius = '4px';
+
+                const bubble = document.createElement('div');
+                bubble.className = 'bubble';
+                bubble.style.cssText = 'padding:4px;background:color-mix(in srgb,#22d3ee 14%,var(--surface2));border:1px solid #22d3ee40;';
+                bubble.appendChild(vid);
+
+                const content = document.createElement('div');
+                content.className = 'msg-content';
+                content.appendChild(bubble);
+
+                const wrap = document.createElement('div');
+                wrap.classList.add('msg-wrap', 'bot');
+                wrap.appendChild(av);
+                wrap.appendChild(content);
+
+                const anchor = afterKey ? chatWindow.querySelector(`[data-key="${afterKey}"]`) : null;
+                if (anchor) anchor.insertAdjacentElement('afterend', wrap);
+                else chatWindow.appendChild(wrap);
                 entry.injected = true;
             });
             chatWindow.scrollTop = chatWindow.scrollHeight;
@@ -1293,7 +1396,8 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             return userNegPrompt;
         }
 
-        async function generateBotImage(userRequest, afterKey = null) {
+        async function generateBotImage(userRequest, afterKey = null, opts = {}) {
+            const { suppressModal = false } = opts;
             const isExplicit = userNsfw && EXPLICIT_REQUEST.test(userRequest);
             const charPrompt = buildCharPrompt(isExplicit);
             const negPrompt  = buildNegPrompt(isExplicit);
@@ -1322,11 +1426,49 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                     const dataUrl = `data:image/png;base64,${sd.image}`;
                     generatedImages.push({ src: dataUrl, afterKey });
                     injectGeneratedImages();
-                    openBotModal(dataUrl);
+                    if (!suppressModal) openBotModal(dataUrl);
                 }
             } catch (e) {
                 console.warn('Image generation failed:', e);
                 sendMessage(BOT_NAME, 'A-ah... s-something went wrong with the picture... sorry! 🌸', 'thinking');
+            }
+        }
+
+        async function generateBotVideo(userRequest, afterKey = null) {
+            const charPrompt = buildCharPrompt(false);
+            const scene = buildScenePrompt(userRequest);
+            const prompt = `${charPrompt}, ${scene}`;
+            const negative = buildNegPrompt(false);
+
+            try {
+                const startRes = await fetch(`${ANIMATE_PROXY}/animate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt, negative })
+                });
+                if (!startRes.ok) throw new Error(`start ${startRes.status}`);
+                const { jobId } = await startRes.json();
+                if (!jobId) throw new Error('no jobId');
+
+                // Poll up to 8 min @ 5s = 96 polls
+                let videoUrl = null;
+                for (let i = 0; i < 96; i++) {
+                    await new Promise(r => setTimeout(r, 5000));
+                    const sr = await fetch(`${ANIMATE_PROXY}/animate/${jobId}`);
+                    if (!sr.ok) continue;
+                    const status = await sr.json();
+                    if (status.status === 'done') { videoUrl = `${ANIMATE_PROXY}/video/${jobId}`; break; }
+                    if (status.status === 'failed') throw new Error(status.error || 'render failed');
+                }
+                if (!videoUrl) throw new Error('render timeout');
+
+                generatedVideos.push({ src: videoUrl, afterKey });
+                injectGeneratedVideos();
+            } catch (e) {
+                console.warn('Video generation failed:', e);
+                sendMessage(BOT_NAME, 'A-ah... the clip didn\'t come together this time... sorry! 🌸', 'thinking');
+            } finally {
+                botTyping.textContent = '';
             }
         }
 
@@ -1336,6 +1478,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             seenKeys.clear();
             renderedKeys.clear();
             generatedImages.length = 0;
+            generatedVideos.length = 0;
             chatHistory = [];
             listenerReady = false;
 
@@ -1346,7 +1489,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 const isHistory = !listenerReady;
                 listenerReady = true;
 
-                if (!messages) { injectGeneratedImages(); return; }
+                if (!messages) { injectGeneratedImages(); injectGeneratedVideos(); return; }
 
                 Object.entries(messages).forEach(([key, msg]) => {
                     if (!renderedKeys.has(key)) {
@@ -1370,6 +1513,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                     }
                 });
                 injectGeneratedImages();
+                injectGeneratedVideos();
             });
         }
 
