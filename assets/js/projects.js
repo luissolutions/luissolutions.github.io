@@ -31,8 +31,8 @@ const projects = [
     },
     {
         title: "Kame House",
-        image: "assets/img/kamehouse-thumbnail.png",
-        link: "websites/kamehouse/index.html",
+        image: "assets/img/kh-thumbnail.png",
+        link: "websites/kh/index.html",
         description: "Household hub: shopping list, meal plan, and chore tracker — shared via Firebase.",
     },
     {
