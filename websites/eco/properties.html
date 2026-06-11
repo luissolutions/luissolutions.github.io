@@ -92,6 +92,54 @@
     .pw-review-input button { padding: 5px 12px; font-size: .8em; margin-top: 0; }
     .pw-share-btn { font-size: .72em !important; padding: 3px 8px !important; }
     input { width: stretch; }
+
+    /* Hover/tap tooltip for acronyms */
+    .tip {
+      border-bottom: 1px dashed var(--secondaryColor);
+      cursor: help;
+      position: relative;
+      font-style: normal;
+    }
+    .tip::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #222;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: .72em;
+      font-weight: 400;
+      line-height: 1.4;
+      width: max-content;
+      max-width: 240px;
+      z-index: 50;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+      white-space: normal;
+      text-align: left;
+      text-transform: none;
+      letter-spacing: normal;
+    }
+    .tip::before {
+      content: '';
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: #222;
+      opacity: 0;
+      transition: opacity 0.15s;
+      pointer-events: none;
+    }
+    .tip:hover::after, .tip:focus::after, .tip.show-tip::after,
+    .tip:hover::before, .tip:focus::before, .tip.show-tip::before {
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
@@ -195,6 +243,13 @@ const grid = document.getElementById('pw-grid');
 const empty = document.getElementById('pw-empty');
 const count = document.getElementById('pw-count');
 const authBadge = document.getElementById('pw-auth-badge');
+
+// Tap-to-show for acronym tooltips on mobile (CSS handles hover for desktop)
+document.addEventListener('click', e => {
+  const isTip = e.target.classList && e.target.classList.contains('tip');
+  document.querySelectorAll('.tip.show-tip').forEach(t => { if (t !== e.target) t.classList.remove('show-tip'); });
+  if (isTip) { e.target.classList.toggle('show-tip'); e.stopPropagation(); }
+});
 
 let mode = 'personal';            // 'personal' | 'shared'
 let currentUserId = null;
@@ -312,7 +367,7 @@ function render() {
     card.className = 'pw-prop';
     card.dataset.id = p.id;
     const sstBlock = m.sstApplies
-      ? `<div class="m" style="grid-column: span 2;"><div class="label">FHA Self-Sufficiency (3-4 unit)</div><div class="v ${m.sstPass ? 'good' : 'bad'}">${m.sstPass ? 'PASS' : 'FAIL'} (${fmtMoney(m.sstMargin)}/mo margin)</div></div>`
+      ? `<div class="m" style="grid-column: span 2;"><div class="label"><span class="tip" tabindex="0" data-tip="FHA Self-Sufficiency Test. Required for FHA loans on 3-4 unit owner-occupied properties: 75% of gross rent across all units must be ≥ PITI. Net rental income (after 25% vacancy/maintenance reserve) has to cover the mortgage payment.">FHA Self-Sufficiency (3-4 unit)</span></div><div class="v ${m.sstPass ? 'good' : 'bad'}">${m.sstPass ? 'PASS' : 'FAIL'} (${fmtMoney(m.sstMargin)}/mo margin)</div></div>`
       : '';
     const unitsLine = (m.units > 1)
       ? `<div class="row"><span class="label">Units</span><span>${m.units}${m.fhaEligible ? '' : ' · NOT FHA-eligible (5+ commercial)'}</span></div>`
@@ -359,12 +414,12 @@ function render() {
       <div class="row"><span class="label">Rent (total)</span><span>${fmtMoney(+p.estRent)}/mo</span></div>
       ${unitsLine}
       <div class="pw-metrics">
-        <div class="m"><div class="label">1% rule</div><div class="v ${classifyOnePct(m.onePct)}">${fmtPct(m.onePct)}</div></div>
-        <div class="m"><div class="label">Cap rate</div><div class="v ${classifyCapRate(m.capRate)}">${fmtPct(m.capRate)}</div></div>
-        <div class="m"><div class="label">GRM</div><div class="v">${m.grm != null ? m.grm.toFixed(2) : '—'}</div></div>
-        <div class="m"><div class="label">Mortgage P&amp;I</div><div class="v">${fmtMoney(m.piMonthly)}/mo</div></div>
-        <div class="m"><div class="label">PITI</div><div class="v">${fmtMoney(m.pitiMonthly)}/mo</div></div>
-        <div class="m"><div class="label">Cash flow</div><div class="v ${classifyCashFlow(m.cashFlowMonthly)}">${fmtMoney(m.cashFlowMonthly)}/mo</div></div>
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="1% Rule. Quick deal screen: monthly rent ÷ purchase price should be ≥ 1%. Below 1% rarely cash-flows. Above 1% is the starting line, not the finish.">1% rule</span></div><div class="v ${classifyOnePct(m.onePct)}">${fmtPct(m.onePct)}</div></div>
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="Capitalization Rate. NOI (annual rent minus expenses, no mortgage) ÷ purchase price. Compares deals like-for-like. 5–6% decent, 7–8% strong, 10%+ suspicious or rough area.">Cap rate</span></div><div class="v ${classifyCapRate(m.capRate)}">${fmtPct(m.capRate)}</div></div>
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="Gross Rent Multiplier. Purchase price ÷ annual gross rent. Lower = better. A napkin multiple — useful for quick comparisons across properties.">GRM</span></div><div class="v">${m.grm != null ? m.grm.toFixed(2) : '—'}</div></div>
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="Principal &amp; Interest. Just the loan payment portion — what goes to the bank for the mortgage itself (no taxes, no insurance, no escrow).">Mortgage P&amp;I</span></div><div class="v">${fmtMoney(m.piMonthly)}/mo</div></div>
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="Principal, Interest, Taxes, Insurance. The full monthly mortgage payment to the bank. The number that has to clear the FHA Self-Sufficiency Test.">PITI</span></div><div class="v">${fmtMoney(m.pitiMonthly)}/mo</div></div>
+        <div class="m"><div class="label"><span class="tip" tabindex="0" data-tip="Estimated monthly $ left after PITI, vacancy reserve, and maintenance reserve. Negative = property loses money each month (you're feeding it).">Cash flow</span></div><div class="v ${classifyCashFlow(m.cashFlowMonthly)}">${fmtMoney(m.cashFlowMonthly)}/mo</div></div>
         ${sstBlock}
       </div>
       ${voteRow}
@@ -379,13 +434,13 @@ function render() {
       <div class="pw-detail">
         <h4>Assumptions for this property</h4>
         <div class="pw-assumptions">
-          <div><label>Down %</label><input type="number" step="0.5" data-k="downPct" value="${p.assumptions?.downPct ?? DEFAULTS.downPct}"></div>
-          <div><label>Rate %</label><input type="number" step="0.05" data-k="rate" value="${p.assumptions?.rate ?? DEFAULTS.rate}"></div>
-          <div><label>Term (yrs)</label><input type="number" step="1" data-k="termYears" value="${p.assumptions?.termYears ?? DEFAULTS.termYears}"></div>
-          <div><label>Tax %</label><input type="number" step="0.05" data-k="taxPct" value="${p.assumptions?.taxPct ?? DEFAULTS.taxPct}"></div>
-          <div><label>Insurance %</label><input type="number" step="0.05" data-k="insurePct" value="${p.assumptions?.insurePct ?? DEFAULTS.insurePct}"></div>
-          <div><label>Vacancy %</label><input type="number" step="0.5" data-k="vacancyPct" value="${p.assumptions?.vacancyPct ?? DEFAULTS.vacancyPct}"></div>
-          <div><label>Maint %</label><input type="number" step="0.5" data-k="maintPct" value="${p.assumptions?.maintPct ?? DEFAULTS.maintPct}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Down payment as % of purchase price. Conventional = 20%+, FHA = 3.5% min for owner-occupied (use 3.5 for house-hack math).">Down %</span></label><input type="number" step="0.5" data-k="downPct" value="${p.assumptions?.downPct ?? DEFAULTS.downPct}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Annual mortgage interest rate %. Today's 30yr conventional is ~7% give or take 0.5%. FHA usually within ±0.25% of that.">Rate %</span></label><input type="number" step="0.05" data-k="rate" value="${p.assumptions?.rate ?? DEFAULTS.rate}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Loan term in years. 30 = lowest monthly payment, more interest paid. 15 = higher payment, much less interest. House-hack default = 30.">Term (yrs)</span></label><input type="number" step="1" data-k="termYears" value="${p.assumptions?.termYears ?? DEFAULTS.termYears}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Annual property tax as % of home value. Hartford/New Britain CT typically 3.0–3.5%. Chattanooga TN ~0.7%. Check the actual tax bill on each property.">Tax %</span></label><input type="number" step="0.05" data-k="taxPct" value="${p.assumptions?.taxPct ?? DEFAULTS.taxPct}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Annual homeowner's insurance as % of value. 0.4–0.7% is typical. Older buildings + landlord policies run higher. Get a real quote before signing.">Insurance %</span></label><input type="number" step="0.05" data-k="insurePct" value="${p.assumptions?.insurePct ?? DEFAULTS.insurePct}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Vacancy reserve: % of gross rent you assume the units sit empty per year. 5% ≈ 2.5 weeks/yr vacancy. 8–10% for rougher markets.">Vacancy %</span></label><input type="number" step="0.5" data-k="vacancyPct" value="${p.assumptions?.vacancyPct ?? DEFAULTS.vacancyPct}"></div>
+          <div><label><span class="tip" tabindex="0" data-tip="Maintenance reserve: % of gross rent you set aside for repairs, capex, turnovers. 8% is rule-of-thumb. Pre-1950 buildings: 10–12%.">Maint %</span></label><input type="number" step="0.5" data-k="maintPct" value="${p.assumptions?.maintPct ?? DEFAULTS.maintPct}"></div>
         </div>
         <div style="margin-top:10px;display:flex;gap:8px;">
           <button class="wl-btn" data-act="save-assumptions">Save Assumptions</button>
