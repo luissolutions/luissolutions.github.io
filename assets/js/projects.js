@@ -210,14 +210,6 @@ const apps = [
         requiresLogin: true,
     },
     {
-        title: "Online Mileage Tracker",
-        image: "assets/img/livemileage-thumbnail.png",
-        link: "apps/online/onlinemileage.html",
-        description: "Track mileage with live data updates.",
-        category: "Cloud",
-        requiresLogin: true,
-    },
-    {
         title: "Online Analytics",
         image: "assets/img/liveanalytics-thumbnail.png",
         link: "apps/online/onlineanalytics.html",

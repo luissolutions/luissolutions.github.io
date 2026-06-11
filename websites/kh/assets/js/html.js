@@ -1,7 +1,7 @@
 // Loads the shared header into <header class="kh-nav"></header> and
 // marks the active link based on the current page. Exposes a promise
 // (window.khHeaderReady) so inline modules can await DOM elements
-// that live inside the header (e.g. #auth-pill, #auth-btn).
+// that live inside the header (e.g. #kh-account-link, #kh-auth-panel — handled by kh-auth.js).
 
 window.khHeaderReady = (async function loadHeader() {
   const target = document.querySelector('header.kh-nav');

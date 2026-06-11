@@ -435,6 +435,12 @@
         padding: 5px 9px;
         font-size: 0.74rem;
       }
+
+      /* iOS Safari auto-zooms (and stays zoomed) on inputs with computed
+         font-size < 16px. Force ≥16px on mobile to stop the focus-zoom jump. */
+      input, select, textarea {
+        font-size: 16px !important;
+      }
     }
 
     /* ── Command palette (App dropdown ported from bma/base.html) ── */
@@ -918,15 +924,13 @@
       <button class="bma-apps-btn" id="bma-apps-btn" title="Search apps & sites (Ctrl+K)">📂 Apps</button>
       <button class="bma-link" data-panel="sites">Sites</button>
       <button class="bma-link" data-panel="hub" id="bma-hub-link" style="display:none;">Hub</button>
-      <button class="bma-link" data-panel="account" id="bma-account-link" style="display:none;">Account</button>
+      <button class="bma-link" data-panel="account" id="bma-account-link">Account</button>
     </div>
     <div class="bma-topbar-right">
       <select class="bma-theme-select" id="bma-theme-select" title="Theme">
         <option value="default">Default Theme</option>
         <option value="bma">BMA Legacy</option>
       </select>
-      <span class="bma-user" id="bma-user-label"></span>
-      <button class="bma-auth-btn" id="bma-auth-btn">Sign In</button>
     </div>
   </div>
 
@@ -1000,7 +1004,19 @@
           <h2 style="margin-bottom:14px;">Account</h2>
 
           <div class="acct-card" id="acct-signed-out-card" style="display:none;">
-            <div class="signed-out">Sign in via the header to manage your account.</div>
+            <h3>Sign In</h3>
+            <form class="acct-form" id="acct-signin-form">
+              <div>
+                <label for="acct-signin-email">Email</label>
+                <input type="email" id="acct-signin-email" required autocomplete="email" placeholder="you@example.com">
+              </div>
+              <div>
+                <label for="acct-signin-password">Password</label>
+                <input type="password" id="acct-signin-password" required autocomplete="current-password">
+              </div>
+              <button type="submit" class="primary">Sign In</button>
+              <span class="acct-status" id="acct-signin-status"></span>
+            </form>
           </div>
 
           <div class="acct-card" id="acct-info-card">
@@ -1556,14 +1572,34 @@
         if (signedOut) signedOut.style.display = '';
         if (infoCard) infoCard.style.display = 'none';
         if (pwCard) pwCard.style.display = 'none';
-        // BMA topbar — signed out
+        // BMA topbar — signed out: keep Account link visible so it doubles as sign-in entry
         if (bmaHubLink) bmaHubLink.style.display = 'none';
-        if (bmaAcctLink) bmaAcctLink.style.display = 'none';
+        if (bmaAcctLink) bmaAcctLink.style.display = '';
         if (bmaUserLabel) bmaUserLabel.textContent = '';
         if (bmaAuthBtn) bmaAuthBtn.textContent = 'Sign In';
         if (!document.querySelector('.ws-panel.active')) {
           document.getElementById('panel-sites')?.classList.add('active');
           document.querySelector(".ws-btn[data-panel='sites']")?.classList.add('active');
+        }
+      }
+    });
+
+    // ── Account panel: sign-in form (visible when signed out) ──
+    document.getElementById('acct-signin-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('acct-signin-status');
+      const email = document.getElementById('acct-signin-email').value.trim();
+      const password = document.getElementById('acct-signin-password').value;
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+        e.target.reset();
+        if (status) { status.textContent = ''; status.className = 'acct-status'; }
+      } catch (err) {
+        if (status) {
+          status.textContent = err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential'
+            ? 'Invalid email or password.'
+            : 'Sign in failed: ' + err.message;
+          status.className = 'acct-status err';
         }
       }
     });

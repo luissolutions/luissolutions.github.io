@@ -1005,12 +1005,29 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                 const dot = s => s === 'running'
                     ? '<span class="dot dot-g" style="box-shadow:0 0 5px #4ade8088"></span>'
                     : '<span class="dot" style="background:#64748b"></span>';
-                let html = Object.entries(statuses).map(([k, s]) =>
-                    `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+                // Connect address per status (matched by case-insensitive prefix)
+                const connects = sd?.connect || {
+                    'Java (LAN)':     '192.168.50.10:25565',
+                    'Bedrock (LAN)':  '192.168.50.10:19132',
+                };
+                const findConnect = (key) => {
+                    const k = key.toLowerCase();
+                    const match = Object.entries(connects).find(([label]) => label.toLowerCase().startsWith(k));
+                    return match ? match[1] : null;
+                };
+                let html = Object.entries(statuses).map(([k, s]) => {
+                    const addr = findConnect(k);
+                    const addrHtml = addr
+                        ? `<span class="click-copy" title="Click to copy ${escH(addr)}"
+                              style="font-family:monospace;color:#7dd3fc;font-size:0.72rem;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg);margin-left:auto;">${escH(addr)}</span>`
+                        : '';
+                    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
                         ${dot(s)}
-                        <span style="font-size:0.82rem;min-width:80px">${escH(k)}</span>
-                        <span style="font-size:0.78rem;color:${s==='running'?'#4ade80':'var(--muted)'};">${escH(s)}</span>
-                     </div>`).join('');
+                        <span style="font-size:0.82rem;min-width:70px">${escH(k)}</span>
+                        <span style="font-size:0.78rem;color:${s==='running'?'#4ade80':'var(--muted)'};min-width:60px;">${escH(s)}</span>
+                        ${addrHtml}
+                     </div>`;
+                }).join('');
                 if (pd) {
                     html += `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-size:0.82rem">
                         <span style="color:var(--muted)">Players: </span>
@@ -1018,20 +1035,6 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                         ${pd.players?.length ? `<span style="color:var(--muted);margin-left:8px">${pd.players.map(escH).join(', ')}</span>` : ''}
                      </div>`;
                 }
-                // Connect addresses — click any to copy
-                const connects = sd?.connect || {
-                    'Java (LAN)':     '192.168.50.10:25565',
-                    'Bedrock (LAN)':  '192.168.50.10:19132',
-                };
-                html += `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-size:0.78rem">
-                    <div style="color:var(--muted);font-size:0.65rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Connect — click to copy</div>
-                    ${Object.entries(connects).map(([label, addr]) => `
-                        <div style="display:flex;align-items:center;gap:8px;padding:3px 0">
-                            <span style="color:var(--muted);min-width:90px;font-size:0.74rem">${escH(label)}</span>
-                            <span class="click-copy" title="Click to copy"
-                                style="font-family:monospace;color:#7dd3fc;font-size:0.78rem;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg)">${escH(addr)}</span>
-                        </div>`).join('')}
-                </div>`;
                 el.innerHTML = html || '<span style="color:var(--muted)">No data</span>';
             } catch {
                 el.innerHTML = '<span style="color:var(--muted);font-style:italic">Offline · LAN only</span>';
