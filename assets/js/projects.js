@@ -6,12 +6,6 @@ const projects = [
         description: "Smart Electronics Solutions LLC website.",
     },
     {
-        title: "Business App",
-        image: "assets/img/qmp-thumbnail.png",
-        link: "websites/bma/index.html",
-        description: "An app designed for business management.",
-    },
-    {
         title: "Repair App",
         image: "assets/img/cpr-thumbnail.png",
         link: "websites/cpr/index.html",

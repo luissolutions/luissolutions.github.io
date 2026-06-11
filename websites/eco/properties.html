@@ -93,6 +93,34 @@
     .pw-share-btn { font-size: .72em !important; padding: 3px 8px !important; }
     input { width: stretch; }
 
+    /* Clickable address + cross-site search badges */
+    .pw-addr-link {
+      color: var(--secondaryColor);
+      text-decoration: none;
+      border-bottom: 1px dashed currentColor;
+    }
+    .pw-addr-link:hover { color: var(--primaryColor); }
+    .pw-addr-actions {
+      display: inline-flex;
+      gap: 4px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    .pw-ext {
+      display: inline-block;
+      font-size: 0.68em;
+      font-weight: 700;
+      min-width: 22px;
+      padding: 2px 6px;
+      text-align: center;
+      background: var(--secondaryColor);
+      color: white !important;
+      border-radius: 3px;
+      text-decoration: none;
+      line-height: 1.3;
+    }
+    .pw-ext:hover { background: var(--primaryColor); color: white !important; }
+
     /* Hover/tap tooltip for acronyms */
     .tip {
       border-bottom: 1px dashed var(--secondaryColor);
@@ -273,6 +301,11 @@ function propertyHash(addr) {
   return (norm || 'unknown').slice(0, 80);
 }
 
+// External link helpers
+function mapsUrl(addr)    { return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`; }
+function zillowUrl(addr)  { return `https://www.zillow.com/homes/${encodeURIComponent(addr)}_rb/`; }
+function redfinUrl(addr)  { return `https://www.redfin.com/stingray/do/location-search?location=${encodeURIComponent(addr)}&v=2`; }
+
 // --- Calc helpers ---
 function monthlyPI(value, downPct, ratePct, termYears) {
   const loan = value * (1 - downPct / 100);
@@ -406,9 +439,21 @@ function render() {
       shareBtn = `<button class="wl-btn outline pw-share-btn" data-act="share" title="Push to shared review list">→ Share</button>`;
     }
 
+    const safeAddr = p.address || '';
+    const extLinks = safeAddr ? `<span class="pw-addr-actions">
+        <a class="pw-ext" href="${zillowUrl(safeAddr)}" target="_blank" rel="noopener" title="Search on Zillow">Z</a>
+        <a class="pw-ext" href="${redfinUrl(safeAddr)}" target="_blank" rel="noopener" title="Search on Redfin">R</a>
+      </span>` : '';
+    const titleHtml = p.nickname
+      ? escape(p.nickname)
+      : (safeAddr ? `<a href="${mapsUrl(safeAddr)}" class="pw-addr-link" target="_blank" rel="noopener" title="Open in Google Maps">${escape(safeAddr)}</a>` : '(unnamed)');
+    const addrLineHtml = p.nickname && safeAddr
+      ? `<a href="${mapsUrl(safeAddr)}" class="pw-addr-link" target="_blank" rel="noopener" title="Open in Google Maps">${escape(safeAddr)}</a> ${extLinks}`
+      : (!p.nickname && safeAddr ? extLinks : '');
+
     card.innerHTML = `
-      <h3>${escape(p.nickname || p.address || '(unnamed)')}</h3>
-      <div class="addr">${p.nickname ? escape(p.address || '') : ''}</div>
+      <h3>${titleHtml}</h3>
+      <div class="addr">${addrLineHtml}</div>
       ${creatorLine}
       <div class="row"><span class="label">Value</span><span>${fmtMoney(+p.estValue)}</span></div>
       <div class="row"><span class="label">Rent (total)</span><span>${fmtMoney(+p.estRent)}/mo</span></div>

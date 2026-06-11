@@ -61,6 +61,28 @@
             transition: border-color .15s, background .15s;
         }
         .svc-link:hover { border-color: var(--accent); background: #0f2030; color: var(--text); }
+
+        /* Service row: link + copy URL button as siblings */
+        .svc-item { display: flex; gap: 4px; align-items: stretch; min-width: 0; }
+        .svc-item .svc-link { flex: 1; min-width: 0; }
+        .svc-copy {
+            padding: 0 12px;
+            background: var(--bg); border: 1px solid var(--border);
+            color: var(--muted); border-radius: 6px; cursor: pointer;
+            font-size: 0.72rem; flex-shrink: 0; font-family: inherit;
+            transition: border-color .15s, color .15s;
+        }
+        .svc-copy:hover { border-color: steelblue; color: steelblue; }
+        .svc-copy.copied { border-color: #4ade80; color: #4ade80; }
+
+        /* Generic click-to-copy fields (IPs, credentials, tokens) */
+        .click-copy { cursor: pointer; transition: box-shadow .15s, background-color .15s; }
+        .click-copy:hover { box-shadow: inset 0 0 0 1px steelblue; }
+        .click-copy.flash {
+            box-shadow: inset 0 0 0 2px #4ade80 !important;
+            background-color: rgba(74,222,128,0.12) !important;
+        }
+
         .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
         .dot-g { background: #4ade80; box-shadow: 0 0 5px #4ade80aa; }
         .dot-b { background: steelblue; box-shadow: 0 0 5px steelblueaa; }
@@ -222,12 +244,12 @@
                     <div id="fb-signed-in" style="display:none">
                         <div class="token-row">
                             <span class="token-label">UID</span>
-                            <span class="token-field" id="fb-uid">—</span>
+                            <span class="token-field click-copy" title="Click to copy" id="fb-uid">—</span>
                             <button class="copy-btn" data-target="fb-uid">copy</button>
                         </div>
                         <div class="token-row">
                             <span class="token-label">ID Token</span>
-                            <span class="token-field" id="fb-token">—</span>
+                            <span class="token-field click-copy" title="Click to copy" id="fb-token">—</span>
                             <button class="copy-btn" data-target="fb-token">copy</button>
                         </div>
                         <div style="margin-top:8px">
@@ -245,11 +267,11 @@
                     <div id="ms-signed-in" style="display:none">
                         <div class="token-row">
                             <span class="token-label">Account</span>
-                            <span class="token-field" id="ms-account">—</span>
+                            <span class="token-field click-copy" title="Click to copy" id="ms-account">—</span>
                         </div>
                         <div class="token-row">
                             <span class="token-label">Access Token</span>
-                            <span class="token-field" id="ms-token">—</span>
+                            <span class="token-field click-copy" title="Click to copy" id="ms-token">—</span>
                             <button class="copy-btn" data-target="ms-token">copy</button>
                         </div>
                         <div style="margin-top:8px;display:flex;gap:8px">
@@ -633,13 +655,18 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
         /* ── Render helpers ── */
         function renderServices(containerId, items) {
             const el = document.getElementById(containerId);
-            el.innerHTML = items.map(s => `
-                <a class="svc-link" href="${s.url || '#'}" target="${s.url ? '_blank' : ''}"
-                   ${s.container ? `data-container="${escH(s.container)}"` : ''}>
-                    <span class="dot dot-${s.dot || 'b'}" ${s.container ? `id="dot-${escH(s.container)}"` : ''}></span>
-                    ${escH(s.name)}
-                    <span class="svc-url">${s.tag || ''}</span>
-                </a>`).join('');
+            el.innerHTML = items.map(s => {
+                const link = `<a class="svc-link" href="${s.url || '#'}" target="${s.url ? '_blank' : ''}"
+                       ${s.container ? `data-container="${escH(s.container)}"` : ''}>
+                        <span class="dot dot-${s.dot || 'b'}" ${s.container ? `id="dot-${escH(s.container)}"` : ''}></span>
+                        ${escH(s.name)}
+                        <span class="svc-url">${s.tag || ''}</span>
+                    </a>`;
+                const copyBtn = s.url
+                    ? `<button class="svc-copy" data-copy="${escH(s.url)}" title="Copy URL to clipboard">copy</button>`
+                    : '';
+                return `<div class="svc-item">${link}${copyBtn}</div>`;
+            }).join('');
         }
 
         function renderCommands(items) {
@@ -663,7 +690,9 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                 `<tr>${cols.map(c => {
                     const val = r[c] ?? '';
                     const style = (c === 'status') ? ` style="color:${val === 'Active' ? '#4ade80' : 'var(--muted)'}"` : '';
-                    return `<td${style}>${val}</td>`;
+                    const copyable = (c === 'ip' || c === 'host') && val && val !== '—';
+                    const cls = copyable ? ' class="click-copy" title="Click to copy"' : '';
+                    return `<td${style}${cls}>${val}</td>`;
                 }).join('')}</tr>`
             ).join('');
         }
@@ -672,7 +701,7 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
             document.getElementById('cred-rows').innerHTML = items.map(c => `
                 <div class="cred-row">
                     <span class="cred-svc">${c.service}</span>
-                    <span class="cred-val">${c.user}</span>
+                    <span class="cred-val click-copy" title="Click to copy">${c.user}</span>
                     ${c.note ? `<span class="cred-note">${c.note}</span>` : ''}
                 </div>`).join('');
         }
@@ -989,6 +1018,20 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                         ${pd.players?.length ? `<span style="color:var(--muted);margin-left:8px">${pd.players.map(escH).join(', ')}</span>` : ''}
                      </div>`;
                 }
+                // Connect addresses — click any to copy
+                const connects = sd?.connect || {
+                    'Java (LAN)':     '192.168.50.10:25565',
+                    'Bedrock (LAN)':  '192.168.50.10:19132',
+                };
+                html += `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-size:0.78rem">
+                    <div style="color:var(--muted);font-size:0.65rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Connect — click to copy</div>
+                    ${Object.entries(connects).map(([label, addr]) => `
+                        <div style="display:flex;align-items:center;gap:8px;padding:3px 0">
+                            <span style="color:var(--muted);min-width:90px;font-size:0.74rem">${escH(label)}</span>
+                            <span class="click-copy" title="Click to copy"
+                                style="font-family:monospace;color:#7dd3fc;font-size:0.78rem;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg)">${escH(addr)}</span>
+                        </div>`).join('')}
+                </div>`;
                 el.innerHTML = html || '<span style="color:var(--muted)">No data</span>';
             } catch {
                 el.innerHTML = '<span style="color:var(--muted);font-style:italic">Offline · LAN only</span>';
@@ -1079,7 +1122,7 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
             logoutFromMicrosoft(); showMsOut();
         });
 
-        /* ── Copy buttons (delegated) ── */
+        /* ── Copy buttons + click-to-copy fields (delegated) ── */
         document.addEventListener('click', e => {
             const t = e.target;
             if (t.dataset.copy !== undefined) {
@@ -1087,6 +1130,7 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                     t.textContent = 'copied'; t.classList.add('copied');
                     setTimeout(() => { t.textContent = 'copy'; t.classList.remove('copied'); }, 1500);
                 });
+                return;
             }
             if (t.dataset.target) {
                 const val = document.getElementById(t.dataset.target)?.textContent;
@@ -1094,6 +1138,18 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                     t.textContent = 'copied'; t.classList.add('copied');
                     setTimeout(() => { t.textContent = 'copy'; t.classList.remove('copied'); }, 1500);
                 });
+                return;
+            }
+            // Generic click-to-copy fields — copy textContent (or data-copy-value), flash green
+            const cc = t.closest('.click-copy');
+            if (cc && !t.closest('button') && !t.closest('a')) {
+                const val = (cc.dataset.copyValue || cc.textContent || '').trim();
+                if (val && val !== '—') {
+                    navigator.clipboard.writeText(val).then(() => {
+                        cc.classList.add('flash');
+                        setTimeout(() => cc.classList.remove('flash'), 900);
+                    });
+                }
             }
         });
     </script>

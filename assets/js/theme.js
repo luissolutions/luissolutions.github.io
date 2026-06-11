@@ -1,8 +1,8 @@
 const THEME_KEY = "app-theme";
 
-// map theme → css file
+// map theme → css file (bma/css/index.css removed 2026-06-10 — workspace.html is the successor)
 const themes = {
-    default: "/luissolutions.github.io/websites/bma/css/index.css",
+    default: "/luissolutions.github.io/assets/css/master.css",
     other: "/luissolutions.github.io/assets/css/excel-styles.css",
     app: "/luissolutions.github.io/assets/css/app-styles.css",
     dark: "/luissolutions.github.io/assets/css/dark-styles.css",
