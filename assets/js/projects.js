@@ -30,12 +30,6 @@ const projects = [
         description: "Household hub: shopping list, meal plan, and chore tracker — shared via Firebase.",
     },
     {
-        title: "Honey Do Helper",
-        image: "assets/img/honeydo-thumbnail.png",
-        link: "websites/honeydo/index.html",
-        description: "A helper app for managing household tasks.",
-    },
-    {
         title: "Gallery",
         image: "assets/img/gdg-thumbnail.png",
         link: "websites/gdg/index.html",
