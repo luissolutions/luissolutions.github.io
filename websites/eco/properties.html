@@ -70,7 +70,18 @@
     .pw-form-grid input, .pw-form-grid textarea { min-width: 0; }
 
     /* Mode toggle + shared review UI */
-    .pw-mode { display: flex; gap: 6px; align-items: center; margin-right: auto; }
+    .pw-mode { display: flex; gap: 6px; align-items: center; }
+    .pw-state-filter {
+      padding: 4px 8px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      background: #fff;
+      color: var(--primaryColor);
+      font-size: .85em;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .pw-state-filter:focus { outline: none; border-color: var(--secondaryColor); }
     .pw-mode button { padding: 5px 12px; background: transparent; border: 1px solid #ccc; border-radius: 5px; cursor: pointer; font-size: .85em; color: var(--primaryColor); }
     .pw-mode button.active { background: var(--secondaryColor); color: #fff; border-color: var(--secondaryColor); font-weight: 600; }
     .pw-creator { font-size: .72em; opacity: .55; margin-top: -2px; }
@@ -236,6 +247,12 @@
         <button id="pw-mode-personal" class="active" onclick="pwSetMode('personal')">🔒 Personal</button>
         <button id="pw-mode-shared" onclick="pwSetMode('shared')">👥 Shared Review</button>
       </div>
+      <label style="font-size:.85em;opacity:.75;display:flex;align-items:center;gap:6px;">
+        State:
+        <select id="pw-state-filter" class="pw-state-filter" onchange="pwSetStateFilter(this.value)">
+          <option value="all">All</option>
+        </select>
+      </label>
       <button class="wl-btn outline" onclick="pwExportJSON()">Export JSON</button>
       <button class="wl-btn outline" onclick="pwExportCSV()">Export CSV</button>
       <button class="wl-btn danger" onclick="pwClearAll()">Clear All</button>
@@ -383,16 +400,70 @@ function classifyCapRate(c) {
   return 'bad';
 }
 
+// --- State filter ---
+const STATE_FILTER_KEY = 'pw_state_filter';
+let stateFilter = (() => {
+  try { return localStorage.getItem(STATE_FILTER_KEY) || 'all'; } catch { return 'all'; }
+})();
+
+function extractState(addr) {
+  if (!addr) return null;
+  // Matches ", CT 06053" / ", CT" / ", CT," — two-letter state code after a comma (case-insensitive)
+  const m = String(addr).match(/,\s*([A-Za-z]{2})\b(?=\s|,|$|\s*\d)/);
+  return m ? m[1].toUpperCase() : null;
+}
+
+function refreshStateOptions() {
+  const sel = document.getElementById('pw-state-filter');
+  if (!sel) return;
+  // Count properties per state
+  const counts = {};
+  for (const id of Object.keys(cache)) {
+    const st = extractState(cache[id]?.address);
+    if (st) counts[st] = (counts[st] || 0) + 1;
+  }
+  const states = Object.keys(counts).sort();
+  const totalWithState = states.reduce((sum, s) => sum + counts[s], 0);
+  sel.innerHTML = `<option value="all">All (${totalWithState})</option>` +
+    states.map(s => `<option value="${s}">${s} (${counts[s]})</option>`).join('');
+  // The persisted stateFilter is the source of truth — sync the visible dropdown to it.
+  // If the persisted state is no longer present (deleted all properties from it), fall back to 'all'.
+  if (stateFilter === 'all' || states.includes(stateFilter)) {
+    sel.value = stateFilter;
+  } else {
+    stateFilter = 'all';
+    try { localStorage.setItem(STATE_FILTER_KEY, 'all'); } catch {}
+    sel.value = 'all';
+  }
+}
+
+window.pwSetStateFilter = function(value) {
+  stateFilter = value;
+  try { localStorage.setItem(STATE_FILTER_KEY, value); } catch {}
+  render();
+};
+
 // --- Render ---
 function render() {
+  refreshStateOptions();
   const ids = Object.keys(cache);
   count.textContent = ids.length ? `${ids.length} ${ids.length === 1 ? 'property' : 'properties'}` : '';
   empty.style.display = ids.length ? 'none' : 'block';
   grid.innerHTML = '';
 
-  const sorted = ids
+  let sorted = ids
     .map(id => ({ id, ...cache[id] }))
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+  // Apply state filter
+  if (stateFilter && stateFilter !== 'all') {
+    sorted = sorted.filter(p => extractState(p.address) === stateFilter);
+  }
+
+  // Update count to reflect filter
+  if (stateFilter !== 'all') {
+    count.textContent = `${sorted.length} of ${ids.length} (filtered: ${stateFilter})`;
+  }
 
   for (const p of sorted) {
     const m = deriveMetrics(p);
