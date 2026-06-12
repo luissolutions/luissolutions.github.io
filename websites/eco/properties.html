@@ -302,6 +302,10 @@ let currentUserEmail = null;
 let basePath = 'public/realestate/watchlist';  // recomputed by setBasePath()
 let unsubscribe = null;
 let cache = {};
+let sharedHashes = new Set();  // keys present at share/realestate/properties
+let sharedUnsub = null;
+let personalHashes = new Set();  // address hashes in the signed-in user's own watchlist
+let personalUnsub = null;
 
 function setBasePath() {
   if (mode === 'shared') {
@@ -477,8 +481,16 @@ function render() {
       ? `<div class="row"><span class="label">Units</span><span>${m.units}${m.fhaEligible ? '' : ' · NOT FHA-eligible (5+ commercial)'}</span></div>`
       : '';
     // Shared-mode vote tally + creator
-    let voteRow = '', reviewsBlock = '', creatorLine = '', shareBtn = '';
+    let voteRow = '', reviewsBlock = '', creatorLine = '', shareBtn = '', adoptBtn = '';
     if (mode === 'shared') {
+      // Adopt button: copy this shared property to the signed-in user's personal watchlist
+      // — but hide if the address is already in their watchlist
+      if (currentUserId) {
+        const alreadyAdopted = p.address && personalHashes.has(propertyHash(p.address));
+        if (!alreadyAdopted) {
+          adoptBtn = `<button class="wl-btn outline pw-share-btn" data-act="adopt" title="Copy to your watchlist">← Adopt</button>`;
+        }
+      }
       const votes = p.votes || {};
       const tally = Object.values(votes).reduce((acc, v) => { acc[v.value === 1 ? 'up' : v.value === -1 ? 'down' : 'x']++; return acc; }, { up:0, down:0, x:0 });
       const myVote = currentUserId ? votes[currentUserId]?.value : null;
@@ -507,7 +519,11 @@ function render() {
       </details>`;
       if (p.createdByEmail) creatorLine = `<div class="pw-creator">added by ${escape(p.createdByEmail.split('@')[0])}</div>`;
     } else {
-      shareBtn = `<button class="wl-btn outline pw-share-btn" data-act="share" title="Push to shared review list">→ Share</button>`;
+      // Only show the Share button if this property isn't already on the shared list
+      const alreadyShared = p.address && sharedHashes.has(propertyHash(p.address));
+      shareBtn = alreadyShared
+        ? ''
+        : `<button class="wl-btn outline pw-share-btn" data-act="share" title="Push to shared review list">→ Share</button>`;
     }
 
     const safeAddr = p.address || '';
@@ -544,6 +560,7 @@ function render() {
       ${reviewsBlock}
       <div class="pw-actions">
         ${shareBtn}
+        ${adoptBtn}
         <button class="wl-btn outline" data-act="edit">Edit</button>
         <button class="wl-btn danger" data-act="del">Delete</button>
       </div>
@@ -580,6 +597,8 @@ function render() {
     }
     const shareBtnEl = card.querySelector('[data-act="share"]');
     if (shareBtnEl) shareBtnEl.onclick = () => pwShareProperty(p.id);
+    const adoptBtnEl = card.querySelector('[data-act="adopt"]');
+    if (adoptBtnEl) adoptBtnEl.onclick = () => pwAdoptFromShared(p.id);
     grid.appendChild(card);
   }
 }
@@ -595,6 +614,39 @@ function subscribe() {
   unsubscribe = onValue(r, snap => {
     cache = snap.val() || {};
     render();
+  });
+}
+
+// Live-track which property hashes are already on the shared list so we can
+// hide the "→ Share" button in personal mode for properties already shared.
+function subscribeShared() {
+  if (sharedUnsub) return;  // only subscribe once
+  const sharedRef = ref(database, 'share/realestate/properties');
+  sharedUnsub = onValue(sharedRef, snap => {
+    const data = snap.val() || {};
+    sharedHashes = new Set(Object.keys(data));
+    // Re-render so the share buttons update without waiting for a watchlist change
+    if (mode === 'personal') render();
+  });
+}
+
+// Live-track address hashes in the signed-in user's own watchlist so we can
+// hide the "← Adopt" button in shared mode for properties already in their watchlist.
+// Re-subscribes whenever the signed-in uid changes (or clears on sign-out).
+function subscribePersonal() {
+  if (personalUnsub) { personalUnsub(); personalUnsub = null; }
+  personalHashes = new Set();
+  if (!currentUserId) {
+    if (mode === 'shared') render();
+    return;
+  }
+  const personalRef = ref(database, `${currentUserId}/realestate/watchlist`);
+  personalUnsub = onValue(personalRef, snap => {
+    const data = snap.val() || {};
+    personalHashes = new Set(
+      Object.values(data).map(p => propertyHash(p?.address)).filter(Boolean)
+    );
+    if (mode === 'shared') render();
   });
 }
 
@@ -747,6 +799,8 @@ onAuthStateChanged(auth, user => {
   }
   setBasePath();
   subscribe();
+  subscribeShared();
+  subscribePersonal();  // tracks user's own watchlist for "already adopted" check
 });
 
 window.pwSetMode = function (newMode) {
@@ -756,6 +810,8 @@ window.pwSetMode = function (newMode) {
   document.getElementById('pw-mode-shared').classList.toggle('active', mode === 'shared');
   setBasePath();
   subscribe();
+  subscribeShared();
+  subscribePersonal();
 };
 
 window.pwVote = function (id, value) {
@@ -784,6 +840,44 @@ window.pwAddReview = function (id, inputEl) {
     createdAt: Date.now()
   });
   inputEl.value = '';
+};
+
+window.pwAdoptFromShared = async function (id) {
+  if (!currentUserId) { alert('Sign in to copy to your watchlist.'); return; }
+  if (mode !== 'shared') return;
+  const p = cache[id];
+  if (!p) { alert('Property not found.'); return; }
+
+  const targetHash = propertyHash(p.address);
+  const userWatchlistRef = ref(database, `${currentUserId}/realestate/watchlist`);
+
+  try {
+    // Duplicate check: don't add if the same address already exists in user's watchlist
+    const snap = await get(userWatchlistRef);
+    const existing = snap.exists() ? snap.val() : {};
+    const dup = Object.values(existing).some(e => propertyHash(e?.address) === targetHash);
+    if (dup) { alert(`"${p.nickname || p.address}" is already in your watchlist.`); return; }
+
+    // Strip shared-only fields (votes, reviews, createdBy, createdByEmail). Keep descriptive data + assumptions.
+    const now = Date.now();
+    const payload = {
+      address: p.address,
+      nickname: p.nickname || '',
+      estValue: +p.estValue || 0,
+      estRent: +p.estRent || 0,
+      units: +p.units || 1,
+      tags: Array.isArray(p.tags) ? p.tags.slice() : [],
+      notes: p.notes || '',
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (p.assumptions) payload.assumptions = p.assumptions;
+
+    await push(userWatchlistRef, payload);
+    alert(`Added "${p.nickname || p.address}" to your watchlist.`);
+  } catch (err) {
+    alert('Adopt failed: ' + err.message);
+  }
 };
 
 window.pwShareProperty = async function (id) {
