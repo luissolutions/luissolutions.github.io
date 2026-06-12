@@ -1,62 +1,88 @@
+// Canonical visit logger. One schema, one tree.
+//
+//   public/log/visitCount            : int (atomic counter)
+//   public/log/visits/{sanitizedIp}/ : per-IP aggregate
+//       ip, name?, firstSeen, lastSeen, lastPage, count
+//       hits/{pushId}: { time, url, page }
+//
+//   {sanitizedIp} = ip with '.' and ':' replaced by '-'
+
 import {
     getDatabase,
-    get,
     ref,
-    set
+    push,
+    update,
+    runTransaction
 } from '../../apps/assets/js/firebase-init.js';
 
+function normalizePage(href) {
+    let pathname;
+    try { pathname = new URL(href).pathname; } catch { pathname = href || '/'; }
+    pathname = pathname.replace(/^\/+/, '');
+    pathname = pathname.replace(/^luissolutions\.github\.io\//, '');
+    pathname = pathname.replace(/\/index\.html$/, '/');
+    return pathname || 'index.html';
+}
+
+function sanitizeIp(ip) {
+    return (ip || 'unknown').replace(/[.:]/g, '-').replace(/[#$\[\]\/]/g, '_');
+}
+
 export async function updateVisitCount(ipAddress) {
-    const db  = getDatabase();
+    const db   = getDatabase();
+    const ip   = ipAddress || 'unknown';
+    const sip  = sanitizeIp(ip);
     const now  = new Date().toISOString();
-    const page = window.location.pathname.replace(/^\//, '') || 'index';
-    const sanitizedIP   = (ipAddress || 'unknown').replace(/\./g, '-');
-    const sanitizedPage = page.replace(/[.#$\[\]\/]/g, '_') || 'index';
+    const url  = window.location.href;
+    const page = normalizePage(url);
 
     try {
-        // Total visit counter
-        const countRef  = ref(db, 'public/log/visitCount');
-        const countSnap = await get(countRef);
-        const newCount  = (countSnap.exists() ? countSnap.val() : 0) + 1;
-        await set(countRef, newCount);
+        // Atomic global counter
+        const txGlobal = await runTransaction(
+            ref(db, 'public/log/visitCount'),
+            n => (n || 0) + 1
+        );
+
+        // Per-IP hit (push so concurrent writers never collide)
+        await push(ref(db, `public/log/visits/${sip}/hits`), { time: now, url, page });
+
+        // Aggregate fields on the IP root — use transaction on the wrapper so we set
+        // firstSeen once and bump count atomically.
+        await runTransaction(ref(db, `public/log/visits/${sip}`), prev => {
+            const p = prev || {};
+            return {
+                ...p,
+                ip,
+                firstSeen: p.firstSeen || now,
+                lastSeen:  now,
+                lastPage:  page,
+                count:     (p.count || 0) + 1,
+                hits:      p.hits  // keep child untouched
+            };
+        });
 
         const el = document.getElementById('visit-counter');
-        if (el) el.textContent = ` | Visits: ${newCount}`;
-
-        // Aggregated per-IP record
-        const ipRef  = ref(db, `public/log/ips/${sanitizedIP}`);
-        const ipSnap = await get(ipRef);
-        if (ipSnap.exists()) {
-            const d = ipSnap.val();
-            await set(ipRef, { ip: ipAddress, count: (d.count || 0) + 1, firstSeen: d.firstSeen || now, lastSeen: now, lastPage: page });
-        } else {
-            await set(ipRef, { ip: ipAddress, count: 1, firstSeen: now, lastSeen: now, lastPage: page });
-        }
-
-        // Aggregated per-page record
-        const pageRef  = ref(db, `public/log/pages/${sanitizedPage}`);
-        const pageSnap = await get(pageRef);
-        if (pageSnap.exists()) {
-            const d = pageSnap.val();
-            await set(pageRef, { page, count: (d.count || 0) + 1 });
-        } else {
-            await set(pageRef, { page, count: 1 });
-        }
-
-        // Individual visit timeline (for detailed log view)
-        const visitsRef  = ref(db, `public/log/visits/${sanitizedIP}`);
-        const visitsSnap = await get(visitsRef);
-        const entry = { time: now, url: window.location.href };
-        if (visitsSnap.exists()) {
-            const d = visitsSnap.val();
-            const visits = Array.isArray(d.visits) ? d.visits : [];
-            visits.push(entry);
-            await set(visitsRef, { ip: ipAddress, visits });
-        } else {
-            await set(visitsRef, { ip: ipAddress, visits: [entry] });
-        }
-
+        if (el && txGlobal.snapshot) el.textContent = ` | Visits: ${txGlobal.snapshot.val()}`;
     } catch (err) {
         console.error('Visit log error:', err);
+    }
+}
+
+// Contact-form submission: merge name/extra fields onto the same per-IP node.
+export async function updateVisitData(ipAddress, name, extra = {}) {
+    const db  = getDatabase();
+    const ip  = ipAddress || 'unknown';
+    const sip = sanitizeIp(ip);
+    try {
+        const payload = {
+            ip,
+            ...(name ? { name } : {}),
+            ...extra,
+            contactedAt: new Date().toISOString()
+        };
+        await update(ref(db, `public/log/visits/${sip}`), payload);
+    } catch (err) {
+        console.error('Contact log error:', err);
     }
 }
 

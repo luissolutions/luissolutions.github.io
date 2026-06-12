@@ -419,8 +419,8 @@
                         <div>
                             <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px">Top IPs</div>
                             <table class="htable">
-                                <thead><tr><th>IP</th><th>Hits</th><th>Last Page</th><th>Last Seen</th></tr></thead>
-                                <tbody id="stat-ip-rows"><tr><td colspan="4" style="color:var(--muted);font-style:italic">Loading...</td></tr></tbody>
+                                <thead><tr><th>IP</th><th>Name</th><th>Hits</th><th>Last Page</th><th>Last Seen</th></tr></thead>
+                                <tbody id="stat-ip-rows"><tr><td colspan="5" style="color:var(--muted);font-style:italic">Loading...</td></tr></tbody>
                             </table>
                         </div>
                         <div>
@@ -886,26 +886,26 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                     const ipMap   = {};
                     const pageMap = {};
 
-                    for (const [ipKey, record] of Object.entries(data)) {
-                        if (!record || !Array.isArray(record.visits)) continue;
-                        const ip = record.ip || ipKey.replace(/-/g, '.');
+                    // New schema: { sanitizedIp: { ip, name?, firstSeen, lastSeen, lastPage, count, hits: { pushId: {time, url, page} } } }
+                    for (const [sipKey, record] of Object.entries(data)) {
+                        if (!record || typeof record !== 'object') continue;
+                        const ip = record.ip || sipKey.replace(/-/g, '.');
 
-                        for (const v of record.visits) {
-                            entries.push({ ip, timestamp: v.time || null, url: v.url || '' });
+                        ipMap[ip] = {
+                            ip,
+                            name:      record.name || '',
+                            count:     record.count || 0,
+                            firstSeen: record.firstSeen || null,
+                            lastSeen:  record.lastSeen || null,
+                            lastPage:  record.lastPage || ''
+                        };
 
-                            // Aggregate per-IP
-                            if (!ipMap[ip]) ipMap[ip] = { ip, count: 0, firstSeen: v.time, lastSeen: v.time, lastPage: '' };
-                            ipMap[ip].count++;
-                            if (v.time && v.time > ipMap[ip].lastSeen)  { ipMap[ip].lastSeen = v.time; }
-                            if (v.time && v.time < ipMap[ip].firstSeen) { ipMap[ip].firstSeen = v.time; }
-                            if (v.url) {
-                                try { ipMap[ip].lastPage = new URL(v.url).pathname.replace(/^\//, '') || 'index'; } catch {}
-                            }
-
-                            // Aggregate per-page
-                            let pg = '—';
-                            try { pg = new URL(v.url).pathname.replace(/^\//, '') || 'index'; } catch {}
-                            if (pg !== '—') pageMap[pg] = (pageMap[pg] || 0) + 1;
+                        const hits = record.hits || {};
+                        for (const h of Object.values(hits)) {
+                            if (!h) continue;
+                            entries.push({ ip, timestamp: h.time || null, url: h.url || '' });
+                            const pg = h.page || '—';
+                            if (pg && pg !== '—') pageMap[pg] = (pageMap[pg] || 0) + 1;
                         }
                     }
 
@@ -914,11 +914,12 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                     document.getElementById('stat-ip-rows').innerHTML = ipRows.length
                         ? ipRows.map(r => `<tr>
                             <td>${escH(r.ip)}</td>
+                            <td style="font-size:0.75rem">${escH(r.name || '—')}</td>
                             <td>${r.count}</td>
                             <td style="font-size:0.75rem">${escH(r.lastPage || '—')}</td>
                             <td style="color:var(--muted);font-size:0.72rem">${r.lastSeen ? r.lastSeen.slice(0, 10) : '—'}</td>
                           </tr>`).join('')
-                        : '<tr><td colspan="4" style="color:var(--muted)">No data yet</td></tr>';
+                        : '<tr><td colspan="5" style="color:var(--muted)">No data yet</td></tr>';
 
                     // Top Pages
                     const pgRows = Object.entries(pageMap).sort((a, b) => b[1] - a[1]).slice(0, 15);
