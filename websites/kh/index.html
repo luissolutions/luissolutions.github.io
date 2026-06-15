@@ -480,6 +480,51 @@
       return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
 
+    function downloadTaskIcs(t) {
+      // Pick a start date: oneshot uses its due date; recurring/habit defaults to today
+      let startDate;
+      if (t.type === 'oneshot' && t.due) startDate = new Date(t.due + 'T09:00:00');
+      else startDate = new Date(new Date().toDateString() + ' 09:00');
+      if (isNaN(startDate)) startDate = new Date();
+      const endDate = new Date(startDate.getTime() + 30 * 60 * 1000); // 30-min block
+
+      const fmt = d => d.getFullYear()
+        + String(d.getMonth()+1).padStart(2,'0')
+        + String(d.getDate()).padStart(2,'0') + 'T'
+        + String(d.getHours()).padStart(2,'0')
+        + String(d.getMinutes()).padStart(2,'0') + '00';
+      const esc = s => String(s||'').replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n');
+
+      const summary = t.text || 'Task';
+      const anchor = t.anchor || 'task';
+      const descLines = [
+        `Anchor: ${anchor}`,
+        `Type: ${t.type || ''}`,
+        t.assignee ? `Assignee: ${t.assignee}` : '',
+        t.link ? `Link: ${t.link}` : '',
+      ].filter(Boolean).join('\n');
+
+      const ics = [
+        'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//kh//Tasks//EN','METHOD:PUBLISH','CALSCALE:GREGORIAN',
+        'BEGIN:VEVENT',
+        `UID:kh-${t.id || Date.now()}@luissolutions`,
+        `DTSTAMP:${fmt(new Date())}`,
+        `DTSTART:${fmt(startDate)}`,
+        `DTEND:${fmt(endDate)}`,
+        `SUMMARY:${esc(summary)}`,
+        `DESCRIPTION:${esc(descLines)}`,
+        'BEGIN:VALARM','TRIGGER:-PT15M','ACTION:DISPLAY',`DESCRIPTION:${esc(summary)}`,'END:VALARM',
+        'END:VEVENT','END:VCALENDAR'
+      ].join('\r\n');
+
+      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (summary.replace(/[^a-z0-9]/gi,'_').slice(0,40) || 'task') + '.ics';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 100);
+    }
+
     function render() {
       container.innerHTML = '';
       const byAnchor = {};
@@ -644,6 +689,14 @@
         span.innerHTML = meta;
         row.appendChild(span);
       }
+
+      const cal = document.createElement('button');
+      cal.className = 'del';
+      cal.title = 'Add to Outlook / default calendar';
+      cal.textContent = '📅';
+      cal.style.cssText = 'background:transparent;border:0;cursor:pointer;font-size:1rem;padding:2px 4px;opacity:.7;';
+      cal.addEventListener('click', () => downloadTaskIcs(t));
+      row.appendChild(cal);
 
       const del = document.createElement('button');
       del.className = 'del';

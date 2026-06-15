@@ -143,6 +143,7 @@
           <input type="text" data-i="${i}" data-k="text" placeholder="Task ${i}…" value="${(slot.text || '').replace(/"/g,'&quot;')}">
           <select data-i="${i}" data-k="dueDay">${dayOpts}</select>
           <label style="display:flex;gap:6px;align-items:center;font-size:.78rem;color:var(--muted);"><input type="checkbox" data-i="${i}" data-k="done" ${slot.done ? 'checked' : ''}> done</label>
+          <button type="button" class="ics-btn" data-i="${i}" title="Add to Outlook / default calendar" style="background:transparent;border:0;cursor:pointer;font-size:1rem;padding:2px 6px;opacity:.7;">📅</button>
         `;
         container.appendChild(row);
       }
@@ -153,6 +154,48 @@
           slotState[i][k] = el.type === 'checkbox' ? el.checked : el.value;
         });
       });
+      container.querySelectorAll('button.ics-btn').forEach(btn => {
+        btn.addEventListener('click', () => downloadSlotIcs(+btn.dataset.i));
+      });
+    }
+
+    function downloadSlotIcs(i) {
+      const slot = slotState[i] || {};
+      const text = (slot.text || '').trim();
+      if (!text) { alert(`Slot ${i} has no task text yet.`); return; }
+      // Resolve due date: activeWeek's Monday + (DAYS index − 1). DAYS[1]=Mon ... DAYS[7]=Sun.
+      const [yr, w] = activeWeek.split('-W').map(Number);
+      const monday = mondayOfIsoWeek(yr, w);
+      const dayIdx = DAYS.indexOf(slot.dueDay || '');
+      const offset = dayIdx > 0 ? dayIdx - 1 : 0; // no due day → Monday
+      const start = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + offset, 13, 0, 0)); // 9am local-ish (13 UTC = 9am EDT)
+      const end = new Date(start.getTime() + 30 * 60 * 1000);
+      const fmt = d => d.getUTCFullYear()
+        + String(d.getUTCMonth()+1).padStart(2,'0')
+        + String(d.getUTCDate()).padStart(2,'0') + 'T'
+        + String(d.getUTCHours()).padStart(2,'0')
+        + String(d.getUTCMinutes()).padStart(2,'0') + '00Z';
+      const esc = s => String(s||'').replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n');
+      const summary = text;
+      const description = `Anchor: ${slot.anchor || ''}\nWeek: ${activeWeek}\nSlot: ${i}/5`;
+      const ics = [
+        'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//kh//Discipline//EN','METHOD:PUBLISH','CALSCALE:GREGORIAN',
+        'BEGIN:VEVENT',
+        `UID:kh-discipline-${activeWeek}-${i}@luissolutions`,
+        `DTSTAMP:${fmt(new Date())}`,
+        `DTSTART:${fmt(start)}`,
+        `DTEND:${fmt(end)}`,
+        `SUMMARY:${esc(summary)}`,
+        `DESCRIPTION:${esc(description)}`,
+        'BEGIN:VALARM','TRIGGER:-PT15M','ACTION:DISPLAY',`DESCRIPTION:${esc(summary)}`,'END:VALARM',
+        'END:VEVENT','END:VCALENDAR'
+      ].join('\r\n');
+      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (summary.replace(/[^a-z0-9]/gi,'_').slice(0,40) || `slot${i}`) + '.ics';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 100);
     }
 
     function buildAnchorStatusUI() {
