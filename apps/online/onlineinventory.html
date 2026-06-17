@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 
 <head>
@@ -314,12 +314,8 @@
       ref,
       onValue,
       set,
-      storage,
-      storageRef,
-      uploadBytes,
-      getDownloadURL,
-      deleteObject,
     } from "../assets/js/firebase-init.js";
+    import { uploadImage as sharedUploadImage, removeStorageImage } from "../assets/js/imgupload.js";
 
     /* =========================
          CONFIG (year-separated)
@@ -542,56 +538,7 @@
       return out;
     }
 
-    async function fileToJpegMaxWidth(file, maxW = 2048, quality = 0.9) {
-      if (!file?.type?.startsWith("image/")) {
-        return {
-          blob: file,
-          contentType: file?.type || "application/octet-stream",
-          didResize: false,
-        };
-      }
-
-      const bmp = await createImageBitmap(file);
-
-      if (bmp.width <= maxW) {
-        bmp.close?.();
-        return {
-          blob: file,
-          contentType: file.type || "image/*",
-          didResize: false,
-        };
-      }
-
-      const scale = maxW / bmp.width;
-      const w = Math.round(bmp.width * scale);
-      const h = Math.round(bmp.height * scale);
-
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(bmp, 0, 0, w, h);
-      bmp.close?.();
-
-      const blob = await new Promise((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", quality),
-      );
-      return { blob, contentType: "image/jpeg", didResize: true };
-    }
-
-    function slugifyFilename(s) {
-      return (
-        String(s || "")
-          .normalize("NFKD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^a-zA-Z0-9]+/g, "_")
-          .replace(/^_+|_+$/g, "")
-          .slice(0, 60) || "item"
-      );
-    }
-
-    // ✅ Adapter for THIS app (inventory) so uploadImage can be identical across apps
+    // Adapter so callers can write the upload result into the tx record
     async function saveItemWithImage(item, url, path) {
       await writeTx(
         currentYear,
@@ -600,19 +547,15 @@
       );
     }
 
-    let _uploadLocks = new Set(); // prevent double-open/double-upload
-
+    // Thin wrapper around shared uploadImage: handles the file picker dialog
+    // and writes the {img, imgPath} pair back onto the tx record.
     async function uploadImage(item, kind, file = null) {
-      const lockKey = `${kind}:${item.id}`;
-      if (_uploadLocks.has(lockKey)) return;
-
       if (!file) {
         const input = document.createElement("input");
         input.type = "file";
         input.accept = "image/*";
         input.style.display = "none";
         document.body.appendChild(input);
-
         input.addEventListener(
           "change",
           async () => {
@@ -623,44 +566,23 @@
           },
           { once: true },
         );
-
         input.click();
         return;
       }
 
-      _uploadLocks.add(lockKey);
       try {
-        const resized = await fileToJpegMaxWidth(file, 2048, 0.9);
-
-        const namePart = slugifyFilename(item.name);
-        const datePart = item.date
-          ? new Date(item.date).toISOString().slice(0, 10)
-          : new Date().toISOString().slice(0, 10);
-
-        const y = new Date(Number(item.date || Date.now())).getUTCFullYear();
-        const storagePath = `${imgBasePath()}/${y}/${namePart}_${datePart}_${Date.now()}.jpg`;
-
-        const sref = storageRef(storage, storagePath);
-
-        if (item.imgPath) {
-          try {
-            await deleteObject(storageRef(storage, item.imgPath));
-          } catch (e) {
-            console.warn("Old image delete failed:", e);
-          }
-        }
-
-        await uploadBytes(sref, resized.blob, {
-          contentType: resized.contentType || "image/jpeg",
+        const { url, path } = await sharedUploadImage({
+          file,
+          basePath: imgBasePath(),
+          name: item.name,
+          priorPath: item.imgPath,
+          lockKey: `${kind}:${item.id}`,
+          dateMs: Number(item.date) || undefined,
         });
-        const url = await getDownloadURL(sref);
-
-        await saveItemWithImage(item, url, storagePath);
+        await saveItemWithImage(item, url, path);
       } catch (err) {
         console.error(err);
         alert("❌ Image upload failed.");
-      } finally {
-        _uploadLocks.delete(lockKey);
       }
     }
 
@@ -1098,14 +1020,7 @@
 
           delImgBtn.addEventListener("click", async () => {
             if (!confirm("Delete this image for THIS line?")) return;
-
-            try {
-              if (t.imgPath)
-                await deleteObject(storageRef(storage, t.imgPath));
-            } catch (err) {
-              console.warn("Storage delete failed:", err);
-            }
-
+            await removeStorageImage(t.imgPath);
             await writeTx(
               currentYear,
               t.id,

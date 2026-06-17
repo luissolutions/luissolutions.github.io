@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 
 <head>
@@ -526,12 +526,8 @@
       ref,
       onValue,
       set,
-      storage,
-      storageRef,
-      uploadBytes,
-      getDownloadURL,
-      deleteObject,
     } from "../assets/js/firebase-init.js";
+    import { uploadImage as sharedUploadImage, removeStorageImage } from "../assets/js/imgupload.js";
 
     /* =========================
      Constants & Helpers
@@ -615,57 +611,6 @@
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     }
 
-    function slugifyFilename(s) {
-      return (
-        String(s || "")
-          .normalize("NFKD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^a-zA-Z0-9]+/g, "_")
-          .replace(/^_+|_+$/g, "")
-          .slice(0, 60) || "item"
-      );
-    }
-
-    async function fileToJpegMaxWidth(file, maxW = 2048, quality = 0.9) {
-      // Not an image? return original
-      if (!file?.type?.startsWith("image/")) {
-        return {
-          blob: file,
-          contentType: file?.type || "application/octet-stream",
-          didResize: false,
-        };
-      }
-
-      // Decode
-      const bmp = await createImageBitmap(file);
-
-      // If already within max width, keep original bytes
-      if (bmp.width <= maxW) {
-        bmp.close?.();
-        return {
-          blob: file,
-          contentType: file.type || "image/*",
-          didResize: false,
-        };
-      }
-
-      const scale = maxW / bmp.width;
-      const w = Math.round(bmp.width * scale);
-      const h = Math.round(bmp.height * scale);
-
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(bmp, 0, 0, w, h);
-      bmp.close?.();
-
-      const blob = await new Promise((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", quality),
-      );
-      return { blob, contentType: "image/jpeg", didResize: true };
-    }
 
     /* =========================
      App State
@@ -804,15 +749,8 @@
     async function deleteTxFull(tx) {
       const y = yearFromTS(tx.date);
       await set(ref(database, txItemPath(y, tx.id)), null);
-
-      // try delete image too (best-effort)
-      if (tx.imgPath) {
-        try {
-          await deleteObject(storageRef(storage, tx.imgPath));
-        } catch (err) {
-          console.warn("Storage delete failed:", err);
-        }
-      }
+      // best-effort image cleanup
+      await removeStorageImage(tx.imgPath);
     }
 
     /* =========================
@@ -845,62 +783,26 @@
       await upsertTx(item, { ...item, img: url, imgPath: path });
     }
 
-    // ✅ Unified upload used by BOTH apps (same exact body)
+    // Thin wrapper around shared uploadImage: file picker + tx write-back.
     async function uploadImage(item, kind) {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = "image/*";
-      input.style.display = "none";
+      const input = document.createElement('input');
+      input.type = 'file'; input.accept = 'image/*'; input.style.display = 'none';
       document.body.appendChild(input);
-
-      input.addEventListener("change", async () => {
-        const file = input.files?.[0];
-        input.remove();
+      input.addEventListener('change', async () => {
+        const file = input.files?.[0]; input.remove();
         if (!file) return;
-
         try {
-          // ✅ resize only if wider than 2048
-          const { blob, contentType } = await fileToJpegMaxWidth(
+          const { url, path } = await sharedUploadImage({
             file,
-            2048,
-            0.9,
-          );
-
-          // ✅ filename: simplified name then date
-          const namePart = slugifyFilename(item.name);
-          const datePart = item.date
-            ? new Date(Number(item.date)).toISOString().slice(0, 10)
-            : new Date().toISOString().slice(0, 10);
-
-          const y = new Date(
-            Number(item.date || Date.now()),
-          ).getUTCFullYear();
-          const storagePath = `${imgBasePath()}/${y}/${namePart}_${datePart}_${Date.now()}.jpg`;
-
-          // ✅ if there is an old image, delete it FIRST (keeps storage clean)
-          if (item.imgPath) {
-            try {
-              await deleteObject(storageRef(storage, item.imgPath));
-            } catch (e) {
-              console.warn("Old image delete failed (continuing):", e);
-            }
-          }
-
-          // ✅ upload new
-          const sref = storageRef(storage, storagePath);
-          await uploadBytes(sref, blob, {
-            contentType: contentType || "image/jpeg",
+            basePath: imgBasePath(),
+            name: item.name,
+            priorPath: item.imgPath,
+            lockKey: `${kind}:${item.id}`,
+            dateMs: Number(item.date) || undefined,
           });
-          const url = await getDownloadURL(sref);
-
-          // ✅ save url/path back to DB
-          await saveItemWithImage(item, url, storagePath);
-        } catch (err) {
-          console.error(err);
-          alert("❌ Image upload failed.");
-        }
+          await saveItemWithImage(item, url, path);
+        } catch (err) { console.error(err); alert('❌ Image upload failed.'); }
       });
-
       input.click();
     }
 
@@ -910,22 +812,9 @@
     }
 
     async function deleteTxImage(tx) {
-      if (
-        !confirm(
-          "Delete this image? (Clears fields and deletes file if possible)",
-        )
-      )
-        return;
-
-      try {
-        if (tx.imgPath) {
-          await deleteObject(storageRef(storage, tx.imgPath));
-        }
-      } catch (err) {
-        console.warn("Storage delete failed (still clearing fields):", err);
-      }
-
-      await upsertTx(tx, { ...tx, img: "", imgPath: "" });
+      if (!confirm('Delete this image? (Clears fields and deletes file if possible)')) return;
+      await removeStorageImage(tx.imgPath);
+      await upsertTx(tx, { ...tx, img: '', imgPath: '' });
     }
 
     /* =========================

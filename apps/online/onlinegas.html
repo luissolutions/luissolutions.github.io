@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -236,8 +236,8 @@
         import {
             auth, onAuthStateChanged,
             database, ref, onValue, set,
-            storage, storageRef, uploadBytes, getDownloadURL, deleteObject
         } from "../../assets/js/firebase-init.js";
+        import { uploadImage as sharedUploadImage, removeStorageImage, slugifyFilename } from "../../assets/js/imgupload.js";
 
         /* =========================
            Constants
@@ -292,15 +292,6 @@
             } catch {
                 return null;
             }
-        }
-
-        function slugifyFilename(s) {
-            return String(s || "")
-                .normalize("NFKD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .replace(/[^a-zA-Z0-9]+/g, "_")
-                .replace(/^_+|_+$/g, "")
-                .slice(0, 60) || "item";
         }
 
         // prefer stored total; otherwise compute from volume & costPerUnit
@@ -446,98 +437,45 @@
         async function deleteTxFull(tx) {
             const y = yearFromTS(tx.date);
             await set(ref(database, txItemPath(y, tx.id)), null);
-
-            if (tx.imgPath) {
-                try { await deleteObject(storageRef(storage, tx.imgPath)); }
-                catch (e) { console.warn("Storage delete failed:", e); }
-            }
+            // best-effort image cleanup
+            await removeStorageImage(tx.imgPath);
         }
 
         /* =========================
            Image handling
         ========================== */
-        async function fileToJpegMaxWidth(file, maxW = 2048, quality = 0.9) {
-            if (!file?.type?.startsWith("image/")) {
-                return { blob: file, contentType: file?.type || "application/octet-stream", didResize: false };
-            }
-
-            const bmp = await createImageBitmap(file);
-            if (bmp.width <= maxW) {
-                bmp.close?.();
-                return { blob: file, contentType: file.type || "image/*", didResize: false };
-            }
-
-            const scale = maxW / bmp.width;
-            const w = Math.round(bmp.width * scale);
-            const h = Math.round(bmp.height * scale);
-
-            const canvas = document.createElement("canvas");
-            canvas.width = w;
-            canvas.height = h;
-
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(bmp, 0, 0, w, h);
-            bmp.close?.();
-
-            const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-            return { blob, contentType: "image/jpeg", didResize: true };
-        }
-
         async function saveItemWithImage(tx, url, path) {
             await upsertTx(tx, { ...tx, img: url, imgPath: path });
         }
 
         async function uploadImage(tx) {
-            const input = document.createElement("input");
-            input.type = "file";
-            input.accept = "image/*";
-            input.style.display = "none";
+            const input = document.createElement('input');
+            input.type = 'file'; input.accept = 'image/*'; input.style.display = 'none';
             document.body.appendChild(input);
-
-            input.addEventListener("change", async () => {
-                const file = input.files?.[0];
-                input.remove();
+            input.addEventListener('change', async () => {
+                const file = input.files?.[0]; input.remove();
                 if (!file) return;
-
                 try {
-                    const { blob, contentType } = await fileToJpegMaxWidth(file, 2048, 0.9);
-
                     const meta = gasMetaFromTx(tx);
-                    const vehiclePart = slugifyFilename(meta.vehicle || "vehicle");
-                    const ymd = ymdFromUtcTS(tx.date || Date.now());
-                    const y = yearFromTS(tx.date || Date.now());
-
-                    const storagePath = `${imgBasePath()}/${y}/gas_${vehiclePart}_${ymd}_${Date.now()}.jpg`;
-
-                    if (tx.imgPath) {
-                        try { await deleteObject(storageRef(storage, tx.imgPath)); }
-                        catch (e) { console.warn("Old image delete failed (continuing):", e); }
-                    }
-
-                    const sref = storageRef(storage, storagePath);
-                    await uploadBytes(sref, blob, { contentType: contentType || "image/jpeg" });
-                    const url = await getDownloadURL(sref);
-
-                    await saveItemWithImage(tx, url, storagePath);
-                } catch (err) {
-                    console.error(err);
-                    alert("❌ Image upload failed.");
-                }
+                    const dateMs = Number(tx.date) || Date.now();
+                    const { url, path } = await sharedUploadImage({
+                        file,
+                        basePath: imgBasePath(),
+                        name: 'gas_' + (meta.vehicle || 'vehicle'),
+                        priorPath: tx.imgPath,
+                        lockKey: 'gas:' + tx.id,
+                        dateMs,
+                    });
+                    await saveItemWithImage(tx, url, path);
+                } catch (err) { console.error(err); alert('❌ Image upload failed.'); }
             });
-
             input.click();
         }
 
         async function deleteImage(tx) {
-            if (!confirm("Delete this image? (Clears fields and deletes file if possible)")) return;
-
-            try {
-                if (tx.imgPath) await deleteObject(storageRef(storage, tx.imgPath));
-            } catch (e) {
-                console.warn("Storage delete failed (still clearing):", e);
-            }
-
-            await upsertTx(tx, { ...tx, img: "", imgPath: "" });
+            if (!confirm('Delete this image? (Clears fields and deletes file if possible)')) return;
+            await removeStorageImage(tx.imgPath);
+            await upsertTx(tx, { ...tx, img: '', imgPath: '' });
         }
 
         /* =========================
@@ -1083,13 +1021,14 @@
 
             if (imageFile) {
                 try {
-                    const { blob, contentType } = await fileToJpegMaxWidth(imageFile, 2048, 0.9);
-                    const vehiclePart = slugifyFilename(vehicle);
-                    const storagePath = `${imgBasePath()}/${year}/gas_${vehiclePart}_${dateYMD}_${Date.now()}.jpg`;
-                    const sref = storageRef(storage, storagePath);
-                    await uploadBytes(sref, blob, { contentType: contentType || "image/jpeg" });
-                    const url = await getDownloadURL(sref);
-                    tx = { ...tx, img: url, imgPath: storagePath };
+                    const { url, path } = await sharedUploadImage({
+                        file: imageFile,
+                        basePath: imgBasePath(),
+                        name: 'gas_' + (vehicle || 'vehicle'),
+                        lockKey: 'gas-add:' + id,
+                        dateMs: Number(baseTx.date) || Date.now(),
+                    });
+                    tx = { ...tx, img: url, imgPath: path };
                 } catch (err) {
                     console.error(err);
                     alert("Image upload failed (entry will still be saved).");
