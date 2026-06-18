@@ -205,8 +205,10 @@
         .pdf-export .pdf-hidden-empty,
         .pdf-export section.section-hidden { display: none !important; }
 
+        /* Keep header and individual jobs atomic, but let sections break
+           across pages — otherwise tall sections (e.g. Professional
+           Experience with multiple jobs) get truncated to page 1. */
         .pdf-export .resume-header,
-        .pdf-export section,
         .pdf-export .job {
             break-inside: avoid;
             page-break-inside: avoid;
@@ -416,6 +418,7 @@
 
     <div class="toolbar" id="viewToolbar" style="display:none">
         <button class="btn" id="viewExportPdfBtn">Download PDF</button>
+        <button class="btn" id="viewShareBtn">Share</button>
     </div>
 
     <div class="toolbar" id="editorToolbar">
@@ -429,6 +432,8 @@
         <button class="btn" id="deleteResumeBtn">Delete Resume</button>
 
         <button class="btn" id="saveResumeBtn">Save Resume</button>
+
+        <button class="btn" id="shareResumeBtn">Share</button>
 
         <button class="btn" id="exportPdfBtn">Export PDF</button>
 
@@ -971,9 +976,18 @@
                 section.querySelectorAll("[contenteditable='true']")
             );
 
-            if (!editableElements.length) return false;
+            if (editableElements.length) {
+                return editableElements.some(el => hasMeaningfulText(el));
+            }
 
-            return editableElements.some(el => hasMeaningfulText(el));
+            // View mode: contenteditable has been stripped. Fall back to checking
+            // the section's actual rendered text excluding the heading. Without
+            // this fallback, exportPDF marks every section "empty" and the PDF
+            // comes out blank.
+            const heading = section.querySelector("h2");
+            const totalText = (section.textContent || "").replace(/\s+/g, " ").trim();
+            const headingText = heading ? (heading.textContent || "").replace(/\s+/g, " ").trim() : "";
+            return totalText.length > headingText.length;
         }
 
         function createJobElement(sectionId) {
@@ -1062,7 +1076,7 @@
                 jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
                 pagebreak: {
                     mode: ["css", "legacy"],
-                    avoid: [".resume-header", ".job", "section", "h2"]
+                    avoid: [".resume-header", ".job", "h2"]
                 }
             };
 
@@ -1280,6 +1294,54 @@
 
         document.getElementById("qrLinkInput")
             .addEventListener("input", generateQRCode);
+
+        /* ============================================================
+           SHARE — build a #hash view URL and offer copy / native share / email / sms
+           ============================================================ */
+        function buildShareUrl(resumeId) {
+            const id = resumeId || currentResumeId || "default";
+            return `${location.origin}${location.pathname}#${encodeURIComponent(id)}`;
+        }
+
+        async function shareResume() {
+            const url = buildShareUrl();
+            const titleEl = document.getElementById("title");
+            const nameEl = document.getElementById("name");
+            const titleTxt = (titleEl && titleEl.innerText.trim()) || "Resume";
+            const nameTxt = (nameEl && nameEl.innerText.trim()) || "";
+            const shareTitle = nameTxt ? `${nameTxt} — ${titleTxt}` : titleTxt;
+            const shareText = `${shareTitle}\n${url}`;
+            // Prefer Web Share API if available (mobile shows native share sheet)
+            if (navigator.share) {
+                try { await navigator.share({ title: shareTitle, text: shareText, url }); return; }
+                catch (e) { /* user dismissed — fall through to clipboard */ }
+            }
+            // Fallback: copy URL + tiny menu
+            try { await navigator.clipboard.writeText(url); } catch (e) { /* no clipboard perms */ }
+            const menu = document.createElement("div");
+            menu.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;color:#000;border:1px solid #ccc;border-radius:8px;padding:18px 22px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:9999;font-family:system-ui,sans-serif;max-width:90vw;";
+            menu.innerHTML = `
+                <div style="font-weight:600;margin-bottom:8px;">Share resume</div>
+                <div style="font-size:13px;color:#555;margin-bottom:10px;">Link copied to clipboard.</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <input id="shareUrlField" type="text" value="${url.replace(/"/g,"&quot;")}" readonly style="flex:1 1 240px;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
+                  <button id="shareCopyBtn" style="padding:6px 12px;cursor:pointer;">Copy</button>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                  <a href="mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(shareText)}" style="padding:6px 12px;background:#2a4d7a;color:#fff;border-radius:4px;text-decoration:none;font-size:13px;">Email</a>
+                  <a href="sms:?body=${encodeURIComponent(shareText)}" style="padding:6px 12px;background:#1f8a3a;color:#fff;border-radius:4px;text-decoration:none;font-size:13px;">SMS</a>
+                  <button id="shareCloseBtn" style="margin-left:auto;padding:6px 12px;cursor:pointer;">Close</button>
+                </div>`;
+            document.body.appendChild(menu);
+            menu.querySelector("#shareCopyBtn").addEventListener("click", async () => {
+                try { await navigator.clipboard.writeText(url); menu.querySelector("#shareCopyBtn").textContent = "Copied"; }
+                catch (e) { menu.querySelector("#shareUrlField").select(); document.execCommand("copy"); }
+            });
+            menu.querySelector("#shareCloseBtn").addEventListener("click", () => menu.remove());
+        }
+
+        document.getElementById("shareResumeBtn")?.addEventListener("click", shareResume);
+        document.getElementById("viewShareBtn")?.addEventListener("click", shareResume);
 
         document.querySelectorAll("[data-add-entry]").forEach(button => {
             button.addEventListener("click", () => {

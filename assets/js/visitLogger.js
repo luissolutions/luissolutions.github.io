@@ -50,6 +50,9 @@ export async function updateVisitCount(ipAddress) {
         // firstSeen once and bump count atomically.
         await runTransaction(ref(db, `public/log/visits/${sip}`), prev => {
             const p = prev || {};
+            // Note: ...p already carries `hits` if it exists. Adding an explicit
+            // `hits: p.hits` line breaks the transaction on first visits because
+            // RTDB rejects returned objects with undefined property values.
             return {
                 ...p,
                 ip,
@@ -57,7 +60,6 @@ export async function updateVisitCount(ipAddress) {
                 lastSeen:  now,
                 lastPage:  page,
                 count:     (p.count || 0) + 1,
-                hits:      p.hits  // keep child untouched
             };
         });
 
