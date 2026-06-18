@@ -21,6 +21,28 @@
       <a href="discipline.html" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--surface);border:1px solid var(--primary);color:var(--primary);text-decoration:none;border-radius:6px;font-size:var(--sm);font-weight:600;">📋 Sunday Review →</a>
     </div>
 
+    <!-- WEEK'S FIVE (mirrors discipline.html slots, read-and-tick surface) -->
+    <section class="card" id="weeks-five-card" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+        <h2 style="margin:0;font-size:1rem;">📋 The Week's Five <span id="wf-week" style="font-weight:400;color:var(--muted);font-size:var(--sm);"></span></h2>
+        <a href="discipline.html" style="font-size:var(--sm);color:var(--primary);text-decoration:none;">edit →</a>
+      </div>
+      <div id="wf-slots"></div>
+      <p id="wf-empty" style="display:none;margin:8px 0 0;color:var(--muted);font-size:var(--sm);">No plan yet for this week. <a href="discipline.html" style="color:var(--primary);">Set it up →</a></p>
+    </section>
+
+    <!-- REVIEW NOTES (collapsed by default; same data as discipline.html) -->
+    <section class="card" id="review-card" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:0;margin-bottom:14px;overflow:hidden;">
+      <button type="button" id="review-toggle" style="all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:14px 16px;width:100%;box-sizing:border-box;">
+        <span style="font-weight:600;">📝 Review Notes <span style="font-weight:400;color:var(--muted);font-size:var(--sm);">— this week</span></span>
+        <span id="review-chevron" style="color:var(--muted);font-size:.85rem;">▾</span>
+      </button>
+      <div id="review-body" style="display:none;padding:0 16px 14px;">
+        <textarea id="review-notes" placeholder="What worked. What didn't. What got killed. What carries." style="width:100%;box-sizing:border-box;min-height:96px;padding:8px 10px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:var(--sm);resize:vertical;"></textarea>
+        <small id="review-status" style="display:block;margin-top:4px;color:var(--muted);font-size:.72rem;">&nbsp;</small>
+      </div>
+    </section>
+
     <section class="add-card">
       <h2>Add a task</h2>
       <form class="add-form" id="add-form">
@@ -174,8 +196,15 @@
       } else {
         authGate.style.display = 'block';
         if (unsubscribe) unsubscribe();
+        if (wfUnsubscribe) wfUnsubscribe();
         allTodos = {};
+        wfSlots = {};
+        wfReviewNotes = '';
         container.innerHTML = '';
+        const wf = document.getElementById('weeks-five-card');
+        const rc = document.getElementById('review-card');
+        if (wf) wf.style.display = 'none';
+        if (rc) rc.style.display = 'none';
       }
     });
 
@@ -186,6 +215,127 @@
         allTodos = snap.val() || {};
         render();
       });
+      subscribeWeeksFive();
+    }
+
+    /* ============================================================
+       WEEK'S FIVE + REVIEW NOTES — mirror of discipline.html data.
+       Reads {basePath}/discipline/punchlist/{ISOweek} live and writes
+       back per-field on inline edits. Schema unchanged.
+       ============================================================ */
+    const WF_ANCHORS = ['Work','Properties','Training','Capital','Household','Wildcard'];
+    const WF_DAYS = ['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+    function wfIsoWeekKey(date) {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+      return `${d.getUTCFullYear()}-W${String(week).padStart(2,'0')}`;
+    }
+    function wfMondayOf(year, week) {
+      const simple = new Date(Date.UTC(year, 0, 1 + (week - 1) * 7));
+      const dow = simple.getUTCDay() || 7;
+      const monday = new Date(simple);
+      monday.setUTCDate(simple.getUTCDate() - dow + 1);
+      return monday;
+    }
+    function wfWeekRange(weekKey) {
+      const [yr, w] = weekKey.split('-W').map(Number);
+      const mon = wfMondayOf(yr, w);
+      const sun = new Date(mon); sun.setUTCDate(sun.getUTCDate() + 6);
+      const fmt = d => `${d.getUTCMonth()+1}/${d.getUTCDate()}`;
+      return `${fmt(mon)}–${fmt(sun)}`;
+    }
+
+    let wfUnsubscribe = null;
+    let wfActiveWeek = wfIsoWeekKey(new Date());
+    let wfSlots = {};   // {1:{anchor,text,dueDay,done}, ...}
+    let wfReviewNotes = '';
+    let wfReviewSaveTimer = null;
+    let wfSlotSaveTimers = {};
+
+    function subscribeWeeksFive() {
+      if (wfUnsubscribe) wfUnsubscribe();
+      wfActiveWeek = wfIsoWeekKey(new Date());
+      const r = ref(database, `${basePath}/discipline/punchlist/${wfActiveWeek}`);
+      wfUnsubscribe = onValue(r, snap => {
+        const data = snap.val() || {};
+        wfSlots = data.slots || {};
+        wfReviewNotes = data.reviewNotes || '';
+        renderWeeksFive();
+        const rn = document.getElementById('review-notes');
+        if (rn && document.activeElement !== rn) rn.value = wfReviewNotes;
+      });
+    }
+
+    function renderWeeksFive() {
+      const card = document.getElementById('weeks-five-card');
+      const reviewCard = document.getElementById('review-card');
+      card.style.display = '';
+      reviewCard.style.display = '';
+      document.getElementById('wf-week').textContent = `${wfActiveWeek} · ${wfWeekRange(wfActiveWeek)}`;
+
+      const slotsHost = document.getElementById('wf-slots');
+      const empty = document.getElementById('wf-empty');
+      const anySlot = Object.values(wfSlots).some(s => s && (s.text || '').trim());
+      if (!anySlot) {
+        slotsHost.innerHTML = '';
+        empty.style.display = '';
+        return;
+      }
+      empty.style.display = 'none';
+      slotsHost.innerHTML = '';
+      for (let i = 1; i <= 5; i++) {
+        const slot = wfSlots[i] || {};
+        if (!(slot.text || '').trim()) continue;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--border);';
+        if (slotsHost.children.length === 0) row.style.borderTop = '0';
+        const anchorLabel = slot.anchor || (i <= 4 ? WF_ANCHORS[i-1] : 'Wildcard');
+        const dueLabel = slot.dueDay ? `· ${slot.dueDay}` : '';
+        row.innerHTML = `
+          <input type="checkbox" data-slot="${i}" ${slot.done ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;">
+          <div style="min-width:0;">
+            <span style="font-size:var(--sm);${slot.done ? 'text-decoration:line-through;color:var(--muted);' : ''}">${escHtml(slot.text)}</span>
+          </div>
+          <span style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">${escHtml(anchorLabel)}</span>
+          <span style="font-size:.72rem;color:var(--muted);">${escHtml(dueLabel)}</span>
+        `;
+        row.querySelector('input').addEventListener('change', e => {
+          const i = +e.target.dataset.slot;
+          set(ref(database, `${basePath}/discipline/punchlist/${wfActiveWeek}/slots/${i}/done`), e.target.checked);
+        });
+        slotsHost.appendChild(row);
+      }
+    }
+
+    // Review notes collapsible + debounced save
+    document.getElementById('review-toggle')?.addEventListener('click', () => {
+      const body = document.getElementById('review-body');
+      const chev = document.getElementById('review-chevron');
+      const open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : '';
+      chev.textContent = open ? '▾' : '▴';
+    });
+    document.getElementById('review-notes')?.addEventListener('input', e => {
+      wfReviewNotes = e.target.value;
+      const status = document.getElementById('review-status');
+      status.textContent = 'saving…';
+      clearTimeout(wfReviewSaveTimer);
+      wfReviewSaveTimer = setTimeout(async () => {
+        try {
+          await set(ref(database, `${basePath}/discipline/punchlist/${wfActiveWeek}/reviewNotes`), wfReviewNotes);
+          status.textContent = '✓ saved';
+          setTimeout(() => { status.innerHTML = '&nbsp;'; }, 1500);
+        } catch (err) {
+          status.textContent = 'save failed: ' + (err?.message || err);
+        }
+      }, 600);
+    });
+
+    function escHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
 
     // ---- Year picker ----

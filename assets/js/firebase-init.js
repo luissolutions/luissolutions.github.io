@@ -40,13 +40,11 @@ function initializeAuth(appInstance) {
 
   onAuthStateChanged(auth, (user) => {
     if (user) {
-      console.log(`Logged in as: ${user.email}`);
       document.getElementById('login-section').style.display = 'none';
       document.getElementById('logout').style.display = 'block';
       appInstance.isAuthenticated = true;
       appInstance.initializeFirebase();
     } else {
-      console.log('User is not logged in');
       document.getElementById('login-section').style.display = 'block';
       document.getElementById('logout').style.display = 'none';
       appInstance.isAuthenticated = false;
