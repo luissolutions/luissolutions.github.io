@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Droplet Chat</title>
+  <link rel="stylesheet" href="../../assets/master.css" />
+  <style>
+    body { margin: 0; height: 100vh; display: flex; flex-direction: column; }
+    header { padding: 12px 16px; border-bottom: 1px solid var(--border, #333); display: flex; justify-content: space-between; align-items: center; }
+    header h1 { margin: 0; font-size: 1.1rem; }
+    header .meta { font-size: 0.85rem; opacity: 0.7; }
+    #log { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+    .msg.user { align-self: flex-end; background: var(--accent, #3a5cff); color: white; }
+    .msg.assistant { align-self: flex-start; background: var(--card, #1a1a1a); border: 1px solid var(--border, #333); }
+    .msg.error { align-self: stretch; background: #5a1a1a; color: #fdd; border: 1px solid #a44; }
+    .msg pre { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; overflow-x: auto; }
+    .msg code { background: rgba(0,0,0,0.3); padding: 2px 5px; border-radius: 3px; font-size: 0.92em; }
+    .msg table { border-collapse: collapse; margin: 8px 0; }
+    .msg th, .msg td { border: 1px solid var(--border, #444); padding: 5px 9px; }
+    footer { padding: 12px 16px; border-top: 1px solid var(--border, #333); display: flex; gap: 8px; align-items: flex-end; }
+    #input { flex: 1; min-height: 44px; max-height: 200px; padding: 10px; border: 1px solid var(--border, #333); border-radius: 6px; background: var(--bg, #111); color: var(--text, #eee); font: inherit; resize: vertical; }
+    button { padding: 10px 16px; border-radius: 6px; border: 0; background: var(--accent, #3a5cff); color: white; cursor: pointer; font: inherit; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.secondary { background: transparent; border: 1px solid var(--border, #444); color: var(--text, #ccc); }
+    .typing { font-style: italic; opacity: 0.6; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Droplet</h1>
+    <span class="meta">
+      <span id="status">ready</span> ·
+      <button id="reset" class="secondary" style="padding:4px 10px;font-size:0.85rem;">new chat</button>
+    </span>
+  </header>
+
+  <div id="log" aria-live="polite"></div>
+
+  <footer>
+    <textarea id="input" placeholder="message (Enter to send · Shift+Enter for newline)" autofocus></textarea>
+    <button id="send">Send</button>
+  </footer>
+
+  <script>
+    const ENDPOINT = (location.hostname === 'localhost' || location.hostname.startsWith('192.168.'))
+      ? 'http://192.168.50.10:3040'
+      : 'https://droplet.luissolutions.us';
+
+    const STORAGE_KEY = 'droplet.chat.history';
+    const log = document.getElementById('log');
+    const input = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+    const resetBtn = document.getElementById('reset');
+    const status = document.getElementById('status');
+
+    /** @type {Array<{role:'user'|'assistant',content:string}>} */
+    let history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+
+    function saveHistory() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    }
+
+    function renderHistory() {
+      log.innerHTML = '';
+      for (const m of history) addMessage(m.role, m.content, false);
+    }
+
+    function addMessage(role, text, persist = true) {
+      const div = document.createElement('div');
+      div.className = `msg ${role}`;
+      // Minimal markdown — code blocks + inline code. Skipping heavy parsing for scaffold.
+      const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const withCode = escaped
+        .replace(/```([\s\S]*?)```/g, (_, c) => `<pre>${c}</pre>`)
+        .replace(/`([^`\n]+)`/g, '<code>$1</code>');
+      div.innerHTML = withCode;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+      if (persist) {
+        history.push({ role, content: text });
+        saveHistory();
+      }
+      return div;
+    }
+
+    function addError(text) {
+      const div = document.createElement('div');
+      div.className = 'msg error';
+      div.textContent = text;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function send() {
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      sendBtn.disabled = true;
+      status.textContent = 'thinking...';
+
+      addMessage('user', text);
+      const typing = document.createElement('div');
+      typing.className = 'msg assistant typing';
+      typing.textContent = '...';
+      log.appendChild(typing);
+      log.scrollTop = log.scrollHeight;
+
+      try {
+        const r = await fetch(`${ENDPOINT}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: history }),
+          credentials: 'include',
+        });
+        typing.remove();
+        if (!r.ok) {
+          addError(`HTTP ${r.status} — ${await r.text()}`);
+        } else {
+          const j = await r.json();
+          addMessage('assistant', j.reply);
+          const u = j.usage || {};
+          status.textContent = `${u.input_tokens || 0} in / ${u.output_tokens || 0} out · cache: ${u.cache_read_input_tokens || 0}`;
+        }
+      } catch (e) {
+        typing.remove();
+        addError(`network error — ${e.message}`);
+      } finally {
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    }
+
+    sendBtn.addEventListener('click', send);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+    });
+    resetBtn.addEventListener('click', () => {
+      if (history.length && !confirm('Clear conversation?')) return;
+      history = [];
+      saveHistory();
+      log.innerHTML = '';
+      status.textContent = 'ready';
+      input.focus();
+    });
+
+    renderHistory();
+  </script>
+</body>
+</html>

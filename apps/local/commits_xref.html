@@ -125,9 +125,31 @@
 </div>
 
 <div class="box">
-  <h2>5. Processing Log</h2>
-  <pre id="log">Waiting for files...</pre>
+  <h2 style="display:inline; margin-right: 12px;">5. Processing Log</h2>
+  <button class="secondary" onclick="copyLog(this)" style="font-size: 12px; padding: 4px 10px;">📋 Copy Log</button>
+  <button class="secondary" onclick="clearLog(); this.blur();" style="font-size: 12px; padding: 4px 10px;">Clear</button>
+  <pre id="log" style="margin-top: 8px;">Waiting for files...</pre>
 </div>
+<script>
+function copyLog(btn) {
+  const text = document.getElementById('log').textContent || '';
+  if (!text.trim()) { btn.textContent = 'Empty'; setTimeout(() => btn.textContent = '📋 Copy Log', 1200); return; }
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied';
+    setTimeout(() => btn.textContent = orig, 1200);
+  }).catch(() => {
+    // Fallback: select the pre + execCommand
+    const range = document.createRange();
+    range.selectNode(document.getElementById('log'));
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    try { document.execCommand('copy'); btn.textContent = '✓ Copied'; setTimeout(() => btn.textContent = '📋 Copy Log', 1200); }
+    catch (e) { btn.textContent = 'Failed'; setTimeout(() => btn.textContent = '📋 Copy Log', 1200); }
+    window.getSelection().removeAllRanges();
+  });
+}
+</script>
 
 <div class="box">
   <details>
@@ -264,8 +286,75 @@ const REASON_CODES = [
   "UTC Other"
 ];
 
+// Defaults if auto-detect fails. UTC export used to put headers at row 11
+// (0-indexed 10), data at row 13 (0-indexed 12). New exports may differ —
+// detectCommitsHeaderRow() will find the actual header row by content.
 const COMMITS_KEY_HEADER_ROW = 10; // 0-indexed: row 11 in the file
 const COMMITS_FIRST_DATA_ROW = 12; // 0-indexed: row 13 in the file
+
+// Required keys we use to find the header row. If we see a row containing
+// at least 4 of these, it's the header row (the next non-blank row begins data).
+const HEADER_FINGERPRINT = [
+  'PRODUCT_ID','ITEM_ID','SCH_LINE','COMMIT_DATE','REASON_CODE','COMMENTS',
+  'REQ_DATE','OTD_DATE','OPEN_QTY','PRIORITY','LAST_SUPPLIER_UPDATE'
+];
+
+// UTC export header format changed from internal keys (PRODUCT_ID) to human-readable
+// (Part Number) names somewhere along the way. Map common variants to their canonical
+// internal key. Match is case- and punctuation-insensitive (see normalizeHeader).
+const HEADER_ALIASES = {
+  'PRODUCT_ID':           ['PRODUCT_ID', 'PARTNUMBER', 'PART', 'PARTNO', 'PARTID', 'PRODUCT ID', 'PART #'],
+  'ITEM_ID':              ['ITEM_ID', 'ITEM', 'ITEMNUMBER', 'ITEMNO', 'ITEMID'],
+  'SCH_LINE':             ['SCH_LINE', 'SCHLINE', 'SCHEDULELINE', 'SL', 'SCHEDLINE'],
+  'COMMIT_DATE':          ['COMMIT_DATE', 'COMMITDATE', 'COMMIT', 'ESTSHIPDATE', 'EST SHIP DATE'],
+  'REQ_DATE':             ['REQ_DATE', 'REQDATE', 'REQUESTDATE', 'REQUESTEDDATE', 'REQUEST DATE'],
+  'OTD_DATE':             ['OTD_DATE', 'OTDDATE', 'OTD', 'OTD DATE', 'ONTIMEDELIVERYDATE'],
+  'REASON_CODE':          ['REASON_CODE', 'REASONCODE', 'REASON'],
+  'COMMENTS':             ['COMMENTS', 'COMMENT', 'NOTES', 'NOTE'],
+  'OPEN_QTY':             ['OPEN_QTY', 'OPENQTY', 'OPEN QUANTITY', 'OPENQUANTITY'],
+  'PRIORITY':             ['PRIORITY', 'PRIO'],
+  'LAST_SUPPLIER_UPDATE': ['LAST_SUPPLIER_UPDATE', 'LASTSUPPLIERUPDATE', 'LASTUPDATE', 'SUPPLIERUPDATE'],
+};
+
+// Normalize a header cell for matching: uppercase, strip spaces / punctuation
+function normalizeHeader(s) {
+  return String(s ?? '').trim().toUpperCase().replace(/[\s._\-#]+/g, '');
+}
+
+// Build flat lookup: normalized variant -> canonical key
+const HEADER_NORMALIZED = {};
+for (const [canonical, variants] of Object.entries(HEADER_ALIASES)) {
+  for (const v of variants) HEADER_NORMALIZED[normalizeHeader(v)] = canonical;
+}
+
+function canonicalizeHeader(raw) {
+  return HEADER_NORMALIZED[normalizeHeader(raw)] || null;
+}
+
+function detectCommitsHeaderRow(aoa) {
+  let bestRow = -1, bestScore = 0;
+  const scanLimit = Math.min(aoa.length, 50);
+  for (let r = 0; r < scanLimit; r++) {
+    const row = aoa[r] || [];
+    // For each cell, see if it maps to a canonical header — count distinct canonicals matched.
+    const matched = new Set();
+    for (const c of row) {
+      const canon = canonicalizeHeader(c);
+      if (canon) matched.add(canon);
+    }
+    if (matched.size > bestScore) { bestScore = matched.size; bestRow = r; }
+  }
+  return bestScore >= 3 ? bestRow : -1;
+}
+
+function detectFirstDataRow(aoa, headerRow) {
+  // First non-empty row strictly after the header row
+  for (let r = headerRow + 1; r < aoa.length; r++) {
+    const row = aoa[r] || [];
+    if (row.some(c => String(c ?? '').trim() !== '')) return r;
+  }
+  return headerRow + 2;
+}
 
 const state = {
   commitsAOA: null,         // 2D array of the commits CSV
@@ -314,23 +403,50 @@ document.getElementById('commitsFile').addEventListener('change', async (e) => {
   log(`Reading commits export: ${file.name}...`);
   try {
     state.commitsAOA = await readSheetAsAOA(file);
-    const headers = state.commitsAOA[COMMITS_KEY_HEADER_ROW] || [];
+
+    // Auto-detect the header row by scanning for known UTC keys (fallback to
+    // hardcoded row 11 if detection fails). This makes the tool resilient when
+    // the UTC export format changes which row holds the headers.
+    let headerRow = detectCommitsHeaderRow(state.commitsAOA);
+    if (headerRow === -1) {
+      headerRow = COMMITS_KEY_HEADER_ROW;
+      log(`Could not auto-detect header row — falling back to row ${headerRow + 1}`, 'warn');
+    } else if (headerRow !== COMMITS_KEY_HEADER_ROW) {
+      log(`Auto-detected headers at row ${headerRow + 1} (default was ${COMMITS_KEY_HEADER_ROW + 1})`, 'ok');
+    }
+    state.commitsHeaderRow = headerRow;
+    state.commitsFirstDataRow = detectFirstDataRow(state.commitsAOA, headerRow);
+
+    const headers = state.commitsAOA[headerRow] || [];
     state.commitsHeaders = headers.map(h => String(h).trim());
     state.commitsColIdx = {};
-    state.commitsHeaders.forEach((h, i) => { if (h) state.commitsColIdx[h] = i; });
+    // Index by both the raw header AND its canonical key (e.g. "Part Number" → also indexed as PRODUCT_ID).
+    // This makes the rest of the tool work whether the export uses internal keys or display names.
+    state.commitsHeaders.forEach((h, i) => {
+      if (h) {
+        state.commitsColIdx[h] = i;
+        const canon = canonicalizeHeader(h);
+        if (canon && state.commitsColIdx[canon] === undefined) state.commitsColIdx[canon] = i;
+      }
+    });
 
     const required = ['PRODUCT_ID','ITEM_ID','SCH_LINE','COMMIT_DATE','REASON_CODE','COMMENTS'];
     const missing = required.filter(h => state.commitsColIdx[h] === undefined);
     document.getElementById('commitsInfo').innerHTML =
-      `<span class="pill ${missing.length?'err':'ok'}">${missing.length ? 'Headers missing: '+missing.join(', ') : 'Row 11 headers ok'}</span> &middot; ${state.commitsAOA.length - COMMITS_FIRST_DATA_ROW} data rows`;
-    log(`Commits headers detected at row 11: ${state.commitsHeaders.filter(Boolean).length} columns`, 'ok');
-    log(`Data rows: ${state.commitsAOA.length - COMMITS_FIRST_DATA_ROW}`);
+      `<span class="pill ${missing.length?'err':'ok'}">${missing.length ? 'Headers missing: '+missing.join(', ') : `Row ${headerRow + 1} headers ok`}</span> &middot; ${state.commitsAOA.length - state.commitsFirstDataRow} data rows`;
+    log(`Commits headers detected at row ${headerRow + 1}: ${state.commitsHeaders.filter(Boolean).length} columns`, 'ok');
+    log(`First data row: ${state.commitsFirstDataRow + 1}, total data rows: ${state.commitsAOA.length - state.commitsFirstDataRow}`);
+    // Show what we actually found so unknown headers can be added to the alias map
+    const headerPairs = state.commitsHeaders
+      .map((h, i) => h ? `${String.fromCharCode(65 + i)}:"${h}"${canonicalizeHeader(h) ? ` → ${canonicalizeHeader(h)}` : ' (no alias)'}` : null)
+      .filter(Boolean);
+    log(`  Headers found: ${headerPairs.join('  |  ')}`);
     if (missing.length) log(`Missing required headers: ${missing.join(', ')}`, 'err');
     // Sample first non-blank data row so we can eyeball the key fields
     const cPart = state.commitsColIdx['PRODUCT_ID'];
     const cItem = state.commitsColIdx['ITEM_ID'];
     const cSL   = state.commitsColIdx['SCH_LINE'];
-    for (let r = COMMITS_FIRST_DATA_ROW; r < Math.min(COMMITS_FIRST_DATA_ROW + 5, state.commitsAOA.length); r++) {
+    for (let r = state.commitsFirstDataRow; r < Math.min(state.commitsFirstDataRow + 5, state.commitsAOA.length); r++) {
       const row = state.commitsAOA[r] || [];
       const part = String(row[cPart] ?? '').trim();
       const item = String(row[cItem] ?? '').trim();
@@ -544,7 +660,7 @@ function buildPreview() {
     fields.push({ name: 'COMMENTS', commitsCol: cIdx['COMMENTS'], masterCol: map.comments, isText: true });
   }
 
-  for (let r = COMMITS_FIRST_DATA_ROW; r < state.commitsAOA.length; r++) {
+  for (let r = state.commitsFirstDataRow; r < state.commitsAOA.length; r++) {
     const row = state.commitsAOA[r];
     if (!row || row.every(c => c === '' || c == null)) continue;
     const part = row[cIdx['PRODUCT_ID']];
@@ -593,7 +709,7 @@ function buildPreview() {
     let n = 0; for (const [k] of masterIdx) { log(`  [${k}]`); if (++n >= 5) break; }
     log('Commits key sample (first 5):');
     let m = 0;
-    for (let r = COMMITS_FIRST_DATA_ROW; r < state.commitsAOA.length && m < 5; r++) {
+    for (let r = state.commitsFirstDataRow; r < state.commitsAOA.length && m < 5; r++) {
       const row = state.commitsAOA[r];
       if (!row || row.every(c => c === '' || c == null)) continue;
       const part = row[cIdx['PRODUCT_ID']], item = row[cIdx['ITEM_ID']], sl = row[cIdx['SCH_LINE']];
@@ -674,7 +790,7 @@ function applyAndDownload(format = 'csv') {
     const DEFAULT_REASON = 'UTC Other';
     const badDateRows = new Set();
     let dateFixes = 0, badReasons = 0, reasonDefaults = 0;
-    for (let r = COMMITS_FIRST_DATA_ROW; r < state.commitsAOA.length; r++) {
+    for (let r = state.commitsFirstDataRow; r < state.commitsAOA.length; r++) {
       const row = state.commitsAOA[r];
       if (!row || row.every(c => c === '' || c == null)) continue;
       const maxCol = Math.max(reasonCol, ...dateCols.map(d => d.idx));
@@ -719,7 +835,7 @@ function applyAndDownload(format = 'csv') {
       const keep = [];
       let dropped = 0;
       for (let r = 0; r < state.commitsAOA.length; r++) {
-        if (r < COMMITS_FIRST_DATA_ROW) { keep.push(state.commitsAOA[r]); continue; }
+        if (r < state.commitsFirstDataRow) { keep.push(state.commitsAOA[r]); continue; }
         const row = state.commitsAOA[r];
         if (!row || row.every(c => c === '' || c == null)) { keep.push(row); continue; }
         const k = normKey(row[cIdx['PRODUCT_ID']], row[cIdx['ITEM_ID']], row[cIdx['SCH_LINE']]);
@@ -743,7 +859,7 @@ function applyAndDownload(format = 'csv') {
         const keep = [];
         let dropped = 0;
         for (let r = 0; r < state.commitsAOA.length; r++) {
-          if (r < COMMITS_FIRST_DATA_ROW) { keep.push(state.commitsAOA[r]); continue; }
+          if (r < state.commitsFirstDataRow) { keep.push(state.commitsAOA[r]); continue; }
           const row = state.commitsAOA[r];
           if (!row || row.every(c => c === '' || c == null)) { keep.push(row); continue; }
           const com = String(row[commitCol] ?? '').trim();
@@ -765,7 +881,7 @@ function applyAndDownload(format = 'csv') {
         const keep = [];
         let dropped = 0;
         for (let r = 0; r < state.commitsAOA.length; r++) {
-          if (r < COMMITS_FIRST_DATA_ROW) { keep.push(state.commitsAOA[r]); continue; }
+          if (r < state.commitsFirstDataRow) { keep.push(state.commitsAOA[r]); continue; }
           const row = state.commitsAOA[r];
           if (!row || row.every(c => c === '' || c == null)) { keep.push(row); continue; }
           const req = String(row[reqCol] ?? '').trim();
@@ -785,7 +901,7 @@ function applyAndDownload(format = 'csv') {
     }
     // Final preflight — confirm every REQ/OTD/COMMIT date is ISO and every reason code is in the enum
     let preflightFails = 0, rowsChecked = 0;
-    for (let r = COMMITS_FIRST_DATA_ROW; r < state.commitsAOA.length; r++) {
+    for (let r = state.commitsFirstDataRow; r < state.commitsAOA.length; r++) {
       const row = state.commitsAOA[r];
       if (!row || row.every(c => c === '' || c == null)) continue;
       rowsChecked++;
@@ -805,7 +921,7 @@ function applyAndDownload(format = 'csv') {
     if (preflightFails === 0) log(`✓ Preflight passed: ${rowsChecked} data rows clean for portal upload`, 'ok');
     else log(`Preflight: ${preflightFails} issue(s) across ${rowsChecked} rows — fix before uploading`, 'err');
     const outName = state.outputName.replace(/\.csv$/i, format === 'xlsx' ? '.xlsx' : '.csv');
-    if (format === 'xlsx') downloadAOAasXLSX(state.commitsAOA, outName, COMMITS_FIRST_DATA_ROW);
+    if (format === 'xlsx') downloadAOAasXLSX(state.commitsAOA, outName, state.commitsFirstDataRow);
     else downloadAOAasCSV(state.commitsAOA, outName);
     log(`Wrote ${plan.length} changes into commits export, saved as ${outName}`, 'ok');
   } else {

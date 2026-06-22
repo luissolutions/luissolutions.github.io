@@ -502,16 +502,45 @@
 
     function saveTask(task) { set(dbRef(database, `${DB}/tasks/${task.id}`), task); }
 
-    function addImpliedWorkSegment(task) {
+    function normalizeTaskSegments(task) {
+      let changed = false;
       const segs = ensureSegs(task);
-      if (segs.some(s => s.type === "work")) return;
-      const lastSeg = segs[segs.length - 1];
-      if (lastSeg && !lastSeg.endTime) return; // last segment still open
-      const lastEnd = lastSeg ? lastSeg.endTime : task.startTime;
-      const taskEnd = task.endTime || null;
-      // For completed tasks, skip if no gap between last segment and task end
-      if (taskEnd && new Date(lastEnd) >= new Date(taskEnd)) return;
-      segs.push({ type: "work", startTime: lastEnd, endTime: taskEnd });
+
+      // Prevent negative duration tasks by collapsing to a single timestamp.
+      if (task.startTime && task.endTime && new Date(task.endTime) < new Date(task.startTime)) {
+        task.endTime = task.startTime;
+        changed = true;
+      }
+
+      if (!segs.some(s => s.type === "work")) {
+        const lastSeg = segs[segs.length - 1];
+        if (!(lastSeg && !lastSeg.endTime)) {
+          const lastEnd = lastSeg ? lastSeg.endTime : task.startTime;
+          const taskEnd = task.endTime || null;
+          // For completed tasks, skip if no gap between last segment and task end
+          if (!(taskEnd && new Date(lastEnd) >= new Date(taskEnd))) {
+            segs.push({ type: "work", startTime: lastEnd, endTime: taskEnd });
+            changed = true;
+          }
+        }
+      }
+
+      // Table start/end are authoritative for completed tasks.
+      // Tie the first segment start and final segment end to task bounds.
+      if (task.endTime && segs.length) {
+        const firstSeg = segs[0];
+        if (firstSeg.startTime !== task.startTime) {
+          firstSeg.startTime = task.startTime;
+          changed = true;
+        }
+        const lastSeg = segs[segs.length - 1];
+        if (lastSeg.endTime !== task.endTime) {
+          lastSeg.endTime = task.endTime;
+          changed = true;
+        }
+      }
+
+      return changed;
     }
 
     function promptAndStartSegment(type) {
@@ -719,21 +748,40 @@
       if (projC) projC.onblur = () => updateTaskField(key, "project", projC.innerText);
       if (soC) soC.onblur = () => updateTaskField(key, "startOdometer", soC.innerText);
       if (eoC) eoC.onblur = () => updateTaskField(key, "endOdometer", eoC.innerText);
-      if (stC) stC.onblur = () => { const raw = stC.innerText.trim(); const full = new Date(raw); const s = isValidDate(full) ? snap15(full) : parseTimeEdit(raw, task.startTime); if (s) { task.startTime = s.toISOString(); stC.innerText = fmtDt(s); if (lenC) lenC.innerText = task.endTime ? calcLength(task) : ""; const segs = ensureSegs(task); const first = segs[0]; if (first) { first.startTime = s.toISOString(); if (task === currentTask) updateSegSummary(); } saveTask(task); } };
+      if (stC) stC.onblur = () => {
+        const raw = stC.innerText.trim();
+        const full = new Date(raw);
+        const s = isValidDate(full) ? snap15(full) : parseTimeEdit(raw, task.startTime);
+        if (!s) return;
+
+        task.startTime = s.toISOString();
+        // Prevent negative duration: if start crosses end, clamp end to start.
+        if (task.endTime && new Date(task.endTime) < s) {
+          task.endTime = task.startTime;
+          if (etC) etC.innerText = fmtDt(task.endTime);
+        }
+
+        stC.innerText = fmtDt(s);
+        normalizeTaskSegments(task);
+        if (lenC) lenC.innerText = task.endTime ? calcLength(task) : "";
+        if (task === currentTask) updateSegSummary();
+        saveTask(task);
+      };
       if (etC) etC.onblur = () => {
         const raw = etC.innerText.trim();
         const full = new Date(raw);
         const s = isValidDate(full) ? snap15(full) : parseTimeEdit(raw, task.endTime || task.startTime);
         if (s) {
           task.endTime = s.toISOString();
-          etC.innerText = fmtDt(s);
-          if (lenC) lenC.innerText = calcLength(task);
-          const segs = ensureSegs(task);
-          const last = segs[segs.length - 1];
-          if (last) {
-            last.endTime = s.toISOString();
-            if (task === currentTask) updateSegSummary();
+          // Prevent negative duration: if end precedes start, clamp start to end.
+          if (task.startTime && s < new Date(task.startTime)) {
+            task.startTime = task.endTime;
+            if (stC) stC.innerText = fmtDt(task.startTime);
           }
+          etC.innerText = fmtDt(s);
+          normalizeTaskSegments(task);
+          if (lenC) lenC.innerText = task.endTime ? calcLength(task) : "";
+          if (task === currentTask) updateSegSummary();
           saveTask(task);
         }
       };
@@ -758,9 +806,7 @@
       endOdometerInput.disabled = task.endOdometer == null;
       clearInterval(timerInterval);
       if (!task.endTime) timerInterval = setInterval(tickTimer, 1000);
-      const hadSegs = !!(currentTask.segments?.length);
-      addImpliedWorkSegment(currentTask);
-      if (!hadSegs && currentTask.segments?.length) saveTask(currentTask);
+      if (normalizeTaskSegments(currentTask)) saveTask(currentTask);
       updateSegSummary(); loadTimerImages(task.project);
       endTaskBtn.style.display = task.endTime ? "none" : "inline-block";
       updateTaskBtn.style.display = "inline-block";
@@ -1117,6 +1163,7 @@
       const id = e.target.value; if (!id) return;
       const snap = await get(dbRef(database, `${DB}/tasks/${id}`)); if (!snap.exists()) return;
       const task = snap.val(); task.id = task.id || id; currentTask = task; currentTaskId = id;
+      if (normalizeTaskSegments(currentTask)) saveTask(currentTask);
       taskNameInput.value = task.customerName || ""; projectInput.value = task.project || ""; taskNotesTextarea.value = task.notes || "";
       startOdometerInput.value = task.startOdometer || ""; endOdometerInput.value = task.endOdometer || ""; customerAddressInput.value = task.customerAddress || "";
       customerPhoneInput.value = task.customerPhone || ""; customerEmailInput.value = task.customerEmail || "";

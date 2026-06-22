@@ -341,6 +341,34 @@
             </section>
 
             <section class="hub-section">
+                <div class="hcard">
+                    <h3>AI Services <button id="ai-refresh-btn" class="hbtn" style="float:right;padding:2px 8px;font-size:0.7rem;margin-top:-2px">↻</button></h3>
+                    <div id="ai-services-body">
+                        <div class="ai-svc-row" style="display:flex;align-items:center;gap:10px;padding:6px 0">
+                            <span class="dot" id="ai-a1111-dot" style="background:#64748b"></span>
+                            <span style="font-size:0.88rem;min-width:140px">A1111 (Stable Diffusion)</span>
+                            <span id="ai-a1111-status" style="font-size:0.78rem;color:var(--muted);min-width:60px">…</span>
+                            <span style="font-size:0.72rem;color:var(--muted)">:7860</span>
+                            <span style="flex:1"></span>
+                            <button class="hbtn primary" data-ai-start="a1111" style="padding:4px 14px;font-size:0.78rem">Start</button>
+                        </div>
+                        <div class="ai-svc-row" style="display:flex;align-items:center;gap:10px;padding:6px 0">
+                            <span class="dot" id="ai-comfy-dot" style="background:#64748b"></span>
+                            <span style="font-size:0.88rem;min-width:140px">ComfyUI</span>
+                            <span id="ai-comfy-status" style="font-size:0.78rem;color:var(--muted);min-width:60px">…</span>
+                            <span style="font-size:0.72rem;color:var(--muted)">:8188</span>
+                            <span style="flex:1"></span>
+                            <button class="hbtn primary" data-ai-start="comfy" style="padding:4px 14px;font-size:0.78rem">Start</button>
+                        </div>
+                        <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+                            <button class="hbtn" data-ai-start="all" style="padding:4px 14px;font-size:0.78rem">Start Both</button>
+                            <span id="ai-launcher-msg" style="font-size:0.72rem;color:var(--muted);margin-left:10px"></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="hub-section">
                 <div class="hcard"><h3>Quick Commands</h3><div id="cmd-list"></div></div>
             </section>
 
@@ -763,8 +791,10 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                 { label: 'SSH → web-server VM',  cmd: 'ssh louserver@192.168.50.20' },
                 { label: 'RDP → se',             cmd: 'mstsc /v:192.168.50.10' },
                 { label: 'Docker restart all',   cmd: 'docker compose -f E:\\Containers\\docker-compose.yml restart' },
+                { label: 'A1111 start',          cmd: 'E:\\stable-diffusion-webui\\webui-user.bat' },
                 { label: 'ComfyUI start',        cmd: 'E:\\ComfyUI\\run.bat' },
-                { label: 'SD WebUI start',       cmd: 'C:\\Users\\homelab\\OneDrive\\stable-diffusion-webui\\webui-user.bat' },
+                { label: 'Open A1111 folder',    cmd: 'explorer "E:\\stable-diffusion-webui"' },
+                { label: 'Open ComfyUI folder',  cmd: 'explorer "E:\\ComfyUI"' },
                 { label: 'Wazuh pw change',      cmd: 'docker exec -it single-node-wazuh.indexer-1 bash -c "export JAVA_HOME=/usr/share/wazuh-indexer/jdk && /usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh -u admin -p \'NEWPASSWORD\'"' },
                 { label: 'Tailscale subnet',     cmd: 'tailscale up --advertise-routes=192.168.50.0/24' },
                 { label: 'Docker logs (follow)', cmd: 'docker logs -f ' },
@@ -1155,6 +1185,78 @@ MOOD TAG: End every reply with [MOOD:X] where X is one of: happy sleepy excited 
                 }
             }
         });
+    </script>
+
+    <!-- AI Services launcher (hub-side controls for ai-launcher-svc on se :3030) -->
+    <script>
+    (function () {
+        // Mixed-content: browsers block http://192.168.50.10:3030 from an https:// page.
+        // So on HTTPS we disable buttons and show a LAN-only hint.
+        const LAUNCHER = location.protocol === 'https:' ? null : 'http://192.168.50.10:3030';
+        const msgEl = document.getElementById('ai-launcher-msg');
+
+        function setDot(id, running) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.style.background = running ? '#4ade80' : '#64748b';
+            el.style.boxShadow  = running ? '0 0 5px #4ade8088' : 'none';
+        }
+
+        function setStatus(label, running) {
+            const el = document.getElementById(label);
+            if (!el) return;
+            el.textContent = running ? 'running' : 'stopped';
+            el.style.color = running ? '#4ade80' : 'var(--muted)';
+        }
+
+        async function pollStatus() {
+            if (!LAUNCHER) {
+                msgEl.textContent = 'LAN-only — open hub on 192.168.50.10:8081 to use these buttons';
+                return;
+            }
+            try {
+                const r = await fetch(`${LAUNCHER}/status`, { signal: AbortSignal.timeout(3000) });
+                const s = await r.json();
+                setDot('ai-a1111-dot', s.a1111.running);
+                setDot('ai-comfy-dot', s.comfy.running);
+                setStatus('ai-a1111-status', s.a1111.running);
+                setStatus('ai-comfy-status', s.comfy.running);
+                msgEl.textContent = '';
+            } catch {
+                msgEl.textContent = 'Launcher service offline (se :3030)';
+                setDot('ai-a1111-dot', false);
+                setDot('ai-comfy-dot', false);
+                document.getElementById('ai-a1111-status').textContent = '—';
+                document.getElementById('ai-comfy-status').textContent = '—';
+            }
+        }
+
+        document.addEventListener('click', async e => {
+            const which = e.target?.dataset?.aiStart;
+            if (!which) return;
+            if (!LAUNCHER) return;
+            const btn = e.target;
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Starting…';
+            try {
+                await fetch(`${LAUNCHER}/start/${which}`, {
+                    method: 'POST',
+                    signal: AbortSignal.timeout(5000)
+                });
+            } catch {}
+            // Poll a few times — services take ~30s to bind their port
+            setTimeout(() => { btn.textContent = origText; btn.disabled = false; pollStatus(); }, 2000);
+            setTimeout(pollStatus, 8000);
+            setTimeout(pollStatus, 20000);
+            setTimeout(pollStatus, 40000);
+        });
+
+        document.getElementById('ai-refresh-btn')?.addEventListener('click', pollStatus);
+
+        pollStatus();
+        setInterval(pollStatus, 15000);
+    })();
     </script>
 </body>
 </html>

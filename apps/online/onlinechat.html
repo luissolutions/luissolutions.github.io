@@ -490,6 +490,16 @@
                 </div>
                 <button id="prs-save" class="btn-primary">Save</button>
                 <span id="prs-status"></span>
+
+                <div class="prs-section" style="margin-top:16px;border-top:1px solid var(--border,#333);padding-top:12px;">
+                    <label style="font-weight:600;">Memory Summary</label>
+                    <small style="opacity:0.7;">Consolidates raw memories into a dense thematic summary so the bot doesn't drown in old notes. Run when you've added a lot of memories.</small>
+                    <textarea id="mem-summary" rows="6" placeholder="(no summary yet — click Consolidate to generate one)" style="font-size:0.85rem;font-family:monospace;" readonly></textarea>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <button id="mem-consolidate" class="btn-primary">Consolidate Memory</button>
+                        <span id="mem-status" style="font-size:0.85rem;opacity:0.8;"></span>
+                    </div>
+                </div>
             </div>
 
             <div class="input-bar">
@@ -561,8 +571,8 @@
 
         const SPRITE_MOODS = ['happy', 'sleepy', 'excited', 'thinking', 'flirty'];
         const SD_PROXY = 'https://api.luissolutions.us/sd/generate';
-        const SD_MODELS = ['anything-v3-fp16-pruned', 'ghostmix_v12', 'dreamshaper_331BakedVae'];
-        const SD_NSFW_MODEL = 'meinamix_meinaV11';
+        const SD_MODELS = ['meinamix_v12Final'];
+        const SD_NSFW_MODEL = 'meinamix_v12Final';
         const randModel = () => SD_MODELS[Math.floor(Math.random() * SD_MODELS.length)];
 
         // Video gen via comfy-proxy-svc on se. HTTP for LAN-hosted onlinechat, tunnel for public github.io.
@@ -887,13 +897,29 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         async function fetchBotMemory() {
             if (!currentUser) return '';
             try {
-                const snap = await get(ref(database, `${currentUser.uid}/bot/memory`));
-                if (!snap.exists()) return '';
-                const lines = Object.entries(snap.val())
-                    .map(([k, v]) => `${k}: ${typeof v === 'object' ? v.value : v}`)
-                    .join('\n');
                 const memName = (BOT_NAME.replace(/^\S+\s+/, '') || BOT_NAME).toUpperCase();
-                return `${memName} MEMORY (things you remember about this user and this system):\n${lines}`;
+                // Load summary (dense consolidated facts) — preferred over the raw bag
+                const [summarySnap, rawSnap] = await Promise.all([
+                    get(ref(database, `${currentUser.uid}/bot/memory_summary`)),
+                    get(ref(database, `${currentUser.uid}/bot/memory`)),
+                ]);
+                const summary = summarySnap.exists() ? (summarySnap.val() || '').toString().trim() : '';
+                let recentLines = '';
+                if (rawSnap.exists()) {
+                    // Pick the 10 most recent raw entries (so newly-added memories work even before next consolidation)
+                    const entries = Object.entries(rawSnap.val())
+                        .map(([k, v]) => ({ k, val: typeof v === 'object' ? v.value : v, ts: typeof v === 'object' ? (v.updated || 0) : 0 }))
+                        .sort((a, b) => b.ts - a.ts)
+                        .slice(0, 10);
+                    if (entries.length) {
+                        recentLines = entries.map(e => `${e.k}: ${e.val}`).join('\n');
+                    }
+                }
+                if (!summary && !recentLines) return '';
+                const parts = [];
+                if (summary) parts.push(`${memName} MEMORY SUMMARY (consolidated facts about this user and system):\n${summary}`);
+                if (recentLines) parts.push(`${memName} RECENT MEMORIES (most recent ${recentLines.split('\n').length} entries, not yet consolidated):\n${recentLines}`);
+                return parts.join('\n\n');
             } catch { return ''; }
         }
 
@@ -1623,8 +1649,57 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 document.getElementById('prs-neg').value         = negS.val()   || '';
                 document.getElementById('prs-personality').value = persS.val()  || '';
                 document.getElementById('prs-nsfw').checked      = !!nsfwS.val();
+                // memory summary (separate load — non-blocking if it's missing)
+                try {
+                    const memSumS = await get(ref(database, `${uid}/bot/memory_summary`));
+                    document.getElementById('mem-summary').value = (memSumS.exists() && memSumS.val()) ? memSumS.val() : '';
+                } catch { /* leave placeholder */ }
             } catch (e) { console.warn('persona load error', e); }
         }
+
+        document.getElementById('mem-consolidate').addEventListener('click', async () => {
+            if (!currentUser) { alert('Sign in first.'); return; }
+            const btn    = document.getElementById('mem-consolidate');
+            const status = document.getElementById('mem-status');
+            const out    = document.getElementById('mem-summary');
+            btn.disabled = true;
+            status.textContent = 'gathering memories...';
+            try {
+                const [memS, traitS] = await Promise.all([
+                    get(ref(database, `${currentUser.uid}/bot/memory`)),
+                    get(ref(database, `${currentUser.uid}/bot/traits`)),
+                ]);
+                const memories = memS.exists() ? memS.val() : {};
+                const traits   = traitS.exists() ? traitS.val() : {};
+                const memCount = Object.keys(memories).length;
+                const trCount  = Object.keys(traits).length;
+                if (!memCount && !trCount) {
+                    status.textContent = 'no memories or traits to consolidate yet';
+                    btn.disabled = false;
+                    return;
+                }
+                status.textContent = `consolidating ${memCount} memories + ${trCount} traits via gemma2:9b...`;
+                const r = await fetch('http://192.168.50.10:3050/summarize-memory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ memories, traits }),
+                });
+                const j = await r.json();
+                if (!r.ok || !j.ok) {
+                    status.textContent = 'failed: ' + (j.error || `HTTP ${r.status}`);
+                    btn.disabled = false;
+                    return;
+                }
+                await set(ref(database, `${currentUser.uid}/bot/memory_summary`), j.summary);
+                out.value = j.summary;
+                status.textContent = `✓ saved (${j.chars} chars)`;
+                setTimeout(() => status.textContent = '', 4000);
+            } catch (e) {
+                status.textContent = 'error: ' + e.message;
+            } finally {
+                btn.disabled = false;
+            }
+        });
 
         document.getElementById('prs-save').addEventListener('click', async () => {
             if (!currentUser) return;
