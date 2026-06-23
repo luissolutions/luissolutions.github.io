@@ -229,6 +229,25 @@
     }
     .toast.err { border-color: #c44; color: #fcc; }
 
+    .svc-banner {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 12px; margin-bottom: 10px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); font-size: 0.82rem;
+    }
+    .svc-banner.offline { border-color: #c44; }
+    .svc-banner .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; }
+    .svc-banner.online  .dot { background: #4ade80; box-shadow: 0 0 5px #4ade8088; }
+    .svc-banner.offline .dot { background: #f87171; }
+    .svc-banner .label  { font-weight: 600; }
+    .svc-banner .hint   { color: var(--muted); flex: 1; }
+    .svc-banner button  {
+      padding: 3px 10px; font-size: 0.8rem;
+      border: 1px solid var(--accent); background: var(--accent); color: #fff;
+      border-radius: 4px; cursor: pointer;
+    }
+    .svc-banner button:disabled { opacity: 0.6; cursor: wait; }
+
     /* Quick-Links aside — matches hub.html pattern */
     #links-aside {
       position: fixed; top: 0; right: 0; bottom: 0; width: 320px;
@@ -254,6 +273,13 @@
   <div id="header-placeholder"></div>
 
   <main>
+    <div id="svc-banner" class="svc-banner" style="display:none;">
+      <span class="dot"></span>
+      <span class="label">personal-svc</span>
+      <span class="hint" id="svc-hint">checking…</span>
+      <button id="svc-start-btn" style="display:none;">Start</button>
+    </div>
+
     <div class="toolbar">
       <div class="row">
         <h1>Email Triage</h1>
@@ -296,11 +322,10 @@
       <div class="row">
         <select id="scan-account" class="ctl">
           <option value="" selected>all accounts</option>
-          <option value="louman61-gmail">louman61</option>
-          <option value="luis-personal-gmail">luis.a.curbelo</option>
-          <option value="ses-gmail">ses</option>
-          <option value="yahoo-throwaway">yahoo</option>
-          <option value="outlook-personal">outlook</option>
+          <option value="louman61-gmail"      style="color:#60a5fa;font-weight:600;">louman61</option>
+          <option value="luis-personal-gmail" style="color:#4ade80;font-weight:600;">luis.a.curbelo</option>
+          <option value="ses-gmail"           style="color:#fbbf24;font-weight:600;">ses</option>
+          <option value="yahoo-throwaway"     style="color:#c084fc;font-weight:600;">yahoo</option>
         </select>
         <input id="scan-max" type="number" min="10" max="500" value="50" class="ctl" style="width:70px;" title="max per folder">
         <button id="scan-btn" class="btn ctl primary">Scan Inbox</button>
@@ -515,9 +540,10 @@ function render() {
   // Rebuild domain dropdown options from current pending
   const domainSelect = $("f-domain");
   const prevVal = domainSelect.value;
-  const domains = [...new Set(entries.map(([, e]) => e.senderDomain).filter(Boolean))].sort();
+  const domains = [...new Set(entries.map(([, e]) => getDomain(e)).filter(Boolean))].sort();
   const domainCounts = entries.reduce((acc, [, e]) => {
-    if (e.senderDomain) acc[e.senderDomain] = (acc[e.senderDomain] || 0) + 1;
+    const d = getDomain(e);
+    if (d) acc[d] = (acc[d] || 0) + 1;
     return acc;
   }, {});
   domainSelect.innerHTML = `<option value="">all senders (${entries.length})</option>` +
@@ -530,9 +556,9 @@ function render() {
   let filtered = entries;
   if (activeFilter !== "all") filtered = filtered.filter(([, e]) => (e[catField] || "unknown") === activeFilter);
   if (acctSel)                filtered = filtered.filter(([, e]) => e.account === acctSel);
-  if (domainFilter)           filtered = filtered.filter(([, e]) => e.senderDomain === domainFilter);
+  if (domainFilter)           filtered = filtered.filter(([, e]) => getDomain(e) === domainFilter);
   if (searchText)             filtered = filtered.filter(([, e]) => {
-    const hay = ((e.subject || "") + " " + (e.snippet || "") + " " + (e.senderEmail || "") + " " + (e.senderDomain || "")).toLowerCase();
+    const hay = ((e.subject || "") + " " + (e.snippet || "") + " " + (e.senderEmail || "") + " " + getDomain(e)).toLowerCase();
     return hay.includes(searchText);
   });
   if (dateSince !== null)     filtered = filtered.filter(([, e]) => (e.date || 0) >= dateSince);
@@ -542,7 +568,7 @@ function render() {
   const sorters = {
     "date-desc": (a, b) => (b[1].date || 0) - (a[1].date || 0),
     "date-asc":  (a, b) => (a[1].date || 0) - (b[1].date || 0),
-    "sender":    (a, b) => (a[1].senderDomain || "").localeCompare(b[1].senderDomain || ""),
+    "sender":    (a, b) => getDomain(a[1]).localeCompare(getDomain(b[1])),
   };
   filtered.sort(sorters[sortBy] || sorters["date-desc"]);
 
@@ -579,7 +605,7 @@ function render() {
         <div class="head">
           <input type="checkbox" data-sel="${key}" ${isChecked}>
           <span class="badge">${cat}</span>
-          <span class="domain">${e.senderDomain || ""}</span>
+          <span class="domain">${getDomain(e)}</span>
           <span class="subject" title="${escHTML(e.subject || "")}">${escHTML(e.subject || "(no subject)")}</span>
           <span class="date">${dateStr}</span>
         </div>
@@ -614,6 +640,16 @@ function render() {
 
 function escHTML(s) {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// Derive display domain from senderEmail. Backwards-compat: prefer stored senderDomain
+// for entries staged before the schema slim (2026-06-22).
+function getDomain(e) {
+  if (e.senderDomain) return e.senderDomain;
+  const addr = (e.senderEmail || "").toLowerCase();
+  if (!addr.includes("@")) return "";
+  const d = addr.split("@")[1] || "";
+  return d.replace(/^(mail|email|notify|info|noreply|no-reply|do-not-reply|news|enews|marketing|hello|contact|support|reservations|guest)\./, "");
 }
 
 function updateBulkBar() {
@@ -758,7 +794,7 @@ function openModal(action, key, e) {
     const today = new Date(e.date || Date.now()).toISOString().slice(0, 10);
     inner = `
       <h3>📧 Add Receipt</h3>
-      <label>Vendor</label><input id="m-name"  value="${escHTML(e.senderDomain || '')}">
+      <label>Vendor</label><input id="m-name"  value="${escHTML(getDomain(e))}">
       <label>Amount ($)</label><input id="m-amt" type="number" step="0.01" value="${e.amount || ''}">
       <label>Date</label><input id="m-date" type="date" value="${today}">
       <label>Category</label><input id="m-cat" value="" placeholder="e.g. Software, Travel, Office">
@@ -768,8 +804,8 @@ function openModal(action, key, e) {
   } else if (action === "link") {
     inner = `
       <h3>🔗 Save Link</h3>
-      <label>Title</label><input id="m-title" value="${escHTML(e.senderDomain || '')}">
-      <label>URL</label><input id="m-url" value="${escHTML(e.firstUrl || 'https://' + (e.senderDomain || ''))}">
+      <label>Title</label><input id="m-title" value="${escHTML(getDomain(e))}">
+      <label>URL</label><input id="m-url" value="${escHTML(e.firstUrl || 'https://' + getDomain(e))}">
       <label>Categories (comma-separated)</label>
       <input id="m-cats" list="cat-suggest" value="" placeholder="e.g. Work, Finance, Tools">
       <datalist id="cat-suggest">
@@ -921,7 +957,8 @@ $("insights-btn").addEventListener("click", async () => {
     const cat = viewMode === "processed" ? (e.decision || "unknown") : (e.category || "unknown");
     byCategory[cat] = (byCategory[cat] || 0) + 1;
     if (e.account)       byAccount[e.account] = (byAccount[e.account] || 0) + 1;
-    if (e.senderDomain)  byDomain[e.senderDomain] = (byDomain[e.senderDomain] || 0) + 1;
+    const d = getDomain(e);
+    if (d)               byDomain[d] = (byDomain[d] || 0) + 1;
     if (e.amount > 0)   { withAmount++; totalAmount += e.amount; }
     if (e.date) {
       const m = new Date(e.date).toISOString().slice(0, 7);
@@ -1003,7 +1040,7 @@ $("insights-btn").addEventListener("click", async () => {
 // Empty value = "all accounts" → filter shows everything, Scan kicks off scans for every configured account.
 $("scan-account").addEventListener("change", render);
 
-const ALL_SCANNABLE = ["louman61-gmail", "luis-personal-gmail", "ses-gmail", "yahoo-throwaway", "outlook-personal"];
+const ALL_SCANNABLE = ["louman61-gmail", "luis-personal-gmail", "ses-gmail", "yahoo-throwaway"];
 
 // Scan-inbox button
 $("scan-btn").addEventListener("click", async () => {
@@ -1159,6 +1196,58 @@ async function resumeActiveScans() {
     localStorage.removeItem(ACTIVE_SCANS_KEY);
   }
 }
+
+// -- Service health banner (asks ai-launcher to start personal-svc when offline)
+const LAUNCHER_SVC = location.protocol === "https:" ? null : "http://192.168.50.10:3030";
+const banner   = $("svc-banner");
+const hintEl   = $("svc-hint");
+const startBtn = $("svc-start-btn");
+
+async function pollSvc() {
+  if (!LAUNCHER_SVC) {
+    banner.style.display = "flex";
+    banner.className = "svc-banner offline";
+    hintEl.innerHTML = `LAN-only — <a href="http://192.168.50.10:8081/email.html" style="color:var(--accent)">open on :8081</a> for Start button`;
+    startBtn.style.display = "none";
+    return;
+  }
+  try {
+    const r = await fetch(`${LAUNCHER_SVC}/status`, { signal: AbortSignal.timeout(3000) });
+    const s = await r.json();
+    if (s.personal && s.personal.running) {
+      // Service is up — hide banner entirely (signal-only-on-problem)
+      banner.style.display = "none";
+    } else {
+      banner.style.display = "flex";
+      banner.className = "svc-banner offline";
+      hintEl.textContent = "offline — Scan and Insights won't work until started";
+      startBtn.style.display = "inline-block";
+      startBtn.disabled = false;
+      startBtn.textContent = "Start";
+    }
+  } catch {
+    banner.style.display = "flex";
+    banner.className = "svc-banner offline";
+    hintEl.textContent = "ai-launcher offline on se :3030 — start it manually";
+    startBtn.style.display = "none";
+  }
+}
+
+startBtn.addEventListener("click", async () => {
+  if (!LAUNCHER_SVC) return;
+  startBtn.disabled = true;
+  startBtn.textContent = "Starting…";
+  try {
+    await fetch(`${LAUNCHER_SVC}/start/personal`, { method: "POST", signal: AbortSignal.timeout(5000) });
+  } catch {}
+  // personal-svc binds :3050 in ~3-5s; poll a few times so the banner updates
+  setTimeout(pollSvc, 3000);
+  setTimeout(pollSvc, 7000);
+  setTimeout(pollSvc, 15000);
+});
+
+pollSvc();
+setInterval(pollSvc, 20000);
   </script>
 </body>
 </html>

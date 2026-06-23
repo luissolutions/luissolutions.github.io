@@ -328,6 +328,7 @@
         <option value="PASS">Pass</option>
         <option value="INCOMPLETE">Incomplete</option>
       </select>
+      <button id="exportCsvBtn" type="button" title="Export the currently filtered + sorted set">Export CSV</button>
       <div class="dashboard-summary" id="summaryPills"></div>
     </div>
 
@@ -1189,8 +1190,12 @@
           rec.searchText = getSearchText(rec);
         }
         const openIds = new Set([...document.querySelectorAll(".detail-row.open")].map(r => r.id));
+        const scrollY = window.scrollY;
         render();
         openIds.forEach(id => document.getElementById(id)?.classList.add("open"));
+        // Preserve scroll position so an admin editing a row halfway down the table
+        // doesn't get yanked back to the top on every save.
+        window.scrollTo(0, scrollY);
       } catch (err) {
         console.error("[EDIT SAVE]", err);
         alert("Save failed: " + err.message);
@@ -1200,6 +1205,51 @@
     document.getElementById("searchInput").addEventListener("input", e => {
       CURRENT_SEARCH = e.target.value.trim().toLowerCase();
       render();
+    });
+
+    // ─── CSV export of currently filtered + sorted set ───
+    function csvEscape(v) {
+      if (v == null) return "";
+      const s = String(v);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }
+    function buildCsv(records) {
+      const headers = [
+        "Site", "Customer", "Address", "Status", "Lowest", "Worst",
+        "Radar", "Remote", "Audit",
+        "Sensors configured", "With serials", "With measurements",
+        "Flags", "Partner", "Lead tech", "Additional techs",
+        "QC lead", "Manager", "Auditor",
+        "Visit date", "Updated",
+      ];
+      const rows = records.map(r => {
+        const a = r.analysis;
+        const s = r.sensors;
+        const i = r.info;
+        return [
+          r.name, i.customer, i.address, a.status, a.lowestScore ?? "", a.worstType ?? "",
+          a.scores.radar ?? "", a.scores.remote ?? "", a.scores.audit ?? "",
+          s.sensorCount, s.serialCount, s.measurementCount,
+          [...(r.qcFlags || []), ...(r.auditFlags || [])].join(" | "),
+          i.partnerCompany, i.leadTech, i.additionalTechs,
+          i.qcLead, i.managerName, i.auditor,
+          i.visitDate, formatDateTime(getUpdatedAt(r.data)),
+        ];
+      });
+      return [headers, ...rows].map(row => row.map(csvEscape).join(",")).join("\r\n");
+    }
+    document.getElementById("exportCsvBtn").addEventListener("click", () => {
+      const filtered = sortRecords(applyFilters([...ALL_SITES]));
+      if (!filtered.length) { alert("No rows to export — adjust filters first."); return; }
+      const csv = buildCsv(filtered);
+      const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });  // BOM so Excel reads UTF-8
+      const url = URL.createObjectURL(blob);
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `radar-dashboard_${stamp}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 500);
     });
 
     document.getElementById("statusFilter").addEventListener("change", e => {

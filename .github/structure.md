@@ -131,7 +131,8 @@
 - apps/telaid/index.html - Frontend page: App Launcher
 - apps/telaid/placement.html - Frontend page: Sensor Placement Verifier (ft/in). Heading: Sensor Placement Verifier â€” Feet/Inches
 - apps/telaid/radar-dashboard.html - Frontend page: Radar Data Sheet
-- apps/telaid/radartools.html - Frontend page: Radar Checklist. Heading: <img src="./assets/img/telaid_logo.png" alt=""> Radar
+- apps/telaid/radar-tools.html - Frontend page: Radar Checklist. Heading: <img src="./assets/img/telaid_logo.png" alt=""> Radar
+- apps/telaid/radartools.html - Redirect stub → radar-tools.html (back-compat for existing bookmarks)
 - apps/telaid/radartools-local.html - Frontend page: Job Details Tracker - Local Only. Heading: <img src="./assets/img/telaid_logo.png" alt=""> Radar
 - apps/telaid/radartools-onedrive.html - Frontend page: Radar - OneDrive. Heading: Radar - Checklists
 - apps/telaid/walmart-tracker.html - Frontend page: Walmart Security Technology â€“ Project Tracker. Heading: Tech Sheet â€“ Project Tracker
