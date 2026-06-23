@@ -106,7 +106,7 @@
             <input
               type="text"
               id="newCustomerName"
-              placeholder="e.g. Walmart #1234"
+              placeholder="e.g. Old Navy"
             />
           </label>
           <div style="display: flex; gap: 6px; margin-top: 8px">
@@ -1274,17 +1274,36 @@
         try {
           const tasks = (await readOnce(`${state.basePath}/tasks`)) || {};
 
+          // OneDrive upload markers are stored as toLocaleString() text by the
+          // upload handlers (see lines 3232 / 3259). Parse via Date so we can
+          // compare against the site's last-modified time.
+          const parseUploadTs = (v) => {
+            if (!v) return 0;
+            if (typeof v === "number") return v;
+            const t = Date.parse(v);
+            return Number.isNaN(t) ? 0 : t;
+          };
+
           state.allProjects = Object.entries(tasks)
             .map(([id, task]) => {
               const customer = (task.customerName || "").trim();
               const project = (task.project || "").trim();
               if (!customer && !project) return null;
+              const time = bestTime(task, id);
+              const lastUpload = Math.max(
+                parseUploadTs(task.lastUploadedQC),
+                parseUploadTs(task.lastUploadedImages),
+              );
               return {
                 id,
                 customer,
                 project,
                 label: `${customer || "(No Customer)"} — ${project || "(No Project)"}`,
-                time: bestTime(task, id),
+                time,
+                // Red flag only for sites that have NEVER been uploaded to OneDrive.
+                // Once any QC or image upload has succeeded, the marker exists and
+                // we treat the site as "uploaded" regardless of later edits.
+                needsUpload: !lastUpload,
               };
             })
             .filter(Boolean)
@@ -1330,7 +1349,17 @@
         }
 
         sel.innerHTML = '<option value="">-- Choose a site --</option>';
-        ordered.forEach((p) => sel.appendChild(new Option(p.label, p.id)));
+        // Only flag sites as "not uploaded" when MS is signed in. Without an MS
+        // token we can't actually upload, so colouring would be noise.
+        const msSignedIn = !!localStorage.getItem("accessToken");
+        ordered.forEach((p) => {
+          const opt = new Option(p.label, p.id);
+          if (msSignedIn && p.needsUpload) {
+            opt.style.color = "#f87171";
+            opt.title = "Never uploaded to OneDrive — open the site and use the Upload buttons";
+          }
+          sel.appendChild(opt);
+        });
       }
 
       function filterProjects() {
