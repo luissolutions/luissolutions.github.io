@@ -1,4 +1,4 @@
-﻿- .github/ - Directory
+- .github/ - Directory
 - .github/copilot-instructions.md - Markdown: Copilot Instructions for this repository
 - .github/plan-instructions.md - Markdown: Year Plan
 - .github/structure.md - Markdown document
@@ -398,81 +398,81 @@
 - websites/bma/js/signout.js - JavaScript file
 - websites/bma/login.html - Frontend page: Business App
 - websites/bma/site.webmanifest - .webmanifest file
-- websites/cpr/ - Directory
-- websites/cpr/css/ - Directory
-- websites/cpr/css/styles.css - CSS stylesheet
-- websites/cpr/editor.html - Frontend page: CPR
-- websites/cpr/img/ - Directory
-- websites/cpr/img/A02s.png - PNG image
-- websites/cpr/img/A14.png - PNG image
-- websites/cpr/img/android-chrome-192x192.png - PNG image
-- websites/cpr/img/android-chrome-512x512.png - PNG image
-- websites/cpr/img/apple-touch-icon.png - PNG image
-- websites/cpr/img/default.png - PNG image
-- websites/cpr/img/favicon.ico - Icon file
-- websites/cpr/img/favicon-16x16.png - PNG image
-- websites/cpr/img/favicon-32x32.png - PNG image
-- websites/cpr/img/iPad (10th gen) A2696.png - PNG image
-- websites/cpr/img/iPad (7 8 9) A2602.png - PNG image
-- websites/cpr/img/iPad 10 (10 7).png - PNG image
-- websites/cpr/img/iPad 7, 8 & 9 (10 2).png - PNG image
-- websites/cpr/img/iPad Air & 5 & 6 (9 7).png - PNG image
-- websites/cpr/img/iPad Air 2 (9 7).png - PNG image
-- websites/cpr/img/iPad Air 3 (9 7).png - PNG image
-- websites/cpr/img/iPad Air 5 (A2588, A2589, A2591).png - PNG image
-- websites/cpr/img/iPhone 11 Pro Max.png - PNG image
-- websites/cpr/img/iPhone 11 Pro.png - PNG image
-- websites/cpr/img/iPhone 11.png - PNG image
-- websites/cpr/img/iPhone 12  12 Pro.png - PNG image
-- websites/cpr/img/iPhone 12 Mini.png - PNG image
-- websites/cpr/img/iPhone 12 Pro Max.png - PNG image
-- websites/cpr/img/iPhone 12 Pro.png - PNG image
-- websites/cpr/img/iPhone 12.png - PNG image
-- websites/cpr/img/iPhone 13 Mini.png - PNG image
-- websites/cpr/img/iPhone 13 Pro Max.png - PNG image
-- websites/cpr/img/iPhone 13 Pro.png - PNG image
-- websites/cpr/img/iPhone 13.png - PNG image
-- websites/cpr/img/iPhone 14 Pro Max.png - PNG image
-- websites/cpr/img/iPhone 14 Pro.png - PNG image
-- websites/cpr/img/iPhone 14.png - PNG image
-- websites/cpr/img/iPhone SE (2nd gen).png - PNG image
-- websites/cpr/img/iPhone SE (2nd generation).png - PNG image
-- websites/cpr/img/iPhone X or XS.png - PNG image
-- websites/cpr/img/iPhone XR or 11.png - PNG image
-- websites/cpr/img/iPhone XR.png - PNG image
-- websites/cpr/img/iPhone XS Max.png - PNG image
-- websites/cpr/img/iphone12-pro-colors.jpg - JPEG image
-- websites/cpr/img/iPhones 5 6 7 8 SE series.png - PNG image
-- websites/cpr/img/lhr_logo.png - PNG image
-- websites/cpr/img/logo.png - PNG image
-- websites/cpr/img/moto one ace.png - PNG image
-- websites/cpr/img/Note 10 Lite.png - PNG image
-- websites/cpr/img/Note 10.png - PNG image
-- websites/cpr/img/Note 10+ 5G.png - PNG image
-- websites/cpr/img/Note 20 5G.png - PNG image
-- websites/cpr/img/S7 (special price Actives & Edge).png - PNG image
-- websites/cpr/img/S8 (special price Actives).png - PNG image
-- websites/cpr/img/sheets.png - PNG image
-- websites/cpr/img/site.webmanifest - .webmanifest file
-- websites/cpr/index.html - Frontend page: CPR. Heading: Repair Price Calculator
-- websites/cpr/js/ - Directory
-- websites/cpr/js/auth.js - JavaScript: Check the auth state immediately
-- websites/cpr/js/editor.js - JavaScript file
-- websites/cpr/js/firebase-config.js - JavaScript file
-- websites/cpr/js/firebase-init.js - JavaScript file
-- websites/cpr/js/index.js - JavaScript file
-- websites/cpr/js/login.js - JavaScript: window.location.href = 'login.html';
-- websites/cpr/js/reg.js - JavaScript: Check if a user is logged in
-- websites/cpr/js/repair.js - JavaScript file
-- websites/cpr/login.html - Frontend page: CPR
-- websites/cpr/pages/ - Directory
-- websites/cpr/pages/game.html - Frontend page: Game Consoles. Heading: Gaming Systems Repair
-- websites/cpr/pages/more.html - Frontend page: More. Heading: Water Treatment (Dehydration only)
-- websites/cpr/pages/purchase.html - Frontend page: Purchase
-- websites/cpr/pages/ref.html - Frontend page: CPR iPhone Repair Pricing
-- websites/cpr/reg.html - Frontend page: CPR. Heading: Registration
-- websites/cpr/repair.html - Frontend page: CPR. Heading: Repair Cost Calculator
-- websites/cpr/site.webmanifest - .webmanifest file
+- websites/lhr/ - Directory
+- websites/lhr/css/ - Directory
+- websites/lhr/css/styles.css - CSS stylesheet
+- websites/lhr/editor.html - Frontend page: LHR
+- websites/lhr/img/ - Directory
+- websites/lhr/img/A02s.png - PNG image
+- websites/lhr/img/A14.png - PNG image
+- websites/lhr/img/android-chrome-192x192.png - PNG image
+- websites/lhr/img/android-chrome-512x512.png - PNG image
+- websites/lhr/img/apple-touch-icon.png - PNG image
+- websites/lhr/img/default.png - PNG image
+- websites/lhr/img/favicon.ico - Icon file
+- websites/lhr/img/favicon-16x16.png - PNG image
+- websites/lhr/img/favicon-32x32.png - PNG image
+- websites/lhr/img/iPad (10th gen) A2696.png - PNG image
+- websites/lhr/img/iPad (7 8 9) A2602.png - PNG image
+- websites/lhr/img/iPad 10 (10 7).png - PNG image
+- websites/lhr/img/iPad 7, 8 & 9 (10 2).png - PNG image
+- websites/lhr/img/iPad Air & 5 & 6 (9 7).png - PNG image
+- websites/lhr/img/iPad Air 2 (9 7).png - PNG image
+- websites/lhr/img/iPad Air 3 (9 7).png - PNG image
+- websites/lhr/img/iPad Air 5 (A2588, A2589, A2591).png - PNG image
+- websites/lhr/img/iPhone 11 Pro Max.png - PNG image
+- websites/lhr/img/iPhone 11 Pro.png - PNG image
+- websites/lhr/img/iPhone 11.png - PNG image
+- websites/lhr/img/iPhone 12  12 Pro.png - PNG image
+- websites/lhr/img/iPhone 12 Mini.png - PNG image
+- websites/lhr/img/iPhone 12 Pro Max.png - PNG image
+- websites/lhr/img/iPhone 12 Pro.png - PNG image
+- websites/lhr/img/iPhone 12.png - PNG image
+- websites/lhr/img/iPhone 13 Mini.png - PNG image
+- websites/lhr/img/iPhone 13 Pro Max.png - PNG image
+- websites/lhr/img/iPhone 13 Pro.png - PNG image
+- websites/lhr/img/iPhone 13.png - PNG image
+- websites/lhr/img/iPhone 14 Pro Max.png - PNG image
+- websites/lhr/img/iPhone 14 Pro.png - PNG image
+- websites/lhr/img/iPhone 14.png - PNG image
+- websites/lhr/img/iPhone SE (2nd gen).png - PNG image
+- websites/lhr/img/iPhone SE (2nd generation).png - PNG image
+- websites/lhr/img/iPhone X or XS.png - PNG image
+- websites/lhr/img/iPhone XR or 11.png - PNG image
+- websites/lhr/img/iPhone XR.png - PNG image
+- websites/lhr/img/iPhone XS Max.png - PNG image
+- websites/lhr/img/iphone12-pro-colors.jpg - JPEG image
+- websites/lhr/img/iPhones 5 6 7 8 SE series.png - PNG image
+- websites/lhr/img/lhr_logo.png - PNG image
+- websites/lhr/img/logo.png - PNG image
+- websites/lhr/img/moto one ace.png - PNG image
+- websites/lhr/img/Note 10 Lite.png - PNG image
+- websites/lhr/img/Note 10.png - PNG image
+- websites/lhr/img/Note 10+ 5G.png - PNG image
+- websites/lhr/img/Note 20 5G.png - PNG image
+- websites/lhr/img/S7 (special price Actives & Edge).png - PNG image
+- websites/lhr/img/S8 (special price Actives).png - PNG image
+- websites/lhr/img/sheets.png - PNG image
+- websites/lhr/img/site.webmanifest - .webmanifest file
+- websites/lhr/index.html - Frontend page: LHR. Heading: Repair Price Calculator
+- websites/lhr/js/ - Directory
+- websites/lhr/js/auth.js - JavaScript: Check the auth state immediately
+- websites/lhr/js/editor.js - JavaScript file
+- websites/lhr/js/firebase-config.js - JavaScript file
+- websites/lhr/js/firebase-init.js - JavaScript file
+- websites/lhr/js/index.js - JavaScript file
+- websites/lhr/js/login.js - JavaScript: window.location.href = 'login.html';
+- websites/lhr/js/reg.js - JavaScript: Check if a user is logged in
+- websites/lhr/js/repair.js - JavaScript file
+- websites/lhr/login.html - Frontend page: LHR
+- websites/lhr/pages/ - Directory
+- websites/lhr/pages/game.html - Frontend page: Game Consoles. Heading: Gaming Systems Repair
+- websites/lhr/pages/more.html - Frontend page: More. Heading: Water Treatment (Dehydration only)
+- websites/lhr/pages/purchase.html - Frontend page: Purchase
+- websites/lhr/pages/ref.html - Frontend page: LHR iPhone Repair Pricing
+- websites/lhr/reg.html - Frontend page: LHR. Heading: Registration
+- websites/lhr/repair.html - Frontend page: LHR. Heading: Repair Cost Calculator
+- websites/lhr/site.webmanifest - .webmanifest file
 - websites/crypto/ - Directory
 - websites/crypto/assets/ - Directory
 - websites/crypto/assets/css/ - Directory

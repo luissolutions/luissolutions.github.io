@@ -6,10 +6,10 @@ const projects = [
         description: "Smart Electronics Solutions LLC website.",
     },
     {
-        title: "Repair App",
-        image: "assets/img/cpr-thumbnail.png",
-        link: "websites/cpr/index.html",
-        description: "A web application for managing repair jobs.",
+        title: "Luis's Hardware Repair",
+        image: "assets/img/lhr-thumbnail.png",
+        link: "websites/lhr/index.html",
+        description: "Hardware repair tools and diagnostic utilities.",
     },
     {
         title: "Your Tech Guy",

@@ -38,7 +38,7 @@ apps/
 ### websites/
 
 - `websites/` contains separate project sites, each with its own folder, assets, and page structure  
-  (examples: `websites/aa`, `websites/bma`, `websites/cpr`, `websites/eco`, `websites/game`, etc.)
+  (examples: `websites/aa`, `websites/bma`, `websites/lhr`, `websites/eco`, `websites/game`, etc.)
 
 ---
 
@@ -76,7 +76,7 @@ apps/
   - `apps/online/`
   - `apps/local/`
   - `apps/telaid/`
-- Site-specific apps: `websites/cpr/`, `websites/eco/`, `websites/game/`, `websites/honeydo/`
+- Site-specific apps: `websites/lhr/`, `websites/eco/`, `websites/game/`, `websites/honeydo/`
 
 ---
 
