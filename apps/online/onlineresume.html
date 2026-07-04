@@ -526,16 +526,47 @@
     <script type="module">
 
         import {
+            auth,
             database,
             ref,
             set,
             get,
-            remove
+            remove,
+            onAuthStateChanged
         } from '../../assets/js/firebase-init.js';
+        import { onIdTokenChanged } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js';
 
         let currentResumeId = "default";
 
-        const BASE_PATH = "public/resumes";
+        // Share-view (#hash) reads the world-readable public node; the editor
+        // reads/writes the signed-in owner's private path. BASE_PATH is set
+        // from auth state below, defaulting to public (read-only view).
+        let BASE_PATH = "public/resumes";
+        let authReady = false;
+        let currentUser = null;
+
+        function showAuthBanner(msg) {
+            let b = document.getElementById("authBanner");
+            if (!b) {
+                b = document.createElement("div");
+                b.id = "authBanner";
+                b.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:#8a1f1f;color:#fff;padding:8px 14px;text-align:center;font-family:system-ui,sans-serif;font-size:13px;";
+                document.body.appendChild(b);
+            }
+            b.textContent = msg;
+            b.style.display = "block";
+        }
+
+        function hideAuthBanner() {
+            const b = document.getElementById("authBanner");
+            if (b) b.style.display = "none";
+        }
+
+        function canWrite() {
+            if (authReady && currentUser) { hideAuthBanner(); return true; }
+            showAuthBanner("Not saving — sign in to save your resume privately.");
+            return false;
+        }
 
         async function loadResumeList() {
 
@@ -597,15 +628,16 @@
 
             document.getElementById("name").textContent = data.name || "";
 
-            document.getElementById("contact-info").innerHTML = `
-                ${data.contactInfo?.location || ""}
-                |
-                ${data.contactInfo?.phone || ""}
-                |
-                <a href="mailto:${data.contactInfo?.email || ""}">
-                    ${data.contactInfo?.email || ""}
-                </a>
-            `;
+            const ci = document.getElementById("contact-info");
+            ci.textContent = "";
+            const ciLocation = data.contactInfo?.location || "";
+            const ciPhone = data.contactInfo?.phone || "";
+            const ciEmail = data.contactInfo?.email || "";
+            ci.appendChild(document.createTextNode(`${ciLocation} | ${ciPhone} | `));
+            const ciMail = document.createElement("a");
+            ciMail.href = "mailto:" + ciEmail;
+            ciMail.textContent = ciEmail;
+            ci.appendChild(ciMail);
 
             document.getElementById("title").textContent = data.title || "";
 
@@ -640,12 +672,14 @@
 
             const items = arr && arr.length ? arr : [""];
 
-            document.getElementById(id).innerHTML = items.map(item => `
-                <li contenteditable="true">${item}</li>
-            `).join("");
-
-            document.querySelectorAll(`#${id} li`).forEach(li => {
+            const container = document.getElementById(id);
+            container.innerHTML = "";
+            items.forEach(item => {
+                const li = document.createElement("li");
+                li.setAttribute("contenteditable", "true");
                 li.setAttribute("data-placeholder", "Add item...");
+                li.textContent = item || "";
+                container.appendChild(li);
             });
         }
 
@@ -653,16 +687,30 @@
 
             const data = projects && projects.length ? projects : [{ title: "", details: [""] }];
 
-            document.getElementById("projects").innerHTML = data.map(project => `
-                <div class="job">
-                    <h3 contenteditable="true" data-placeholder="Project name">${project.title || ""}</h3>
-                    <ul>
-                        ${(project.details && project.details.length ? project.details : [""]).map(d => `
-                            <li contenteditable="true" data-placeholder="Add project detail...">${d}</li>
-                        `).join("")}
-                    </ul>
-                </div>
-            `).join("");
+            const container = document.getElementById("projects");
+            container.innerHTML = "";
+            data.forEach(project => {
+                const job = document.createElement("div");
+                job.className = "job";
+
+                const h3 = document.createElement("h3");
+                h3.setAttribute("contenteditable", "true");
+                h3.setAttribute("data-placeholder", "Project name");
+                h3.textContent = project.title || "";
+                job.appendChild(h3);
+
+                const ul = document.createElement("ul");
+                (project.details && project.details.length ? project.details : [""]).forEach(d => {
+                    const li = document.createElement("li");
+                    li.setAttribute("contenteditable", "true");
+                    li.setAttribute("data-placeholder", "Add project detail...");
+                    li.textContent = d || "";
+                    ul.appendChild(li);
+                });
+                job.appendChild(ul);
+
+                container.appendChild(job);
+            });
         }
 
         function renderExperience(experience) {
@@ -671,23 +719,38 @@
                 ? experience
                 : [{ title: "", dates: "", responsibilities: [""] }];
 
-            document.getElementById("workExperience").innerHTML = data.map(job => `
-                <div class="job">
+            const container = document.getElementById("workExperience");
+            container.innerHTML = "";
+            data.forEach(job => {
+                const div = document.createElement("div");
+                div.className = "job";
 
-                    <h3 contenteditable="true" data-placeholder="Role and company">${job.title || ""}</h3>
+                const h3 = document.createElement("h3");
+                h3.setAttribute("contenteditable", "true");
+                h3.setAttribute("data-placeholder", "Role and company");
+                h3.textContent = job.title || "";
+                div.appendChild(h3);
 
-                    <p contenteditable="true" data-placeholder="Dates">
-                        <em>${job.dates || ""}</em>
-                    </p>
+                const p = document.createElement("p");
+                p.setAttribute("contenteditable", "true");
+                p.setAttribute("data-placeholder", "Dates");
+                const em = document.createElement("em");
+                em.textContent = job.dates || "";
+                p.appendChild(em);
+                div.appendChild(p);
 
-                    <ul>
-                        ${(job.responsibilities && job.responsibilities.length ? job.responsibilities : [""]).map(r => `
-                            <li contenteditable="true" data-placeholder="Add responsibility...">${r}</li>
-                        `).join("")}
-                    </ul>
+                const ul = document.createElement("ul");
+                (job.responsibilities && job.responsibilities.length ? job.responsibilities : [""]).forEach(r => {
+                    const li = document.createElement("li");
+                    li.setAttribute("contenteditable", "true");
+                    li.setAttribute("data-placeholder", "Add responsibility...");
+                    li.textContent = r || "";
+                    ul.appendChild(li);
+                });
+                div.appendChild(ul);
 
-                </div>
-            `).join("");
+                container.appendChild(div);
+            });
         }
 
         function renderEducation(education) {
@@ -696,30 +759,49 @@
                 ? education
                 : [{ school: "", program: "", dates: "", details: [""] }];
 
-            document.getElementById("education").innerHTML = data.map(ed => `
-                <div class="job">
+            const container = document.getElementById("education");
+            container.innerHTML = "";
+            data.forEach(ed => {
+                const div = document.createElement("div");
+                div.className = "job";
 
-                    <h3 contenteditable="true" data-placeholder="School or institution">${ed.school || ""}</h3>
+                const h3 = document.createElement("h3");
+                h3.setAttribute("contenteditable", "true");
+                h3.setAttribute("data-placeholder", "School or institution");
+                h3.textContent = ed.school || "";
+                div.appendChild(h3);
 
-                    <p contenteditable="true" data-placeholder="Program or degree">
-                        <em>${ed.program || ""}</em>
-                    </p>
+                const pProgram = document.createElement("p");
+                pProgram.setAttribute("contenteditable", "true");
+                pProgram.setAttribute("data-placeholder", "Program or degree");
+                const em = document.createElement("em");
+                em.textContent = ed.program || "";
+                pProgram.appendChild(em);
+                div.appendChild(pProgram);
 
-                    <p contenteditable="true" data-placeholder="Dates">
-                        ${ed.dates || ""}
-                    </p>
+                const pDates = document.createElement("p");
+                pDates.setAttribute("contenteditable", "true");
+                pDates.setAttribute("data-placeholder", "Dates");
+                pDates.textContent = ed.dates || "";
+                div.appendChild(pDates);
 
-                    <ul>
-                        ${(ed.details && ed.details.length ? ed.details : [""]).map(d => `
-                            <li contenteditable="true" data-placeholder="Add education detail...">${d}</li>
-                        `).join("")}
-                    </ul>
+                const ul = document.createElement("ul");
+                (ed.details && ed.details.length ? ed.details : [""]).forEach(d => {
+                    const li = document.createElement("li");
+                    li.setAttribute("contenteditable", "true");
+                    li.setAttribute("data-placeholder", "Add education detail...");
+                    li.textContent = d || "";
+                    ul.appendChild(li);
+                });
+                div.appendChild(ul);
 
-                </div>
-            `).join("");
+                container.appendChild(div);
+            });
         }
 
         async function saveResume() {
+
+            if (!canWrite()) return;
 
             const resume = {
 
@@ -849,6 +931,8 @@
 
         async function createResume() {
 
+            if (!canWrite()) return;
+
             const name = prompt("Resume name?");
 
             if (!name) return;
@@ -868,6 +952,8 @@
         }
 
         async function cloneResume() {
+
+            if (!canWrite()) return;
 
             const cloneName = prompt("Clone name?");
 
@@ -890,6 +976,8 @@
         }
 
         async function deleteResume() {
+
+            if (!canWrite()) return;
 
             if (!confirm(`Delete ${currentResumeId}?`)) return;
 
@@ -925,6 +1013,8 @@
         }
 
         async function importResumeJson(event) {
+
+            if (!canWrite()) return;
 
             const file = event.target.files[0];
 
@@ -1379,8 +1469,21 @@
             document.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
             document.querySelectorAll('.section-add-btn, .section-toggle').forEach(el => el.remove());
         } else {
-            loadResumeList();
-            loadResume();
+            // Editor mode — load only after auth resolves so BASE_PATH points at
+            // the owner's private ${uid}/resumes node (falls back to public read).
+            onAuthStateChanged(auth, (user) => {
+                authReady = true;
+                currentUser = user;
+                BASE_PATH = user ? `${user.uid}/resumes` : "public/resumes";
+                if (user) hideAuthBanner();
+                loadResumeList();
+                loadResume();
+            });
+            // Token expiry surfaces as signed-out; drop back to read-only public.
+            onIdTokenChanged(auth, (user) => {
+                currentUser = user;
+                BASE_PATH = user ? `${user.uid}/resumes` : "public/resumes";
+            });
         }
 
     </script>

@@ -534,6 +534,7 @@
     import {
       accessToken,
       isTokenExpired,
+      logoutFromMicrosoft,
     } from "../assets/js/microsoftAuth.js";
 
     let currentProject = "";
@@ -547,7 +548,10 @@
     let metaOwnerTaskId = "";
     let allProjects = [];
 
-    const ADMIN_PASSWORDS = ["telaidadmin", "Telaidadmin"];
+    // Admin is the account owner only — no shared password, no localStorage flag.
+    const OWNER_UID = "7cIh8rrhVNOjjj5CBDgb3IlqzEh2";
+    const isAdmin = () => auth.currentUser?.uid === OWNER_UID;
+    let authReady = false;
     const sanitize = (str) => (str || "").trim().replace(/\s+/g, "_");
     const normKey = (s) => (s || "").trim().toLowerCase();
 
@@ -584,6 +588,9 @@
 
     onAuthStateChanged(auth, (user) => {
       DATABASE_BASE_PATH = user ? user.uid : "public";
+      authReady = true;
+      // Drive the admin UI from real auth state, not a cached flag.
+      updateUploadPermissions();
       populateProjects();
     });
 
@@ -706,6 +713,7 @@
     }
 
     async function loadProject(id) {
+      if (!authReady) return; // don't read/write against "public" before auth resolves
       if (isLoadingProject) return;
       isLoadingProject = true;
 
@@ -1059,6 +1067,7 @@
     }
 
     async function saveNote() {
+      if (!authReady) return;
       const dateInput = document.getElementById("noteDate").value;
       const text = document.getElementById("noteText").value.trim();
       if (!currentProject || !dateInput || !text) return;
@@ -1086,40 +1095,39 @@
           .sort((a, b) => parseInt(b) - parseInt(a))
           .forEach((timestamp) => {
             const dateStr = new Date(parseInt(timestamp)).toLocaleString();
-            const formattedNote = String(notes[timestamp]).replace(
-              /\n/g,
-              "<br>",
-            );
             const div = document.createElement("div");
 
-            div.innerHTML = `
-                            <strong>${dateStr}</strong><br>${formattedNote}
-                            <button data-timestamp="${timestamp}" class="deleteNoteButton">🗑 Delete</button>
-                            <hr>
-                        `;
+            const strong = document.createElement("strong");
+            strong.textContent = dateStr;
 
+            // Note text comes from Firebase (world-writable public/*) — render
+            // it as text, never HTML. pre-line keeps the multi-line layout.
+            const noteEl = document.createElement("div");
+            noteEl.textContent = String(notes[timestamp]);
+            noteEl.style.whiteSpace = "pre-line";
+
+            const delBtn = document.createElement("button");
+            delBtn.className = "deleteNoteButton";
+            delBtn.textContent = "🗑 Delete";
+            delBtn.addEventListener("click", async () => {
+              const confirmDelete = confirm(`Delete note from ${dateStr}?`);
+              if (confirmDelete) {
+                await set(
+                  dbRef(database, `${commentsBasePath()}/${timestamp}`),
+                  null,
+                );
+                await loadNotes();
+              }
+            });
+
+            div.append(strong, noteEl, delBtn, document.createElement("hr"));
             list.appendChild(div);
           });
-
-        document.querySelectorAll(".deleteNoteButton").forEach((button) => {
-          button.addEventListener("click", async () => {
-            const timestamp = button.dataset.timestamp;
-            const confirmDelete = confirm(
-              `Delete note from ${new Date(parseInt(timestamp)).toLocaleString()}?`,
-            );
-            if (confirmDelete) {
-              await set(
-                dbRef(database, `${commentsBasePath()}/${timestamp}`),
-                null,
-              );
-              await loadNotes();
-            }
-          });
-        });
       }
     }
 
     async function saveProject() {
+      if (!authReady) return;
       const projectNameRaw = document.getElementById("project").value.trim();
       const count = parseInt(
         document.getElementById("sensorCount").value,
@@ -1215,8 +1223,8 @@
 
     document.getElementById("deleteButton").onclick = async () => {
       const item = modalItems[modalIndex];
-      if (!(await confirmWithPassword("deleting this image"))) {
-        alert("Incorrect password. Action cancelled.");
+      if (!isAdmin()) {
+        alert("Only the account owner can delete images.");
         return;
       }
 
@@ -1310,6 +1318,7 @@
 
     // ✅ WRITE meta using metaOwnerTaskId
     document.getElementById("saveSensorMeta").onclick = async () => {
+      if (!authReady) return;
       const num = document.getElementById("sensorMetaNumberDropdown").value;
       const serial = document.getElementById("sensorMetaSerial").value.trim();
       const m1 = document.getElementById("sensorMetaM1").value.trim();
@@ -1620,7 +1629,7 @@
           return alert("You must be logged into Microsoft first.");
         if (isTokenExpired(accessToken)) {
           alert("Session expired. Please log in again.");
-          logoutMicrosoft();
+          logoutFromMicrosoft();
           return;
         }
 
@@ -1655,7 +1664,7 @@
 
           for (const item of folderSnapshot.items) {
             const blob = await getBlob(item);
-            const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${oneDriveFolder}/${item.name}:/content`;
+            const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${odEncode(`${oneDriveFolder}/${item.name}`)}:/content`;
             const res = await fetch(uploadUrl, {
               method: "PUT",
               headers: { Authorization: `Bearer ${accessToken}` },
@@ -1699,7 +1708,7 @@
 
               const filename = `${oneDriveBase}_DeviceData.csv`;
 
-              const csvUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${oneDriveFolder}/${filename}:/content`;
+              const csvUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${odEncode(`${oneDriveFolder}/${filename}`)}:/content`;
               const csvRes = await fetch(csvUrl, {
                 method: "PUT",
                 headers: { Authorization: `Bearer ${accessToken}` },
@@ -1730,12 +1739,18 @@
       return await res.blob();
     }
 
+    // Encode each path segment individually (spaces / unicode / reserved chars
+    // become %xx) while keeping the slashes between segments intact.
+    function odEncode(path) {
+      return path.split("/").map(encodeURIComponent).join("/");
+    }
+
     async function ensureOneDriveFolder(path) {
       const parts = path.split("/");
       let currentPath = "";
       for (const part of parts) {
         currentPath += (currentPath ? "/" : "") + part;
-        const checkUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${currentPath}:/`;
+        const checkUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${odEncode(currentPath)}:/`;
         const res = await fetch(checkUrl, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
@@ -1745,7 +1760,7 @@
             0,
             currentPath.lastIndexOf("/"),
           );
-          const createUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${parent ? parent : ""}:/children`;
+          const createUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${parent ? odEncode(parent) : ""}:/children`;
           const createRes = await fetch(createUrl, {
             method: "POST",
             headers: {
@@ -1765,11 +1780,6 @@
             );
         }
       }
-    }
-
-    async function confirmWithPassword(actionDescription = "this action") {
-      const input = prompt(`Enter password to confirm ${actionDescription}:`);
-      return ADMIN_PASSWORDS.includes(input);
     }
 
     // Visit logging is handled by ../assets/js/auth.js — don't double-log here.
@@ -1903,43 +1913,43 @@
     });
 
     function updateUploadPermissions() {
-      const isAdmin = document.getElementById("adminToggle").checked;
+      const admin = isAdmin();
 
-      document.getElementById("uploadDeliverableImage").disabled = !isAdmin;
-      document.getElementById("uploadSiteImage").disabled = !isAdmin;
-      document.getElementById("uploadFolderToOneDrive").disabled = !isAdmin;
+      document.getElementById("uploadDeliverableImage").disabled = !admin;
+      document.getElementById("uploadSiteImage").disabled = !admin;
+      document.getElementById("uploadFolderToOneDrive").disabled = !admin;
 
-      document.getElementById("saveNote").disabled = !isAdmin;
-      document.getElementById("saveSensorMeta").disabled = !isAdmin;
-      document.getElementById("saveProject").style.display = isAdmin
+      document.getElementById("saveNote").disabled = !admin;
+      document.getElementById("saveSensorMeta").disabled = !admin;
+      document.getElementById("saveProject").style.display = admin
         ? "inline-block"
         : "none";
 
-      document.getElementById("noteDate").disabled = !isAdmin;
-      document.getElementById("noteText").disabled = !isAdmin;
-      document.getElementById("skipMarkupCheckbox").disabled = !isAdmin;
-      document.getElementById("fileUploader").disabled = !isAdmin;
-      document.getElementById("imageNameInput").disabled = !isAdmin;
-      document.getElementById("markupTextInput").disabled = !isAdmin;
-      document.getElementById("sensorCount").disabled = !isAdmin;
+      document.getElementById("noteDate").disabled = !admin;
+      document.getElementById("noteText").disabled = !admin;
+      document.getElementById("skipMarkupCheckbox").disabled = !admin;
+      document.getElementById("fileUploader").disabled = !admin;
+      document.getElementById("imageNameInput").disabled = !admin;
+      document.getElementById("markupTextInput").disabled = !admin;
+      document.getElementById("sensorCount").disabled = !admin;
 
-      document.getElementById("fieldSelector").style.display = isAdmin
+      // The Admin Mode checkbox is display-only now — keep it mirroring auth.
+      const adminToggle = document.getElementById("adminToggle");
+      if (adminToggle) adminToggle.checked = admin;
+
+      document.getElementById("fieldSelector").style.display = admin
         ? "block"
         : "none";
     }
 
+    // Real admin = owner UID, not this checkbox. If anything flips it, snap
+    // the UI back to the true auth-derived state.
     document.getElementById("adminToggle").addEventListener("change", () => {
-      const isAdmin = document.getElementById("adminToggle").checked;
-      localStorage.setItem("adminMode", isAdmin ? "true" : "false");
       updateUploadPermissions();
     });
 
-    window.addEventListener("DOMContentLoaded", () => {
-      const saved = localStorage.getItem("adminMode");
-      if (saved)
-        document.getElementById("adminToggle").checked = saved === "true";
-      updateUploadPermissions();
-    });
+    // Lock everything down until auth resolves (isAdmin() is false pre-auth).
+    window.addEventListener("DOMContentLoaded", updateUploadPermissions);
 
     document
       .getElementById("customizeToggle")

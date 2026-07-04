@@ -511,11 +511,14 @@
 
   <script type="module">
     import { auth, database, ref, set, get, remove, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "../assets/js/firebase-init.js";
+    // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the same pinned SDK build.
+    import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
     import { renderArticleContent } from "../assets/js/onlinejournal.js";
 
     /* ── state ── */
     let PATH = "public/journalArticles";
     let currentUser = null;
+    let authReady = false;
     let sections = [];
     let allArticles = {};
     let currentArticleId = null;
@@ -549,6 +552,7 @@
 
     /* ── auth ── */
     onAuthStateChanged(auth, async (user) => {
+      authReady = true;
       const editorPanel = document.getElementById("editorPanel");
       const articleActions = document.querySelector(".article-actions");
       const authLabel = document.getElementById("auth-label");
@@ -581,6 +585,29 @@
 
       await loadArticles(true);
       if (currentArticleId && allArticles[currentArticleId]) renderArticle(currentArticleId);
+    });
+
+    /* ── token expiry: onIdTokenChanged fires on silent token loss where
+       onAuthStateChanged may not. Reflect a dropped token as signed-out. ── */
+    onIdTokenChanged(auth, (user) => {
+      authReady = true;
+      if (!user && currentUser) {
+        currentUser = null;
+        PATH = "public/journalArticles";
+        const editorPanel = document.getElementById("editorPanel");
+        const articleActions = document.querySelector(".article-actions");
+        const importWrap = document.getElementById("importJsonWrap");
+        const authLabel = document.getElementById("auth-label");
+        const authBtn = document.getElementById("auth-btn");
+        if (editorPanel) editorPanel.style.display = "none";
+        if (articleActions) articleActions.style.display = "none";
+        if (importWrap) importWrap.style.display = "none";
+        if (authLabel) authLabel.textContent = "Not signed in";
+        if (authBtn) authBtn.textContent = "Sign In";
+        authIndicator.textContent = "Public Shared Journal";
+        authIndicator.style.background = "var(--surface2)";
+        authIndicator.style.color = "var(--muted)";
+      }
     });
 
     /* ── auth UI ── */
@@ -621,7 +648,9 @@
       return String(v ?? "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
     }
 
     function getTags() {
@@ -808,6 +837,7 @@
     /* ── save ── */
     async function saveArticle() {
       if (isSaving) return;
+      if (!authReady) return setStatus("Still verifying sign-in…", true);
       var title = titleInput.value.trim();
       if (!title) return setStatus("Title required", true);
       try {
@@ -846,6 +876,7 @@
     };
 
     document.getElementById("importJsonFile").addEventListener("change", async function (e) {
+      if (!authReady) { setStatus("Still verifying sign-in…", true); e.target.value = ""; return; }
       var file = e.target.files[0];
       if (!file) return;
       try {
@@ -1016,6 +1047,7 @@
 
     /* ── delete / move ── */
     async function deleteArticle() {
+      if (!authReady) return;
       if (!currentArticleId || !allArticles[currentArticleId]) return;
       if (!confirm("Delete?")) return;
       var sourcePath = allArticles[currentArticleId].__path;
@@ -1029,6 +1061,7 @@
     }
 
     async function moveArticle() {
+      if (!authReady) return;
       if (!currentUser || !currentArticleId || !allArticles[currentArticleId]) return;
       var article = allArticles[currentArticleId];
       var realId = article.__id;
@@ -1091,7 +1124,11 @@
       });
     };
     refreshListBtn.onclick = function () { loadArticles(); };
-    document.getElementById('journalSearch').addEventListener('input', renderList);
+    var journalSearchTimer;
+    document.getElementById('journalSearch').addEventListener('input', function () {
+      clearTimeout(journalSearchTimer);
+      journalSearchTimer = setTimeout(renderList, 150);
+    });
     editArticleBtn.onclick = function () {
       var a = allArticles[currentArticleId];
       if (!a) return;

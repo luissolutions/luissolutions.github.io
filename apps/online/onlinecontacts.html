@@ -237,6 +237,7 @@
       remove,
       update,
     } from "../assets/js/firebase-init.js";
+    import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 
     const contactsList = document.getElementById("contacts-list");
     const contactDetails = document.getElementById("contact-details");
@@ -260,15 +261,48 @@
       : null;
     let selectedContactId = null;
     let DATABASE_BASE_PATH = "public";
+    let authReady = false;
+    let currentUser = null;
 
     if (!contactSearchHelper && searchContacts) {
       searchContacts.title =
         "Basic search only. Load ./assets/js/search.js for operators.";
     }
 
+    function showAuthBanner(msg) {
+      let b = document.getElementById("authBanner");
+      if (!b) {
+        b = document.createElement("div");
+        b.id = "authBanner";
+        b.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:#8a1f1f;color:#fff;padding:8px 14px;text-align:center;font:13px system-ui,sans-serif;";
+        document.body.appendChild(b);
+      }
+      b.textContent = msg;
+      b.style.display = "block";
+    }
+    function hideAuthBanner() {
+      const b = document.getElementById("authBanner");
+      if (b) b.style.display = "none";
+    }
+    function canWrite() {
+      if (authReady && currentUser) { hideAuthBanner(); return true; }
+      showAuthBanner("Not saving — sign in to store contacts privately.");
+      return false;
+    }
+
+    // Login UI is driven only by onAuthStateChanged (via auth.js auth-bar).
     onAuthStateChanged(auth, (user) => {
+      authReady = true;
+      currentUser = user;
       DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
+      if (user) hideAuthBanner();
       fetchContacts();
+    });
+
+    // Token expiry reflects as signed-out; keep the write path accurate.
+    onIdTokenChanged(auth, (user) => {
+      currentUser = user;
+      DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
     });
 
     async function fetchContacts() {
@@ -312,12 +346,16 @@
 
         const li = document.createElement("li");
         li.dataset.name = customerName.toLowerCase();
-        li.innerHTML = `
-                    <div>
-                        <div class="contact-name">${customerName}</div>
-                        <div class="contact-meta">${tasksForCustomer.length} project(s) • Last: ${lastLabel}</div>
-                    </div>
-                `;
+        const wrap = document.createElement("div");
+        const nameDiv = document.createElement("div");
+        nameDiv.className = "contact-name";
+        nameDiv.textContent = customerName;
+        const metaDiv = document.createElement("div");
+        metaDiv.className = "contact-meta";
+        metaDiv.textContent = `${tasksForCustomer.length} project(s) • Last: ${lastLabel}`;
+        wrap.appendChild(nameDiv);
+        wrap.appendChild(metaDiv);
+        li.appendChild(wrap);
         li.onclick = () => displayContactDetails(tasksForCustomer);
         contactsList.appendChild(li);
       }
@@ -392,13 +430,38 @@
         const end = task.endTime
           ? new Date(task.endTime).toLocaleString()
           : "N/A";
-        projectDiv.innerHTML = `
-                    <h4>${task.project || "Untitled Project"}</h4>
-                    <div class="contact-subtle">Task ID: ${task.id || ""}</div>
-                    <div><strong>Start:</strong> ${start}</div>
-                    <div><strong>End:</strong> ${end}</div>
-                    ${task.notes ? `<div><strong>Notes:</strong> ${task.notes}</div>` : ""}
-                `;
+        const h4 = document.createElement("h4");
+        h4.textContent = task.project || "Untitled Project";
+        projectDiv.appendChild(h4);
+
+        const idDiv = document.createElement("div");
+        idDiv.className = "contact-subtle";
+        idDiv.textContent = `Task ID: ${task.id || ""}`;
+        projectDiv.appendChild(idDiv);
+
+        const startDiv = document.createElement("div");
+        const startStrong = document.createElement("strong");
+        startStrong.textContent = "Start:";
+        startDiv.appendChild(startStrong);
+        startDiv.appendChild(document.createTextNode(" " + start));
+        projectDiv.appendChild(startDiv);
+
+        const endDiv = document.createElement("div");
+        const endStrong = document.createElement("strong");
+        endStrong.textContent = "End:";
+        endDiv.appendChild(endStrong);
+        endDiv.appendChild(document.createTextNode(" " + end));
+        projectDiv.appendChild(endDiv);
+
+        if (task.notes) {
+          const notesDiv = document.createElement("div");
+          const notesStrong = document.createElement("strong");
+          notesStrong.textContent = "Notes:";
+          notesDiv.appendChild(notesStrong);
+          notesDiv.appendChild(document.createTextNode(" " + task.notes));
+          projectDiv.appendChild(notesDiv);
+        }
+
         projectsList.appendChild(projectDiv);
       });
     }
@@ -406,33 +469,35 @@
     document
       .getElementById("save-contact-button")
       .addEventListener("click", async () => {
-        if (selectedContactId) {
-          const updatedFields = {
-            customerPhone: contactPhoneInput.value,
-            customerEmail: contactEmailInput.value,
-            customerAddress: contactAddressInput.value,
-          };
+        if (!selectedContactId) return;
+        if (!canWrite()) return;
 
-          const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
-          const snapshot = await get(tasksRef);
-          if (snapshot.exists()) {
-            const tasks = snapshot.val();
-            for (const taskId in tasks) {
-              if (
-                tasks[taskId].customerName === contactNameElem.textContent
-              ) {
-                const contactRef = ref(
-                  database,
-                  `${DATABASE_BASE_PATH}/tasks/${taskId}`,
-                );
-                update(contactRef, updatedFields).catch((error) =>
-                  console.error("Error updating contact:", error),
-                );
-              }
-            }
-            alert("All matching contacts updated successfully!");
-            fetchContacts();
+        const phone = contactPhoneInput.value;
+        const email = contactEmailInput.value;
+        const address = contactAddressInput.value;
+        const targetName = contactNameElem.textContent;
+
+        const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
+        const snapshot = await get(tasksRef);
+        if (!snapshot.exists()) return;
+
+        const tasks = snapshot.val();
+        const updates = {};
+        for (const taskId in tasks) {
+          if (tasks[taskId].customerName === targetName) {
+            updates[`${taskId}/customerPhone`] = phone;
+            updates[`${taskId}/customerEmail`] = email;
+            updates[`${taskId}/customerAddress`] = address;
           }
+        }
+
+        try {
+          await update(tasksRef, updates);
+          alert("All matching contacts updated successfully!");
+          fetchContacts();
+        } catch (error) {
+          console.error("Error updating contact:", error);
+          alert("Error updating contacts.");
         }
       });
 
@@ -440,6 +505,7 @@
       .getElementById("delete-contact-button")
       .addEventListener("click", () => {
         if (selectedContactId) {
+          if (!canWrite()) return;
           const contactRef = ref(
             database,
             `${DATABASE_BASE_PATH}/tasks/${selectedContactId}`,
@@ -465,6 +531,7 @@
         const address = newContactAddressInput.value;
 
         if (contactName) {
+          if (!canWrite()) return;
           const tasksRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
           const newContactRef = push(tasksRef);
           set(newContactRef, {

@@ -637,28 +637,19 @@
 
             const baseSnapshot = await listAll(baseRef);
 
-            // Load images directly inside folder
-            for (const item of baseSnapshot.items) {
-                const url = await getDownloadURL(item);
-                currentImages.push({
-                    url,
-                    fullPath: item.fullPath,
-                    name: item.name
-                });
+            // Collect all storage items: root folder + subfolders (subfolder listings in parallel)
+            const allItems = [...baseSnapshot.items];
+            const subSnaps = await Promise.all(baseSnapshot.prefixes.map(p => listAll(p)));
+            for (const subSnap of subSnaps) {
+                allItems.push(...subSnap.items);
             }
 
-            // Load images inside subfolders
-            for (const subfolder of baseSnapshot.prefixes) {
-                const subSnap = await listAll(subfolder);
-                for (const item of subSnap.items) {
-                    const url = await getDownloadURL(item);
-                    currentImages.push({
-                        url,
-                        fullPath: item.fullPath,
-                        name: item.name
-                    });
-                }
-            }
+            // Resolve all download URLs in parallel
+            currentImages = await Promise.all(allItems.map(async (item) => ({
+                url: await getDownloadURL(item),
+                fullPath: item.fullPath,
+                name: item.name
+            })));
 
             renderImages();
         }

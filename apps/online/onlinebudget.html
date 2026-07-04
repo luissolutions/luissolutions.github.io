@@ -190,6 +190,9 @@
 
 <script type="module">
   import { auth, onAuthStateChanged, database, ref, get, set } from '../assets/js/firebase-init.js';
+  // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the
+  // same (already-cached) auth module to catch token expiry live.
+  import { onIdTokenChanged } from 'https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js';
 
   /* ============ Config & Constants ============ */
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -232,6 +235,37 @@
   let AUTH_READY = false;
 
   DOM_READY = true;
+
+  /* --- Auth-accuracy: drive UI + write-gating from live auth, never a cached flag --- */
+  function ensureAuthBanner() {
+    let b = document.getElementById('auth-warn-banner');
+    if (!b) {
+      b = document.createElement('div');
+      b.id = 'auth-warn-banner';
+      b.setAttribute('role', 'alert');
+      b.style.cssText = 'display:none;background:#7a1620;color:#fff;text-align:center;padding:8px 12px;font-weight:600;';
+      b.textContent = 'Not signed in — changes are NOT being saved. Sign in to save.';
+      document.body.insertBefore(b, document.body.firstChild);
+    }
+    return b;
+  }
+  function showAuthBanner(show) { ensureAuthBanner().style.display = show ? 'block' : 'none'; }
+  function reflectSignedIn(user) {
+    const lbl = document.getElementById('auth-label'); if (lbl) lbl.textContent = user.email || 'Signed in';
+    const btn = document.getElementById('auth-btn'); if (btn) btn.textContent = 'Sign Out';
+    showAuthBanner(false);
+  }
+  function reflectSignedOut() {
+    const lbl = document.getElementById('auth-label'); if (lbl) lbl.textContent = 'Not signed in';
+    const btn = document.getElementById('auth-btn'); if (btn) btn.textContent = 'Sign In';
+    showAuthBanner(true);
+  }
+  // Single source of truth for whether a write may proceed.
+  function canWrite() {
+    if (!AUTH_READY) return false;
+    if (!auth.currentUser) { showAuthBanner(true); return false; }
+    return true;
+  }
   /* ============ Helpers ============ */
   const fmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' });
   const yearPrefKey = () => `${DATABASE_BASE_PATH}:budget:lastYear`;
@@ -435,6 +469,7 @@
   }
 
   async function saveToDB() {
+    if (!canWrite()) return;
     try {
       const toWrite = encodeForDB(STATE);
       await set(ref(database, `${DATABASE_BASE_PATH}/budgetPlan/${STATE.year}`), toWrite);
@@ -535,7 +570,12 @@
     const actualRow = tbody.querySelector(`tr[data-idx="${idx}"][data-kind="actual"] td:first-child`);
 
     if (budgetRow) budgetRow.textContent = `${cat.name} (${fmt.format(budget)})`;
-    if (actualRow) actualRow.innerHTML = `<span class="muted">Actual — ${cat.name} (${fmt.format(actual)})</span>`;
+    if (actualRow) {
+      const s = document.createElement('span');
+      s.className = 'muted';
+      s.textContent = `Actual — ${cat.name} (${fmt.format(actual)})`;
+      actualRow.replaceChildren(s);
+    }
   }
 
   function renderCategoriesEditor() {
@@ -546,19 +586,41 @@
     STATE.categories.forEach((c, idx) => {
       const row = document.createElement('div');
       row.className = 'grid';
-      row.innerHTML = `
-        <div>
-          <label class="small">Category</label>
-          <div><input type="text" value="${c.name}" /></div>
-        </div>
-        <div>
-          <label class="small">Monthly Budget</label>
-          <input type="number" min="0" value="${c.monthly}" />
-        </div>
-        <button type="button" class="btn clear-button small del-cat" title="Delete category">X</button>
-      `;
+      // Built with createElement + .value (not an innerHTML template) so a
+      // malicious category name from world-writable public/* can't break out
+      // of the value="" attribute and inject markup.
+      const nameWrap = document.createElement('div');
+      const nameLabel = document.createElement('label');
+      nameLabel.className = 'small';
+      nameLabel.textContent = 'Category';
+      const nameInputWrap = document.createElement('div');
+      const nameEl = document.createElement('input');
+      nameEl.type = 'text';
+      nameEl.value = c.name;
+      nameInputWrap.appendChild(nameEl);
+      nameWrap.appendChild(nameLabel);
+      nameWrap.appendChild(nameInputWrap);
 
-      const [nameEl, monthlyEl] = row.querySelectorAll('input');
+      const monthlyWrap = document.createElement('div');
+      const monthlyLabel = document.createElement('label');
+      monthlyLabel.className = 'small';
+      monthlyLabel.textContent = 'Monthly Budget';
+      const monthlyEl = document.createElement('input');
+      monthlyEl.type = 'number';
+      monthlyEl.min = '0';
+      monthlyEl.value = c.monthly;
+      monthlyWrap.appendChild(monthlyLabel);
+      monthlyWrap.appendChild(monthlyEl);
+
+      const delBtnEl = document.createElement('button');
+      delBtnEl.type = 'button';
+      delBtnEl.className = 'btn clear-button small del-cat';
+      delBtnEl.title = 'Delete category';
+      delBtnEl.textContent = 'X';
+
+      row.appendChild(nameWrap);
+      row.appendChild(monthlyWrap);
+      row.appendChild(delBtnEl);
 
       nameEl.addEventListener('blur', () => {
         const newName = nameEl.value.trim() || `Category ${idx + 1}`;
@@ -659,7 +721,10 @@
       tr2.dataset.kind = 'actual';
 
       const name2 = document.createElement('td');
-      name2.innerHTML = `<span class="muted">Actual — ${c.name} (${fmt.format(actual)})</span>`;
+      const name2Span = document.createElement('span');
+      name2Span.className = 'muted';
+      name2Span.textContent = `Actual — ${c.name} (${fmt.format(actual)})`;
+      name2.appendChild(name2Span);
       tr2.appendChild(name2);
 
       months.forEach((m, mi) => {
@@ -945,6 +1010,7 @@
   }
 
   async function addYearFlow() {
+    if (!canWrite()) return;
     const suggested = new Date().getUTCFullYear();
     const input = prompt(`Enter the year to add (e.g., ${suggested}):`, String(suggested));
     const y = Number(input);
@@ -1268,7 +1334,19 @@
   onAuthStateChanged(auth, async (user) => {
     DATABASE_BASE_PATH = user ? `${user.uid}` : 'public';
     AUTH_READY = true;
+    // Login-state UI is driven only by the live `user` object.
+    if (user) reflectSignedIn(user);
+    else reflectSignedOut();
     maybeInit();
+  });
+
+  // Catch silent ID-token expiry (fires with user=null when the token can no
+  // longer be refreshed) so the UI stops claiming we're signed in.
+  onIdTokenChanged(auth, (user) => {
+    if (!user) {
+      DATABASE_BASE_PATH = 'public';
+      reflectSignedOut();
+    }
   });
 
 

@@ -524,11 +524,14 @@
       storageRef,
       storage,
     } from "../assets/js/firebase-init.js";
+    // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the same pinned SDK build.
+    import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 
     // -------------------------------------------------------------------
     // Globals
     // -------------------------------------------------------------------
     let DATABASE_BASE_PATH = "public";
+    let authReady = false;
 
     // -------------------------------------------------------------------
     // Explorer Elements
@@ -891,10 +894,25 @@
       selectedTitle.textContent = selectedNodePath.split("/").pop() || "/";
       selectedPathEl.textContent = selectedNodePath;
 
-      selectedMeta.innerHTML = `
-        <div>Type: <span class="badge">${t}</span></div>
-        <div style="margin-top:6px;">Preview: <span class="mono">${previewValue(value)}</span></div>
-      `;
+      // previewValue can contain attacker-controlled node data — build with textContent.
+      selectedMeta.innerHTML = "";
+      const typeRow = document.createElement("div");
+      typeRow.append("Type: ");
+      const typeBadge = document.createElement("span");
+      typeBadge.className = "badge";
+      typeBadge.textContent = t;
+      typeRow.appendChild(typeBadge);
+
+      const previewRow = document.createElement("div");
+      previewRow.style.marginTop = "6px";
+      previewRow.append("Preview: ");
+      const previewSpan = document.createElement("span");
+      previewSpan.className = "mono";
+      previewSpan.textContent = previewValue(value);
+      previewRow.appendChild(previewSpan);
+
+      selectedMeta.appendChild(typeRow);
+      selectedMeta.appendChild(previewRow);
 
       // Children quick list
       childListWrap.style.display =
@@ -944,6 +962,7 @@
     };
 
     saveNodeBtn.onclick = async () => {
+      if (!authReady) { alert("Still verifying sign-in — try again in a moment."); return; }
       if (!selectedNodePath) return;
 
       let newVal = valueEditor.value;
@@ -967,6 +986,7 @@
     };
 
     deleteNodeBtn.onclick = async () => {
+      if (!authReady) { alert("Still verifying sign-in — try again in a moment."); return; }
       if (!selectedNodePath) return;
       if (!confirm(`Delete ${selectedNodePath}?`)) return;
       await update(ref(getDatabase()), { [selectedNodePath]: null });
@@ -1385,19 +1405,32 @@
         return;
       }
 
-      container.innerHTML = `<ul class="visit-log">
-        ${sorted
-          .map(
-            (entry) => `
-                    <li>
-                        <strong>${new Date(entry.timestamp).toLocaleString()}</strong><br>
-                        <span style="opacity:0.8;">${entry.ip}</span><br>
-                        <small style="opacity:0.7;">${entry.url}</small>
-                    </li>
-                `,
-          )
-          .join("")}
-            </ul>`;
+      // Build with DOM + textContent — ip/url come from world-writable public/log/visits.
+      container.innerHTML = "";
+      const ul = document.createElement("ul");
+      ul.className = "visit-log";
+      sorted.forEach((entry) => {
+        const li = document.createElement("li");
+
+        const ts = document.createElement("strong");
+        ts.textContent = new Date(entry.timestamp).toLocaleString();
+        li.appendChild(ts);
+        li.appendChild(document.createElement("br"));
+
+        const ipEl = document.createElement("span");
+        ipEl.style.opacity = "0.8";
+        ipEl.textContent = entry.ip;
+        li.appendChild(ipEl);
+        li.appendChild(document.createElement("br"));
+
+        const urlEl = document.createElement("small");
+        urlEl.style.opacity = "0.7";
+        urlEl.textContent = entry.url;
+        li.appendChild(urlEl);
+
+        ul.appendChild(li);
+      });
+      container.appendChild(ul);
     }
 
     async function loadVisitTimeline() {
@@ -1539,63 +1572,73 @@
 
       summaryEl.textContent = `${folderSummary.fileCount} files`;
 
-      const parts = [];
-      parts.push(
-        `<div class="kv"><b>Folder</b><span class="mono">${folderPath}</span></div>`,
-      );
-      parts.push(
-        `<div class="kv"><b>Files</b><span>${folderSummary.fileCount}</span></div>`,
-      );
+      // customerName/siteName/project/key come from world-writable task data —
+      // build every node with textContent so nothing is parsed as HTML.
+      const kvRow = (label, value, mono) => {
+        const row = document.createElement("div");
+        row.className = "kv";
+        const b = document.createElement("b");
+        b.textContent = label;
+        const span = document.createElement("span");
+        if (mono) span.className = "mono";
+        span.textContent = String(value);
+        row.appendChild(b);
+        row.appendChild(span);
+        return row;
+      };
+      const hr = () => {
+        const el = document.createElement("hr");
+        el.style.cssText = "border:none;border-top:1px solid #eee;margin:10px 0;";
+        return el;
+      };
+      const heading = (text) => {
+        const el = document.createElement("div");
+        el.style.cssText = "font-weight:700; margin-bottom:6px;";
+        el.textContent = text;
+        return el;
+      };
+
+      containerEl.innerHTML = "";
+      containerEl.appendChild(kvRow("Folder", folderPath, true));
+      containerEl.appendChild(kvRow("Files", folderSummary.fileCount, false));
 
       if (taskPreview) {
-        parts.push(
-          `<hr style="border:none;border-top:1px solid #eee;margin:10px 0;">`,
-        );
-        parts.push(
-          `<div style="font-weight:700; margin-bottom:6px;">Matched Task</div>`,
-        );
-        parts.push(
-          `<div class="kv"><b>Key</b><span class="mono">${taskPreview.key}</span></div>`,
-        );
+        containerEl.appendChild(hr());
+        containerEl.appendChild(heading("Matched Task"));
+        containerEl.appendChild(kvRow("Key", taskPreview.key, true));
         if (taskPreview.project)
-          parts.push(
-            `<div class="kv"><b>Project</b><span>${taskPreview.project}</span></div>`,
-          );
+          containerEl.appendChild(kvRow("Project", taskPreview.project, false));
         if (taskPreview.customerName)
-          parts.push(
-            `<div class="kv"><b>Customer</b><span>${taskPreview.customerName}</span></div>`,
-          );
+          containerEl.appendChild(kvRow("Customer", taskPreview.customerName, false));
         if (taskPreview.siteName)
-          parts.push(
-            `<div class="kv"><b>Site</b><span>${taskPreview.siteName}</span></div>`,
-          );
+          containerEl.appendChild(kvRow("Site", taskPreview.siteName, false));
         if (taskPreview.startTime)
-          parts.push(
-            `<div class="kv"><b>Start</b><span>${new Date(taskPreview.startTime).toLocaleString()}</span></div>`,
-          );
+          containerEl.appendChild(kvRow("Start", new Date(taskPreview.startTime).toLocaleString(), false));
       } else {
-        parts.push(
-          `<div class="small-muted" style="margin-top:8px;">No matching task found for <span class="mono">/images/${folderPath.split("/images/")[1] || ""}</span></div>`,
-        );
+        const noMatch = document.createElement("div");
+        noMatch.className = "small-muted";
+        noMatch.style.marginTop = "8px";
+        noMatch.append("No matching task found for ");
+        const mono = document.createElement("span");
+        mono.className = "mono";
+        mono.textContent = "/images/" + (folderPath.split("/images/")[1] || "");
+        noMatch.appendChild(mono);
+        containerEl.appendChild(noMatch);
       }
 
       if (folderSummary.previewFiles.length) {
-        parts.push(
-          `<hr style="border:none;border-top:1px solid #eee;margin:10px 0;">`,
-        );
-        parts.push(
-          `<div style="font-weight:700; margin-bottom:6px;">Sample Files</div>`,
-        );
-        parts.push(
-          `<ul class="file-list">` +
-          folderSummary.previewFiles
-            .map((f) => `<li class="mono">${f}</li>`)
-            .join("") +
-          `</ul>`,
-        );
+        containerEl.appendChild(hr());
+        containerEl.appendChild(heading("Sample Files"));
+        const ul = document.createElement("ul");
+        ul.className = "file-list";
+        folderSummary.previewFiles.forEach((f) => {
+          const li = document.createElement("li");
+          li.className = "mono";
+          li.textContent = f;
+          ul.appendChild(li);
+        });
+        containerEl.appendChild(ul);
       }
-
-      containerEl.innerHTML = parts.join("");
     }
 
     async function refreshPreviews() {
@@ -1889,6 +1932,7 @@
     });
 
     moveButton.addEventListener("click", async () => {
+      if (!authReady) { alert("Still verifying sign-in — try again in a moment."); return; }
       const manualFrom = fromPathInput?.value.trim();
       const manualTo = toPathInput?.value.trim();
       const fromFolder = manualFrom || fromDropdown.value.trim();
@@ -1981,10 +2025,20 @@
     });
 
     onAuthStateChanged(auth, async (user) => {
+      authReady = true;
       DATABASE_BASE_PATH = user ? user.uid : "public";
       loadRoot(`/${DATABASE_BASE_PATH}`);
       await populateFolderDropdowns();
       refreshPreviews();
+    });
+
+    // Token expiry / revocation → reflect as signed-out and drop back to public scope.
+    onIdTokenChanged(auth, (user) => {
+      authReady = true;
+      if (!user && DATABASE_BASE_PATH !== "public") {
+        DATABASE_BASE_PATH = "public";
+        loadRoot("/public");
+      }
     });
   </script>
 </body>

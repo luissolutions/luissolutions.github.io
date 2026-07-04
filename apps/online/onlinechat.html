@@ -534,7 +534,9 @@
     <script type="module" src="../assets/js/auth.js"></script>
     <script src="../assets/js/links-aside.js" charset="utf-8" defer></script>
     <script type="module">
-        import { database, ref, onValue, push, set, query, limitToLast, remove, get, storage, storageRef, uploadBytes, getDownloadURL, runTransaction } from '../assets/js/firebase-init.js';
+        import { auth, database, ref, onValue, push, set, query, limitToLast, remove, get, storage, storageRef, uploadBytes, getDownloadURL, runTransaction, onAuthStateChanged } from '../assets/js/firebase-init.js';
+        // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the same pinned SDK build.
+        import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
         import { onUserReady } from '../assets/js/auth.js';
 
         const OLLAMA_URL = 'https://api.luissolutions.us/chat';
@@ -677,6 +679,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         let chatMode = 'public';
         let messageUnsubscribe = null;
         let listenerReady = false;
+        let authReady = false;
 
         const sentHistory = [];
         let historyIndex = -1;
@@ -705,7 +708,17 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
         });
 
         function esc(s) {
-            return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // Only trust image URLs that are https on Firebase Storage — msg.imageUrl is world-writable.
+        function validChatImageUrl(u) {
+            if (!u) return '';
+            try {
+                const url = new URL(String(u));
+                if (url.protocol === 'https:' && url.hostname === 'firebasestorage.googleapis.com') return url.href;
+            } catch { }
+            return '';
         }
 
         function cleanReply(text) {
@@ -923,17 +936,29 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             } catch { return ''; }
         }
 
+        // Keys/values here come straight from the LLM reply and get re-injected into
+        // future prompts — sanitize keys (strip Firebase-illegal + path chars) and cap length.
+        function sanitizeMemKey(key) {
+            return String(key ?? '').replace(/[\/.#$\[\]]/g, '_').trim().slice(0, 200);
+        }
+
         async function saveBotMemory(key, value) {
             if (!currentUser) return;
+            const k = sanitizeMemKey(key);
+            if (!k) return;
+            const val = String(value ?? '').trim().slice(0, 200);
             try {
-                await set(ref(database, `${currentUser.uid}/bot/memory/${key.trim()}`), { value: value.trim(), updated: Date.now() });
+                await set(ref(database, `${currentUser.uid}/bot/memory/${k}`), { value: val, updated: Date.now() });
             } catch (e) { console.warn('Memory write failed:', e); }
         }
 
         async function saveBotTrait(key, value) {
             if (!currentUser) return;
+            const k = sanitizeMemKey(key);
+            if (!k) return;
+            const val = String(value ?? '').trim().slice(0, 200);
             try {
-                await set(ref(database, `${currentUser.uid}/bot/traits/${key.trim()}`), { value: value.trim(), updated: Date.now() });
+                await set(ref(database, `${currentUser.uid}/bot/traits/${k}`), { value: val, updated: Date.now() });
             } catch (e) { console.warn('Trait write failed:', e); }
         }
 
@@ -1056,18 +1081,39 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 : '';
             const showName = !isSelf;
 
-            const imgHtml = msg.imageUrl
-                ? `<img src="${msg.imageUrl}" class="chat-img" alt="image" onclick="window.open(this.src,'_blank')">`
-                : '';
-            const textHtml = msg.text ? `<span>${linkify(msg.text)}</span>` : '';
-
             const content = document.createElement('div');
             content.className = 'msg-content';
-            content.innerHTML = `
-                ${showName ? `<div class="msg-name">${esc(msg.username)}</div>` : ''}
-                <div class="bubble">${imgHtml}${textHtml}</div>
-                <div class="msg-time">${time}</div>
-            `;
+
+            if (showName) {
+                const nameDiv = document.createElement('div');
+                nameDiv.className = 'msg-name';
+                nameDiv.textContent = msg.username || '';
+                content.appendChild(nameDiv);
+            }
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            // Build the image node manually and only set src if it validates — no raw innerHTML.
+            const safeImg = validChatImageUrl(msg.imageUrl);
+            if (safeImg) {
+                const im = document.createElement('img');
+                im.className = 'chat-img';
+                im.alt = 'image';
+                im.src = safeImg;
+                im.addEventListener('click', () => window.open(im.src, '_blank', 'noopener'));
+                bubble.appendChild(im);
+            }
+            if (msg.text) {
+                const span = document.createElement('span');
+                span.innerHTML = linkify(msg.text); // linkify() esc()-escapes first, then injects only http(s) anchors
+                bubble.appendChild(span);
+            }
+            content.appendChild(bubble);
+
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'msg-time';
+            timeDiv.textContent = time;
+            content.appendChild(timeDiv);
 
             if (isSelf) {
                 wrap.appendChild(content);
@@ -1178,8 +1224,11 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 const moodMatch = raw.match(/\[MOOD:(\w+)\]/i);
                 const mood = (moodMatch && SPRITE_MOODS.includes(moodMatch[1].toLowerCase()))
                     ? moodMatch[1].toLowerCase() : detectMood(raw);
-                for (const [, k, v] of raw.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)) saveBotMemory(k, v);
-                for (const [, k, v] of raw.matchAll(/\[TRAIT:([^=\]]+)=([^\]]+)\]/gi)) saveBotTrait(k, v);
+                // Cap how many entries one reply can write, to bound prompt-injection blast radius.
+                let memWrites = 0;
+                for (const [, k, v] of raw.matchAll(/\[MEMORY:([^=\]]+)=([^\]]+)\]/gi)) { if (memWrites++ >= 10) break; saveBotMemory(k, v); }
+                let traitWrites = 0;
+                for (const [, k, v] of raw.matchAll(/\[TRAIT:([^=\]]+)=([^\]]+)\]/gi)) { if (traitWrites++ >= 10) break; saveBotTrait(k, v); }
                 const reply = cleanReply(raw.replace(/\[MOOD:\w+\]/gi, '').replace(/\[MEMORY:[^\]]+\]/gi, '').replace(/\[TRAIT:[^\]]+\]/gi, ''));
 
                 chatHistory.push({ role: 'assistant', content: reply });
@@ -1612,6 +1661,24 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             }
         });
 
+        // Auth accuracy: authReady gates writes until auth resolves; onIdTokenChanged
+        // catches silent token expiry/revocation that onAuthStateChanged can miss.
+        onAuthStateChanged(auth, () => { authReady = true; });
+        onIdTokenChanged(auth, (user) => {
+            authReady = true;
+            if (!user && currentUser) {
+                // Token dropped — fall back to guest/public scope.
+                currentUser = null;
+                currentUsername = null;
+                if (chatMode !== 'public') {
+                    chatMode = 'public';
+                    document.querySelectorAll('.chat-tab').forEach(b => b.classList.toggle('active', b.dataset.mode === 'public'));
+                    if (botHint) botHint.style.display = 'none';
+                    listenForMessages();
+                }
+            }
+        });
+
         document.querySelectorAll('.chat-tab').forEach(btn => {
             btn.addEventListener('click', () => {
                 const prevMode = chatMode;
@@ -1761,6 +1828,8 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
 
         messageForm.addEventListener('submit', async event => {
             event.preventDefault();
+            // Wait for auth to resolve before writing (guests included — authReady flips true even with no user).
+            if (!authReady) return;
             const username = currentUsername || usernameInput.value.trim() || 'Anonymous';
             if (!currentUsername) localStorage.setItem(USERNAME_KEY, username);
             const text = messageInput.value.trim();

@@ -7,10 +7,16 @@ const CONFIG_OD = {
 const redirectUri = `${window.location.origin}${window.location.pathname}`;
 let accessToken;
 
+// Keep the MS Graph token in sessionStorage (per-tab, cleared on tab close)
+// instead of localStorage, so an XSS can't scrape a persisted live OneDrive
+// token off disk. It still survives in-tab navigation between the online apps.
+// Purge any token left behind by the old localStorage-based flow.
+try { localStorage.removeItem("accessToken"); } catch (e) { /* ignore */ }
+
 const storage = {
-    setAccessToken: (token) => localStorage.setItem("accessToken", token),
-    getAccessToken: () => localStorage.getItem("accessToken"),
-    clearAccessToken: () => localStorage.removeItem("accessToken")
+    setAccessToken: (token) => sessionStorage.setItem("accessToken", token),
+    getAccessToken: () => sessionStorage.getItem("accessToken"),
+    clearAccessToken: () => sessionStorage.removeItem("accessToken")
 };
 
 function extractAccessTokenFromUrl() {

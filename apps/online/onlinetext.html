@@ -117,10 +117,18 @@
     <script type="module" src="../assets/js/auth.js"></script>
     <script src="../assets/js/links-aside.js" defer></script>
     <script type="module">
-        import { getDatabase, ref, set, push, onValue, remove } from '../assets/js/firebase-init.js';
+        import { getDatabase, ref, set, push, onValue, remove, auth, onAuthStateChanged } from '../assets/js/firebase-init.js';
 
         const database = getDatabase();
-        const textsRef = ref(database, 'public/texts');
+        // Scope saved texts to the signed-in user; fall back to shared public node when signed out.
+        let DB = 'public';
+        let unsubTexts = null;
+
+        function escHtml(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+            }[c]));
+        }
 
         const textInput = document.getElementById('textInput');
         const saveTextButton = document.getElementById('saveTextButton');
@@ -169,7 +177,7 @@
                 savedTexts.value = savedSettings.selectedText;
                 const selectedKey = savedSettings.selectedText;
                 if (selectedKey) {
-                    const selectedTextRef = ref(database, `public/texts/${selectedKey}`);
+                    const selectedTextRef = ref(database, `${DB}/texts/${selectedKey}`);
                     onValue(selectedTextRef, (snapshot) => {
                         if (snapshot.exists()) {
                             textInput.value = snapshot.val().text;
@@ -183,7 +191,8 @@
         }
 
         function fetchSavedTexts() {
-            onValue(textsRef, (snapshot) => {
+            if (unsubTexts) unsubTexts();
+            unsubTexts = onValue(ref(database, `${DB}/texts`), (snapshot) => {
                 savedTexts.innerHTML = '<option value="">Select a saved text</option>';
                 const data = snapshot.val();
                 if (data) {
@@ -265,9 +274,9 @@
         function highlightWords(startIndex, groupSize) {
             const highlightedWords = words.map((word, index) => {
                 if (index >= startIndex && index < startIndex + groupSize) {
-                    return `<span class="highlight">${word}</span>`;
+                    return `<span class="highlight">${escHtml(word)}</span>`;
                 }
-                return word;
+                return escHtml(word);
             });
 
             fullText.innerHTML = highlightedWords.join(' ');
@@ -282,7 +291,7 @@
         saveTextButton.addEventListener('click', () => {
             const text = textInput.value.trim();
             if (text) {
-                const newTextRef = push(textsRef);
+                const newTextRef = push(ref(database, `${DB}/texts`));
                 set(newTextRef, { text }).then(() => {
                     alert('Text saved successfully.');
                     textInput.value = '';
@@ -294,7 +303,7 @@
         savedTexts.addEventListener('change', () => {
             const selectedKey = savedTexts.value;
             if (selectedKey) {
-                const selectedTextRef = ref(database, `public/texts/${selectedKey}`);
+                const selectedTextRef = ref(database, `${DB}/texts/${selectedKey}`);
                 onValue(selectedTextRef, (snapshot) => {
                     if (snapshot.exists()) {
                         textInput.value = snapshot.val().text;
@@ -302,7 +311,7 @@
                         words = [];
                         currentIndex = 0;
                         display.textContent = 'Text will appear here';
-                        fullText.innerHTML = textInput.value;
+                        fullText.textContent = textInput.value;
 
                         saveSettings();
                     }
@@ -319,7 +328,7 @@
         deleteTextButton.addEventListener('click', () => {
             const selectedKey = savedTexts.value;
             if (selectedKey) {
-                const selectedTextRef = ref(database, `public/texts/${selectedKey}`);
+                const selectedTextRef = ref(database, `${DB}/texts/${selectedKey}`);
                 remove(selectedTextRef).then(() => {
                     alert('Text deleted successfully.');
                     fetchSavedTexts();
@@ -353,6 +362,11 @@
         document.addEventListener('DOMContentLoaded', () => {
             loadSettings();
             updateSpeedDisplay();
+        });
+
+        // Re-point the DB base path on auth changes and refresh the saved-text list.
+        onAuthStateChanged(auth, (user) => {
+            DB = user ? user.uid : 'public';
             fetchSavedTexts();
         });
 

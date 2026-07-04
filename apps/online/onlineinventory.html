@@ -315,6 +315,9 @@
       onValue,
       set,
     } from "../assets/js/firebase-init.js";
+    // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the
+    // same (already-cached) auth module to catch token expiry live.
+    import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
     import { uploadImage as sharedUploadImage, removeStorageImage } from "../assets/js/imgupload.js";
 
     /* =========================
@@ -323,6 +326,42 @@
     const TX_NODE = "ledgerTx";
     const LAST_YEAR_KEY = "inventory.lastYear";
     let DATABASE_BASE_PATH = "public";
+    let authReady = false; // true once the first auth resolution has fired
+
+    /* --- Auth-accuracy: drive UI + write-gating from live auth, never a cached flag --- */
+    function ensureAuthBanner() {
+      let b = document.getElementById("auth-warn-banner");
+      if (!b) {
+        b = document.createElement("div");
+        b.id = "auth-warn-banner";
+        b.setAttribute("role", "alert");
+        b.style.cssText = "display:none;background:#7a1620;color:#fff;text-align:center;padding:8px 12px;font-weight:600;";
+        b.textContent = "Not signed in — changes are NOT being saved. Sign in to save.";
+        document.body.insertBefore(b, document.body.firstChild);
+      }
+      return b;
+    }
+    function showAuthBanner(show) { ensureAuthBanner().style.display = show ? "block" : "none"; }
+    function reflectSignedIn(user) {
+      const lbl = document.getElementById("auth-label"); if (lbl) lbl.textContent = user.email || "Signed in";
+      const btn = document.getElementById("auth-btn"); if (btn) btn.textContent = "Sign Out";
+      showAuthBanner(false);
+    }
+    function reflectSignedOut() {
+      const lbl = document.getElementById("auth-label"); if (lbl) lbl.textContent = "Not signed in";
+      const btn = document.getElementById("auth-btn"); if (btn) btn.textContent = "Sign In";
+      showAuthBanner(true);
+    }
+    // Single source of truth for whether a write may proceed.
+    function canWrite() {
+      if (!authReady) return false;
+      if (!auth.currentUser) { showAuthBanner(true); return false; }
+      return true;
+    }
+    // Only render/open image URLs that are safely fetchable https:// links.
+    function safeHttpsImg(u) {
+      return /^https:\/\//i.test(String(u || "")) ? String(u) : "";
+    }
     let currentYear = (() => {
       const saved = parseInt(localStorage.getItem(LAST_YEAR_KEY), 10);
       return Number.isFinite(saved) ? saved : new Date().getUTCFullYear();
@@ -471,10 +510,12 @@
     }
 
     async function writeTx(year, id, obj) {
+      if (!canWrite()) return;
       await set(ref(database, txItemPath(year, id)), obj);
     }
 
     async function deleteTx(year, id) {
+      if (!canWrite()) return;
       await set(ref(database, txItemPath(year, id)), null);
     }
 
@@ -595,7 +636,12 @@
     let uiBound = false;
 
     onAuthStateChanged(auth, (user) => {
+      authReady = true;
       DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
+
+      // Login-state UI is driven only by the live `user` object.
+      if (user) reflectSignedIn(user);
+      else reflectSignedOut();
 
       if (typeof yearsUnsub === "function") {
         yearsUnsub();
@@ -608,6 +654,15 @@
 
       bindUIOnce();
       attachYearsListener();
+    });
+
+    // Catch silent ID-token expiry (fires with user=null when the token can no
+    // longer be refreshed) so the UI stops claiming we're signed in.
+    onIdTokenChanged(auth, (user) => {
+      if (!user) {
+        DATABASE_BASE_PATH = "public";
+        reflectSignedOut();
+      }
     });
 
     const FIELD_TOGGLE_KEY = "inventory.fieldToggles.v1";
@@ -984,12 +1039,15 @@
       const img = document.createElement("img");
       img.className = "thumb";
       img.alt = t.name || t.sku || "item";
-      img.src = t.img ? t.img : "../../assets/img/default.png";
+      // t.img comes from world-writable public/*; only trust https:// URLs so a
+      // planted javascript:/data: value can't run when set as src or opened.
+      const safeImg = safeHttpsImg(t.img);
+      img.src = safeImg || "../../assets/img/default.png";
 
-      img.style.cursor = t.img ? "pointer" : "default";
+      img.style.cursor = safeImg ? "pointer" : "default";
       img.addEventListener("click", () => {
-        if (!t.img) return;
-        window.open(t.img, "_blank", "noopener,noreferrer");
+        if (!safeImg) return;
+        window.open(safeImg, "_blank", "noopener,noreferrer");
       });
 
       const imgRow = document.createElement("div");

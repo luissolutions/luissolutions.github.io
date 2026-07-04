@@ -382,9 +382,11 @@
       auth, onAuthStateChanged, database,
       ref, onValue, set, get, update, remove
     } from "../assets/js/firebase-init.js";
+    import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 
     // ── state ──
     let DB = null;
+    let authReady = false;
     let jobTasks = {};
     let currentTaskId = null;
     let INVENTORY_ITEMS = [];
@@ -395,11 +397,17 @@
 
     // ── auth ──
     onAuthStateChanged(auth, user => {
+      authReady = true;
       DB = user ? user.uid : null;
       if (user) {
         loadInventory();
         loadJobTasks();
       }
+    });
+
+    // Token expiry surfaces as signed-out; keep the write path accurate.
+    onIdTokenChanged(auth, user => {
+      DB = user ? user.uid : null;
     });
 
     // ── collapsible settings ──
@@ -448,7 +456,7 @@
       return "INV-" + d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0") + "-" + String(Math.floor(Math.random() * 900) + 100);
     }
     function esc(s) {
-      return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+      return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
     // ── cost column toggle ──
@@ -849,7 +857,8 @@
     // SAVE
     // ──────────────────────────────────────────────
     document.getElementById("saveInvBtn").addEventListener("click", async function () {
-      if (!DB) { setMsg("Sign in to save.", true); return; }
+      if (!authReady) { setMsg("Checking sign-in — try again in a moment.", true); return; }
+      if (!DB) { setMsg("Not saving — sign in to save invoices privately.", true); return; }
       if (!currentTaskId) { setMsg("Import a task first.", true); return; }
       var existing = jobTasks[currentTaskId] || {};
       var wasPaid = existing.paid || false;
@@ -957,14 +966,14 @@
 
       var partRows = (inv.parts || []).filter(function (p) { return Number(p.total) !== 0; }).map(function (p) {
         return "<tr><td style='padding:5px 8px;border:1px solid #e2e8f0;'>" + esc(p.part) +
-          "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:center;'>" + p.quantity +
+          "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:center;'>" + esc(p.quantity) +
           "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:right;'>$" + Number(p.price).toFixed(2) +
           "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:right;'>$" + Number(p.total).toFixed(2) + "</td></tr>";
       }).join("");
 
       var laborRows = (inv.labor || []).filter(function (l) { return Number(l.total) !== 0; }).map(function (l) {
         return "<tr><td style='padding:5px 8px;border:1px solid #e2e8f0;'>" + esc(l.description) +
-          "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:center;'>" + l.hours +
+          "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:center;'>" + esc(l.hours) +
           "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:right;'>$" + Number(l.rate).toFixed(2) +
           "</td><td style='padding:5px 8px;border:1px solid #e2e8f0;text-align:right;'>$" + Number(l.total).toFixed(2) + "</td></tr>";
       }).join("");
@@ -990,8 +999,8 @@
         "<div style='text-align:right;'>" +
         "<div style='font-size:24px;font-weight:800;letter-spacing:2px;'>" + typeLabel + "</div>" +
         "<div><strong>#</strong> " + esc(inv.number) + "</div>" +
-        "<div style='font-size:12px;color:#64748b;'>Date: " + (inv.invoiceDate || "") + "</div>" +
-        (inv.due ? "<div style='font-size:12px;color:#64748b;'>Due: " + inv.due + "</div>" : "") +
+        "<div style='font-size:12px;color:#64748b;'>Date: " + esc(inv.invoiceDate) + "</div>" +
+        (inv.due ? "<div style='font-size:12px;color:#64748b;'>Due: " + esc(inv.due) + "</div>" : "") +
         "</div></div>" +
         "<div style='margin-bottom:20px;padding:12px;background:#f8fafc;border-radius:4px;'>" +
         "<div style='font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:4px;'>Bill To</div>" +

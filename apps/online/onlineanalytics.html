@@ -138,6 +138,10 @@
     } from "../assets/js/firebase-init.js";
 
     let DATABASE_BASE_PATH = "public";
+    let unsubTasks = null;
+    let unsubLedgerYears = null;
+    let unsubLedger = null;
+    let ledgerYearChangeBound = false;
     const customerSearchInput = document.getElementById("customer-search");
     const customerSearchHelper = window.SearchEngine?.attachAuto
       ? window.SearchEngine.attachAuto(customerSearchInput, {
@@ -157,19 +161,29 @@
     });
 
     function setupRealTimeListeners() {
-      analyzeInvoiceData();
-      populateCustomerDropdown();
+      attachTasksListener();
       attachLedgerYearListener();
       analyzeLedgerData();
     }
 
-    function analyzeInvoiceData() {
+    // Single /tasks subscription feeds both invoice analytics and the customer dropdown.
+    function attachTasksListener() {
+      if (unsubTasks) unsubTasks();
       const invoicesRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
-      onValue(
+      unsubTasks = onValue(
         invoicesRef,
         (snapshot) => {
-          if (snapshot.exists()) {
-            const invoices = snapshot.val();
+          const invoices = snapshot.exists() ? snapshot.val() : {};
+          analyzeInvoiceData(invoices);
+          populateCustomerDropdown(invoices);
+        },
+        (error) => {
+          console.error("Error fetching invoices:", error);
+        },
+      );
+    }
+
+    function analyzeInvoiceData(invoices) {
             let totalAmountPaid = 0;
             let totalSales = 0;
             let totalLaborCost = 0;
@@ -227,21 +241,9 @@
               li.textContent = `${partName}: ${partsSold[partName]} units`;
               partsSoldList.appendChild(li);
             });
-          }
-        },
-        (error) => {
-          console.error("Error fetching invoices:", error);
-        },
-      );
     }
 
-    function populateCustomerDropdown() {
-      const invoicesRef = ref(database, `${DATABASE_BASE_PATH}/tasks`);
-      onValue(
-        invoicesRef,
-        (snapshot) => {
-          if (snapshot.exists()) {
-            const invoices = snapshot.val();
+    function populateCustomerDropdown(invoices) {
             const customers = {};
 
             for (const invoiceId in invoices) {
@@ -294,12 +296,6 @@
 
             window.customers = customers;
             window.sortedCustomerNames = sortedCustomerNames;
-          }
-        },
-        (error) => {
-          console.error("Error fetching invoices:", error);
-        },
-      );
     }
 
     function updateCustomerDetails(customerName) {
@@ -382,7 +378,8 @@
       const ledgerYearSelect = document.getElementById("ledger-year");
       const ledgerRootRef = ref(database, `${DATABASE_BASE_PATH}/ledgerTx`);
 
-      onValue(
+      if (unsubLedgerYears) unsubLedgerYears();
+      unsubLedgerYears = onValue(
         ledgerRootRef,
         (snapshot) => {
           if (snapshot.exists()) {
@@ -409,10 +406,13 @@
         },
       );
 
-      ledgerYearSelect.addEventListener("change", () => {
-        currentLedgerYear = parseInt(ledgerYearSelect.value, 10);
-        analyzeLedgerData();
-      });
+      if (!ledgerYearChangeBound) {
+        ledgerYearChangeBound = true;
+        ledgerYearSelect.addEventListener("change", () => {
+          currentLedgerYear = parseInt(ledgerYearSelect.value, 10);
+          analyzeLedgerData();
+        });
+      }
     }
 
     function analyzeLedgerData() {
@@ -420,7 +420,8 @@
         database,
         `${DATABASE_BASE_PATH}/ledgerTx/${currentLedgerYear}`,
       );
-      onValue(
+      if (unsubLedger) unsubLedger();
+      unsubLedger = onValue(
         ledgerRef,
         (snapshot) => {
           if (!snapshot.exists()) {
@@ -499,8 +500,9 @@
       );
     }
 
-    document.addEventListener("DOMContentLoaded", setupRealTimeListeners);
-  </script>
+    // Listeners are (re)attached by onAuthStateChanged; no separate DOMContentLoaded
+    // call — that caused duplicate, never-detached subscriptions.
+</script>
 </body>
 
 </html>

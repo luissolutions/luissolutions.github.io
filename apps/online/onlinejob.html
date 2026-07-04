@@ -278,16 +278,31 @@
     } from "../assets/js/firebase-init.js";
 
     import { accessToken, isTokenExpired } from "../assets/js/microsoftAuth.js";
+    // onIdTokenChanged isn't re-exported by firebase-init.js; pull it straight
+    // from the (already-loaded) Firebase auth module so a dropped/expired token
+    // reverts the DB scope to signed-out instead of leaving it on a stale uid.
+    import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 
     // ════════════════════════════════════
     // SHARED
     // ════════════════════════════════════
     let DB = "public";
+    let authReady = false;
 
-    onAuthStateChanged(auth, (user) => {
-      DB = user ? user.uid : "public";
-      loadTasks();
-    });
+    // Single source of truth for auth: sets the DB scope, marks auth ready, and
+    // (re)subscribes only when the scope actually changes. onIdTokenChanged also
+    // fires on token refresh/expiry; a null user reverts DB to "public".
+    function applyAuthState(user) {
+      const next = user ? user.uid : "public";
+      const changed = next !== DB;
+      const firstRun = !authReady;
+      DB = next;
+      authReady = true;
+      if (changed || firstRun) loadTasks();
+    }
+
+    onAuthStateChanged(auth, applyAuthState);
+    onIdTokenChanged(auth, applyAuthState);
 
     // ════════════════════════════════════
     // TIMER
@@ -506,7 +521,7 @@
       segmentSummary.appendChild(frag);
     }
 
-    function saveTask(task) { set(dbRef(database, `${DB}/tasks/${task.id}`), task); }
+    function saveTask(task) { if (!authReady) return; set(dbRef(database, `${DB}/tasks/${task.id}`), task); }
 
     function normalizeTaskSegments(task) {
       let changed = false;
@@ -576,6 +591,7 @@
     }
 
     function startTask(initType = null) {
+      if (!authReady) return; // don't create tasks under "public" before auth resolves
       const handle = (location) => {
         currentTask = {
           id: Date.now().toString(),
@@ -695,7 +711,7 @@
       endTaskBtn.style.display = "inline-block";
       updateTaskBtn.style.display = "inline-block";
       if (currentProject !== open[0].id) loadProject(open[0].id);
-      const openRow = document.querySelector(`[data-task-id="${open[0].id}"]`);
+      const openRow = document.querySelector(`[data-task-id="${CSS.escape(open[0].id)}"]`);
       if (openRow) openRow.classList.add("task-row-active");
     }
 
@@ -707,7 +723,7 @@
     }
 
     function updateTaskInTable(task) {
-      const row = document.querySelector(`[data-task-id="${task.id}"]`);
+      const row = document.querySelector(`[data-task-id="${CSS.escape(task.id)}"]`);
       if (row) updateRow(row, task); else addTaskToTable(task);
     }
 
@@ -799,7 +815,7 @@
 
     async function loadTaskForEditing(taskKey) {
       document.querySelectorAll(".task-row-active").forEach(r => r.classList.remove("task-row-active"));
-      const activeRow = document.querySelector(`[data-task-id="${taskKey}"]`);
+      const activeRow = document.querySelector(`[data-task-id="${CSS.escape(taskKey)}"]`);
       if (activeRow) activeRow.classList.add("task-row-active");
       currentTaskId = taskKey;
       const snap = await get(dbRef(database, `${DB}/tasks/${taskKey}`));
@@ -1611,6 +1627,7 @@
     }
 
     async function loadProject(id) {
+      if (!authReady) return; // don't read/write against "public" before auth resolves
       const gen = ++projectLoadGen;
       isLoadingProject = true;
       currentDeviceLists = {}; activeDeviceListId = ""; currentDailyTasks = {};

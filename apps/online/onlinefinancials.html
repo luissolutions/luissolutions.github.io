@@ -527,7 +527,21 @@
       onValue,
       set,
     } from "../assets/js/firebase-init.js";
+    // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the
+    // same (already-cached) auth module so we can catch token expiry live.
+    import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
     import { uploadImage as sharedUploadImage, removeStorageImage } from "../assets/js/imgupload.js";
+
+    /* HTML-escape untrusted (world-writable public/*) strings before they touch innerHTML.
+       Escapes & < > " ' so both element and attribute contexts are safe. */
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
 
     /* =========================
      Constants & Helpers
@@ -617,6 +631,49 @@
   ========================== */
     let currentYear = new Date().getUTCFullYear();
     let DATABASE_BASE_PATH = "public";
+    let authReady = false; // true once the first auth resolution has fired
+
+    /* --- Auth-accuracy: drive UI + write-gating from live auth, never a cached flag --- */
+    function ensureAuthBanner() {
+      let b = document.getElementById("auth-warn-banner");
+      if (!b) {
+        b = document.createElement("div");
+        b.id = "auth-warn-banner";
+        b.setAttribute("role", "alert");
+        b.style.cssText =
+          "display:none;background:#7a1620;color:#fff;text-align:center;padding:8px 12px;font-weight:600;";
+        b.textContent =
+          "Not signed in — changes are NOT being saved. Sign in to save.";
+        document.body.insertBefore(b, document.body.firstChild);
+      }
+      return b;
+    }
+    function showAuthBanner(show) {
+      ensureAuthBanner().style.display = show ? "block" : "none";
+    }
+    function reflectSignedIn(user) {
+      const lbl = document.getElementById("auth-label");
+      if (lbl) lbl.textContent = user.email || "Signed in";
+      const btn = document.getElementById("auth-btn");
+      if (btn) btn.textContent = "Sign Out";
+      showAuthBanner(false);
+    }
+    function reflectSignedOut() {
+      const lbl = document.getElementById("auth-label");
+      if (lbl) lbl.textContent = "Not signed in";
+      const btn = document.getElementById("auth-btn");
+      if (btn) btn.textContent = "Sign In";
+      showAuthBanner(true);
+    }
+    // Single source of truth for whether a write may proceed.
+    function canWrite() {
+      if (!authReady) return false;
+      if (!auth.currentUser) {
+        showAuthBanner(true);
+        return false;
+      }
+      return true;
+    }
 
     // ✅ keep node name consistent with your other finance apps
     const TX_NODE = "ledgerTx";
@@ -732,6 +789,7 @@
      Database operations (Year-aware)
   ========================== */
     async function upsertTx(prevTx, nextTx) {
+      if (!canWrite()) return;
       const next = stripTxForSave(nextTx);
       const nextYear = yearFromTS(next.date);
 
@@ -747,6 +805,7 @@
     }
 
     async function deleteTxFull(tx) {
+      if (!canWrite()) return;
       const y = yearFromTS(tx.date);
       await set(ref(database, txItemPath(y, tx.id)), null);
       // best-effort image cleanup
@@ -949,16 +1008,17 @@
       const barColor = over ? "#e05" : "#2a9";
       const diffClass = diff >= 0 ? "budget-under" : "budget-over";
       const pctLabel = budget > 0 ? `${Math.round((actual / budget) * 100)}%` : "";
+      const safeTag = escapeHtml(tag);
       const budgetCell = isUntagged
         ? "—"
-        : `<input class="budget-input" data-tag="${tag}" type="number" min="0" step="1"
+        : `<input class="budget-input" data-tag="${safeTag}" type="number" min="0" step="1"
             value="${monthly > 0 ? monthly.toFixed(2) : ""}"
             placeholder="—"
-            title="Monthly budget for ${tag} — press Enter or click away to save"
+            title="Monthly budget for ${safeTag} — press Enter or click away to save"
             style="width:90px;background:transparent;border:none;border-bottom:1px dashed var(--border,#aaa);text-align:right;font:inherit;color:inherit;padding:2px 0;" />`;
       return `
         <tr>
-          <td>${isUntagged ? '<em style="opacity:.65">Untagged</em>' : tag}</td>
+          <td>${isUntagged ? '<em style="opacity:.65">Untagged</em>' : safeTag}</td>
           <td>${budgetCell}</td>
           <td>${fmtUSD(actual)}</td>
           <td class="${diffClass}">${budget > 0 ? (diff >= 0 ? "+" : "") + fmtUSD(diff) : ""}</td>
@@ -972,6 +1032,7 @@
     }
 
     async function saveBudgetCategory(tag, monthly) {
+      if (!canWrite()) return;
       if (!_budgetPlan) _budgetPlan = {};
       if (!Array.isArray(_budgetPlan.categories)) _budgetPlan.categories = [];
       const existing = _budgetPlan.categories.find(c => c.name === tag);
@@ -1009,7 +1070,12 @@
      Auth -> base path + listener
   ========================== */
     onAuthStateChanged(auth, (user) => {
+      authReady = true;
       DATABASE_BASE_PATH = user ? `${user.uid}` : "public";
+
+      // Login-state UI is driven only by the live `user` object.
+      if (user) reflectSignedIn(user);
+      else reflectSignedOut();
 
       const saved = loadSavedYear();
       if (saved) currentYear = saved;
@@ -1024,6 +1090,15 @@
       attachLedgerListener();
       attachBudgetListener();
       initTabsOnce();
+    });
+
+    // Catch silent ID-token expiry (fires with user=null when the token can no
+    // longer be refreshed) so the UI stops claiming we're signed in.
+    onIdTokenChanged(auth, (user) => {
+      if (!user) {
+        DATABASE_BASE_PATH = "public";
+        reflectSignedOut();
+      }
     });
 
     function attachLedgerListener() {
@@ -2383,6 +2458,7 @@
       const file = e.target.files?.[0];
       e.target.value = "";
       if (!file) return;
+      if (!canWrite()) return;
 
       const warned = confirm(
         "⚠️ WARNING: Restore will OVERWRITE all current transactions.\n\nExport a backup first.\n\nClick OK to continue.",
@@ -2437,6 +2513,7 @@
     }
 
     async function clearAllTx() {
+      if (!canWrite()) return;
       if (!confirm("Delete ALL transactions? This cannot be undone.")) return;
       await set(ref(database, ledgerBasePath()), {});
       alert("All transactions cleared.");
@@ -2836,13 +2913,17 @@
           name: t.name,
         }));
 
+        // Build the static card via innerHTML, but inject the parsed (untrusted
+        // pasted-statement) rows through textContent so nothing can execute.
         preview.innerHTML = `
           <div class="card">
             <b>Preview:</b> ${count} row(s) parsed${importDedupeEnabled() ? " (deduped)" : ""}
             <div class="small">Showing up to 50 rows below.</div>
           </div>
-          <pre style="white-space:pre-wrap">${JSON.stringify(sample, null, 2)}</pre>
+          <pre style="white-space:pre-wrap"></pre>
         `;
+        const previewPre = preview.querySelector("pre");
+        if (previewPre) previewPre.textContent = JSON.stringify(sample, null, 2);
 
         if (btnMerge) btnMerge.disabled = count === 0;
       });
