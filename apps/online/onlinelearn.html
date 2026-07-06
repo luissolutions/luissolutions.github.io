@@ -10,15 +10,16 @@
   <link rel="icon" href="../assets/img/t_logo.png" sizes="32x32" type="image/png" />
   <script type="module" src="../assets/js/auth.js"></script>
   <script src="../assets/js/links-aside.js" defer></script>
-  <script type="module" src="../assets/js/pdfs.js"></script>
   <script src="../assets/js/search.js" defer></script>
   <style>
     #indexDropdown {
       min-width: 220px;
     }
 
-    .pdf-hidden {
-      display: none;
+    .question-position {
+      font-size: 0.85em;
+      opacity: 0.7;
+      margin-bottom: 2px;
     }
 
     #newQuestion,
@@ -169,8 +170,6 @@
           </button>
         </div>
 
-        <div id="questionCounter">Questions Remaining: 0</div>
-
         <div>
           <input type="checkbox" id="saveQuestionCheckbox" />
           <label for="saveQuestionCheckbox">Save Question</label>
@@ -214,15 +213,6 @@
       </form>
     </section>
 
-    <section id="savedPdfsSection" class="pdf-hidden">
-      <h2>Saved PDFs</h2>
-      <div>
-        <input type="file" id="pdfFileInput" accept="application/pdf" />
-        <button id="uploadPdfBtn">Upload PDF</button>
-        <button id="refreshPdfListBtn">Refresh</button>
-      </div>
-      <div id="pdfList">Log in to view saved PDFs.</div>
-    </section>
   </main>
 
   <script type="module">
@@ -249,6 +239,7 @@
     let answeredQuestions = {};
     let currentQuestionId = null;
     let currentDescription = "";
+    let currentPathKey = "";
     let timerInterval;
     let timeElapsed = 0;
     let timerRunning = false;
@@ -568,11 +559,6 @@
     }
 
     function fetchQuestions(applyFilter = false) {
-      const showIncorrect = document.getElementById("showIncorrect").checked;
-      const filterText = String(
-        document.getElementById("filterInput").value || "",
-      ).trim();
-      const shuffleEnabled = document.getElementById("shuffleToggle").checked;
       const questionsRef = ref(database, "share/questions");
 
       if (questionsUnsubscribe) {
@@ -592,18 +578,32 @@
               allQuestions.push({
                 ...value,
                 id: key,
+                pathKey,
                 description: value.description ?? pathKey,
               });
             }
           }
         }
 
-        let filteredQuestions = filterQuestionsList(
-          allQuestions,
-          showIncorrect,
-        );
+        // Read the CURRENT topic/filter/shuffle state on every fire — backend
+        // changes refire this listener, and stale captured values used to
+        // reset the list to "all topics" while the dropdown kept its selection.
+        const dropdownTopic =
+          document.getElementById("indexDropdown")?.value || "";
+        const filterText = String(
+          document.getElementById("filterInput").value || "",
+        ).trim();
+        const shuffleEnabled =
+          document.getElementById("shuffleToggle").checked;
 
-        if (applyFilter && filterText) {
+        let filteredQuestions = filterQuestionsList(allQuestions);
+
+        if (dropdownTopic) {
+          const target = dropdownTopic.toLowerCase();
+          filteredQuestions = filteredQuestions.filter(
+            (q) => String(q.description || "").toLowerCase() === target,
+          );
+        } else if (filterText) {
           if (questionSearchHelper) {
             filteredQuestions = questionSearchHelper.filter(
               filteredQuestions,
@@ -649,8 +649,16 @@
 
       currentQuestionId = question.id;
       currentDescription = question.description;
+      currentPathKey = question.pathKey || sanitizeKey(question.description);
 
       quizSection.textContent = "";
+      quizSection.appendChild(
+        el(
+          "p",
+          { class: "question-position" },
+          `Question ${currentQuestionIndex + 1} of ${questions.length}`,
+        ),
+      );
       quizSection.appendChild(
         el(
           "p",
@@ -854,6 +862,7 @@
       ).trim();
       const shuffleEnabled = document.getElementById("shuffleToggle").checked;
 
+      currentViewMode = "normal";
       questions = filterQuestionsList(allQuestions);
 
       if (filterText) {
@@ -979,6 +988,17 @@
           ? `\nExplanation: ${currentQuestion.explanation}`
           : "";
         alert(`Correct!${explanationText}`);
+
+        // Mirror the incorrect branch: when correct answers aren't included,
+        // the question leaves the rotation immediately.
+        const showCorrect = document.getElementById("showCorrect").checked;
+        if (!showCorrect) {
+          questions.splice(currentQuestionIndex, 1);
+          displayQuestion(questions[currentQuestionIndex] || null);
+          updateScoreDisplay();
+          updateQuestionCounter();
+          return;
+        }
       } else {
         const continueToNext = confirm(
           "Incorrect! Continue to the next question?",
@@ -1141,7 +1161,7 @@
       explanation,
     ) {
       const safeNew = sanitizeKey(newDescription);
-      const safeOld = sanitizeKey(currentDescription);
+      const safeOld = currentPathKey || sanitizeKey(currentDescription);
       if (!safeNew) {
         alert("Description is required.");
         return;
@@ -1309,23 +1329,10 @@
     }
 
     function updateQuestionCounter() {
-      if (questions.length === 0) {
-        document.getElementById("questionCounter").textContent =
-          `Questions Remaining: 0`;
-        return;
-      }
-
-      if (currentViewMode === "normal") {
-        const remaining = questions.filter(
-          (q) => answeredQuestions[q.id] !== "answered",
-        ).length;
-
-        document.getElementById("questionCounter").textContent =
-          `Questions Remaining: ${remaining}`;
-      } else {
-        document.getElementById("questionCounter").textContent =
-          `Reviewing ${currentQuestionIndex + 1} / ${questions.length}`;
-      }
+      // Counter element removed — position now shows as "Question N of X"
+      // inside the quiz card. Kept as a no-op since it's called throughout.
+      const counter = document.getElementById("questionCounter");
+      if (!counter) return;
     }
 
     function resetQuiz() {
@@ -1375,11 +1382,17 @@
       if (!currentQuestionId) return;
 
       if (confirm("Are you sure you want to delete this question?")) {
-        const questionRef = ref(
-          database,
-          `share/questions/${sanitizeKey(currentDescription)}/${currentQuestionId}`,
-        );
-        remove(questionRef)
+        const path = `share/questions/${currentPathKey || sanitizeKey(currentDescription)}/${currentQuestionId}`;
+        const questionRef = ref(database, path);
+        // remove() succeeds on nonexistent paths, so verify first — a stale
+        // description used to build a phantom path and report a fake success.
+        get(questionRef)
+          .then((snap) => {
+            if (!snap.exists()) {
+              throw new Error(`question not found at ${path}`);
+            }
+            return remove(questionRef);
+          })
           .then(() => {
             alert("Question deleted successfully.");
           })
@@ -1392,7 +1405,9 @@
     }
 
     function toggleShowIncorrect() {
-      fetchQuestions(true);
+      // Re-filter the already-loaded list synchronously instead of
+      // re-subscribing to Firebase — the checkbox change applies instantly.
+      filterQuestions();
     }
 
     function loadSavedData() {
