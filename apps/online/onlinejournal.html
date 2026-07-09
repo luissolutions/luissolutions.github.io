@@ -91,6 +91,15 @@
       filter: brightness(1.08);
     }
 
+    .entry-thumb {
+      width: 100%;
+      height: 60px;
+      object-fit: cover;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      display: block;
+    }
+
     .entry-card small {
       display: block;
       color: var(--muted);
@@ -510,7 +519,7 @@
   </main>
 
   <script type="module">
-    import { auth, database, ref, set, get, remove, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "../assets/js/firebase-init.js";
+    import { auth, database, ref, set, get, remove, onAuthStateChanged, signInWithEmailAndPassword, signOut, storage, storageRef, deleteObject } from "../assets/js/firebase-init.js";
     // onIdTokenChanged is not re-exported by firebase-init.js; pull it from the same pinned SDK build.
     import { onIdTokenChanged } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
     import { renderArticleContent } from "../assets/js/onlinejournal.js";
@@ -998,7 +1007,11 @@
           } else if (a.createdAt) {
             cardDate = new Date(a.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
           }
+          var thumb = (a.imageUrl && a.imageUrl.indexOf("PLACEHOLDER") === -1)
+            ? '<img class="entry-thumb" src="' + escapeHtml(a.imageUrl) + '" loading="lazy" alt="">'
+            : "";
           div.innerHTML =
+            thumb +
             "<small>" + scopeLabel + (cardDate ? " · " + cardDate : "") + "</small>" +
             "<h3>" + escapeHtml(a.title) + "</h3>" +
             "<p>" + escapeHtml(a.description || "") + "</p>";
@@ -1050,8 +1063,20 @@
       if (!authReady) return;
       if (!currentArticleId || !allArticles[currentArticleId]) return;
       if (!confirm("Delete?")) return;
-      var sourcePath = allArticles[currentArticleId].__path;
-      var realId = allArticles[currentArticleId].__id;
+      var article = allArticles[currentArticleId];
+      var sourcePath = article.__path;
+      var realId = article.__id;
+      // Best-effort: remove the header banner from Storage. Never block the
+      // article delete on this — public-tier images may be rules-blocked, and a
+      // missing/external image just throws harmlessly.
+      var img = article.imageUrl || "";
+      if (img.indexOf("firebasestorage.googleapis.com") !== -1 && img.indexOf("/journalImages/") !== -1) {
+        try {
+          await deleteObject(storageRef(storage, img));
+        } catch (e) {
+          console.warn("Header image not deleted (rules-blocked or already gone):", e && e.code);
+        }
+      }
       await remove(ref(database, sourcePath + "/" + realId));
       currentArticleId = null;
       editingId = null;
