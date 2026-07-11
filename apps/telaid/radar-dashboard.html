@@ -458,22 +458,21 @@
       return (str || '').trim().replace(/\s+/g, '_').replace(/[\\/:*?"<>|#%{}~&]/g, '_');
     }
 
-    async function loadPDFFolder() {
+    async function loadPDFFolder(projects) {
       try {
-        const url = `https://graph.microsoft.com/v1.0/drives/${CONFIG.DRIVE_ID}/root:/${CONFIG.ROOT}/pdf:/children?$select=name,@microsoft.graph.downloadUrl`;
-        const data = await graph(url);
-        if (!data?.value) return;
         PDF_LOOKUP = {};
-        for (const file of data.value) {
-          if (!file.name?.toLowerCase().endsWith('.pdf')) continue;
-          const match = file.name.match(/^(.+?)_checklist_/);
-          if (match) {
-            const key = match[1];
-            if (!PDF_LOOKUP[key] || file.name > PDF_LOOKUP[key].name) {
-              PDF_LOOKUP[key] = { name: file.name, url: file['@microsoft.graph.downloadUrl'] };
+        // PDFs live per site at {ROOT}/{site}/pdf/ — newest (ISO date in name) wins.
+        await Promise.all((projects || []).filter(p => p.folder).map(async (p) => {
+          const url = `https://graph.microsoft.com/v1.0/drives/${CONFIG.DRIVE_ID}/root:/${CONFIG.ROOT}/${encodeURIComponent(p.name)}/pdf:/children?$select=name,@microsoft.graph.downloadUrl`;
+          const data = await graph(url);
+          if (!data?.value) return;
+          for (const file of data.value) {
+            if (!file.name?.toLowerCase().endsWith('.pdf')) continue;
+            if (!PDF_LOOKUP[p.name] || file.name > PDF_LOOKUP[p.name].name) {
+              PDF_LOOKUP[p.name] = { name: file.name, url: file['@microsoft.graph.downloadUrl'] };
             }
           }
-        }
+        }));
       } catch (e) {
         console.warn('[PDF] Could not load PDF folder', e);
       }
@@ -1089,7 +1088,8 @@
 
         LAST_ACCESS_TOKEN = token;
 
-        const [projects] = await Promise.all([getProjects(), loadPDFFolder()]);
+        const projects = await getProjects();
+        await loadPDFFolder(projects);
         const folders = (projects || []).filter(p => p.folder);
 
         const records = await Promise.all(

@@ -1650,16 +1650,17 @@
           ? `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}/sensors`
           : `${DATABASE_BASE_PATH}/tasks/images/${safeProjectName}`;
 
-        // ✅ OneDrive folder uses customer + project for full identification
-        const oneDriveBase = getPhotoNamePrefix() || safeProjectName;
-        const oneDriveFolder = `JobPhotos/${oneDriveBase}/${folderType}`;
+        // ✅ OneDrive scheme: Job/{Customer}/{Project}/{type}
+        const custPart = sanitize(currentCustomerName || "") || "Misc";
+        const oneDriveFolder = `Job/${custPart}/${safeProjectName}/${folderType}`;
 
         try {
           const folderRef = storageRef(storage, firebaseFolder);
           const folderSnapshot = await listAll(folderRef);
 
-          await ensureOneDriveFolder("JobPhotos");
-          await ensureOneDriveFolder(`JobPhotos/${oneDriveBase}`);
+          await ensureOneDriveFolder("Job");
+          await ensureOneDriveFolder(`Job/${custPart}`);
+          await ensureOneDriveFolder(`Job/${custPart}/${safeProjectName}`);
           await ensureOneDriveFolder(oneDriveFolder);
 
           for (const item of folderSnapshot.items) {
@@ -1706,7 +1707,7 @@
               const csvContent = rows.map((row) => row.join(",")).join("\n");
               const blob = new Blob([csvContent], { type: "text/csv" });
 
-              const filename = `${oneDriveBase}_DeviceData.csv`;
+              const filename = `${custPart}_${safeProjectName}_DeviceData.csv`;
 
               const csvUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${odEncode(`${oneDriveFolder}/${filename}`)}:/content`;
               const csvRes = await fetch(csvUrl, {

@@ -203,12 +203,16 @@
             <br>
             <label>Image Name:</label>
             <input type="text" id="imageNameInput" placeholder="Enter image name"><br>
-            <label>Folder Name:</label>
-            <input type="text" id="imageLabel" placeholder="Enter folder name" value="default"><br>
+            <label>Customer:</label>
+            <input type="text" id="customerLabel" placeholder="Enter customer name" value="Misc"><br>
+            <label>Project:</label>
+            <input type="text" id="imageLabel" placeholder="Enter project name" value="default"><br>
             <label for="markupTextInput">Markup Text:</label>
             <input type="text" id="markupTextInput" placeholder="Enter markup text"><br>
             <button id="uploadButton">Upload</button><br>
-            <label>Browse Folder:</label>
+            <label>Customer:</label>
+            <select id="customerDropdown"></select>
+            <label>Project:</label>
             <select id="folderDropdown"></select>
         </section>
 
@@ -232,8 +236,11 @@
     <script type="module">
         import { accessToken, loginToMicrosoft, logoutFromMicrosoft, getUserInfo } from '../assets/js/microsoftAuth.js';
 
-        const ROOT_FOLDER = "JobPhotos";
+        const ROOT_FOLDER = "Job"; // Unified scheme: Job/{Customer}/{Project}/files
         let currentFiles = [], currentIndex = 0;
+
+        const currentCustomer = () => document.getElementById("customerDropdown").value;
+        const notesKey = (customer, project) => `${customer}_${project}`;
 
         // INIT ON LOAD
         window.addEventListener("load", async () => {
@@ -242,7 +249,7 @@
                     const user = await getUserInfo();
                     const userName = user?.displayName || user?.userPrincipalName || user?.mail || "Unknown user";
                     document.getElementById("loginStatus").textContent = `Logged in as: ${userName}`;
-                    await listFolders();
+                    await listCustomers();
                 } catch (err) {
                     console.warn("Unable to retrieve user info", err);
                     document.getElementById("loginStatus").textContent = "Not logged in";
@@ -260,7 +267,9 @@
 
             try {
                 const fileInput = document.getElementById("fileUploader");
-                const folder = sanitizeInput(document.getElementById("imageLabel").value) || "default";
+                const customer = sanitizeInput(document.getElementById("customerLabel").value) || "Misc";
+                const project = sanitizeInput(document.getElementById("imageLabel").value) || "default";
+                const folder = `${customer}/${project}`;
                 const markupText = document.getElementById("markupTextInput").value.trim();
                 let nameInput = document.getElementById("imageNameInput").value.trim();
 
@@ -283,7 +292,8 @@
                 }
 
                 await ensurePhotosFolder();
-                await createSubFolderIfNeeded(folder);
+                await createSubFolderIfNeeded(ROOT_FOLDER, customer);
+                await createSubFolderIfNeeded(`${ROOT_FOLDER}/${customer}`, project);
 
                 const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${ROOT_FOLDER}/${folder}/${finalFileName}:/content`;
                 const res = await fetch(uploadUrl, {
@@ -294,8 +304,7 @@
 
                 if (!res.ok) throw new Error("Upload failed");
                 alert("Uploaded to OneDrive!");
-                await listFolders();
-                await listFiles(folder);
+                await listCustomers(customer, project);
             } catch (err) {
                 console.error("Upload error:", err);
                 alert("Error uploading: " + err.message);
@@ -369,11 +378,11 @@
             }
         }
 
-        async function createSubFolderIfNeeded(subFolder) {
-            const checkUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${ROOT_FOLDER}/${subFolder}`;
+        async function createSubFolderIfNeeded(parentPath, subFolder) {
+            const checkUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${parentPath}/${subFolder}`;
             const res = await fetch(checkUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
             if (res.status === 404) {
-                const createRes = await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${ROOT_FOLDER}:/children`, {
+                const createRes = await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${parentPath}:/children`, {
                     method: "POST",
                     headers: {
                         Authorization: `Bearer ${accessToken}`,
@@ -389,31 +398,49 @@
             }
         }
 
-        async function listFolders() {
-            const dropdown = document.getElementById("folderDropdown");
+        async function listSubfolders(path) {
+            const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${path}:/children`;
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+            if (!res.ok) return [];
+            const data = await res.json();
+            return (data.value || []).filter(item => item.folder).map(item => item.name);
+        }
+
+        async function listCustomers(selectCustomer, selectProject) {
+            const dropdown = document.getElementById("customerDropdown");
             dropdown.innerHTML = "";
             await ensurePhotosFolder();
-            const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${ROOT_FOLDER}:/children`;
-            const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-            const data = await res.json();
-            data.value.forEach(item => {
-                if (item.folder) dropdown.add(new Option(item.name, item.name));
-            });
+            (await listSubfolders(ROOT_FOLDER)).forEach(name => dropdown.add(new Option(name, name)));
 
             if (dropdown.options.length > 0) {
-                dropdown.selectedIndex = 0;
-                const selected = dropdown.value;
-                document.getElementById("imageLabel").value = selected;
-                await listFiles(selected);
-                await loadFolderNotes(selected);
+                dropdown.value = selectCustomer && [...dropdown.options].some(o => o.value === selectCustomer)
+                    ? selectCustomer : dropdown.options[0].value;
+                document.getElementById("customerLabel").value = dropdown.value;
+                await listProjects(dropdown.value, selectProject);
             }
         }
 
-        async function listFiles(folder) {
+        async function listProjects(customer, selectProject) {
+            const dropdown = document.getElementById("folderDropdown");
+            dropdown.innerHTML = "";
+            (await listSubfolders(`${ROOT_FOLDER}/${customer}`)).forEach(name => dropdown.add(new Option(name, name)));
+
+            if (dropdown.options.length > 0) {
+                dropdown.value = selectProject && [...dropdown.options].some(o => o.value === selectProject)
+                    ? selectProject : dropdown.options[0].value;
+                document.getElementById("imageLabel").value = dropdown.value;
+                await listFiles(customer, dropdown.value);
+                await loadFolderNotes(notesKey(customer, dropdown.value));
+            } else {
+                document.getElementById("gallery").innerHTML = "";
+            }
+        }
+
+        async function listFiles(customer, folder) {
             const gallery = document.getElementById("gallery");
             gallery.innerHTML = "";
 
-            const listUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${ROOT_FOLDER}/${folder}:/children`;
+            const listUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${ROOT_FOLDER}/${customer}/${folder}:/children`;
             const res = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
             const data = await res.json();
 
@@ -477,7 +504,7 @@
                     star.addEventListener("click", (e) => {
                         e.stopPropagation();
                         toggleFavorite(name);
-                        listFiles(folder);
+                        listFiles(customer, folder);
                     });
 
                     container.appendChild(star);
@@ -497,8 +524,8 @@
                         e.stopPropagation();
                         const confirmDelete = confirm(`Are you sure you want to delete "${name}"?`);
                         if (confirmDelete) {
-                            await deleteFile(folder, name);
-                            await listFiles(folder);
+                            await deleteFile(customer, folder, name);
+                            await listFiles(customer, folder);
                         }
                     });
 
@@ -511,8 +538,8 @@
                 });
         }
 
-        async function deleteFile(folder, fileName) {
-            const encodedPath = encodeURIComponent(`${ROOT_FOLDER}/${folder}/${fileName}`);
+        async function deleteFile(customer, folder, fileName) {
+            const encodedPath = encodeURIComponent(`${ROOT_FOLDER}/${customer}/${folder}/${fileName}`);
             const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}`;
 
             const res = await fetch(url, {
@@ -572,11 +599,17 @@
             return input.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '_');
         }
 
+        document.getElementById("customerDropdown").addEventListener("change", async (e) => {
+            document.getElementById("customerLabel").value = e.target.value;
+            await listProjects(e.target.value);
+        });
+
         document.getElementById("folderDropdown").addEventListener("change", async (e) => {
+            const customer = currentCustomer();
             const selected = e.target.value;
-            await listFiles(selected);
+            await listFiles(customer, selected);
             document.getElementById("imageLabel").value = selected;
-            await loadFolderNotes(selected);
+            await loadFolderNotes(notesKey(customer, selected));
         });
 
         function getFavorites() {
@@ -717,7 +750,10 @@
             const saveBtn = document.getElementById("saveNotesButton");
             const status = document.getElementById("notesStatus");
 
-            const folder = document.getElementById("imageLabel").value;
+            const folder = notesKey(
+                sanitizeInput(document.getElementById("customerLabel").value) || "Misc",
+                sanitizeInput(document.getElementById("imageLabel").value) || "default",
+            );
             const content = document.getElementById("folderNotes").value;
 
             saveBtn.disabled = true;
