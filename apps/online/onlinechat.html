@@ -540,7 +540,9 @@
         import { onUserReady } from '../assets/js/auth.js';
 
         const OLLAMA_URL = 'https://api.luissolutions.us/chat';
-        const BOT_MODEL = 'dolphin3';
+        // LLM model is Firebase-configurable: {uid}/bot/model, else public/bot/model,
+        // else this default. Swap models with a data flip — no deploy.
+        let BOT_MODEL = 'dolphin3';
         let BOT_NAME = '🌸 Yuki';
         const INVENTORY_KEYWORDS = /inventory|item|stock|product|emporium|price|quantity|how many|available|shop|sell|buy|catalog|listing|merchandise|goods|supplies|parts|do you have|do you carry|do you sell|what does.{0,20}cost|how much is|in stock|out of stock|what.{0,10}sell|what.{0,10}carry|what.{0,10}got/i;
         const TICKET_KEYWORDS = /ticket|repair|fix|broken|status|service|jem|job|order|customer|client|device|phone|laptop|computer|screen|issue|problem|case|pickup|drop.?off|appointment|warranty|complaint|tracking|open ticket|pending|in.?progress/i;
@@ -1612,18 +1614,25 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                 }
                 currentUsername = user.displayName || user.email.split('@')[0];
                 try {
-                    const [modelSnap, nameSnap, charSnap, negSnap, nsfwSnap] = await Promise.all([
+                    const [modelSnap, nameSnap, charSnap, negSnap, nsfwSnap, llmSnap] = await Promise.all([
                         get(ref(database, `${user.uid}/bot/sdModel`)),
                         get(ref(database, `${user.uid}/bot/name`)),
                         get(ref(database, `${user.uid}/bot/charPrompt`)),
                         get(ref(database, `${user.uid}/bot/negPrompt`)),
-                        get(ref(database, `${user.uid}/bot/nsfw`))
+                        get(ref(database, `${user.uid}/bot/nsfw`)),
+                        get(ref(database, `${user.uid}/bot/model`))
                     ]);
                     if (modelSnap.exists() && modelSnap.val()) {
                         userSdModel = modelSnap.val();
                     } else {
                         const pubSnap = await get(ref(database, 'public/bot/sdModel'));
                         userSdModel = pubSnap.exists() && pubSnap.val() ? pubSnap.val() : null;
+                    }
+                    if (llmSnap.exists() && llmSnap.val()) {
+                        BOT_MODEL = String(llmSnap.val());
+                    } else {
+                        const pubModel = await get(ref(database, 'public/bot/model'));
+                        if (pubModel.exists() && pubModel.val()) BOT_MODEL = String(pubModel.val());
                     }
                     if (nameSnap.exists() && nameSnap.val()) BOT_NAME = nameSnap.val();
                     userCharPrompt = charSnap.exists() && charSnap.val() ? charSnap.val() : null;
@@ -1874,8 +1883,12 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
 
         document.addEventListener('DOMContentLoaded', async () => {
             try {
-                const nameSnap = await get(ref(database, 'public/bot/name'));
+                const [nameSnap, pubModel] = await Promise.all([
+                    get(ref(database, 'public/bot/name')),
+                    get(ref(database, 'public/bot/model'))
+                ]);
                 if (nameSnap.exists() && nameSnap.val()) BOT_NAME = nameSnap.val();
+                if (pubModel.exists() && pubModel.val()) BOT_MODEL = String(pubModel.val());
             } catch { }
             listenForMessages();
         });
