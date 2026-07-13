@@ -533,16 +533,14 @@
         changed = true;
       }
 
-      if (!segs.some(s => s.type === "work")) {
-        const lastSeg = segs[segs.length - 1];
-        if (!(lastSeg && !lastSeg.endTime)) {
-          const lastEnd = lastSeg ? lastSeg.endTime : task.startTime;
-          const taskEnd = task.endTime || null;
-          // For completed tasks, skip if no gap between last segment and task end
-          if (!(taskEnd && new Date(lastEnd) >= new Date(taskEnd))) {
-            segs.push({ type: "work", startTime: lastEnd, endTime: taskEnd });
-            changed = true;
-          }
+      // Only auto-fill a default work segment when the task has NO segment detail
+      // at all (legacy / bot-created tasks). Never when the user has left at least
+      // one segment — otherwise a manual delete gets resurrected on the next load.
+      if (segs.length === 0 && task.startTime) {
+        const taskEnd = task.endTime || null;
+        if (!(taskEnd && new Date(task.startTime) >= new Date(taskEnd))) {
+          segs.push({ type: "work", startTime: task.startTime, endTime: taskEnd });
+          changed = true;
         }
       }
 
@@ -576,9 +574,14 @@
         }
       }
       if (currentTask) {
-        if (!currentTask.startTime) currentTask.startTime = snap15(new Date()).toISOString();
+        const segs = ensureSegs(currentTask);
+        const now = getSegNow();
+        // First real action on the job: the actual click time becomes the job
+        // start, replacing any pre-scheduled/placeholder start (e.g. a bot-created
+        // 10am). Once segments exist, the real start is locked and left alone.
+        if (segs.length === 0 || !currentTask.startTime) currentTask.startTime = now;
         closeActiveSeg(currentTask);
-        ensureSegs(currentTask).push({ type, startTime: getSegNow(), endTime: null });
+        segs.push({ type, startTime: now, endTime: null });
         saveTask(currentTask);
         updateSegSummary();
         return;
