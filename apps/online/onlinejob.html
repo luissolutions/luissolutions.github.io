@@ -340,6 +340,7 @@
     let currentTaskId = null;
     let unsubscribeTasks = null;
     let isShowingAll = false;
+    let visibleCount = 0; // how many tasks are rendered — persists across data updates (edits)
     const autoTaskId = new URLSearchParams(location.search).get('task');
     let autoTaskSelected = false;
     let allTasks = [];
@@ -686,13 +687,16 @@
     }
 
     function handleTasksUpdate(tasks) {
-      const wasShowingAll = isShowingAll;
       taskLogTbody.innerHTML = ""; allTasks = tasks;
       tasks.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
       const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
-      const recent = tasks.filter(t => t.startTime && new Date(t.startTime) >= cutoff);
-      isShowingAll = wasShowingAll || recent.length === tasks.length;
-      (isShowingAll ? tasks : recent).forEach(addTaskToTable);
+      const recentCount = tasks.filter(t => t.startTime && new Date(t.startTime) >= cutoff).length;
+      if (recentCount === tasks.length) isShowingAll = true;
+      // Preserve how many rows are shown across data updates (e.g. after an edit)
+      // so a Load-More-expanded view doesn't collapse back to the recent window.
+      visibleCount = isShowingAll ? tasks.length
+                                  : Math.min(tasks.length, Math.max(visibleCount, recentCount));
+      tasks.slice(0, visibleCount).forEach(addTaskToTable);
       document.getElementById("totalTasks").innerText = tasks.length;
       checkOngoingTask(tasks); updateTotalHours(tasks); processDaily(tasks); populateTaskDropdown(tasks);
       if (autoTaskId && !autoTaskSelected && tasks.find(t => t.id === autoTaskId)) {
@@ -701,7 +705,10 @@
         sel.dispatchEvent(new Event('change'));
         autoTaskSelected = true;
       }
-      if (!isShowingAll) addLoadAllBtn();
+      // Refresh the load buttons: remove stale ones, re-add if tasks remain hidden.
+      document.getElementById("loadMoreBtn")?.remove();
+      document.getElementById("loadAllBtn")?.remove();
+      if (visibleCount < tasks.length) addLoadAllBtn();
       reapplyDateFilter();
     }
 
@@ -899,8 +906,9 @@
       moreBtn.onclick = () => {
         const shown = new Set(Array.from(taskLogTbody.querySelectorAll("tr")).map(r => r.dataset.taskId));
         allTasks.filter(t => !shown.has(t.id)).slice(0, LOAD_MORE_N).forEach(addTaskToTable);
+        visibleCount = shownCount();  // persist so an edit doesn't collapse the view
         applySearchFilter();
-        if (shownCount() >= allTasks.length) { moreBtn.remove(); allBtn.remove(); }
+        if (visibleCount >= allTasks.length) { moreBtn.remove(); allBtn.remove(); }
         else relabel();
       };
 
@@ -909,6 +917,7 @@
         isShowingAll = true;
         const shown = new Set(Array.from(taskLogTbody.querySelectorAll("tr")).map(r => r.dataset.taskId));
         allTasks.filter(t => !shown.has(t.id)).forEach(addTaskToTable);
+        visibleCount = allTasks.length;
         moreBtn.remove(); allBtn.remove();
         document.getElementById("totalTasks").innerText = allTasks.length;
         processDaily(allTasks); updateTotalHours(allTasks); applySearchFilter();
