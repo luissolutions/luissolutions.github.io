@@ -429,8 +429,14 @@
       }
       if (!snapped) return;
       segs[idx][field] = snapped.toISOString();
-      if (field === "startTime" && snapped < new Date(currentTask.startTime))
-        currentTask.startTime = snapped.toISOString();
+      // Segment edits are authoritative: sync the task's start/end to the segment
+      // bounds so normalizeTaskSegments doesn't snap the segment back on reload.
+      const segStarts = segs.map(s => new Date(s.startTime).getTime()).filter(n => !isNaN(n));
+      if (segStarts.length) currentTask.startTime = new Date(Math.min(...segStarts)).toISOString();
+      if (currentTask.endTime) {
+        const segEnds = segs.map(s => s.endTime ? new Date(s.endTime).getTime() : NaN).filter(n => !isNaN(n));
+        if (segEnds.length) currentTask.endTime = new Date(Math.max(...segEnds)).toISOString();
+      }
       saveTask(currentTask);
     }
 
@@ -878,17 +884,38 @@
     function loadColVis() { const s = JSON.parse(localStorage.getItem("columnVisibility")); if (s) document.querySelectorAll(".toggle-column").forEach(cb => { if (s[cb.value] !== undefined) cb.checked = s[cb.value]; }); }
 
     function addLoadAllBtn() {
-      const c = document.getElementById("timerButtons"); if (document.getElementById("loadAllBtn")) return;
-      const btn = document.createElement("button"); btn.id = "loadAllBtn"; btn.innerText = "Show All";
-      btn.onclick = () => {
+      const c = document.getElementById("timerButtons"); if (document.getElementById("loadMoreBtn")) return;
+      const LOAD_MORE_N = 25;
+      const shownCount = () => taskLogTbody.querySelectorAll("tr").length;
+
+      const moreBtn = document.createElement("button"); moreBtn.id = "loadMoreBtn";
+      const allBtn = document.createElement("button"); allBtn.id = "loadAllBtn"; allBtn.innerText = "Show All";
+      const relabel = () => {
+        const hidden = allTasks.length - shownCount();
+        moreBtn.innerText = `Load ${Math.min(LOAD_MORE_N, hidden)} More (${hidden} older)`;
+      };
+
+      // Load More: append the next batch of older tasks — light, avoids the Show All lag.
+      moreBtn.onclick = () => {
+        const shown = new Set(Array.from(taskLogTbody.querySelectorAll("tr")).map(r => r.dataset.taskId));
+        allTasks.filter(t => !shown.has(t.id)).slice(0, LOAD_MORE_N).forEach(addTaskToTable);
+        applySearchFilter();
+        if (shownCount() >= allTasks.length) { moreBtn.remove(); allBtn.remove(); }
+        else relabel();
+      };
+
+      // Show All: the nuclear option (kept for when you really need everything).
+      allBtn.onclick = () => {
         isShowingAll = true;
         const shown = new Set(Array.from(taskLogTbody.querySelectorAll("tr")).map(r => r.dataset.taskId));
         allTasks.filter(t => !shown.has(t.id)).forEach(addTaskToTable);
-        btn.remove();
+        moreBtn.remove(); allBtn.remove();
         document.getElementById("totalTasks").innerText = allTasks.length;
         processDaily(allTasks); updateTotalHours(allTasks); applySearchFilter();
       };
-      c.appendChild(btn);
+
+      c.appendChild(moreBtn); c.appendChild(allBtn);
+      relabel();
     }
 
     function createTimerButtons() {
