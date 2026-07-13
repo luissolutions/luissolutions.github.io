@@ -998,14 +998,13 @@
           if (lenCol >= 0) mainRow[lenCol] = fmtMs(totMs);
           if (travelCol >= 0) mainRow[travelCol + 1] = fmtMs(totMs);
         }
-        allRows.push(mainRow);
-        if (!task?.segments) continue;
-        // Only split travel onto its own row when the task ALSO has work (so the
-        // main row is the work portion). All-travel tasks are already the main row.
-        const hasWorkSeg = task.segments.some(s => s.type === "work" && s.startTime && s.endTime);
-        if (!hasWorkSeg) continue;
-        for (const seg of task.segments) {
-          if (seg.type !== "travel") continue;
+        const segsArr = task?.segments || [];
+        const hasWorkSeg = segsArr.some(s => s.type === "work" && s.startTime && s.endTime);
+        if (!hasWorkSeg) { allRows.push(mainRow); continue; }  // all-travel / no segments: single main row
+        // Mixed task: emit rows in SEGMENT ORDER (e.g. travel, labor, travel). The
+        // work portion is the detailed main row, placed at the first work segment;
+        // each travel segment gets its own row in sequence.
+        const mkTravelRow = (seg) => {
           const start = safeDate(seg.startTime);
           const end = seg.endTime ? safeDate(seg.endTime) : null;
           const ms = start && end ? Math.max(0, end - start) : 0;
@@ -1018,8 +1017,17 @@
           if (endCol >= 0) tRow[endCol] = end ? fmtDt(end) : "In Progress";
           if (lenCol >= 0) tRow[lenCol] = fmtMs(ms);
           if (travelCol >= 0) tRow[travelCol] = fmtMs(ms);
-          allRows.push(tRow);
+          return tRow;
+        };
+        let mainEmitted = false;
+        for (const seg of segsArr) {
+          if (seg.type === "work") {
+            if (!mainEmitted) { allRows.push(mainRow); mainEmitted = true; }
+          } else if (seg.type === "travel" && seg.startTime) {
+            allRows.push(mkTravelRow(seg));
+          }
         }
+        if (!mainEmitted) allRows.push(mainRow);
       }
       const csv = allRows.map(r => r.map(f => { f = String(f || ""); if (f.includes(",") || f.includes('"')) f = `"${f.replace(/"/g, '""')}"`; return f; }).join(",")).join("\r\n");
       const a = document.createElement("a"); a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv); a.download = "tasks.csv"; a.click();
