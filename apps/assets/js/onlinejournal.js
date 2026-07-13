@@ -19,6 +19,26 @@ function safeUrl(u) {
   return /^(https?:\/\/|\/|\.\/)/i.test(s) ? s : "";
 }
 
+// Single source of truth for an article's display image, used by the list
+// thumbnail, the home-page cards, and the article header. Prefers the legacy
+// top-level imageUrl, then falls back to the first image placed in section
+// content (the "+ image" editor) — so setting an image there shows everywhere.
+export function getArticleImage(article) {
+  if (!article) return "";
+  if (article.imageUrl && !article.imageUrl.includes("PLACEHOLDER")) {
+    return safeUrl(article.imageUrl);
+  }
+  for (const section of article.sections || []) {
+    for (const item of section.content || []) {
+      if (item.type === "image" && item.src) {
+        const s = safeUrl(item.src);
+        if (s) return s;
+      }
+    }
+  }
+  return "";
+}
+
 // =========================
 // FULL ARTICLE RENDER (used in onlinejournal.html)
 // =========================
@@ -140,20 +160,11 @@ export function renderArticleCards(data, container) {
       const div = document.createElement("div");
       div.className = "post";
 
-      // Optional preview image: header imageUrl first, then first inline image
-      let previewImg = "";
-      const headerImg =
-        article.imageUrl && !article.imageUrl.includes("PLACEHOLDER")
-          ? article.imageUrl
-          : null;
-      const firstImage = article.sections?.[0]?.content?.find(
-        (c) => c.type === "image",
-      );
-      const previewSrc = headerImg || firstImage?.src;
-
-      if (previewSrc) {
-        previewImg = `<img src="${previewSrc}" class="article-img">`;
-      }
+      // Optional preview image — same source as the list + article views.
+      const previewSrc = getArticleImage(article);
+      const previewImg = previewSrc
+        ? `<img src="${escapeHtml(previewSrc)}" class="article-img">`
+        : "";
 
       div.innerHTML = `
         ${previewImg}
