@@ -241,6 +241,24 @@
       </div>
     </section>
 
+    <!-- SAVED INVOICES -->
+    <section>
+      <div class="section-title" id="savedInvHeader" style="cursor:pointer;">Saved Invoices <span id="savedInvCount" style="color:var(--muted);font-weight:normal;font-size:.85rem;"></span></div>
+      <div id="savedInvBody">
+        <div class="inv-grid" style="margin-bottom:8px;">
+          <div class="field">
+            <input id="savedInvSearch" placeholder="Search customer or invoice #...">
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end;">
+            <label style="font-size:.8rem;color:var(--muted);display:flex;align-items:center;gap:5px;margin:0;">
+              <input type="checkbox" id="savedInvUnpaidOnly" style="width:auto;"> Unpaid only
+            </label>
+          </div>
+        </div>
+        <div id="savedInvList" style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:6px;"></div>
+      </div>
+    </section>
+
     <!-- INVOICE BUILDER -->
     <section>
       <div class="section-title">Invoice Builder</div>
@@ -720,9 +738,66 @@
             o.textContent = t.invoiceSaved ? "✓ " + label : label;
             sel.appendChild(o);
           });
-
+        renderSavedInvoices();
       });
     }
+
+    // ── Saved Invoices browser: lists tasks that already have a saved invoice
+    //    (invoiceSaved) so you can open one directly instead of hunting the task
+    //    dropdown. Opening reuses the existing loadInvoice() path.
+    function renderSavedInvoices() {
+      var listEl = document.getElementById("savedInvList");
+      if (!listEl) return;
+      var q = (document.getElementById("savedInvSearch").value || "").toLowerCase();
+      var unpaidOnly = document.getElementById("savedInvUnpaidOnly").checked;
+      var rows = Object.entries(jobTasks)
+        .filter(function (e) { return e[1] && e[1].invoiceSaved; })
+        .map(function (e) { return { id: e[0], t: e[1] }; })
+        .filter(function (r) {
+          if (unpaidOnly && r.t.paid) return false;
+          if (!q) return true;
+          return ((r.t.customerName || "") + " " + (r.t.number || "")).toLowerCase().indexOf(q) !== -1;
+        })
+        .sort(function (a, b) { return (b.t.savedAt || 0) - (a.t.savedAt || 0); });
+      document.getElementById("savedInvCount").textContent = "(" + rows.length + ")";
+      if (!rows.length) {
+        listEl.innerHTML = "<div style='color:var(--muted);padding:10px;'>No saved invoices" + (q || unpaidOnly ? " match your filter." : " yet.") + "</div>";
+        return;
+      }
+      listEl.innerHTML = "";
+      rows.forEach(function (r) {
+        var t = r.t;
+        var row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);";
+        var badge = t.paid
+          ? "<span style='color:#16a34a;font-size:.68rem;border:1px solid #16a34a;border-radius:999px;padding:1px 8px;'>PAID</span>"
+          : "<span style='color:#d97706;font-size:.68rem;border:1px solid #d97706;border-radius:999px;padding:1px 8px;'>UNPAID</span>";
+        row.innerHTML =
+          "<div style='flex:0 0 auto;font-weight:bold;'>#" + esc(t.number || "?") + "</div>" +
+          "<div style='flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>" + esc(t.customerName || "Unnamed") + "</div>" +
+          "<div style='flex:0 0 auto;color:var(--muted);font-size:.78rem;'>" + esc(t.invoiceDate || "") + "</div>" +
+          "<div style='flex:0 0 auto;font-weight:bold;'>" + fmt(t.total) + "</div>" +
+          "<div style='flex:0 0 auto;'>" + badge + "</div>";
+        var btn = document.createElement("button");
+        btn.textContent = "Open";
+        btn.style.cssText = "margin:0;padding:4px 12px;font-size:.8rem;flex:0 0 auto;";
+        btn.addEventListener("click", function () {
+          currentTaskId = r.id;
+          loadInvoice(t, r.id);
+          document.getElementById("jobTaskSelect").value = r.id;
+          setMsg("Invoice #" + (t.number || "") + " loaded.");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+        row.appendChild(btn);
+        listEl.appendChild(row);
+      });
+    }
+    document.getElementById("savedInvSearch").addEventListener("input", renderSavedInvoices);
+    document.getElementById("savedInvUnpaidOnly").addEventListener("change", renderSavedInvoices);
+    document.getElementById("savedInvHeader").addEventListener("click", function () {
+      var b = document.getElementById("savedInvBody");
+      b.style.display = b.style.display === "none" ? "" : "none";
+    });
 
     document.getElementById("importTaskBtn").addEventListener("click", function () {
       var taskId = document.getElementById("jobTaskSelect").value;
