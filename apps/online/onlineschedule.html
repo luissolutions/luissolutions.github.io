@@ -132,7 +132,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.js"></script>
     <script type="module">
-        import { database, ref, get, set, remove, onValue, auth, onAuthStateChanged } from '../assets/js/firebase-init.js';
+        import { database, ref, get, set, remove, update, onValue, auth, onAuthStateChanged } from '../assets/js/firebase-init.js';
 
         let calendar;
         const modal = document.getElementById("appointmentModal");
@@ -290,23 +290,28 @@
 
         function saveAppointmentToDatabase(appointment) {
             const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${appointment.id}`);
-            get(taskRef).then(snapshot => {
-                const existingTaskData = snapshot.exists() ? snapshot.val() : {};
-                const updatedTaskData = { ...existingTaskData, ...appointment, invoiceType: existingTaskData.invoiceType || 'quote' };
-                set(taskRef, updatedTaskData).then(() => {
-                    console.log('Task saved successfully.');
-                });
+            // update() merges only the appointment fields onto the shared task record
+            // (tasks also hold job + invoice data). No read-then-set race, and it no
+            // longer stamps invoiceType='quote' onto plain job tasks.
+            update(taskRef, appointment).then(() => {
+                console.log('Task saved successfully.');
             }).catch(error => console.error('Error saving task:', error));
         }
 
         function deleteTask(id) {
             const taskRef = ref(database, `${DATABASE_BASE_PATH}/tasks/${id}`);
-            remove(taskRef).then(() => {
-                const event = calendar.getEventById(id);
-                if (event) event.remove();
-                alert('Task deleted successfully.');
-                modal.style.display = "none";
-            }).catch(error => console.error('Error deleting task:', error));
+            get(taskRef).then(snap => {
+                const t = snap.exists() ? snap.val() : {};
+                // tasks are shared - guard against nuking job/invoice/ledger data
+                if ((t.startTime || t.invoiceSaved || t.paymentTxId) &&
+                    !confirm('This record also holds job time-tracking or invoice data. Deleting removes ALL of it. Delete anyway?')) return;
+                remove(taskRef).then(() => {
+                    const event = calendar.getEventById(id);
+                    if (event) event.remove();
+                    alert('Task deleted successfully.');
+                    modal.style.display = "none";
+                }).catch(error => console.error('Error deleting task:', error));
+            });
         }
 
         function resetForm() {

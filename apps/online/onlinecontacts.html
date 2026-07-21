@@ -510,15 +510,21 @@
             database,
             `${DATABASE_BASE_PATH}/tasks/${selectedContactId}`,
           );
-          remove(contactRef)
-            .then(() => {
-              alert("Contact deleted successfully!");
-              fetchContacts();
-              contactDetails.style.display = "none";
-            })
-            .catch((error) => {
-              console.error("Error deleting contact:", error);
-            });
+          // tasks are a shared record - guard against nuking job/invoice/ledger data
+          get(contactRef).then((snap) => {
+            const t = snap.exists() ? snap.val() : {};
+            if ((t.startTime || t.invoiceSaved || t.paymentTxId) &&
+              !confirm("This record also holds job or invoice data. Deleting removes ALL of it. Delete anyway?")) return;
+            remove(contactRef)
+              .then(() => {
+                alert("Contact deleted successfully!");
+                fetchContacts();
+                contactDetails.style.display = "none";
+              })
+              .catch((error) => {
+                console.error("Error deleting contact:", error);
+              });
+          });
         }
       });
 

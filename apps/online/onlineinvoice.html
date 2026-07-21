@@ -225,38 +225,10 @@
 
   <main>
 
-    <!-- BUSINESS SETTINGS -->
+    <!-- UNPAID INVOICES -->
     <section>
-      <div class="collapsible-header section-title" id="settingsHeader">Business Settings</div>
-      <div id="settingsBody" class="hidden">
-        <div class="inv-grid">
-          <div class="field"><label>Business Name</label><input id="bizName" type="text" /></div>
-          <div class="field"><label>Phone</label><input id="bizPhone" type="tel" /></div>
-          <div class="field"><label>Email</label><input id="bizEmail" type="email" /></div>
-          <div class="field"><label>Website</label><input id="bizWebsite" type="text" /></div>
-        </div>
-        <div class="field"><label>Address</label><input id="bizAddress" type="text" /></div>
-        <div class="field"><label>Default Terms / Notes</label><textarea id="bizTerms" rows="2"></textarea></div>
-        <button id="saveSettingsBtn">Save Settings</button>
-      </div>
-    </section>
-
-    <!-- SAVED INVOICES -->
-    <section>
-      <div class="section-title" id="savedInvHeader" style="cursor:pointer;">Saved Invoices <span id="savedInvCount" style="color:var(--muted);font-weight:normal;font-size:.85rem;"></span></div>
-      <div id="savedInvBody">
-        <div class="inv-grid" style="margin-bottom:8px;">
-          <div class="field">
-            <input id="savedInvSearch" placeholder="Search customer or invoice #...">
-          </div>
-          <div class="field" style="display:flex;align-items:flex-end;">
-            <label style="font-size:.8rem;color:var(--muted);display:flex;align-items:center;gap:5px;margin:0;">
-              <input type="checkbox" id="savedInvUnpaidOnly" style="width:auto;"> Unpaid only
-            </label>
-          </div>
-        </div>
-        <div id="savedInvList" style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:6px;"></div>
-      </div>
+      <div class="section-title">Unpaid Invoices <span id="savedInvCount" style="color:var(--muted);font-weight:normal;font-size:.85rem;"></span></div>
+      <div id="savedInvList" style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:6px;"></div>
     </section>
 
     <!-- INVOICE BUILDER -->
@@ -271,11 +243,12 @@
           </select>
         </div>
         <div class="field" style="display:flex;align-items:flex-end;">
-          <button id="importTaskBtn" style="margin:0;">Import Customer + Segments</button>
+          <button id="openTaskBtn" style="margin:0;">Open</button>
         </div>
       </div>
 
       <div class="inv-grid">
+        <div class="field"><label>Business Name</label><input id="invBizName" type="text" placeholder="Your business name" /></div>
         <div class="field">
           <label>Type</label>
           <select id="invoiceType">
@@ -428,36 +401,8 @@
       DB = user ? user.uid : null;
     });
 
-    // ── collapsible settings ──
-    document.getElementById("settingsHeader").addEventListener("click", () =>
-      document.getElementById("settingsBody").classList.toggle("hidden"));
-
-    // ── business settings ──
-    const BIZ_KEY = "inv-biz-settings";
-    function loadBizSettings() {
-      const s = JSON.parse(localStorage.getItem(BIZ_KEY) || "{}");
-      document.getElementById("bizName").value = s.name || "";
-      document.getElementById("bizPhone").value = s.phone || "";
-      document.getElementById("bizEmail").value = s.email || "";
-      document.getElementById("bizWebsite").value = s.website || "";
-      document.getElementById("bizAddress").value = s.address || "";
-      document.getElementById("bizTerms").value = s.terms || "";
-    }
-    function getBiz() {
-      return {
-        name: document.getElementById("bizName").value.trim(),
-        phone: document.getElementById("bizPhone").value.trim(),
-        email: document.getElementById("bizEmail").value.trim(),
-        website: document.getElementById("bizWebsite").value.trim(),
-        address: document.getElementById("bizAddress").value.trim(),
-        terms: document.getElementById("bizTerms").value.trim(),
-      };
-    }
-    document.getElementById("saveSettingsBtn").addEventListener("click", () => {
-      localStorage.setItem(BIZ_KEY, JSON.stringify(getBiz()));
-      setMsg("Settings saved.");
-    });
-    loadBizSettings();
+    // Business info is per-invoice now (the Business Name field) - no global settings.
+    function getBiz() { return {}; }
 
     // ── helpers ──
     function fmt(n) { return "$" + Number(n || 0).toFixed(2); }
@@ -745,39 +690,37 @@
     // ── Saved Invoices browser: lists tasks that already have a saved invoice
     //    (invoiceSaved) so you can open one directly instead of hunting the task
     //    dropdown. Opening reuses the existing loadInvoice() path.
+    // Unpaid Invoices: saved invoices with a balance still owed (total - amountPaid),
+    // so partially-paid ones still show what's left. Click Open to load one.
     function renderSavedInvoices() {
       var listEl = document.getElementById("savedInvList");
       if (!listEl) return;
-      var q = (document.getElementById("savedInvSearch").value || "").toLowerCase();
-      var unpaidOnly = document.getElementById("savedInvUnpaidOnly").checked;
       var rows = Object.entries(jobTasks)
-        .filter(function (e) { return e[1] && e[1].invoiceSaved; })
-        .map(function (e) { return { id: e[0], t: e[1] }; })
-        .filter(function (r) {
-          if (unpaidOnly && r.t.paid) return false;
-          if (!q) return true;
-          return ((r.t.customerName || "") + " " + (r.t.number || "")).toLowerCase().indexOf(q) !== -1;
+        .filter(function (e) {
+          var t = e[1];
+          return t && t.invoiceSaved &&
+            (Number(t.total || 0) - Number(t.amountPaid || 0)) > 0.005;
         })
+        .map(function (e) { return { id: e[0], t: e[1] }; })
         .sort(function (a, b) { return (b.t.savedAt || 0) - (a.t.savedAt || 0); });
       document.getElementById("savedInvCount").textContent = "(" + rows.length + ")";
       if (!rows.length) {
-        listEl.innerHTML = "<div style='color:var(--muted);padding:10px;'>No saved invoices" + (q || unpaidOnly ? " match your filter." : " yet.") + "</div>";
+        listEl.innerHTML = "<div style='color:var(--muted);padding:10px;'>No unpaid invoices.</div>";
         return;
       }
       listEl.innerHTML = "";
       rows.forEach(function (r) {
         var t = r.t;
+        var due = Number(t.total || 0) - Number(t.amountPaid || 0);
+        var partial = Number(t.amountPaid || 0) > 0;
         var row = document.createElement("div");
         row.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);";
-        var badge = t.paid
-          ? "<span style='color:#16a34a;font-size:.68rem;border:1px solid #16a34a;border-radius:999px;padding:1px 8px;'>PAID</span>"
-          : "<span style='color:#d97706;font-size:.68rem;border:1px solid #d97706;border-radius:999px;padding:1px 8px;'>UNPAID</span>";
         row.innerHTML =
           "<div style='flex:0 0 auto;font-weight:bold;'>#" + esc(t.number || "?") + "</div>" +
           "<div style='flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>" + esc(t.customerName || "Unnamed") + "</div>" +
           "<div style='flex:0 0 auto;color:var(--muted);font-size:.78rem;'>" + esc(t.invoiceDate || "") + "</div>" +
-          "<div style='flex:0 0 auto;font-weight:bold;'>" + fmt(t.total) + "</div>" +
-          "<div style='flex:0 0 auto;'>" + badge + "</div>";
+          "<div style='flex:0 0 auto;font-weight:bold;color:#d97706;'>" + fmt(due) + " due" +
+            (partial ? " <span style='font-weight:normal;font-size:.72rem;color:var(--muted);'>(of " + fmt(t.total) + ")</span>" : "") + "</div>";
         var btn = document.createElement("button");
         btn.textContent = "Open";
         btn.style.cssText = "margin:0;padding:4px 12px;font-size:.8rem;flex:0 0 auto;";
@@ -792,23 +735,21 @@
         listEl.appendChild(row);
       });
     }
-    document.getElementById("savedInvSearch").addEventListener("input", renderSavedInvoices);
-    document.getElementById("savedInvUnpaidOnly").addEventListener("change", renderSavedInvoices);
-    document.getElementById("savedInvHeader").addEventListener("click", function () {
-      var b = document.getElementById("savedInvBody");
-      b.style.display = b.style.display === "none" ? "" : "none";
-    });
 
-    document.getElementById("importTaskBtn").addEventListener("click", function () {
+    // Open = load this task into the builder. Clears the line items first so
+    // repeated opens REPLACE instead of stacking, then loads the saved invoice if
+    // the task has one, otherwise builds a fresh invoice from customer + segments.
+    document.getElementById("openTaskBtn").addEventListener("click", function () {
       var taskId = document.getElementById("jobTaskSelect").value;
       var t = jobTasks[taskId];
       if (!t) { setMsg("Select a task first."); return; }
-
+      document.getElementById("partsBody").innerHTML = "";
+      document.getElementById("laborBody").innerHTML = "";
       currentTaskId = taskId;
 
       if (t.invoiceSaved) {
         loadInvoice(t, taskId);
-        setMsg("Invoice loaded from task.");
+        setMsg("Invoice loaded.");
         return;
       }
 
@@ -816,6 +757,9 @@
       document.getElementById("billPhone").value = t.customerPhone || "";
       document.getElementById("billEmail").value = t.customerEmail || "";
       document.getElementById("billAddress").value = t.customerAddress || "";
+      // Invoice number = the task's project code (WO#/PRJTASK), not an auto-gen id
+      if (t.project) document.getElementById("invNumber").value = t.project;
+      document.getElementById("invBizName").value = t.invoiceTitle || localStorage.getItem("ss-lastBiz") || "";
       if (t.invoiceDate) document.getElementById("invDate").value = t.invoiceDate;
       if (t.taxPercent) document.getElementById("taxPercent").value = t.taxPercent;
       if (!document.getElementById("invNotes").value)
@@ -846,7 +790,15 @@
         if (mileage > 0) addLaborRow("Mileage (" + mileage + " mi)", mileage, 0);
       }
 
-      setMsg("Task imported — set rates on labor rows then save.");
+      // reset payment fields + recompute totals so a task with no prices shows $0
+      // instead of keeping whatever was on screen before
+      document.getElementById("amountPaid").value = "";
+      document.getElementById("paidDate").value = "";
+      document.getElementById("showRemaining").checked = false;
+      document.getElementById("remainingSection").style.display = "none";
+      updateTotals();
+      updatePriceDiff();
+      setMsg("Task loaded - set rates on labor rows then save.");
     });
 
     // ──────────────────────────────────────────────
@@ -855,6 +807,7 @@
     function resetForm() {
       currentTaskId = null;
       document.getElementById("invoiceType").value = "invoice";
+      document.getElementById("invBizName").value = localStorage.getItem("ss-lastBiz") || "";
       document.getElementById("invNumber").value = genInvNum();
       document.getElementById("invDate").value = today();
       document.getElementById("invDue").value = dueIn(30);
@@ -911,7 +864,7 @@
         customerPhone: document.getElementById("billPhone").value.trim(),
         customerEmail: document.getElementById("billEmail").value.trim(),
         customerAddress: document.getElementById("billAddress").value.trim(),
-        notes: document.getElementById("invNotes").value.trim(),
+        invoiceNotes: document.getElementById("invNotes").value.trim(),
         parts: parts,
         labor: labor,
         taxPercent: parseFloat(document.getElementById("taxPercent").value) || 0,
@@ -920,7 +873,7 @@
         total: strip("totTotal"),
         amountPaid: parseFloat(document.getElementById("amountPaid").value) || 0,
         paidDate: document.getElementById("paidDate").value,
-        invoiceTitle: getBiz().name,
+        invoiceTitle: document.getElementById("invBizName").value.trim(),
         biz: getBiz(),
         paid: !!paid,
         savedAt: Date.now(),
@@ -939,6 +892,7 @@
       var wasPaid = existing.paid || false;
       var inv = collectInvoice(wasPaid);
       await update(ref(database, DB + "/tasks/" + currentTaskId), inv);
+      try { localStorage.setItem("ss-lastBiz", (inv.invoiceTitle || "").trim()); } catch (e) {}
       await upsertPaymentTx(inv);
       setMsg("Invoice saved.");
     });
@@ -998,6 +952,7 @@
       if (!inv) return;
       currentTaskId = taskId || null;
       document.getElementById("invoiceType").value = inv.invoiceType || "invoice";
+      document.getElementById("invBizName").value = inv.invoiceTitle || localStorage.getItem("ss-lastBiz") || "";
       document.getElementById("invNumber").value = inv.number || "";
       document.getElementById("invDate").value = inv.invoiceDate || today();
       document.getElementById("invDue").value = inv.due || dueIn(30);
@@ -1005,7 +960,7 @@
       document.getElementById("billPhone").value = inv.customerPhone || "";
       document.getElementById("billEmail").value = inv.customerEmail || "";
       document.getElementById("billAddress").value = inv.customerAddress || "";
-      document.getElementById("invNotes").value = inv.notes || "";
+      document.getElementById("invNotes").value = inv.invoiceNotes || inv.notes || "";
       document.getElementById("taxPercent").value = inv.taxPercent || "0";
       document.getElementById("amountPaid").value = inv.amountPaid || "";
       document.getElementById("paidDate").value = inv.paidDate || "";
@@ -1065,7 +1020,7 @@
         "<div style='position:relative;'>" + paidStamp +
         "<div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;'>" +
         "<div>" +
-        "<div style='font-size:20px;font-weight:700;'>" + esc(inv.invoiceTitle || biz.name || "") + "</div>" +
+        "<div style='font-size:20px;font-weight:700;'>" + esc(inv.invoiceTitle || biz.name || getBiz().name || "") + "</div>" +
         (biz.address ? "<div style='font-size:12px;color:#64748b;margin-top:3px;'>" + esc(biz.address) + "</div>" : "") +
         (biz.phone ? "<div style='font-size:12px;color:#64748b;'>" + esc(biz.phone) + "</div>" : "") +
         (biz.email ? "<div style='font-size:12px;color:#64748b;'>" + esc(biz.email) + "</div>" : "") +
@@ -1099,7 +1054,7 @@
           "<tr class='grand'><td>Balance Due</td><td>$" + balanceDue.toFixed(2) + "</td></tr>"
           : "") +
         "</table>" +
-        (inv.notes ? "<div style='margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:12px;color:#64748b;white-space:pre-wrap;'>" + esc(inv.notes) + "</div>" : "") +
+        ((inv.invoiceNotes || inv.notes) ? "<div style='margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:12px;color:#64748b;white-space:pre-wrap;'>" + esc(inv.invoiceNotes || inv.notes) + "</div>" : "") +
         "<div style='text-align:center;margin-top:36px;'>" +
         "<button onclick='window.print()' style='padding:8px 28px;font-size:14px;cursor:pointer;border:1px solid #94a3b8;border-radius:4px;background:#f1f5f9;'>Print / Save PDF</button>" +
         "</div></div><" + "/body><" + "/html>";
