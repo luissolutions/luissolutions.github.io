@@ -534,6 +534,15 @@
       let changed = false;
       const segs = ensureSegs(task);
 
+      // Keep segments in chronological order. A segment added out of order (e.g.
+      // travel logged after the work was already done) would otherwise get mis-tied
+      // to the task bounds below — the first-seg/last-seg logic assumes array order
+      // is time order, so an out-of-order add collapsed both segments onto the full
+      // task span. Sorting here fixes placement in every view and the bound-tying.
+      const orderBefore = segs.map(s => s.startTime).join("|");
+      segs.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+      if (segs.map(s => s.startTime).join("|") !== orderBefore) changed = true;
+
       // Prevent negative duration tasks by collapsing to a single timestamp.
       if (task.startTime && task.endTime && new Date(task.endTime) < new Date(task.startTime)) {
         task.endTime = task.startTime;
