@@ -676,6 +676,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
 
         const seenKeys = new Set();
         const renderedKeys = new Set();
+        const renderedText = new Map();   // key -> last-rendered text, so redactions/edits update live
         let chatHistory = [];
         let botBusy = false;
         let chatMode = 'public';
@@ -1129,6 +1130,18 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             chatWindow.scrollTop = chatWindow.scrollHeight;
         }
 
+        // Update an already-rendered message's text in place (e.g. when a moderator/bridge
+        // redacts private info in Firebase after posting). Keeps the site in sync live.
+        function updateMessageText(key, text) {
+            const wrap = chatWindow.querySelector(`[data-key="${key}"]`);
+            if (!wrap) return;
+            const bubble = wrap.querySelector('.bubble');
+            if (!bubble) return;
+            let span = bubble.querySelector('span');
+            if (!span) { span = document.createElement('span'); bubble.appendChild(span); }
+            span.innerHTML = linkify(text || '');
+        }
+
         function stringToColor(str) {
             let hash = 0;
             for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
@@ -1554,6 +1567,7 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
             chatWindow.innerHTML = '';
             seenKeys.clear();
             renderedKeys.clear();
+            renderedText.clear();
             generatedImages.length = 0;
             generatedVideos.length = 0;
             chatHistory = [];
@@ -1572,6 +1586,10 @@ Be helpful, friendly, and conversational. Stay in character at all times. Never 
                     if (!renderedKeys.has(key)) {
                         appendMessage(msg, key);
                         renderedKeys.add(key);
+                        renderedText.set(key, msg.text || '');
+                    } else if (renderedText.get(key) !== (msg.text || '')) {
+                        updateMessageText(key, msg.text || '');   // redaction/edit -> update live
+                        renderedText.set(key, msg.text || '');
                     }
                     if (seenKeys.has(key)) return;
                     seenKeys.add(key);
