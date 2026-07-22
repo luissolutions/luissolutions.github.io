@@ -232,18 +232,15 @@
     </section>
 
     <!-- INVOICE BUILDER -->
-    <section>
+    <section id="invoiceBuilder">
       <div class="section-title">Invoice Builder</div>
 
       <div class="inv-grid" style="margin-bottom:10px;">
         <div class="field">
-          <label>Import from Job Task</label>
+          <label>Import from Job Task <span style="color:var(--muted);font-weight:normal;font-size:.8em;">(loads on select)</span></label>
           <select id="jobTaskSelect">
             <option value="">-- select task --</option>
           </select>
-        </div>
-        <div class="field" style="display:flex;align-items:flex-end;">
-          <button id="openTaskBtn" style="margin:0;">Open</button>
         </div>
       </div>
 
@@ -680,7 +677,7 @@
             var o = document.createElement("option");
             o.value = id;
             var label = (t.customerName || "Unnamed") + " - " + (t.project || "No Project");
-            o.textContent = t.invoiceSaved ? "✓ " + label : label;
+            o.textContent = (t.invoiceType === "invoice") ? "✓ " + label : label;
             sel.appendChild(o);
           });
         renderSavedInvoices();
@@ -698,7 +695,7 @@
       var rows = Object.entries(jobTasks)
         .filter(function (e) {
           var t = e[1];
-          return t && t.invoiceSaved &&
+          return t && t.invoiceType === "invoice" &&
             (Number(t.total || 0) - Number(t.amountPaid || 0)) > 0.005;
         })
         .map(function (e) { return { id: e[0], t: e[1] }; })
@@ -725,11 +722,13 @@
         btn.textContent = "Open";
         btn.style.cssText = "margin:0;padding:4px 12px;font-size:.8rem;flex:0 0 auto;";
         btn.addEventListener("click", function () {
-          currentTaskId = r.id;
-          loadInvoice(t, r.id);
-          document.getElementById("jobTaskSelect").value = r.id;
-          setMsg("Invoice #" + (t.number || "") + " loaded.");
-          window.scrollTo({ top: 0, behavior: "smooth" });
+          guardUnsaved(function () {
+            currentTaskId = r.id;
+            loadInvoice(t, r.id);
+            document.getElementById("jobTaskSelect").value = r.id;
+            setMsg("Invoice #" + (t.number || "") + " loaded.");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          });
         });
         row.appendChild(btn);
         listEl.appendChild(row);
@@ -739,15 +738,15 @@
     // Open = load this task into the builder. Clears the line items first so
     // repeated opens REPLACE instead of stacking, then loads the saved invoice if
     // the task has one, otherwise builds a fresh invoice from customer + segments.
-    document.getElementById("openTaskBtn").addEventListener("click", function () {
-      var taskId = document.getElementById("jobTaskSelect").value;
+    function openTaskById(taskId) {
       var t = jobTasks[taskId];
       if (!t) { setMsg("Select a task first."); return; }
+      document.getElementById("jobTaskSelect").value = taskId;
       document.getElementById("partsBody").innerHTML = "";
       document.getElementById("laborBody").innerHTML = "";
       currentTaskId = taskId;
 
-      if (t.invoiceSaved) {
+      if (t.invoiceType || t.invoiceSaved) {
         loadInvoice(t, taskId);
         setMsg("Invoice loaded.");
         return;
@@ -798,12 +797,14 @@
       document.getElementById("remainingSection").style.display = "none";
       updateTotals();
       updatePriceDiff();
+      isDirty = false;
       setMsg("Task loaded - set rates on labor rows then save.");
-    });
+    }
 
     // ──────────────────────────────────────────────
     // FORM STATE
     // ──────────────────────────────────────────────
+    var isDirty = false;   // true when the loaded invoice has unsaved edits
     function resetForm() {
       currentTaskId = null;
       document.getElementById("invoiceType").value = "invoice";
@@ -826,10 +827,11 @@
       document.getElementById("laborBody").innerHTML = "";
       updateTotals();
       updatePriceDiff();
+      isDirty = false;
       setMsg("New invoice ready.");
     }
     resetForm();
-    document.getElementById("newInvBtn").addEventListener("click", resetForm);
+    document.getElementById("newInvBtn").addEventListener("click", function () { guardUnsaved(resetForm); });
 
     // ──────────────────────────────────────────────
     // COLLECT
@@ -884,18 +886,21 @@
     // ──────────────────────────────────────────────
     // SAVE
     // ──────────────────────────────────────────────
-    document.getElementById("saveInvBtn").addEventListener("click", async function () {
-      if (!authReady) { setMsg("Checking sign-in — try again in a moment.", true); return; }
-      if (!DB) { setMsg("Not saving — sign in to save invoices privately.", true); return; }
-      if (!currentTaskId) { setMsg("Import a task first.", true); return; }
+    async function saveInvoice() {
+      if (!authReady) { setMsg("Checking sign-in — try again in a moment.", true); return false; }
+      if (!DB) { setMsg("Not saving — sign in to save invoices privately.", true); return false; }
+      if (!currentTaskId) { setMsg("Import a task first.", true); return false; }
       var existing = jobTasks[currentTaskId] || {};
       var wasPaid = existing.paid || false;
       var inv = collectInvoice(wasPaid);
       await update(ref(database, DB + "/tasks/" + currentTaskId), inv);
       try { localStorage.setItem("ss-lastBiz", (inv.invoiceTitle || "").trim()); } catch (e) {}
       await upsertPaymentTx(inv);
+      isDirty = false;
       setMsg("Invoice saved.");
-    });
+      return true;
+    }
+    document.getElementById("saveInvBtn").addEventListener("click", saveInvoice);
 
     // ──────────────────────────────────────────────
     // LEDGER TX
@@ -973,9 +978,82 @@
       (inv.labor || []).forEach(function (l) { addLaborRow(l.description || "", l.hours || 0, l.rate || 0); });
       updateTotals();
       updatePriceDiff();
+      document.getElementById("jobTaskSelect").value = taskId || "";
+      isDirty = false;
       window.scrollTo(0, 0);
       setMsg("Invoice loaded - editing " + inv.number);
     }
+
+    // ──────────────────────────────────────────────
+    // UNSAVED-CHANGES GUARD  (dropdown auto-loads; prompts to save first)
+    // ──────────────────────────────────────────────
+    function revertTaskSelect() {
+      document.getElementById("jobTaskSelect").value = currentTaskId || "";
+    }
+
+    // Runs onProceed() immediately if clean; otherwise asks to save/discard/cancel.
+    function guardUnsaved(onProceed) {
+      if (!isDirty) { onProceed(); return; }
+
+      var ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;" +
+        "align-items:center;justify-content:center;z-index:9999;padding:16px;";
+      var box = document.createElement("div");
+      box.style.cssText = "background:var(--card,#fff);color:var(--text,#111);border:1px solid var(--border,#ccc);" +
+        "border-radius:10px;padding:20px 22px;max-width:420px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.4);";
+      box.innerHTML =
+        "<div style='font-weight:600;font-size:1.05rem;margin-bottom:6px;'>Unsaved changes</div>" +
+        "<div style='color:var(--muted,#666);font-size:.9rem;margin-bottom:16px;'>" +
+        "This invoice has changes you haven't saved. Save them before loading another one?</div>";
+      var row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;";
+      function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
+
+      var bSave = document.createElement("button");
+      bSave.textContent = "Save & continue";
+      bSave.style.cssText = "margin:0;";
+      bSave.addEventListener("click", async function () {
+        bSave.disabled = true;
+        var ok = await saveInvoice();
+        if (ok) { close(); onProceed(); }
+        else { bSave.disabled = false; }   // save failed (e.g. not signed in) — leave the dialog open
+      });
+
+      var bDiscard = document.createElement("button");
+      bDiscard.textContent = "Don't save";
+      bDiscard.style.cssText = "margin:0;background:transparent;border-color:var(--border);color:var(--muted);";
+      bDiscard.addEventListener("click", function () { isDirty = false; close(); onProceed(); });
+
+      var bCancel = document.createElement("button");
+      bCancel.textContent = "Cancel";
+      bCancel.style.cssText = "margin:0;background:transparent;border-color:var(--border);color:var(--muted);";
+      bCancel.addEventListener("click", function () { close(); revertTaskSelect(); });
+
+      row.appendChild(bSave); row.appendChild(bDiscard); row.appendChild(bCancel);
+      box.appendChild(row); ov.appendChild(box); document.body.appendChild(ov);
+      ov.addEventListener("click", function (e) { if (e.target === ov) { close(); revertTaskSelect(); } });
+    }
+
+    // Auto-load when a task is picked in the dropdown (replaces the old Open button).
+    document.getElementById("jobTaskSelect").addEventListener("change", function () {
+      var taskId = this.value;
+      if (!taskId) return;                 // the "-- select task --" placeholder
+      guardUnsaved(function () { openTaskById(taskId); });
+    });
+
+    // Any edit inside the builder marks the invoice dirty (the task picker itself doesn't).
+    (function () {
+      var builder = document.getElementById("invoiceBuilder");
+      if (!builder) return;
+      // view-only controls that toggle display but don't change saved invoice data
+      var ignoreIds = ["jobTaskSelect", "showRemaining", "showCostCol"];
+      ["input", "change"].forEach(function (evt) {
+        builder.addEventListener(evt, function (e) {
+          if (!e.target || ignoreIds.indexOf(e.target.id) !== -1) return;
+          isDirty = true;
+        });
+      });
+    })();
 
     // ──────────────────────────────────────────────
     // PRINT POPUP
