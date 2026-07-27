@@ -85,6 +85,11 @@
       </div>
       <div class="notes-column-input"><textarea id="taskNotes" placeholder="Notes"></textarea></div>
       <button id="updateTaskBtn" style="display:none">Update Task</button>
+      <div class="ctrl-row" style="margin-top:8px">
+        <button id="shareJobBtn" title="Copy this whole job (all visits, devices, notes, images) into the telaid@telaid.com account so it can be viewed in onlinejob without your login">Share</button>
+        <button id="unshareJobBtn" class="clear-button" title="Remove this job from the PM account">Unshare</button>
+        <span id="shareJobStatus" style="font-size:12px; color:var(--muted)"></span>
+      </div>
     </section>
 
     <section id="sec-timer">
@@ -352,6 +357,8 @@
     let currentTaskId = null;
     let unsubscribeTasks = null;
     let isShowingAll = false;
+    let hasAutoLoaded = false; // auto-resume the latest open task once per (re)subscribe, not on every edit
+    let taskReadRetries = 0;   // bounded retry for the first-login token race
     let visibleCount = 0; // how many tasks are rendered — persists across data updates (edits)
     const autoTaskId = new URLSearchParams(location.search).get('task');
     let autoTaskSelected = false;
@@ -703,10 +710,17 @@
 
     function loadTasks() {
       if (unsubscribeTasks) unsubscribeTasks();
+      hasAutoLoaded = false; // fresh (re)subscribe → allow one auto-resume of the latest open task
       unsubscribeTasks = onValue(dbRef(database, `${DB}/tasks`), (snap) => {
+        taskReadRetries = 0;
         const tasks = [];
         snap.forEach(s => { const t = s.val() || {}; t.id = t.id || s.key; tasks.push(t); });
         handleTasksUpdate(tasks);
+      }, (err) => {
+        // A brand-new sign-in can race the auth token, so the first read is denied.
+        // Re-subscribe a few times so tasks appear without a manual page refresh.
+        console.warn("[tasks] read error:", err?.message);
+        if (DB !== "public" && taskReadRetries < 4) { taskReadRetries++; setTimeout(loadTasks, 700); }
       });
     }
 
@@ -739,19 +753,27 @@
     function checkOngoingTask(tasks) {
       const open = tasks.filter(t => t.startTime && !t.endTime);
       if (!open.length) return;
-      open.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
-      currentTask = open[0];
-      currentTaskId = open[0].id;
-      taskNameInput.value = currentTask.customerName || ""; projectInput.value = currentTask.project || "";
-      taskNotesTextarea.value = currentTask.notes || ""; customerAddressInput.value = currentTask.customerAddress || "";
-      customerPhoneInput.value = currentTask.customerPhone || ""; customerEmailInput.value = currentTask.customerEmail || "";
-      startOdometerInput.value = currentTask.startOdometer || ""; endOdometerInput.value = currentTask.endOdometer || "";
-      endOdometerInput.disabled = false;
-      if (!timerInterval) timerInterval = setInterval(tickTimer, 1000);
-      endTaskBtn.style.display = "inline-block";
-      updateTaskBtn.style.display = "inline-block";
-      if (currentProject !== open[0].id) loadProject(open[0].id);
-      const openRow = document.querySelector(`[data-task-id="${CSS.escape(open[0].id)}"]`);
+      open.sort((a, b) => new Date(b.startTime) - new Date(a.startTime)); // latest open first
+      const ongoing = open[0];
+      // Only auto-load the latest open task ONCE per (re)subscribe — not on every
+      // data update. Editing a field re-fires the tasks listener; without this guard
+      // it would yank you back to an open task (bad when several tasks are open, e.g.
+      // in the shared telaid account). Once loaded, your manual selection stays put.
+      if (!hasAutoLoaded) {
+        hasAutoLoaded = true;
+        currentTask = ongoing;
+        currentTaskId = ongoing.id;
+        taskNameInput.value = ongoing.customerName || ""; projectInput.value = ongoing.project || "";
+        taskNotesTextarea.value = ongoing.notes || ""; customerAddressInput.value = ongoing.customerAddress || "";
+        customerPhoneInput.value = ongoing.customerPhone || ""; customerEmailInput.value = ongoing.customerEmail || "";
+        startOdometerInput.value = ongoing.startOdometer || ""; endOdometerInput.value = ongoing.endOdometer || "";
+        endOdometerInput.disabled = false;
+        if (!timerInterval) timerInterval = setInterval(tickTimer, 1000);
+        endTaskBtn.style.display = "inline-block";
+        updateTaskBtn.style.display = "inline-block";
+        if (currentProject !== ongoing.id) loadProject(ongoing.id);
+      }
+      const openRow = document.querySelector(`[data-task-id="${CSS.escape(ongoing.id)}"]`);
       if (openRow) openRow.classList.add("task-row-active");
     }
 
@@ -1509,7 +1531,10 @@
         const markupInp = document.createElement("input"); markupInp.type = "text"; markupInp.className = "thumb-markup"; markupInp.placeholder = "Label"; markupInp.value = img.markup || "";
         const markupBtn = document.createElement("button"); markupBtn.textContent = "Apply"; markupBtn.classList.add("btn-sm");
         markupBtn.onclick = async () => {
-          const text = markupInp.value.trim(); if (!text) { alert("Enter label text"); return; }
+          const listName = currentDeviceLists[activeDeviceListId]?._name || "";
+          const devId = d.id || d.label || "";
+          const auto = [listName, devId].filter(Boolean).join(" - ");
+          const text = markupInp.value.trim() || auto;
           if (!confirm(`Apply label "${text}" to this image?`)) return;
           try {
             const res = await fetch(img.url); const blob = await res.blob();
@@ -1747,8 +1772,62 @@
         await resolveMetaOwnerTaskId();
         if (gen !== projectLoadGen) return;
         await loadImageFolders(); await loadDeviceLists(); await loadDailyTasks();
+        updateShareStatus();
       } catch (e) { console.error(e); alert("Failed to load project."); }
       finally { if (gen === projectLoadGen) isLoadingProject = false; }
+    }
+
+    // ── Share whole job to the telaid@telaid.com PM account ──────────────
+    // Copies every task record for the loaded project (with its nested device
+    // lists, daily tasks, notes and image URLs) into the PM account's tasks, so
+    // the PM sees the job in onlinejob when signed in as telaid@telaid.com.
+    // Read/write into that uid is granted to this work account by an RTDB rule.
+    const PM_SHARE_UID = "YHIJWVQOmefgigMVCcvueIZidze2"; // telaid@telaid.com
+
+    function projectRecords(tasksObj) {
+      const projKey = normKey(currentProjectName);
+      return Object.entries(tasksObj || {}).filter(([, t]) => normKey(t.project) === projKey);
+    }
+
+    async function shareJobToPM() {
+      const projName = currentProjectName || currentProject;
+      if (!projName) { alert("Load a job first."); return; }
+      const snap = await get(dbRef(database, `${DB}/tasks`));
+      const matches = snap.exists() ? projectRecords(snap.val()) : [];
+      if (!matches.length) { alert(`No task records found for "${projName}".`); return; }
+      if (!confirm(`Share "${projName}" to the Telaid PM account (telaid@telaid.com)?\n\nCopies ${matches.length} record(s) — all visits, devices, notes and images. Re-sharing refreshes the copy.`)) return;
+      try {
+        for (const [id, rec] of matches) await set(dbRef(database, `${PM_SHARE_UID}/tasks/${id}`), rec);
+        await updateShareStatus();
+        alert(`Shared "${projName}" (${matches.length} record(s)). The PM can open onlinejob signed in as telaid@telaid.com.`);
+      } catch (e) {
+        console.error("[share]", e);
+        alert("Share failed — see console. (A permission error means the share rule isn't active for this account.)");
+      }
+    }
+
+    async function unshareJobFromPM() {
+      const projName = currentProjectName || currentProject;
+      if (!projName) { alert("Load a job first."); return; }
+      const snap = await get(dbRef(database, `${PM_SHARE_UID}/tasks`));
+      const matches = snap.exists() ? projectRecords(snap.val()) : [];
+      if (!matches.length) { alert(`"${projName}" isn't shared.`); return; }
+      if (!confirm(`Remove "${projName}" (${matches.length} record(s)) from the PM account?`)) return;
+      try {
+        for (const [id] of matches) await remove(dbRef(database, `${PM_SHARE_UID}/tasks/${id}`));
+        await updateShareStatus();
+        alert(`Unshared "${projName}".`);
+      } catch (e) { console.error("[unshare]", e); alert("Unshare failed — see console."); }
+    }
+
+    async function updateShareStatus() {
+      const el = document.getElementById("shareJobStatus"); if (!el) return;
+      if (!(currentProjectName || currentProject)) { el.textContent = ""; return; }
+      try {
+        const snap = await get(dbRef(database, `${PM_SHARE_UID}/tasks`));
+        const n = snap.exists() ? projectRecords(snap.val()).length : 0;
+        el.textContent = n ? `✓ Shared (${n} record${n > 1 ? "s" : ""})` : "Not shared";
+      } catch { el.textContent = ""; }
     }
 
     function filterDailyTasks() {
@@ -1784,6 +1863,8 @@
     document.getElementById("deviceFilter").addEventListener("input", filterDeviceTable);
     document.querySelectorAll(".device-toggle-column").forEach(cb => cb.addEventListener("change", () => { saveDeviceColVis(); applyDeviceColVis(); }));
     loadDeviceColVis();
+    document.getElementById("shareJobBtn").onclick = shareJobToPM;
+    document.getElementById("unshareJobBtn").onclick = unshareJobFromPM;
 
     document.getElementById("exportDeviceCSV").onclick = () => {
       if (!activeDeviceListId || !currentDeviceLists[activeDeviceListId]) { alert("Select a device list first."); return; }
