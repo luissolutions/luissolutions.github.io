@@ -178,6 +178,18 @@
         <button id="addDeviceItemBtn">+ Device</button>
         <input type="text" id="deviceFilter" placeholder="Filter…" />
         <button id="exportDeviceCSV">Export CSV</button>
+        <div id="deviceColToggles">
+          <label><input type="checkbox" class="device-toggle-column" value="col-label" checked /> Label</label>
+          <label><input type="checkbox" class="device-toggle-column" value="col-serial" checked /> Serial</label>
+          <label><input type="checkbox" class="device-toggle-column" value="col-model" checked /> Model</label>
+          <label><input type="checkbox" class="device-toggle-column" value="col-type" checked /> Type</label>
+          <label><input type="checkbox" class="device-toggle-column" value="col-location" checked /> Location</label>
+          <label><input type="checkbox" class="device-toggle-column" value="col-status" checked /> Status</label>
+          <label><input type="checkbox" class="device-toggle-column" value="col-ip" checked /> IP</label>
+          <label><input type="checkbox" class="device-toggle-column" value="col-mac" checked /> MAC</label>
+          <label><input type="checkbox" class="device-toggle-column" value="col-notes-col" checked /> Notes</label>
+          <label><input type="checkbox" class="device-toggle-column" value="col-images" checked /> Images</label>
+        </div>
         <div id="deviceTableWrap" style="display:none">
           <table>
             <thead>
@@ -1429,17 +1441,18 @@
         const chk = document.createElement("input"); chk.type = "checkbox"; chk.checked = !!d.counted;
         chk.onchange = () => { d.counted = chk.checked; tr.classList.toggle("device-counted", chk.checked); set(dbRef(database, `${basePath}/counted`), chk.checked); };
         tdCount.appendChild(chk);
-        const mkEditable = (val, field) => {
+        const mkEditable = (val, field, cls) => {
           const td = document.createElement("td");
+          if (cls) td.className = cls;
           td.contentEditable = "true"; td.textContent = val || "";
           td.onblur = () => { const v = td.textContent.trim(); if (v !== (d[field] || "")) { d[field] = v; set(dbRef(database, `${basePath}/${field}`), v); } };
           return td;
         };
-        const tdNotes = document.createElement("td");
+        const tdNotes = document.createElement("td"); tdNotes.className = "col-notes-col";
         const notesEl = document.createElement("textarea"); notesEl.value = d.notes || ""; notesEl.rows = 3; notesEl.className = "device-notes";
         notesEl.onblur = () => { if (notesEl.value !== (d.notes || "")) { d.notes = notesEl.value; set(dbRef(database, `${basePath}/notes`), notesEl.value); } };
         tdNotes.appendChild(notesEl);
-        const tdImages = document.createElement("td");
+        const tdImages = document.createElement("td"); tdImages.className = "col-images";
         tdImages.appendChild(buildDeviceThumbStrip(d, basePath));
         const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.className = "hidden";
         const markupChk = document.createElement("input"); markupChk.type = "checkbox"; markupChk.checked = true;
@@ -1458,11 +1471,22 @@
           renderDeviceTable();
         };
         tdAct.appendChild(delBtn);
-        tr.append(tdCount, mkEditable(d.id || d.label, "id"), mkEditable(d.serial, "serial"), mkEditable(d.model, "model"), mkEditable(d.type, "type"), mkEditable(d.location, "location"), mkEditable(d.status, "status"), mkEditable(d.ip, "ip"), mkEditable(d.mac, "mac"), tdNotes, tdImages, tdAct);
+        tr.append(tdCount, mkEditable(d.id || d.label, "id", "col-label"), mkEditable(d.serial, "serial", "col-serial"), mkEditable(d.model, "model", "col-model"), mkEditable(d.type, "type", "col-type"), mkEditable(d.location, "location", "col-location"), mkEditable(d.status, "status", "col-status"), mkEditable(d.ip, "ip", "col-ip"), mkEditable(d.mac, "mac", "col-mac"), tdNotes, tdImages, tdAct);
         tbody.appendChild(tr);
       });
       filterDeviceTable();
+      applyDeviceColVis();
     }
+
+    // Device column show/hide (mirrors the task-log toggle-column pattern)
+    function applyDeviceColVis() {
+      document.querySelectorAll(".device-toggle-column").forEach(cb => {
+        const cls = cb.value;
+        document.querySelectorAll(`#sec-device-details th.${cls}, #sec-device-details td.${cls}`).forEach(el => el.style.display = cb.checked ? "" : "none");
+      });
+    }
+    function saveDeviceColVis() { const s = {}; document.querySelectorAll(".device-toggle-column").forEach(cb => s[cb.value] = cb.checked); localStorage.setItem("deviceColumnVisibility", JSON.stringify(s)); }
+    function loadDeviceColVis() { const s = JSON.parse(localStorage.getItem("deviceColumnVisibility") || "null"); if (s) document.querySelectorAll(".device-toggle-column").forEach(cb => { if (s[cb.value] !== undefined) cb.checked = s[cb.value]; }); }
 
     function buildDeviceThumbStrip(d, basePath) {
       const strip = document.createElement("div"); strip.className = "thumb-strip";
@@ -1486,6 +1510,7 @@
         const markupBtn = document.createElement("button"); markupBtn.textContent = "Apply"; markupBtn.classList.add("btn-sm");
         markupBtn.onclick = async () => {
           const text = markupInp.value.trim(); if (!text) { alert("Enter label text"); return; }
+          if (!confirm(`Apply label "${text}" to this image?`)) return;
           try {
             const res = await fetch(img.url); const blob = await res.blob();
             const stamped = await stampImg(blob, text);
@@ -1502,7 +1527,21 @@
           const val = noteEl.value;
           if (val !== (img.note || "")) { const imgs = [...images]; imgs[idx] = { ...imgs[idx], note: val }; d.images = imgs; await set(dbRef(database, `${basePath}/images`), imgs); }
         };
-        w.append(thumb, del, markupInp, markupBtn, noteEl); strip.appendChild(w);
+        const removeBtn = document.createElement("button"); removeBtn.textContent = "Remove"; removeBtn.classList.add("btn-sm");
+        removeBtn.onclick = async () => {
+          if (!confirm("Remove the label bar from this image? (Crops one bar per click.)")) return;
+          try {
+            const res = await fetch(img.url); const blob = await res.blob();
+            const cropped = await unstampImg(blob);
+            const sRef = storageRef(storage, img.path);
+            await uploadBytes(sRef, cropped, { contentType: "image/jpeg" });
+            const newUrl = await getDownloadURL(sRef);
+            const imgs = [...images]; imgs[idx] = { ...imgs[idx], url: newUrl, markup: "" }; d.images = imgs;
+            await set(dbRef(database, `${basePath}/images`), imgs);
+            renderDeviceTable();
+          } catch (e) { console.error(e); alert("Remove failed"); }
+        };
+        w.append(thumb, del, markupInp, markupBtn, removeBtn, noteEl); strip.appendChild(w);
       });
       return strip;
     }
@@ -1551,6 +1590,9 @@
     async function addDeviceItem() {
       const labelInp = document.getElementById("newDeviceLabel"), serialInp = document.getElementById("newDeviceSerial");
       const label = labelInp?.value.trim(); if (!label || !activeDeviceListId || !metaOwnerTaskId) return;
+      const existingItems = getDeviceListItems(currentDeviceLists[activeDeviceListId]);
+      const dup = Object.values(existingItems).find(d => (d?.id || d?.label || "").trim().toLowerCase() === label.toLowerCase());
+      if (dup && !confirm(`A device labeled "${dup.id || dup.label}" already exists in this list. Add another with the same label anyway?`)) { labelInp.focus(); return; }
       const id = Date.now().toString();
       const item = { id: label, serial: serialInp?.value.trim() || "", notes: "", images: [], counted: false };
       await set(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/lists/${activeDeviceListId}/${id}`), item);
@@ -1740,6 +1782,8 @@
     document.getElementById("imgFolderSelect").addEventListener("change", () => { if (currentProject) loadTimerImages(currentProjectName || currentProject); });
     document.getElementById("dailyFilter").addEventListener("input", filterDailyTasks);
     document.getElementById("deviceFilter").addEventListener("input", filterDeviceTable);
+    document.querySelectorAll(".device-toggle-column").forEach(cb => cb.addEventListener("change", () => { saveDeviceColVis(); applyDeviceColVis(); }));
+    loadDeviceColVis();
 
     document.getElementById("exportDeviceCSV").onclick = () => {
       if (!activeDeviceListId || !currentDeviceLists[activeDeviceListId]) { alert("Select a device list first."); return; }
