@@ -365,7 +365,6 @@
     let allTasks = [];
     let isLoadingImages = false;
     let imageLoadGen = 0;
-    const initialLoadCount = 50;
 
     function snap15(date) {
       const d = new Date(date);
@@ -750,6 +749,16 @@
       reapplyDateFilter();
     }
 
+    // Fill the customer/project/notes/odometer/address/phone/email inputs from a task.
+    // (Timer, odometer-enable, segments, button visibility and project-load differ per
+    // caller, so those stay in each caller.)
+    function fillTaskInputs(t) {
+      taskNameInput.value = t.customerName || ""; projectInput.value = t.project || "";
+      taskNotesTextarea.value = t.notes || ""; customerAddressInput.value = t.customerAddress || "";
+      customerPhoneInput.value = t.customerPhone || ""; customerEmailInput.value = t.customerEmail || "";
+      startOdometerInput.value = t.startOdometer || ""; endOdometerInput.value = t.endOdometer || "";
+    }
+
     function checkOngoingTask(tasks) {
       const open = tasks.filter(t => t.startTime && !t.endTime);
       if (!open.length) return;
@@ -763,10 +772,7 @@
         hasAutoLoaded = true;
         currentTask = ongoing;
         currentTaskId = ongoing.id;
-        taskNameInput.value = ongoing.customerName || ""; projectInput.value = ongoing.project || "";
-        taskNotesTextarea.value = ongoing.notes || ""; customerAddressInput.value = ongoing.customerAddress || "";
-        customerPhoneInput.value = ongoing.customerPhone || ""; customerEmailInput.value = ongoing.customerEmail || "";
-        startOdometerInput.value = ongoing.startOdometer || ""; endOdometerInput.value = ongoing.endOdometer || "";
+        fillTaskInputs(ongoing);
         endOdometerInput.disabled = false;
         if (!timerInterval) timerInterval = setInterval(tickTimer, 1000);
         endTaskBtn.style.display = "inline-block";
@@ -883,10 +889,7 @@
       const snap = await get(dbRef(database, `${DB}/tasks/${taskKey}`));
       if (!snap.exists()) return;
       const task = snap.val(); task.id = task.id || taskKey; currentTask = task;
-      taskNameInput.value = task.customerName || ""; projectInput.value = task.project || "";
-      taskNotesTextarea.value = task.notes || ""; startOdometerInput.value = task.startOdometer || "";
-      endOdometerInput.value = task.endOdometer || ""; customerAddressInput.value = task.customerAddress || "";
-      customerPhoneInput.value = task.customerPhone || ""; customerEmailInput.value = task.customerEmail || "";
+      fillTaskInputs(task);
       endOdometerInput.disabled = task.endOdometer == null;
       clearInterval(timerInterval);
       if (!task.endTime) timerInterval = setInterval(tickTimer, 1000);
@@ -902,8 +905,22 @@
       get(r).then(snap => { if (!snap.exists() || snap.val()[field] === val) return; update(r, { [field]: val }).then(applySearchFilter); });
     }
 
-    function deleteTaskById(taskId, row) {
-      remove(dbRef(database, `${DB}/tasks/${taskId}`)).then(() => { row?.parentNode?.removeChild(row); updateTotalHours(allTasks); applySearchFilter(); });
+    async function deleteTaskById(taskId, row) {
+      // Delete this task's DEVICE + DAILY photos from Storage (referenced by path in the
+      // task node). Timer/gallery images live in the project-shared folder across visits,
+      // so they're intentionally left alone here.
+      const t = allTasks.find(x => x.id === taskId) || {};
+      const paths = [];
+      const collect = imgs => toImgArray(imgs).forEach(i => { if (i?.path) paths.push(i.path); });
+      Object.values(t.lists || {}).forEach(list => {
+        if (list && typeof list === "object") Object.entries(list).forEach(([k, dev]) => {
+          if (!DEVICE_RESERVED.has(k) && dev && typeof dev === "object") collect(dev.images);
+        });
+      });
+      Object.values(t.tasks || {}).forEach(dt => collect(dt && dt.images));
+      await Promise.all(paths.map(p => deleteObject(storageRef(storage, p)).catch(() => { })));
+      await remove(dbRef(database, `${DB}/tasks/${taskId}`));
+      row?.parentNode?.removeChild(row); updateTotalHours(allTasks); applySearchFilter();
     }
 
     function updateTask() {
@@ -1346,16 +1363,13 @@
       const snap = await get(dbRef(database, `${DB}/tasks/${id}`)); if (!snap.exists()) return;
       const task = snap.val(); task.id = task.id || id; currentTask = task; currentTaskId = id;
       if (normalizeTaskSegments(currentTask)) saveTask(currentTask);
-      taskNameInput.value = task.customerName || ""; projectInput.value = task.project || ""; taskNotesTextarea.value = task.notes || "";
-      startOdometerInput.value = task.startOdometer || ""; endOdometerInput.value = task.endOdometer || ""; customerAddressInput.value = task.customerAddress || "";
-      customerPhoneInput.value = task.customerPhone || ""; customerEmailInput.value = task.customerEmail || "";
+      fillTaskInputs(task);
       endOdometerInput.disabled = task.endOdometer == null; clearInterval(timerInterval);
       if (!task.endTime) timerInterval = setInterval(tickTimer, 1000);
       updateSegSummary(); updateTaskBtn.style.display = "inline-block"; loadTimerImages(task.project);
       endTaskBtn.style.display = task.endTime ? "none" : "inline-block";
       loadProject(id);
     });
-    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") loadTasks(); });
     searchTaskInput.addEventListener("input", applySearchFilter);
     document.getElementById("calculateHoursBtn").addEventListener("click", calcHoursBetweenDates);
     document.querySelectorAll(".toggle-column").forEach(cb => cb.addEventListener("change", () => { saveColVis(); applyColVis(); }));
@@ -1364,7 +1378,7 @@
       taskLogTbody.innerHTML = ""; sorted.forEach(addTaskToTable); sortOrder = sortOrder === "asc" ? "desc" : "asc";
     });
     document.querySelector("#task-log th.end-time-column").addEventListener("click", () => {
-      const sorted = [...allTasks].sort((a, b) => { const d = String(a.id || "").localeCompare(String(b.id || "")); return sortOrderEnd === "asc" ? d : -d; });
+      const sorted = [...allTasks].sort((a, b) => { const d = new Date(a.endTime) - new Date(b.endTime); return sortOrderEnd === "asc" ? d : -d; });
       taskLogTbody.innerHTML = ""; sorted.forEach(addTaskToTable); sortOrderEnd = sortOrderEnd === "asc" ? "desc" : "asc";
     });
 
@@ -1374,7 +1388,7 @@
     // DETAILS
     // ════════════════════════════════════
     let currentProject = "", modalItems = [], modalIndex = 0;
-    let isLoadingProject = false, projectLoadGen = 0, currentProjectName = "", currentCustomerName = "", metaOwnerTaskId = "", allProjects = [];
+    let isLoadingProject = false, projectLoadGen = 0, currentProjectName = "", currentCustomerName = "", metaOwnerTaskId = "";
 
     const sanitize = s => (s || "").trim().replace(/\s+/g, "_");
     const normKey = s => (s || "").trim().toLowerCase();
@@ -1430,7 +1444,6 @@
     async function loadDeviceLists() {
       if (!metaOwnerTaskId) return;
       const snap = await get(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/lists`));
-      console.log("[lists] loadDeviceLists — task:", metaOwnerTaskId, "exists:", snap.exists(), "keys:", snap.exists() ? Object.keys(snap.val()) : []);
       currentDeviceLists = snap.exists() ? snap.val() : {};
       activeDeviceListId = "";
       renderDeviceListDropdown();
@@ -1488,6 +1501,10 @@
         const delBtn = document.createElement("button"); delBtn.textContent = "🗑"; delBtn.classList.add("clear-button");
         delBtn.onclick = async () => {
           if (!confirm(`Delete "${d.id || d.label || itemId}"?`)) return;
+          const dImgs = toImgArray(d.images);
+          if (dImgs.length) {
+            await Promise.all(dImgs.filter(i => i?.path).map(i => deleteObject(storageRef(storage, i.path)).catch(() => { })));
+          }
           await remove(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/lists/${activeDeviceListId}/${itemId}`));
           delete currentDeviceLists[activeDeviceListId][itemId];
           renderDeviceTable();
@@ -1533,7 +1550,7 @@
         markupBtn.onclick = async () => {
           const listName = currentDeviceLists[activeDeviceListId]?._name || "";
           const devId = d.id || d.label || "";
-          const auto = [listName, devId].filter(Boolean).join(" - ");
+          const auto = [currentCustomerName, listName, devId].filter(Boolean).join(" - ");
           const text = markupInp.value.trim() || auto;
           if (!confirm(`Apply label "${text}" to this image?`)) return;
           try {
@@ -1575,9 +1592,20 @@
       const safeProj = sanitize(currentProjectName || currentProject);
       const listName = sanitize(currentDeviceLists[listId]?._name || listId);
       const label = sanitize(d.id || d.label || itemId);
-      const autoText = `${listName} - ${d.id || d.label || itemId}`;
+      const custPart = sanitize(currentCustomerName || currentProjectName || currentProject);
+      const autoText = [currentCustomerName, (currentDeviceLists[listId]?._name || listId), (d.id || d.label || itemId)].filter(Boolean).join(" - ");
       const folder = `${DB}/tasks/images/${safeProj}/${listName}`;
-      const path = `${folder}/${label}_${Date.now()}.jpg`;
+      // Filename: customer_list_id (lowercase, no timestamp). Device id is unique,
+      // so the first photo needs no suffix; extra photos of the same device get _2/_3
+      // so they don't overwrite each other.
+      // Unique filename: customer_list_id(.jpg). If that device already has a photo
+      // with the same base name, pick the first free _2/_3/... (collision-safe even
+      // after deletes — never overwrites an existing photo).
+      const usedNames = new Set(toImgArray(d.images).map(i => ((i?.path || "").split("/").pop() || "").toLowerCase()));
+      const baseNm = [custPart, listName, label].filter(Boolean).join("_").toLowerCase();
+      let fname = `${baseNm}.jpg`, nDup = 2;
+      while (usedNames.has(fname)) { fname = `${baseNm}_${nDup++}.jpg`; }
+      const path = `${folder}/${fname}`;
       try {
         let blob = await resizeImg(file, 2048);
         if (applyMarkup) blob = await stampImg(blob, autoText);
@@ -1607,6 +1635,11 @@
     async function deleteDeviceList() {
       const id = activeDeviceListId; if (!id || !currentDeviceLists[id]) return;
       if (!confirm(`Delete list "${currentDeviceLists[id]._name || id}"?`)) return;
+      const paths = [];
+      Object.entries(currentDeviceLists[id]).forEach(([k, dev]) => {
+        if (!DEVICE_RESERVED.has(k) && dev && typeof dev === "object") toImgArray(dev.images).forEach(i => { if (i?.path) paths.push(i.path); });
+      });
+      await Promise.all(paths.map(p => deleteObject(storageRef(storage, p)).catch(() => { })));
       await remove(dbRef(database, `${DB}/tasks/${metaOwnerTaskId}/lists/${id}`));
       delete currentDeviceLists[id]; activeDeviceListId = "";
       renderDeviceListDropdown(); renderDeviceTable();
@@ -1739,8 +1772,6 @@
       renderDailyTasks();
     }
 
-    function getPhotoNamePrefix() { const c = sanitize(currentCustomerName || ""), p = sanitize(currentProjectName || currentProject || ""); return (c && p) ? `${c}_${p}` : c || p; }
-    function getPhotoLabelPrefix() { return (currentProjectName || currentProject || "").trim(); }
     function bestTime(task, id) { return Math.max(Number(task.updatedAt) || 0, Number(task.createdAt) || 0, Number(task.startTime) || 0, Number(task.timestamp) || 0, Number(id) || 0); }
     async function resolveMetaOwnerTaskId() {
       metaOwnerTaskId = currentProject;
