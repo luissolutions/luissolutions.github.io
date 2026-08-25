@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RAR Password Recovery</title>
+  <title>RAR / 7z Password Recovery</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #0f1117; color: #e0e0e0; padding: 24px; line-height: 1.5; }
@@ -47,11 +47,11 @@
   </style>
 </head>
 <body>
-  <h1>RAR Password Recovery</h1>
+  <h1>RAR / 7z Password Recovery</h1>
   <p class="subtitle">Try a wordlist or brute-force short passwords against an encrypted RAR file.</p>
 
   <div class="card">
-    <h2>1 — RAR File</h2>
+    <h2>1 — RAR / 7z File</h2>
     <label>Select your RAR file</label>
     <input type="file" id="rar-file" accept=".rar">
     <div id="file-info">No file selected.</div>
@@ -132,6 +132,7 @@
   function detectVersion(bytes) {
     if (RAR5_MAGIC.every((b,i) => bytes[i] === b)) return 5;
     if (RAR4_MAGIC.every((b,i) => bytes[i] === b)) return 4;
+    if ([0x37,0x7A,0xBC,0xAF,0x27,0x1C].every((b,i) => bytes[i] === b)) return 7;
     return 0;
   }
 
@@ -361,8 +362,11 @@
         ? '<span class="badge badge-rar5">RAR5</span>'
         : ver === 4
           ? '<span class="badge badge-rar4">RAR4</span>'
+          : ver === 7
+            ? '<span class="badge" style="background:#12321a;color:#7fd07f">7Z</span>'
           : '<span class="badge" style="background:#3a1a1a;color:#e07070">Unknown</span>';
       fileInfo.innerHTML = `${f.name} · ${(f.size/1024).toFixed(1)} KB ${badge}`;
+      if (ver === 7) { const c = SevenZip.check(rarBytes); fileInfo.innerHTML += c.ok ? `<br><span style="color:#7fd07f;font-size:.78rem;">7z AES-256 · ${c.mode} · ready to attack</span>` : `<br><span style="color:#e0a070;font-size:.78rem;">⚠ ${c.reason}</span>`; }
       if (ver === 4) {
         fileInfo.innerHTML += '<br><span style="color:#e0a070;font-size:.78rem;">⚠ RAR4 format — see note below for cracking options.</span>';
         showRAR4Note();
@@ -382,6 +386,85 @@
       <em>If you still want to try the built-in wordlist (slow), press Start — it will work, just slower.</em>
     `;
   }
+
+  // ===== 7-Zip password recovery — self-contained (AES-256 + SHA-256 + LZMA/LZMA2) =====
+  const SevenZip = (function () {
+    // ---- CRC32 ----
+    const CRCT = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();
+    function crc32(buf) { let c = 0xFFFFFFFF; for (let i = 0; i < buf.length; i++) c = CRCT[(c ^ buf[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+    // ---- AES-256 raw CBC decrypt (no padding) ----
+    const SBOX = new Uint8Array(256), ISBOX = new Uint8Array(256);
+    (function () { let p = 1, q = 1; do { p = p ^ (p << 1) ^ ((p & 0x80) ? 0x11B : 0); q ^= q << 1; q ^= q << 2; q ^= q << 4; q ^= (q & 0x80) ? 0x09 : 0; q &= 0xff; const x = (q ^ ((q << 1) | (q >>> 7)) ^ ((q << 2) | (q >>> 6)) ^ ((q << 3) | (q >>> 5)) ^ ((q << 4) | (q >>> 4)) ^ 0x63) & 0xff; SBOX[p] = x; ISBOX[x] = p; } while (p !== 1); SBOX[0] = 0x63; ISBOX[0x63] = 0; })();
+    function mul(a, b) { let r = 0; for (let i = 0; i < 8; i++) { if (b & 1) r ^= a; const hi = a & 0x80; a = (a << 1) & 0xff; if (hi) a ^= 0x1B; b >>= 1; } return r & 0xff; }
+    const RCON = [0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1B,0x36,0x6C,0xD8,0xAB,0x4D];
+    function keyExp(key) { const Nk = 8, Nr = 14, w = new Array(4 * (Nr + 1)); for (let i = 0; i < Nk; i++) w[i] = [key[4 * i], key[4 * i + 1], key[4 * i + 2], key[4 * i + 3]]; for (let i = Nk; i < 4 * (Nr + 1); i++) { let t = w[i - 1].slice(); if (i % Nk === 0) { t = [t[1], t[2], t[3], t[0]].map(b => SBOX[b]); t[0] ^= RCON[i / Nk - 1]; } else if (i % Nk === 4) { t = t.map(b => SBOX[b]); } w[i] = w[i - Nk].map((b, j) => b ^ t[j]); } return w; }
+    function invBlock(inBuf, off, w) { const Nr = 14; const s = [[], [], [], []]; for (let i = 0; i < 16; i++) s[i % 4][(i / 4) | 0] = inBuf[off + i]; const addRK = (r) => { for (let c = 0; c < 4; c++) for (let rr = 0; rr < 4; rr++) s[rr][c] ^= w[r * 4 + c][rr]; }; const isr = () => { for (let r = 1; r < 4; r++) { const row = [s[r][0], s[r][1], s[r][2], s[r][3]]; for (let c = 0; c < 4; c++) s[r][c] = row[(c - r + 4) % 4]; } }; const isb = () => { for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) s[r][c] = ISBOX[s[r][c]]; }; const imc = () => { for (let c = 0; c < 4; c++) { const a0 = s[0][c], a1 = s[1][c], a2 = s[2][c], a3 = s[3][c]; s[0][c] = mul(a0,14)^mul(a1,11)^mul(a2,13)^mul(a3,9); s[1][c] = mul(a0,9)^mul(a1,14)^mul(a2,11)^mul(a3,13); s[2][c] = mul(a0,13)^mul(a1,9)^mul(a2,14)^mul(a3,11); s[3][c] = mul(a0,11)^mul(a1,13)^mul(a2,9)^mul(a3,14); } }; addRK(Nr); for (let r = Nr - 1; r >= 1; r--) { isr(); isb(); addRK(r); imc(); } isr(); isb(); addRK(0); const out = new Uint8Array(16); for (let i = 0; i < 16; i++) out[i] = s[i % 4][(i / 4) | 0]; return out; }
+    function aesCbcDecrypt(key, iv, data) { const w = keyExp(key); const out = new Uint8Array(data.length); let prev = iv; for (let off = 0; off + 16 <= data.length; off += 16) { const dec = invBlock(data, off, w); for (let i = 0; i < 16; i++) out[off + i] = dec[i] ^ prev[i]; prev = data.subarray(off, off + 16); } return out; }
+    // ---- incremental SHA-256 ----
+    const SK = new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+    class Sha256 { constructor() { this.h = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]); this.buf = new Uint8Array(64); this.bufLen = 0; this.len = 0; this.w = new Uint32Array(64); }
+      _b(p, off) { const w = this.w; for (let i = 0; i < 16; i++) w[i] = (p[off+4*i]<<24)|(p[off+4*i+1]<<16)|(p[off+4*i+2]<<8)|p[off+4*i+3]; for (let i = 16; i < 64; i++) { const s0 = ((w[i-15]>>>7)|(w[i-15]<<25)) ^ ((w[i-15]>>>18)|(w[i-15]<<14)) ^ (w[i-15]>>>3); const s1 = ((w[i-2]>>>17)|(w[i-2]<<15)) ^ ((w[i-2]>>>19)|(w[i-2]<<13)) ^ (w[i-2]>>>10); w[i] = (w[i-16]+s0+w[i-7]+s1)>>>0; } let a=this.h[0],b=this.h[1],c=this.h[2],d=this.h[3],e=this.h[4],f=this.h[5],g=this.h[6],hh=this.h[7]; for (let i = 0; i < 64; i++) { const S1 = ((e>>>6)|(e<<26))^((e>>>11)|(e<<21))^((e>>>25)|(e<<7)); const ch = (e&f)^(~e&g); const t1 = (hh+S1+ch+SK[i]+w[i])>>>0; const S0 = ((a>>>2)|(a<<30))^((a>>>13)|(a<<19))^((a>>>22)|(a<<10)); const maj = (a&b)^(a&c)^(b&c); const t2 = (S0+maj)>>>0; hh=g;g=f;f=e;e=(d+t1)>>>0;d=c;c=b;b=a;a=(t1+t2)>>>0; } this.h[0]=(this.h[0]+a)>>>0;this.h[1]=(this.h[1]+b)>>>0;this.h[2]=(this.h[2]+c)>>>0;this.h[3]=(this.h[3]+d)>>>0;this.h[4]=(this.h[4]+e)>>>0;this.h[5]=(this.h[5]+f)>>>0;this.h[6]=(this.h[6]+g)>>>0;this.h[7]=(this.h[7]+hh)>>>0; }
+      update(data) { this.len += data.length; let i = 0; if (this.bufLen) { while (i < data.length && this.bufLen < 64) this.buf[this.bufLen++] = data[i++]; if (this.bufLen === 64) { this._b(this.buf, 0); this.bufLen = 0; } } while (i + 64 <= data.length) { this._b(data, i); i += 64; } while (i < data.length) this.buf[this.bufLen++] = data[i++]; return this; }
+      final() { const bits = this.len * 8; const pad = [0x80]; while ((this.bufLen + pad.length) % 64 !== 56) pad.push(0); const hi = Math.floor(bits / 0x100000000), lo = bits >>> 0; pad.push((hi>>>24)&0xff,(hi>>>16)&0xff,(hi>>>8)&0xff,hi&0xff,(lo>>>24)&0xff,(lo>>>16)&0xff,(lo>>>8)&0xff,lo&0xff); this.update(Uint8Array.from(pad)); const out = new Uint8Array(32); for (let i = 0; i < 8; i++) { out[4*i]=(this.h[i]>>>24)&0xff;out[4*i+1]=(this.h[i]>>>16)&0xff;out[4*i+2]=(this.h[i]>>>8)&0xff;out[4*i+3]=this.h[i]&0xff; } return out; } }
+    // ---- LZMA / LZMA2 decoder ----
+    const kNumBitModelTotalBits = 11, kBitModelTotal = 1 << 11, kNumMoveBits = 5, kTopValue = 1 << 24;
+    class RangeDec { constructor(buf, pos) { this.buf = buf; this.pos = pos; this.code = 0; this.range = 0xFFFFFFFF >>> 0; this.pos++; for (let i = 0; i < 4; i++) this.code = ((this.code << 8) | this.buf[this.pos++]) >>> 0; }
+      normalize() { if (this.range < kTopValue) { this.range = (this.range << 8) >>> 0; this.code = ((this.code << 8) | (this.buf[this.pos++] || 0)) >>> 0; } }
+      decodeBit(probs, i) { let v = probs[i]; const bound = ((this.range >>> kNumBitModelTotalBits) * v) >>> 0; let sym; if ((this.code >>> 0) < bound) { this.range = bound; probs[i] = (v + ((kBitModelTotal - v) >>> kNumMoveBits)) & 0xFFFF; sym = 0; } else { this.range = (this.range - bound) >>> 0; this.code = (this.code - bound) >>> 0; probs[i] = (v - (v >>> kNumMoveBits)) & 0xFFFF; sym = 1; } this.normalize(); return sym; }
+      decodeDirectBits(n) { let res = 0; do { this.range = (this.range >>> 1) >>> 0; this.code = (this.code - this.range) >>> 0; const t = (0 - (this.code >>> 31)) >>> 0; this.code = (this.code + (this.range & t)) >>> 0; res = ((res << 1) + (t + 1)) >>> 0; this.normalize(); } while (--n); return res >>> 0; }
+      bitTree(probs, off, n) { let m = 1; for (let i = 0; i < n; i++) m = (m << 1) + this.decodeBit(probs, off + m); return m - (1 << n); }
+      bitTreeRev(probs, off, n) { let m = 1, sym = 0; for (let i = 0; i < n; i++) { const b = this.decodeBit(probs, off + m); m = (m << 1) + b; sym |= b << i; } return sym; } }
+    function lzmaInto(input, inPos, props, out, outStart, unpackSize, st) {
+      const lc = props.lc, lp = props.lp, pb = props.pb; const posMask = (1 << pb) - 1, litPosMask = (1 << lp) - 1; const NS = 12; const P = st.probs || (st.probs = {});
+      if (!P.init) { P.IsMatch = new Uint16Array(NS << 4); P.IsRep = new Uint16Array(NS); P.IsRepG0 = new Uint16Array(NS); P.IsRepG1 = new Uint16Array(NS); P.IsRepG2 = new Uint16Array(NS); P.IsRep0Long = new Uint16Array(NS << 4); P.PosSlot = new Uint16Array(4*64); P.SpecPos = new Uint16Array(115); P.Align = new Uint16Array(16); P.LenChoice = new Uint16Array(2); P.LenLow = new Uint16Array(16*8); P.LenMid = new Uint16Array(16*8); P.LenHigh = new Uint16Array(256); P.RepChoice = new Uint16Array(2); P.RepLow = new Uint16Array(16*8); P.RepMid = new Uint16Array(16*8); P.RepHigh = new Uint16Array(256); P.Literal = new Uint16Array(0x300 << (lc + lp)); P.init = true; }
+      const fill = (a) => a.fill(kBitModelTotal >> 1);
+      if (st.resetState) { for (const k of ['IsMatch','IsRep','IsRepG0','IsRepG1','IsRepG2','IsRep0Long','PosSlot','SpecPos','Align','LenChoice','LenLow','LenMid','LenHigh','RepChoice','RepLow','RepMid','RepHigh','Literal']) fill(P[k]); st.state = 0; st.rep0 = st.rep1 = st.rep2 = st.rep3 = 0; }
+      const rc = new RangeDec(input, inPos); let state = st.state, rep0 = st.rep0, rep1 = st.rep1, rep2 = st.rep2, rep3 = st.rep3; const dictStart = st.dictStart != null ? st.dictStart : 0; let outPos = outStart; const outEnd = outStart + unpackSize;
+      function decLen(ch, low, mid, high, ps) { if (rc.decodeBit(ch, 0) === 0) return rc.bitTree(low, ps << 3, 3); if (rc.decodeBit(ch, 1) === 0) return 8 + rc.bitTree(mid, ps << 3, 3); return 16 + rc.bitTree(high, 0, 8); }
+      while (outPos < outEnd) { const posState = (outPos - dictStart) & posMask;
+        if (rc.decodeBit(P.IsMatch, (state << 4) + posState) === 0) { const prevByte = outPos > dictStart ? out[outPos - 1] : 0; const litState = (((outPos - dictStart) & litPosMask) << lc) + (prevByte >>> (8 - lc)); const pOff = 0x300 * litState; let symbol = 1;
+          if (state >= 7) { let mb = out[outPos - rep0 - 1]; do { const matchBit = (mb >>> 7) & 1; mb = (mb << 1) & 0xff; const bit = rc.decodeBit(P.Literal, pOff + ((1 + matchBit) << 8) + symbol); symbol = (symbol << 1) | bit; if (matchBit !== bit) { while (symbol < 0x100) symbol = (symbol << 1) | rc.decodeBit(P.Literal, pOff + symbol); break; } } while (symbol < 0x100); }
+          else { while (symbol < 0x100) symbol = (symbol << 1) | rc.decodeBit(P.Literal, pOff + symbol); }
+          out[outPos++] = symbol & 0xff; state = state < 4 ? 0 : state < 10 ? state - 3 : state - 6; continue; }
+        let len;
+        if (rc.decodeBit(P.IsRep, state) === 1) { if (rc.decodeBit(P.IsRepG0, state) === 0) { if (rc.decodeBit(P.IsRep0Long, (state << 4) + posState) === 0) { state = state < 7 ? 9 : 11; out[outPos] = out[outPos - rep0 - 1]; outPos++; continue; } } else { let dist; if (rc.decodeBit(P.IsRepG1, state) === 0) { dist = rep1; } else { if (rc.decodeBit(P.IsRepG2, state) === 0) { dist = rep2; } else { dist = rep3; rep3 = rep2; } rep2 = rep1; } rep1 = rep0; rep0 = dist; } len = decLen(P.RepChoice, P.RepLow, P.RepMid, P.RepHigh, posState) + 2; state = state < 7 ? 8 : 11; }
+        else { rep3 = rep2; rep2 = rep1; rep1 = rep0; len = decLen(P.LenChoice, P.LenLow, P.LenMid, P.LenHigh, posState); state = state < 7 ? 7 : 10; const ltp = len < 4 ? len : 3; const posSlot = rc.bitTree(P.PosSlot, ltp << 6, 6); if (posSlot < 4) rep0 = posSlot; else { const nd = (posSlot >>> 1) - 1; rep0 = (2 | (posSlot & 1)) << nd; if (posSlot < 14) rep0 += rc.bitTreeRev(P.SpecPos, rep0 - posSlot - 1, nd); else { rep0 = (rep0 + (rc.decodeDirectBits(nd - 4) << 4)) >>> 0; rep0 = (rep0 + rc.bitTreeRev(P.Align, 0, 4)) >>> 0; } } rep0 = rep0 >>> 0; if (rep0 === 0xFFFFFFFF) break; len += 2; }
+        for (let i = 0; i < len && outPos < outEnd; i++) { out[outPos] = out[outPos - rep0 - 1]; outPos++; } }
+      st.state = state; st.rep0 = rep0; st.rep1 = rep1; st.rep2 = rep2; st.rep3 = rep3; return outPos; }
+    function lzmaDecode(props, input, unpackSize) { const d = props[0]; const lc = d % 9, r = (d / 9) | 0, lp = r % 5, pb = (r / 5) | 0; const out = new Uint8Array(unpackSize); lzmaInto(input, 0, { lc, lp, pb }, out, 0, unpackSize, { resetState: true, dictStart: 0 }); return out; }
+    function lzma2Decode(input, unpackSize) { const out = new Uint8Array(unpackSize); let ip = 0, op = 0; let props = null; const st = {}; while (ip < input.length) { const control = input[ip++]; if (control === 0) break; if (control < 0x80) { const size = ((input[ip] << 8) | input[ip + 1]) + 1; ip += 2; for (let i = 0; i < size; i++) out[op++] = input[ip++]; st.resetState = true; } else { const uc = ((control & 0x1f) << 16 | (input[ip] << 8) | input[ip + 1]) + 1; ip += 2; const pc = ((input[ip] << 8) | input[ip + 1]) + 1; ip += 2; const rb = (control >> 5) & 3; if (rb >= 2) { const pbb = input[ip++]; const lc = pbb % 9, r = (pbb / 9) | 0, lp = r % 5, pbv = (r / 5) | 0; props = { lc, lp, pb: pbv }; } st.resetState = rb >= 1; st.dictStart = 0; lzmaInto(input, ip, props, out, op, uc, st); ip += pc; op += uc; } } return out.subarray(0, op); }
+    // ---- 7z parser ----
+    function readNumber(b, p) { let fb = b[p.o++], mask = 0x80, value = 0; for (let i = 0; i < 8; i++) { if ((fb & mask) === 0) { value += (fb & (mask - 1)) * Math.pow(2, 8 * i); break; } value += b[p.o++] * Math.pow(2, 8 * i); mask >>= 1; } return value; }
+    const rB = (b, p) => b[p.o++], rBs = (b, p, n) => { const r = b.subarray(p.o, p.o + n); p.o += n; return r; };
+    function readFolder(b, p) { const nc = readNumber(b, p); const coders = []; let tIn = 0, tOut = 0; for (let i = 0; i < nc; i++) { const fl = rB(b, p), idSize = fl & 0x0f; const id = Array.from(rBs(b, p, idSize)); let nIn = 1, nOut = 1; if (fl & 0x10) { nIn = readNumber(b, p); nOut = readNumber(b, p); } let props = new Uint8Array(0); if (fl & 0x20) { const ps = readNumber(b, p); props = rBs(b, p, ps); } coders.push({ id, props, nIn, nOut }); tIn += nIn; tOut += nOut; } const nb = tOut - 1; for (let i = 0; i < nb; i++) { readNumber(b, p); readNumber(b, p); } const np = tIn - nb; if (np > 1) for (let i = 0; i < np; i++) readNumber(b, p); return { coders, totalOut: tOut }; }
+    function readDigests(b, p, count) { const ad = rB(b, p); const def = []; if (ad !== 0) for (let i = 0; i < count; i++) def.push(true); else { let bit = 0, mask = 0; for (let i = 0; i < count; i++) { if (mask === 0) { bit = rB(b, p); mask = 0x80; } def.push(!!(bit & mask)); mask >>= 1; } } const crcs = []; for (let i = 0; i < count; i++) { if (def[i]) { const v = b[p.o] | (b[p.o+1]<<8) | (b[p.o+2]<<16) | (b[p.o+3]<<24); p.o += 4; crcs.push(v >>> 0); } else crcs.push(null); } return crcs; }
+    function readStreamsInfo(b, p) { let packPos = 0, packSizes = [], folders = [], unpackSizes = [], crcs = []; let id = rB(b, p);
+      if (id === 0x06) { packPos = readNumber(b, p); const num = readNumber(b, p); let t = rB(b, p); if (t === 0x09) { for (let i = 0; i < num; i++) packSizes.push(readNumber(b, p)); t = rB(b, p); } while (t !== 0x00) { if (t === 0x0A) readDigests(b, p, num); t = rB(b, p); } id = rB(b, p); }
+      if (id === 0x07) { rB(b, p); const nf = readNumber(b, p); rB(b, p); for (let i = 0; i < nf; i++) folders.push(readFolder(b, p)); rB(b, p); for (const f of folders) for (let j = 0; j < f.totalOut; j++) unpackSizes.push(readNumber(b, p)); let t = rB(b, p); while (t !== 0x00) { if (t === 0x0A) crcs = readDigests(b, p, nf); t = rB(b, p); } id = rB(b, p); }
+      if (id === 0x08) { let t = rB(b, p); let nu = folders.map(() => 1); if (t === 0x0D) { nu = folders.map(() => readNumber(b, p)); t = rB(b, p); } if (t === 0x09) { const tot = nu.reduce((a, c) => a + c, 0); for (let i = 0; i < tot - folders.length; i++) readNumber(b, p); t = rB(b, p); } if (t === 0x0A) { const tot = nu.reduce((a, c) => a + c, 0); crcs = readDigests(b, p, tot); t = rB(b, p); } while (t !== 0x00) t = rB(b, p); id = rB(b, p); }
+      return { packPos, packSizes, folders, unpackSizes, crcs }; }
+    const isAes = c => c.id.length === 4 && c.id[0] === 0x06 && c.id[1] === 0xF1 && c.id[2] === 0x07 && c.id[3] === 0x01;
+    const isLzma2 = c => c.id.length === 1 && c.id[0] === 0x21;
+    const isLzma = c => c.id.length === 3 && c.id[0] === 0x03 && c.id[1] === 0x01 && c.id[2] === 0x01;
+    function aesParams(c) { const d = c.props; const ncp = d[0] & 0x3f; let ss = 0, iv = 0, off = 1; if (d[0] & 0xC0) { ss = (d[0] >> 7) & 1; iv = (d[0] >> 6) & 1; const bt = d[1]; ss += (bt >> 4); iv += (bt & 0x0f); off = 2; } const salt = Uint8Array.from(d.subarray(off, off + ss)); const ivb = new Uint8Array(16); ivb.set(d.subarray(off + ss, off + ss + iv)); return { ncp, salt, iv: ivb }; }
+    function utf16le(s) { const b = new Uint8Array(s.length * 2); for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); b[2 * i] = c & 0xff; b[2 * i + 1] = (c >>> 8) & 0xff; } return b; }
+    function deriveKey(password, salt, ncp) { const pw = utf16le(password); const h = new Sha256(); const rounds = Math.pow(2, ncp); const ctr = new Uint8Array(8); for (let i = 0; i < rounds; i++) { h.update(salt); h.update(pw); h.update(ctr); for (let j = 0; j < 8; j++) { ctr[j] = (ctr[j] + 1) & 0xff; if (ctr[j] !== 0) break; } } return h.final(); }
+    function parse(bytes) { const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength); const nextOff = Number(dv.getBigUint64(12, true)); const p = { o: 32 + nextOff }; let si;
+      if (bytes[p.o] === 0x17) { p.o++; si = readStreamsInfo(bytes, p); }
+      else if (bytes[p.o] === 0x01) { p.o++; let id = bytes[p.o]; while (id !== 0x04 && id !== 0x00) { p.o++; id = bytes[p.o]; } if (id !== 0x04) return null; p.o++; si = readStreamsInfo(bytes, p); }
+      else return null;
+      const folder = si.folders[0]; if (!folder) return null; const aesIdx = folder.coders.findIndex(isAes); if (aesIdx < 0) return null;
+      const compIdx = folder.coders.findIndex(c => isLzma2(c) || isLzma(c)); const otherComp = folder.coders.some(c => !isAes(c) && !isLzma2(c) && !isLzma(c) && !(c.id.length === 1 && c.id[0] === 0x00));
+      const ap = aesParams(folder.coders[aesIdx]);
+      return { bytes, si, aesIdx, compIdx, ap, otherComp,
+        aesOutSize: si.unpackSizes[aesIdx], finalSize: compIdx >= 0 ? si.unpackSizes[compIdx] : si.unpackSizes[aesIdx],
+        packStart: 32 + si.packPos, packLen: si.packSizes[0], folderCoders: folder.coders }; }
+    function verifyCtx(ctx, password) { const key = deriveKey(password, ctx.ap.salt, ctx.ap.ncp); const enc = ctx.bytes.subarray(ctx.packStart, ctx.packStart + ctx.packLen); const dec = aesCbcDecrypt(key, ctx.ap.iv, enc).subarray(0, ctx.aesOutSize); let content; try { if (ctx.compIdx < 0) content = dec; else if (isLzma2(ctx.folderCoders[ctx.compIdx])) content = lzma2Decode(dec, ctx.finalSize); else content = lzmaDecode(ctx.folderCoders[ctx.compIdx].props, dec, ctx.finalSize); } catch (e) { return false; } return crc32(content.subarray(0, ctx.finalSize)) === ctx.si.crcs[0]; }
+    function check(bytes) { let ctx; try { ctx = parse(bytes); } catch (e) { return { ok: false, reason: 'Could not parse this 7z archive.' }; } if (!ctx) return { ok: false, reason: 'No AES-encrypted stream found — this 7z may not be password-protected.' }; if (ctx.otherComp) return { ok: false, reason: 'Uses a compression method other than LZMA/LZMA2 (e.g. BCJ/PPMd/Delta) — not supported by this tool.' }; if (ctx.si.crcs[0] == null) return { ok: false, reason: 'Archive has no CRC to verify against.' }; return { ok: true, mode: ctx.compIdx < 0 ? 'stored' : (isLzma2(ctx.folderCoders[ctx.compIdx]) ? 'LZMA2' : 'LZMA') }; }
+    let _ctx = null, _for = null;
+    function verify7z(bytes, password) { if (_for !== bytes) { _for = bytes; _ctx = parse(bytes); } if (!_ctx) return false; return verifyCtx(_ctx, password); }
+    return { verify7z, check };
+  })();
 
   function setStatus(msg, pct) {
     statusLine.textContent = msg;
@@ -568,6 +651,8 @@
           const enc = parseRAR5Encryption(rarBytes);
           if (!enc) { resultBox.className='result error'; resultBox.style.display='block'; resultBox.textContent='Could not locate encryption data in this RAR5 archive. It may not be password-protected, or may be a multi-volume set.'; break; }
           result = await testRAR5Password(enc, pw);
+        } else if (ver === 7) {
+          result = SevenZip.verify7z(rarBytes, pw);
         } else {
           result = await testRAR4Password(rarBytes, pw);
         }
@@ -615,6 +700,8 @@
         let result = null;
         if (ver === 5) {
           result = await testRAR5Password(enc5, pw);
+        } else if (ver === 7) {
+          result = SevenZip.verify7z(rarBytes, pw);
         } else {
           result = await testRAR4Password(rarBytes, pw);
         }
