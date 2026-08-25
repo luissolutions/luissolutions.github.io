@@ -52,8 +52,8 @@
 
   <div class="card">
     <h2>1 — RAR / 7z File</h2>
-    <label>Select your RAR file</label>
-    <input type="file" id="rar-file" accept=".rar">
+    <label>Select your RAR or 7z file</label>
+    <input type="file" id="rar-file" accept=".rar,.7z">
     <div id="file-info">No file selected.</div>
   </div>
 
@@ -119,6 +119,36 @@
     </div>
     <div class="status" id="status-line">Ready.</div>
     <div class="result" id="result-box"></div>
+  </div>
+
+  <div class="card" id="gpu-card" style="display:none">
+    <h2>4 — GPU Crack on se · RTX 3090 <span class="badge" style="background:#2a1a3a;color:#b98fe0">private</span></h2>
+    <p class="hint" id="gpu-sub">Offload to your own GPU. Only the hash is sent — the file never leaves this device.</p>
+    <div id="gpu-auth" style="margin-top:12px;">
+      <div class="row">
+        <div class="field"><label>Email</label><input type="text" id="gpu-email" autocomplete="username"></div>
+        <div class="field"><label>Password</label><input type="password" id="gpu-pass" autocomplete="current-password"></div>
+        <div><button class="btn-primary" id="gpu-login">Sign in</button></div>
+      </div>
+      <div class="status" id="gpu-auth-status" style="margin-top:8px;"></div>
+    </div>
+    <div id="gpu-run" style="display:none;margin-top:6px;">
+      <div class="status" id="gpu-who" style="margin-bottom:10px;color:#7fd07f;"></div>
+      <div class="row" style="margin-bottom:10px;">
+        <div class="field">
+          <label>Attack</label>
+          <select id="gpu-attack">
+            <option value="quick">Quick — rockyou (14M words) · ~8 min</option>
+            <option value="deep">Deep — rockyou + rules (~1B) · hours</option>
+          </select>
+        </div>
+        <div><button class="btn-primary" id="gpu-submit">Send to 3090</button></div>
+      </div>
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="gpu-fill" style="width:0%"></div></div>
+      <div class="status" id="gpu-status">Idle.</div>
+      <div class="result" id="gpu-result"></div>
+      <p class="hint">The job runs on the server even if you close this page — you'll get a Telegram message when it finishes.</p>
+    </div>
   </div>
 
   <script>
@@ -367,6 +397,7 @@
           : '<span class="badge" style="background:#3a1a1a;color:#e07070">Unknown</span>';
       fileInfo.innerHTML = `${f.name} · ${(f.size/1024).toFixed(1)} KB ${badge}`;
       if (ver === 7) { const c = SevenZip.check(rarBytes); fileInfo.innerHTML += c.ok ? `<br><span style="color:#7fd07f;font-size:.78rem;">7z AES-256 · ${c.mode} · ready to attack</span>` : `<br><span style="color:#e0a070;font-size:.78rem;">⚠ ${c.reason}</span>`; }
+      if (window.__gpuOffer) window.__gpuOffer(ver === 7 ? rarBytes : null, f.name);
       if (ver === 4) {
         fileInfo.innerHTML += '<br><span style="color:#e0a070;font-size:.78rem;">⚠ RAR4 format — see note below for cracking options.</span>';
         showRAR4Note();
@@ -494,7 +525,28 @@
     function check(bytes) { let ctx; try { ctx = parse(bytes); } catch (e) { return { ok: false, reason: 'Could not parse this 7z archive.' }; } if (!ctx) return { ok: false, reason: 'No AES-encrypted stream found — this 7z may not be password-protected.' }; if (ctx.type === 'unsupported') return { ok: false, reason: 'Uses an unsupported filter/compression (e.g. BCJ / PPMd / Delta).' }; const crc = ctx.type === 'headerEnc' ? ctx.expectCrc : ctx.firstSubCrc; if (crc == null) return { ok: false, reason: 'Archive has no CRC to verify against.' }; return { ok: true, mode: ctx.type === 'headerEnc' ? 'header-encrypted' : 'data-encrypted' }; }
     let _ctx = null, _for = null;
     function verify7z(bytes, password) { if (_for !== bytes) { _for = bytes; try { _ctx = parse(bytes); } catch (e) { _ctx = null; } } if (!_ctx || _ctx.type === 'unsupported') return false; return verifyCtx(_ctx, password); }
-    return { verify7z, check };
+    // ---- hashcat-format ($7z$, mode 11600) extraction for GPU offload ----
+    function hexOf(u8) { let s = ''; for (let i = 0; i < u8.length; i++) s += (u8[i] >>> 4).toString(16) + (u8[i] & 15).toString(16); return s; }
+    function aesHashFields(props) { const ncp = props[0] & 0x3f; let ss = 0, iv = 0, off = 1; if (props[0] & 0xC0) { ss = (props[0] >> 7) & 1; iv = (props[0] >> 6) & 1; const bt = props[1]; ss += (bt >> 4); iv += (bt & 0x0f); off = 2; } return { ncp, salt: props.subarray(off, off + ss), iv: props.subarray(off + ss, off + ss + iv), saltLen: ss, ivLen: iv }; }
+    function hash7z(bytes) {
+      let ctx; try { ctx = parse(bytes); } catch (e) { return { error: 'parse' }; }
+      if (!ctx) return { error: 'no-aes' };
+      if (ctx.type === 'unsupported') return { error: 'unsupported' };
+      const folder = ctx.si.folders[0];
+      const aes = aesHashFields(folder.coders[folder.aesIdx].props);
+      const comp = folder.compIdx >= 0 ? folder.coders[folder.compIdx] : null;
+      let t = 0, attr = '';
+      if (comp) { if (isLzma(comp)) { t = 1; attr = hexOf(comp.props); } else if (isLzma2(comp)) { t = 2; attr = hexOf(comp.props); } else return { error: 'unsupported' }; }
+      const packOff = 32 + ctx.si.packPos, packLen = ctx.si.packSizes[0];
+      const data = bytes.subarray(packOff, packOff + packLen);
+      let crc, crcLen;
+      if (ctx.type === 'headerEnc') { crc = ctx.expectCrc >>> 0; crcLen = folder.outSize; } else { crc = ctx.firstSubCrc >>> 0; crcLen = ctx.firstSubSize; }
+      if (t !== 0 && crcLen > packLen) return { error: 'header-name-encryption-compressed' };
+      let h = '$7z$' + t + '$' + aes.ncp + '$' + aes.saltLen + '$' + hexOf(aes.salt) + '$' + aes.ivLen + '$' + hexOf(aes.iv) + '$' + (crc >>> 0) + '$' + packLen + '$' + crcLen + '$' + hexOf(data);
+      if (t !== 0) h += '$' + crcLen + '$' + attr;
+      return { hash: h, mode: 11600 };
+    }
+    return { verify7z, check, hash7z };
   })();
 
   function setStatus(msg, pct) {
@@ -747,6 +799,118 @@
   });
 
   stopBtn.addEventListener('click', () => { stopFlag = true; });
+
+  // ─── GPU offload to se (RTX 3090) — hash-only, Firebase-gated ────────────────
+  (function () {
+    const API_KEY = 'AIzaSyCv2cQGWeXS-w7psrQiZD8dn4R7hStmY1o';
+    const ENDPOINT = 'https://crack.luissolutions.us';
+    let auth = null;               // { idToken, refreshToken, expiresAt, email }
+    let polling = false;
+    const $ = id => document.getElementById(id);
+    const card = $('gpu-card');
+
+    window.__gpuOffer = function (bytes, fname) {
+      if (!bytes) { card.style.display = 'none'; return; }
+      const r = SevenZip.hash7z(bytes);
+      if (r && r.hash) {
+        card.style.display = 'block';
+        card.dataset.hash = r.hash; card.dataset.mode = r.mode; card.dataset.name = fname || '';
+        $('gpu-sub').textContent = `Only a ${r.hash.length}-character hash is sent to your server — the file (${fname||'archive'}) never leaves this device.`;
+      } else {
+        card.style.display = 'block';
+        card.dataset.hash = '';
+        const why = r && r.error === 'header-name-encryption-compressed'
+          ? 'This archive uses encrypted file names with compression — the GPU path can\'t verify that subtype yet. Use the wordlist/brute-force tabs above.'
+          : 'This 7z doesn\'t expose a GPU-crackable AES stream.';
+        $('gpu-sub').textContent = why;
+        $('gpu-auth').style.display = 'none'; $('gpu-run').style.display = 'none';
+      }
+    };
+
+    async function getIdToken() {
+      if (!auth) throw new Error('not signed in');
+      if (Date.now() < auth.expiresAt - 60000) return auth.idToken;
+      const r = await fetch('https://securetoken.googleapis.com/v1/token?key=' + API_KEY, {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(auth.refreshToken)
+      });
+      const j = await r.json();
+      if (!j.id_token) throw new Error('session expired — sign in again');
+      auth.idToken = j.id_token; auth.refreshToken = j.refresh_token; auth.expiresAt = Date.now() + parseInt(j.expires_in, 10) * 1000;
+      return auth.idToken;
+    }
+
+    $('gpu-login').addEventListener('click', async () => {
+      const email = $('gpu-email').value.trim(), password = $('gpu-pass').value;
+      const st = $('gpu-auth-status');
+      if (!email || !password) { st.textContent = 'Enter email and password.'; return; }
+      st.textContent = 'Signing in…';
+      try {
+        const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=' + API_KEY, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, returnSecureToken: true })
+        });
+        const j = await r.json();
+        if (j.error) { st.textContent = 'Sign-in failed: ' + j.error.message; return; }
+        auth = { idToken: j.idToken, refreshToken: j.refreshToken, expiresAt: Date.now() + parseInt(j.expiresIn, 10) * 1000, email: j.email };
+        $('gpu-pass').value = '';
+        $('gpu-auth').style.display = 'none'; $('gpu-run').style.display = 'block';
+        $('gpu-who').textContent = 'Signed in as ' + j.email + ' — GPU ready.';
+      } catch (e) { st.textContent = 'Network error reaching sign-in.'; }
+    });
+
+    function showResult(kind, html) {
+      const box = $('gpu-result'); box.className = 'result ' + kind; box.style.display = 'block'; box.innerHTML = html;
+    }
+
+    $('gpu-submit').addEventListener('click', async () => {
+      if (!card.dataset.hash) return;
+      const btn = $('gpu-submit'); btn.disabled = true;
+      $('gpu-result').style.display = 'none'; $('gpu-fill').style.width = '0%';
+      $('gpu-status').textContent = 'Submitting hash to se…';
+      try {
+        const idToken = await getIdToken();
+        const r = await fetch(ENDPOINT + '/submit', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken, hash: card.dataset.hash, mode: parseInt(card.dataset.mode, 10), attack: $('gpu-attack').value, name: card.dataset.name })
+        });
+        const j = await r.json();
+        if (j.error) { $('gpu-status').textContent = 'Rejected: ' + j.error; btn.disabled = false; return; }
+        $('gpu-status').textContent = 'Queued (job ' + j.jobId + ') — the 3090 is working…';
+        poll(j.jobId);
+      } catch (e) { $('gpu-status').textContent = 'Could not reach the server. Is crack.luissolutions.us up?'; btn.disabled = false; }
+    });
+
+    async function poll(jobId) {
+      if (polling) return; polling = true;
+      const tick = async () => {
+        let j;
+        try { const idToken = await getIdToken(); const r = await fetch(ENDPOINT + '/status?id=' + jobId + '&idToken=' + encodeURIComponent(idToken)); j = await r.json(); }
+        catch (e) { $('gpu-status').textContent = 'Lost contact — the job keeps running; Telegram will notify you.'; polling = false; $('gpu-submit').disabled = false; return; }
+        if (j.error) { $('gpu-status').textContent = 'Status error: ' + j.error; polling = false; $('gpu-submit').disabled = false; return; }
+        if (j.progress) { $('gpu-fill').style.width = Math.min(100, j.progress.pct || 0).toFixed(1) + '%'; }
+        const spd = j.speed ? (j.speed >= 1000 ? (j.speed / 1000).toFixed(0) + 'k' : j.speed) + ' H/s' : '';
+        if (j.state === 'running' || j.state === 'queued') {
+          $('gpu-status').textContent = (j.state === 'queued' ? 'Queued… ' : 'Cracking on the 3090… ') + (j.progress ? (j.progress.pct || 0).toFixed(1) + '% ' : '') + (spd ? '· ' + spd : '');
+          setTimeout(tick, 5000);
+        } else if (j.state === 'found') {
+          $('gpu-fill').style.width = '100%';
+          $('gpu-status').textContent = 'Done.';
+          showResult('found', 'Password found: <span class="mono">' + j.password.replace(/[<&>]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])) + '</span>');
+          polling = false; $('gpu-submit').disabled = false;
+        } else if (j.state === 'notfound') {
+          $('gpu-status').textContent = 'Done.';
+          showResult('not-found', 'Not found — the ' + ($('gpu-attack').value === 'deep' ? 'rockyou + rules' : 'rockyou') + ' wordlist was exhausted with no match. Try the Deep attack, or a mask if you recall the length/shape.');
+          polling = false; $('gpu-submit').disabled = false;
+        } else {
+          $('gpu-status').textContent = 'Server error.';
+          showResult('error', (j.error || 'hashcat error') + '');
+          polling = false; $('gpu-submit').disabled = false;
+        }
+      };
+      tick();
+    }
+  })();
   </script>
 </body>
 </html>
