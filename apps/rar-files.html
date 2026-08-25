@@ -864,10 +864,15 @@
         catch (e) { $('gpu-status').textContent = 'Lost contact with the server — the job keeps running on se; reopen this page later to check.'; polling = false; $('gpu-submit').disabled = false; return; }
         if (j.error) { $('gpu-status').textContent = 'Status error: ' + j.error; polling = false; $('gpu-submit').disabled = false; return; }
         if (j.progress) { $('gpu-fill').style.width = Math.min(100, j.progress.pct || 0).toFixed(1) + '%'; }
-        const spd = j.speed ? (j.speed >= 1000 ? (j.speed / 1000).toFixed(0) + 'k' : j.speed) + ' H/s' : '';
+        const spd = j.speed ? (j.speed >= 1000 ? (j.speed / 1000).toFixed(1) + 'k' : j.speed) + ' H/s' : '';
+        const etaTxt = (() => { if (!j.eta) return ''; const rem = j.eta * 1000 - Date.now(); if (rem <= 0) return ''; const m = Math.round(rem / 60000); return m >= 90 ? ' · ~' + (m / 60).toFixed(1) + 'h left' : ' · ~' + m + 'm left'; })();
         if (j.state === 'running' || j.state === 'queued') {
-          $('gpu-status').textContent = (j.state === 'queued' ? 'Queued… ' : 'Cracking on the 3090… ') + (j.progress ? (j.progress.pct || 0).toFixed(1) + '% ' : '') + (spd ? '· ' + spd : '');
-          setTimeout(tick, 5000);
+          let msg;
+          if (j.state === 'queued') msg = 'Queued behind another job…';
+          else if (!j.progress) msg = 'Warming up the GPU (autotune)… ' + (j.elapsed || 0) + 's';
+          else msg = 'Cracking on the 3090 · ' + (j.progress.pct || 0).toFixed(2) + '%' + (spd ? ' · ' + spd : '') + etaTxt;
+          $('gpu-status').textContent = msg;
+          setTimeout(tick, 4000);
         } else if (j.state === 'found') {
           $('gpu-fill').style.width = '100%';
           $('gpu-status').textContent = 'Done.';
