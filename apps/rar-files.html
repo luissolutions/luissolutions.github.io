@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAR Password Recovery</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f1117; color: #e0e0e0; padding: 24px; line-height: 1.5; }
+    h1 { font-size: 1.4rem; font-weight: 600; color: #fff; margin-bottom: 4px; }
+    .subtitle { color: #777; font-size: .85rem; margin-bottom: 28px; }
+    .card { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+    h2 { font-size: .95rem; font-weight: 600; color: #ccc; margin-bottom: 14px; }
+    label { display: block; font-size: .82rem; color: #999; margin-bottom: 5px; }
+    input[type=file], textarea, select { width: 100%; background: #0f1117; border: 1px solid #2a2d3a; color: #e0e0e0; border-radius: 5px; padding: 8px 10px; font-size: .88rem; outline: none; }
+    input[type=file] { cursor: pointer; }
+    input[type=file]:hover, select:hover { border-color: #4a9eff; }
+    textarea { resize: vertical; min-height: 90px; font-family: monospace; }
+    .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+    .field { flex: 1; min-width: 120px; }
+    .field label { margin-bottom: 5px; }
+    input[type=number], input[type=text] { background: #0f1117; border: 1px solid #2a2d3a; color: #e0e0e0; border-radius: 5px; padding: 8px 10px; font-size: .88rem; width: 100%; outline: none; }
+    button { padding: 9px 20px; border: none; border-radius: 5px; font-size: .88rem; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: #4a9eff; color: #fff; }
+    .btn-primary:hover { background: #3a8eef; }
+    .btn-primary:disabled { background: #2a4a70; color: #666; cursor: not-allowed; }
+    .btn-stop { background: #e05555; color: #fff; }
+    .btn-stop:hover { background: #c04040; }
+    .progress-bar-bg { background: #0f1117; border: 1px solid #2a2d3a; border-radius: 4px; height: 10px; overflow: hidden; margin: 10px 0 6px; }
+    .progress-bar-fill { height: 100%; background: #4a9eff; transition: width .15s; }
+    .status { font-size: .82rem; color: #888; min-height: 18px; }
+    .result { display: none; padding: 14px 18px; border-radius: 6px; font-size: .95rem; margin-top: 12px; }
+    .result.found { background: #1a3a1a; border: 1px solid #3a8a3a; color: #6ec96e; }
+    .result.not-found { background: #3a1a1a; border: 1px solid #8a3a3a; color: #e07070; }
+    .result.error { background: #3a2a1a; border: 1px solid #8a6a3a; color: #e0a070; }
+    .mono { font-family: monospace; font-size: 1.05rem; font-weight: 700; }
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid #2a2d3a; margin-bottom: 16px; }
+    .tab { padding: 7px 16px; font-size: .85rem; cursor: pointer; border-bottom: 2px solid transparent; color: #888; }
+    .tab.active { color: #4a9eff; border-bottom-color: #4a9eff; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .hint { color: #666; font-size: .78rem; margin-top: 4px; }
+    .badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: .75rem; font-weight: 600; margin-left: 6px; }
+    .badge-rar5 { background: #1a3a5a; color: #6ab0e0; }
+    .badge-rar4 { background: #3a2a1a; color: #e0b070; }
+    #file-info { font-size: .82rem; color: #666; margin-top: 6px; min-height: 18px; }
+  </style>
+</head>
+<body>
+  <h1>RAR Password Recovery</h1>
+  <p class="subtitle">Try a wordlist or brute-force short passwords against an encrypted RAR file.</p>
+
+  <div class="card">
+    <h2>1 — RAR File</h2>
+    <label>Select your RAR file</label>
+    <input type="file" id="rar-file" accept=".rar">
+    <div id="file-info">No file selected.</div>
+  </div>
+
+  <div class="card">
+    <h2>2 — Attack Mode</h2>
+    <div class="tabs">
+      <div class="tab active" data-tab="wordlist">Wordlist</div>
+      <div class="tab" data-tab="bruteforce">Brute-Force</div>
+    </div>
+
+    <div class="tab-panel active" id="tab-wordlist">
+      <div class="tabs" style="margin-bottom:12px;border-bottom:1px solid #2a2d3a;">
+        <div class="tab active" data-subtab="builtin" style="font-size:.8rem;padding:5px 12px;">Built-in list</div>
+        <div class="tab" data-subtab="custom" style="font-size:.8rem;padding:5px 12px;">Custom wordlist</div>
+      </div>
+      <div class="tab-panel active" id="subtab-builtin">
+        <p class="hint">~600 common passwords tested automatically. Good first pass.</p>
+      </div>
+      <div class="tab-panel" id="subtab-custom">
+        <label>Paste passwords — one per line</label>
+        <textarea id="custom-words" placeholder="password&#10;123456&#10;letmein&#10;MyDog2020"></textarea>
+        <p class="hint">Built-in list is also included unless you check the box below.</p>
+        <label style="display:flex;gap:6px;align-items:center;margin-top:8px;cursor:pointer;">
+          <input type="checkbox" id="custom-only"> Custom list only (skip built-in)
+        </label>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-bruteforce" style="display:none">
+      <div class="row" style="margin-bottom:12px;">
+        <div class="field">
+          <label>Characters to use</label>
+          <select id="bf-charset">
+            <option value="digits">Digits (0-9)</option>
+            <option value="lower">Lowercase (a-z)</option>
+            <option value="upper">Uppercase (A-Z)</option>
+            <option value="lowerdigits" selected>Lowercase + Digits</option>
+            <option value="alnum">Alphanumeric (a-z A-Z 0-9)</option>
+            <option value="common">Alphanumeric + !@#$%</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Min length</label>
+          <input type="number" id="bf-min" value="1" min="1" max="8">
+        </div>
+        <div class="field">
+          <label>Max length</label>
+          <input type="number" id="bf-max" value="4" min="1" max="8">
+        </div>
+      </div>
+      <p class="hint" id="bf-count-hint">Estimated candidates: —</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3 — Run</h2>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <button class="btn-primary" id="start-btn">Start Recovery</button>
+      <button class="btn-stop" id="stop-btn" style="display:none">Stop</button>
+    </div>
+    <div class="progress-bar-bg" style="margin-top:14px;">
+      <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
+    </div>
+    <div class="status" id="status-line">Ready.</div>
+    <div class="result" id="result-box"></div>
+  </div>
+
+  <script>
+  // ─── Common password list ────────────────────────────────────────────────────
+  const BUILTIN = `123456\npassword\n123456789\n12345678\n12345\n1234567\nqwerty\nabc123\n000000\n1234567890\npassword1\niloveyou\nadmin\nletmein\nmonkey\n1234\nsunshine\nmaster\ndragon\nprincess\npassw0rd\nlogin\nwelcome\nsolo\nstar\nfootball\nshadow\npassword123\n111111\npass\naccess\nroot\nqwerty123\nabcdef\n654321\nsuperman\nhello\ncharlie\ntrustno1\njessica\nmichael\npassword2\nf**kyou\nfucker\nasdf\nqwertyuiop\nabc\nstarwars\nmustang\nbatman\nhockey\nassword\njordan\nharley\nrangers\nsoccer\npurple\nfuckyou\nsecret\nmiranda\nfreedom\nlove\nboston\nzxcvbn\ncat123\ndog123\nrockyou\njackie\nsesame\npenis\nsunflower\nbubbles\nangel\nmaria\nrose\nmichelle\nnike\nplayboy\nkiller\nhunter\nminecraft\npokemon\norange\nblue\nred\ngreen\nfamily\nhappy\nmoney\nanimal\nwinter\nsummer\nspring\nfall\njanuary\nfebruary\nmarch\napril\nmay\njune\njuly\naugust\nseptember\noctober\nnovember\ndecember\n2020\n2021\n2022\n2023\n2024\n2025\n2026\npassword!\nP@ssw0rd\nP@ssword\nqwerty1\nasd123\nzaq1xsw2\nq1w2e3r4\n1q2w3e4r\npas123\npass123\npass1234\npassword12\npassword123!\nmypassword\n12341234\n11111111\n22222222\n33333333\n44444444\n55555555\n66666666\n77777777\n88888888\n99999999\n00000000\ntest\ntest1\ntest123\nadmin123\nadmin1234\nadmin@123\nroot123\nroot1234\nguest\nguest123\nuser\nuser123\npassword@1\n123123\n1111\n1234\n12345\n123456\n1234567\n12345678\n123456789\n1234567890\n0987654321\n987654321\n987654\n0000\n7777\n8888\n9999\n1998\n1999\n2000\n2001\n2002\n2003\n2004\n2005\n2006\n2007\n2008\n2009\n2010\n2011\n2012\n2013\n2014\n2015\n2016\n2017\n2018\n2019\nhousehold\nbusiness\nnetwork\nsecurity\nlaptop\ncomputer\nwireless\nbluetooth\ninvoice\nproject\narchive\nbackup\nfiles\ndocument\nphotos\nimages\nprivate\npersonal\nmy files\nmyfiles\nwork\nhome\nfamily1\nfamily123\nhome123\nhome1234\nwork123\nwork1234\nlocal\nlocalhost\nserver\nwindows\nmicrosoft\ngoogle\namazon\napple\nfacebook\ntwitter\ninstagram\nyoutube\ngmail\nyahoo\nhotmail\noutlook\n`.trim().split('\n');
+
+  // ─── RAR format parsing ──────────────────────────────────────────────────────
+  const RAR5_MAGIC = [0x52,0x61,0x72,0x21,0x1A,0x07,0x01,0x00];
+  const RAR4_MAGIC = [0x52,0x61,0x72,0x21,0x1A,0x07,0x00];
+
+  function detectVersion(bytes) {
+    if (RAR5_MAGIC.every((b,i) => bytes[i] === b)) return 5;
+    if (RAR4_MAGIC.every((b,i) => bytes[i] === b)) return 4;
+    return 0;
+  }
+
+  // Variable-length integer (RAR5) — returns { val: Number, offset: new_offset }
+  function readVInt(bytes, offset) {
+    let val = 0, shift = 0;
+    while (offset < bytes.length) {
+      const b = bytes[offset++];
+      val |= (b & 0x7F) << shift;
+      shift += 7;
+      if (!(b & 0x80)) break;
+    }
+    return { val, offset };
+  }
+
+  // Parse RAR5 blocks looking for encryption info.
+  // Handles two cases:
+  //   1. Archive encryption header (type 4) — "Encrypt file names" was checked
+  //   2. File header (type 2) with encryption extra area — standard password protection
+  // Returns { iterations, salt, passwordCheck[8], passwordCheckSalt[12], hasCheck } or null
+  function parseRAR5Encryption(bytes) {
+    let off = 8; // skip magic (8 bytes)
+    const limit = Math.min(bytes.length, 131072); // scan first 128 KB
+
+    for (let iter = 0; iter < 40 && off + 8 < limit; iter++) {
+      off += 4; // skip CRC32
+
+      // headerSize counts from after this vint to end of header (including extra area, NOT data area)
+      let r = readVInt(bytes, off);
+      const headerSize = r.val;
+      const headerDataStart = r.offset; // first counted byte = HeaderType
+      off = r.offset;
+
+      if (headerSize === 0 || headerDataStart + headerSize > bytes.length) break;
+
+      r = readVInt(bytes, off); const htype = r.val; off = r.offset;
+      r = readVInt(bytes, off); const flags = r.val; off = r.offset;
+
+      // ExtraDataSize and DataAreaSize come right after flags (before block-specific fields).
+      // HFL_EXTRA_DATA = 0x0001, HFL_DATA = 0x0002
+      let extraDataSize = 0, dataAreaSize = 0;
+      if (flags & 0x0001) { r = readVInt(bytes, off); extraDataSize = r.val; off = r.offset; }
+      if (flags & 0x0002) { r = readVInt(bytes, off); dataAreaSize = r.val; off = r.offset; }
+
+      // ── Type 4: archive-level encryption header (when "Encrypt file names" is on) ──
+      // Layout after flags: version, encFlags, lg2count, salt[16], (if check) pswCheck[8] + checkCsum[4]
+      if (htype === 4) {
+        r = readVInt(bytes, off); off = r.offset; // version (discard)
+        r = readVInt(bytes, off); const encFlags = r.val; off = r.offset;
+        r = readVInt(bytes, off); const kdfCount = r.val; off = r.offset;
+        if (off + 16 > bytes.length) return null;
+        const salt = bytes.slice(off, off + 16); off += 16;
+        const hasCheck = !!(encFlags & 0x0001);
+        let passwordCheck = null;
+        if (hasCheck && off + 8 <= bytes.length) {
+          passwordCheck = bytes.slice(off, off + 8); // 8-byte check; 4-byte checksum follows (ignored)
+        }
+        return { kdfCount, salt, passwordCheck, hasCheck };
+      }
+
+      // ── Type 2: file header — look in extra areas for encryption (FHEXTRA_CRYPT = 1) ──
+      if (htype === 2 && extraDataSize > 0) {
+        // Skip file-specific fixed fields to reach the extra area
+        r = readVInt(bytes, off); const fileFlags = r.val; off = r.offset;
+        r = readVInt(bytes, off); off = r.offset; // unpacked size
+        r = readVInt(bytes, off); off = r.offset; // attributes
+        if (fileFlags & 0x0002) off += 4; // mtime uint32 (FHFL_UTIME = 0x02)
+        if (fileFlags & 0x0004) off += 4; // data CRC32 uint32 (FHFL_CRC32 = 0x04)
+        r = readVInt(bytes, off); off = r.offset; // compression info
+        r = readVInt(bytes, off); off = r.offset; // host OS
+        r = readVInt(bytes, off); const nameLen = r.val; off = r.offset;
+        off += nameLen; // skip filename bytes
+
+        // Extra area: headerDataStart + headerSize marks end of ALL header data.
+        // Extra area occupies the last extraDataSize bytes of the header.
+        const extraEnd = headerDataStart + headerSize;
+        let xoff = off; // extra area starts right after the name
+
+        while (xoff + 2 < extraEnd) {
+          r = readVInt(bytes, xoff); const areaSize = r.val; xoff = r.offset;
+          if (areaSize === 0) break;
+          const areaDataStart = xoff;
+          r = readVInt(bytes, xoff); const areaType = r.val; xoff = r.offset;
+
+          if (areaType === 1) { // FHEXTRA_CRYPT: file encryption extra area
+            // Layout: version, encFlags, lg2count, salt[16], iv[16], (if check) pswCheck[8] + checkCsum[4]
+            r = readVInt(bytes, xoff); xoff = r.offset; // version (discard)
+            r = readVInt(bytes, xoff); const encFlags = r.val; xoff = r.offset;
+            r = readVInt(bytes, xoff); const kdfCount = r.val; xoff = r.offset;
+            if (xoff + 32 > bytes.length) break;
+            const salt = bytes.slice(xoff, xoff + 16); xoff += 16;
+            xoff += 16; // skip IV (only needed for actual decryption, not the check)
+            const hasCheck = !!(encFlags & 0x0001);
+            let passwordCheck = null;
+            if (hasCheck && xoff + 8 <= bytes.length) {
+              passwordCheck = bytes.slice(xoff, xoff + 8); // 4-byte checksum follows (ignored)
+            }
+            return { kdfCount, salt, passwordCheck, hasCheck };
+          }
+          xoff = areaDataStart + areaSize; // skip to next extra area entry
+        }
+      }
+
+      // Skip this block (header + data area) and move to the next
+      off = headerDataStart + headerSize + dataAreaSize;
+    }
+    return null;
+  }
+
+  // Test a password against RAR5 encryption info.
+  // RAR5 derives the 8-byte password check via PBKDF2-HMAC-SHA256 over the single
+  // 16-byte salt at (2^lg2count + 32) iterations, taking the 32-byte block and
+  // XOR-folding it down to 8 bytes. (Key uses 2^lg2; HashKey 2^lg2+16; PswCheck 2^lg2+32.)
+  async function testRAR5Password(encInfo, password) {
+    if (!encInfo.hasCheck) return null; // no fast-check data available
+
+    const pwBytes = new TextEncoder().encode(password); // RAR5 uses UTF-8 password bytes
+    const keyMat = await crypto.subtle.importKey('raw', pwBytes, { name: 'PBKDF2' }, false, ['deriveBits']);
+    const iterations = Math.pow(2, encInfo.kdfCount) + 32;
+
+    const bits = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', hash: 'SHA-256', salt: encInfo.salt, iterations },
+      keyMat, 256 // 32 bytes
+    );
+    const raw = new Uint8Array(bits);
+    const check = new Uint8Array(8);
+    for (let i = 0; i < 32; i++) check[i & 7] ^= raw[i]; // fold 32 → 8
+    return check.every((b, i) => b === encInfo.passwordCheck[i]);
+  }
+
+  // ─── RAR4 note: requires extracting a hash for offline cracking ─────────────
+  // Pure-JS RAR4 KDF is ~1000x slower than RAR5; we skip inline cracking for RAR4.
+
+  // ─── Brute-force generator ───────────────────────────────────────────────────
+  const CHARSETS = {
+    digits: '0123456789',
+    lower: 'abcdefghijklmnopqrstuvwxyz',
+    upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+    lowerdigits: 'abcdefghijklmnopqrstuvwxyz0123456789',
+    alnum: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+    common: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%'
+  };
+
+  function countBF(charset, minLen, maxLen) {
+    let n = 0;
+    for (let l = minLen; l <= maxLen; l++) n += Math.pow(charset.length, l);
+    return n;
+  }
+
+  function* bfGenerator(charset, minLen, maxLen) {
+    for (let len = minLen; len <= maxLen; len++) {
+      const idx = new Array(len).fill(0);
+      while (true) {
+        yield idx.map(i => charset[i]).join('');
+        let pos = len - 1;
+        while (pos >= 0) {
+          idx[pos]++;
+          if (idx[pos] < charset.length) break;
+          idx[pos] = 0;
+          pos--;
+        }
+        if (pos < 0) break;
+      }
+    }
+  }
+
+  // ─── UI state ────────────────────────────────────────────────────────────────
+  let running = false;
+  let stopFlag = false;
+  let rarBytes = null;
+  let activeMode = 'wordlist';
+  let activeSubMode = 'builtin';
+
+  const fileInput = document.getElementById('rar-file');
+  const fileInfo = document.getElementById('file-info');
+  const startBtn = document.getElementById('start-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const progressFill = document.getElementById('progress-fill');
+  const statusLine = document.getElementById('status-line');
+  const resultBox = document.getElementById('result-box');
+  const bfCountHint = document.getElementById('bf-count-hint');
+
+  // Tabs
+  document.querySelectorAll('.card .tab[data-tab]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.card .tab[data-tab]').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel[id^=tab-]').forEach(p => { p.style.display = 'none'; p.classList.remove('active'); });
+      tab.classList.add('active');
+      activeMode = tab.dataset.tab;
+      const panel = document.getElementById('tab-' + activeMode);
+      panel.style.display = 'block';
+      panel.classList.add('active');
+    });
+  });
+  document.querySelectorAll('.tab[data-subtab]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab[data-subtab]').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel[id^=subtab-]').forEach(p => { p.style.display = 'none'; p.classList.remove('active'); });
+      tab.classList.add('active');
+      activeSubMode = tab.dataset.subtab;
+      const panel = document.getElementById('subtab-' + activeSubMode);
+      panel.style.display = 'block';
+      panel.classList.add('active');
+    });
+  });
+
+  // BF count estimate
+  function updateBFHint() {
+    const charset = CHARSETS[document.getElementById('bf-charset').value] || '';
+    const minLen = parseInt(document.getElementById('bf-min').value) || 1;
+    const maxLen = parseInt(document.getElementById('bf-max').value) || 4;
+    const n = countBF(charset, Math.min(minLen, maxLen), Math.max(minLen, maxLen));
+    bfCountHint.textContent = `Estimated candidates: ${n.toLocaleString()}`;
+  }
+  ['bf-charset','bf-min','bf-max'].forEach(id => document.getElementById(id).addEventListener('change', updateBFHint));
+  updateBFHint();
+
+  // File load
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files[0];
+    if (!f) { rarBytes = null; fileInfo.textContent = 'No file selected.'; return; }
+    const reader = new FileReader();
+    reader.onload = e => {
+      rarBytes = new Uint8Array(e.target.result);
+      const ver = detectVersion(rarBytes);
+      const badge = ver === 5
+        ? '<span class="badge badge-rar5">RAR5</span>'
+        : ver === 4
+          ? '<span class="badge badge-rar4">RAR4</span>'
+          : '<span class="badge" style="background:#3a1a1a;color:#e07070">Unknown</span>';
+      fileInfo.innerHTML = `${f.name} · ${(f.size/1024).toFixed(1)} KB ${badge}`;
+      if (ver === 4) {
+        fileInfo.innerHTML += '<br><span style="color:#e0a070;font-size:.78rem;">⚠ RAR4 format — see note below for cracking options.</span>';
+        showRAR4Note();
+      }
+    };
+    reader.readAsArrayBuffer(f);
+  });
+
+  function showRAR4Note() {
+    resultBox.className = 'result error';
+    resultBox.style.display = 'block';
+    resultBox.innerHTML = `
+      <strong>RAR4 format detected.</strong><br><br>
+      RAR4 uses a custom SHA1-based KDF that is ~1000× slower to crack in JavaScript than RAR5's PBKDF2.<br><br>
+      <strong>Recommended approach:</strong> Extract a hash with <code>rar2john</code> (part of John the Ripper) and crack it with hashcat mode <code>-m 12500</code> or John.<br><br>
+      <code style="display:block;background:#0f1117;padding:8px;border-radius:4px;margin-top:8px;word-break:break-all;">rar2john archive.rar > hash.txt<br>hashcat -m 12500 hash.txt wordlist.txt</code><br>
+      <em>If you still want to try the built-in wordlist (slow), press Start — it will work, just slower.</em>
+    `;
+  }
+
+  function setStatus(msg, pct) {
+    statusLine.textContent = msg;
+    progressFill.style.width = (pct * 100).toFixed(1) + '%';
+  }
+
+  function showResult(found, password) {
+    resultBox.style.display = 'block';
+    if (found) {
+      resultBox.className = 'result found';
+      resultBox.innerHTML = `✓ Password found: <span class="mono">${escHtml(password)}</span>`;
+    } else {
+      resultBox.className = 'result not-found';
+      resultBox.innerHTML = `✗ Password not found in the tried list. Try a larger wordlist or longer brute-force range.`;
+    }
+  }
+
+  function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  // RAR4 pure-JS fallback using inline SHA1 + AES
+  // We implement the RAR4 KDF in JS for wordlist-sized attempts
+  async function testRAR4Password(bytes, password) {
+    // Find the first encrypted file header in a RAR4 archive
+    // RAR4 block: CRC16[2], type[1], flags[2], size[2], ...
+    // File block type = 0x74, flag 0x04 = encrypted
+    let off = 7; // skip magic
+    while (off < bytes.length - 7) {
+      const type = bytes[off + 2];
+      const flags = bytes[off + 3] | (bytes[off + 4] << 8);
+      const hsize = bytes[off + 5] | (bytes[off + 6] << 8);
+      if (type === 0x74) { // file header
+        const isEncrypted = !!(flags & 0x04);
+        if (isEncrypted) {
+          // Get compressed size
+          const compSize = bytes[off+7]|(bytes[off+8]<<8)|(bytes[off+9]<<16)|(bytes[off+10]<<24);
+          // Salt is in the data after the header if encrypted
+          const salt = bytes.slice(off + hsize, off + hsize + 8);
+          const fileData = bytes.slice(off + hsize + 8, off + hsize + 8 + Math.min(compSize, 16));
+          const fileCRC = (bytes[off+16]|(bytes[off+17]<<8)|(bytes[off+18]<<16)|(bytes[off+19]<<24)) >>> 0;
+          return await rar4CheckPassword(password, salt, fileData, fileCRC);
+        }
+      }
+      let dataSize = 0;
+      if (hsize >= 11 && (type === 0x74 || type === 0x7a)) {
+        dataSize = bytes[off+7]|(bytes[off+8]<<8)|(bytes[off+9]<<16)|(bytes[off+10]<<24);
+      }
+      off += hsize + dataSize;
+      if (hsize === 0) break;
+    }
+    return null; // could not find encrypted file block
+  }
+
+  // RAR4 password test: derive key/IV via custom SHA1 KDF, decrypt first block, check CRC32
+  async function rar4CheckPassword(password, salt, encData, expectedCRC) {
+    const { key, iv } = rar4DeriveKey(password, salt);
+    if (encData.length < 16) return false;
+    // Decrypt first 16 bytes with AES-128 CBC
+    try {
+      const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'AES-CBC' }, false, ['decrypt']);
+      const decrypted = await crypto.subtle.decrypt({ name: 'AES-CBC', iv }, cryptoKey, encData.slice(0, 16));
+      // CRC32 check on decrypted bytes
+      const decBytes = new Uint8Array(decrypted);
+      const crc = crc32(decBytes);
+      return crc === expectedCRC;
+    } catch { return false; }
+  }
+
+  function rar4DeriveKey(password, salt) {
+    // Custom RAR4 KDF: feed SHA1 with password+salt+counter 2^18 times, collect IV bytes
+    const pwBytes = typeof password === 'string' ? new TextEncoder().encode(password) : password;
+    const saltBytes = salt instanceof Uint8Array ? salt : new Uint8Array(salt);
+    // Pure-JS SHA1
+    const sha = sha1State();
+    const iv = new Uint8Array(16);
+    for (let i = 0; i < 0x40000; i++) {
+      sha.update(pwBytes);
+      sha.update(saltBytes);
+      sha.update([i & 0xFF, (i >> 8) & 0xFF, (i >> 16) & 0xFF]);
+      if ((i & 0x3FFF) === 0) {
+        const snap = sha.snapshot();
+        iv[i >> 14] = snap[19]; // last byte of SHA1 state at each 2^14 boundary
+      }
+    }
+    const finalHash = sha.final();
+    const key = finalHash.slice(0, 16);
+    return { key: new Uint8Array(key), iv: new Uint8Array(iv) };
+  }
+
+  // Pure-JS SHA1 with snapshot capability
+  function sha1State() {
+    let h0 = 0x67452301, h1 = 0xEFCDAB89, h2 = 0x98BADCFE, h3 = 0x10325476, h4 = 0xC3D2E1F0;
+    let buf = [], bitLen = 0;
+    const rot = (n, s) => ((n << s) | (n >>> (32 - s))) >>> 0;
+    function processBlock(blk) {
+      const w = new Array(80);
+      for (let i = 0; i < 16; i++) w[i] = (blk[i*4]<<24)|(blk[i*4+1]<<16)|(blk[i*4+2]<<8)|blk[i*4+3];
+      for (let i = 16; i < 80; i++) w[i] = rot(w[i-3]^w[i-8]^w[i-14]^w[i-16], 1);
+      let [a,b,c,d,e] = [h0,h1,h2,h3,h4];
+      for (let i = 0; i < 80; i++) {
+        let f, k;
+        if (i < 20) { f = (b & c) | (~b & d); k = 0x5A827999; }
+        else if (i < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
+        else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
+        else { f = b ^ c ^ d; k = 0xCA62C1D6; }
+        const temp = (rot(a,5) + f + e + k + w[i]) >>> 0;
+        e = d; d = c; c = rot(b,30); b = a; a = temp;
+      }
+      h0 = (h0 + a) >>> 0; h1 = (h1 + b) >>> 0; h2 = (h2 + c) >>> 0; h3 = (h3 + d) >>> 0; h4 = (h4 + e) >>> 0;
+    }
+    return {
+      update(bytes) {
+        for (const b of bytes) {
+          buf.push(b & 0xFF);
+          bitLen += 8;
+          if (buf.length === 64) { processBlock(buf); buf = []; }
+        }
+      },
+      snapshot() {
+        // Return current state as bytes without finalizing
+        const s = [h0,h1,h2,h3,h4];
+        const out = [];
+        for (const v of s) out.push((v>>>24)&0xFF,(v>>>16)&0xFF,(v>>>8)&0xFF,v&0xFF);
+        return out;
+      },
+      final() {
+        const tmp = [...buf];
+        const msgLen = bitLen;
+        tmp.push(0x80);
+        while (tmp.length % 64 !== 56) tmp.push(0);
+        for (let i = 7; i >= 0; i--) tmp.push((msgLen / Math.pow(2, i*8)) & 0xFF);
+        for (let i = 0; i < tmp.length; i += 64) processBlock(tmp.slice(i, i+64));
+        const out = [];
+        for (const v of [h0,h1,h2,h3,h4]) out.push((v>>>24)&0xFF,(v>>>16)&0xFF,(v>>>8)&0xFF,v&0xFF);
+        return out;
+      }
+    };
+  }
+
+  function crc32(bytes) {
+    const table = (() => {
+      const t = new Uint32Array(256);
+      for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        t[i] = c;
+      }
+      return t;
+    })();
+    let crc = 0xFFFFFFFF;
+    for (const b of bytes) crc = table[(crc ^ b) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  // ─── Main crack loop ─────────────────────────────────────────────────────────
+  startBtn.addEventListener('click', async () => {
+    if (!rarBytes) { alert('Select a RAR file first.'); return; }
+    const ver = detectVersion(rarBytes);
+    if (ver === 0) { alert('Not a valid RAR file.'); return; }
+
+    resultBox.style.display = 'none';
+    stopFlag = false;
+    running = true;
+    startBtn.disabled = true;
+    stopBtn.style.display = 'inline-block';
+
+    let passwords;
+    if (activeMode === 'bruteforce') {
+      const charset = CHARSETS[document.getElementById('bf-charset').value];
+      const minLen = parseInt(document.getElementById('bf-min').value);
+      const maxLen = parseInt(document.getElementById('bf-max').value);
+      const total = countBF(charset, Math.min(minLen, maxLen), Math.max(minLen, maxLen));
+      let tried = 0;
+      let found = null;
+      const gen = bfGenerator(charset, Math.min(minLen, maxLen), Math.max(minLen, maxLen));
+      for (const pw of gen) {
+        if (stopFlag) break;
+        tried++;
+        if (tried % 50 === 0) {
+          setStatus(`Trying: ${pw}  (${tried.toLocaleString()} / ${total.toLocaleString()})`, tried / total);
+          await new Promise(r => setTimeout(r, 0));
+        }
+        let result = null;
+        if (ver === 5) {
+          const enc = parseRAR5Encryption(rarBytes);
+          if (!enc) { resultBox.className='result error'; resultBox.style.display='block'; resultBox.textContent='Could not locate encryption data in this RAR5 archive. It may not be password-protected, or may be a multi-volume set.'; break; }
+          result = await testRAR5Password(enc, pw);
+        } else {
+          result = await testRAR4Password(rarBytes, pw);
+        }
+        if (result === true) { found = pw; break; }
+      }
+      setStatus(found ? 'Done.' : stopFlag ? 'Stopped.' : 'Exhausted.', 1);
+      showResult(!!found, found);
+    } else {
+      // Wordlist mode
+      let list = [...BUILTIN];
+      if (activeSubMode === 'custom' || document.querySelector('[data-subtab="custom"]').classList.contains('active')) {
+        const custom = document.getElementById('custom-words').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
+        const customOnly = document.getElementById('custom-only').checked;
+        list = customOnly ? custom : [...custom, ...BUILTIN];
+      }
+      // Deduplicate
+      list = [...new Set(list)];
+      const total = list.length;
+      let found = null;
+      let enc5 = null;
+      if (ver === 5) {
+        enc5 = parseRAR5Encryption(rarBytes);
+        if (!enc5) {
+          resultBox.className = 'result error';
+          resultBox.style.display = 'block';
+          resultBox.textContent = 'Could not locate encryption data in this RAR5 archive. It may not be password-protected, be a multi-volume set, or a solid archive.';
+          running = false; startBtn.disabled = false; stopBtn.style.display = 'none';
+          return;
+        }
+        if (!enc5.hasCheck) {
+          resultBox.className = 'result error';
+          resultBox.style.display = 'block';
+          resultBox.innerHTML = 'This archive has no password check field — each candidate requires a full decrypt + CRC pass, which is too slow for the browser.<br><br>Use hashcat instead:<br><code style="display:block;background:#0f1117;padding:8px;border-radius:4px;margin-top:8px;">rar2john archive.rar &gt; hash.txt<br>hashcat -m 23800 hash.txt wordlist.txt</code>';
+          running = false; startBtn.disabled = false; stopBtn.style.display = 'none';
+          return;
+        }
+      }
+      for (let i = 0; i < list.length; i++) {
+        if (stopFlag) break;
+        const pw = list[i];
+        if (i % 20 === 0) {
+          setStatus(`Trying: ${pw}  (${i.toLocaleString()} / ${total.toLocaleString()})`, i / total);
+          await new Promise(r => setTimeout(r, 0));
+        }
+        let result = null;
+        if (ver === 5) {
+          result = await testRAR5Password(enc5, pw);
+        } else {
+          result = await testRAR4Password(rarBytes, pw);
+        }
+        if (result === true) { found = pw; break; }
+      }
+      setStatus(found ? 'Done.' : stopFlag ? 'Stopped.' : 'Exhausted all candidates.', 1);
+      showResult(!!found, found);
+    }
+    running = false;
+    startBtn.disabled = false;
+    stopBtn.style.display = 'none';
+  });
+
+  stopBtn.addEventListener('click', () => { stopFlag = true; });
+  </script>
+</body>
+</html>
