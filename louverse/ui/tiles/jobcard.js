@@ -5,16 +5,16 @@ import { loadJob, saveJob, fmtDate, fmtTime, fmtHours } from "../../core/jobs.js
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const FIELDS = [["customerName", "Customer"], ["customerAddress", "Address"], ["project", "Project"], ["workOrder", "WO"], ["status", "Status"]];
 
-export const title = "Job";
-export const sub = ["jobId"];
-export const pub = ["jobSaved"];
+export const title = "Visit";
+export const sub = ["visitId"];
+export const pub = ["visitSaved"];
 export function mount(body, { store, tile }) {
   let stops = [], current = null;
   const draw = async () => {
-    const id = store.get("jobId"); if (!id) { body.innerHTML = `<div class="lv-empty">Pick a job in the list.</div>`; tile.setTitle("Job"); return; }
-    let j = store.get("job"); if (!j || j.id !== id) { try { j = await loadJob(store.get("base"), id); } catch (e) { body.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; } }
-    if (!j) { body.innerHTML = `<div class="lv-empty">Job not found.</div>`; return; }
-    current = j; tile.setTitle(`Job · ${j.customer}`);
+    const id = store.get("visitId"); if (!id) { body.innerHTML = `<div class="lv-empty">Pick a visit in the list.</div>`; tile.setTitle("Visit"); return; }
+    let j = store.get("visit"); if (!j || j.id !== id) { try { j = await loadJob(store.get("base"), id); } catch (e) { body.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; } }
+    if (!j) { body.innerHTML = `<div class="lv-empty">Visit not found.</div>`; return; }
+    current = j; tile.setTitle(`Visit · ${j.customer}`);
     const canEdit = true, raw = j.raw || {};   // public = a tree you work in, same as every app (L 2026-10-04)
     const segs = (Array.isArray(raw.segments) ? raw.segments : []).filter(s => s && s.startTime);
     body.innerHTML = `<form class="lv-form">
@@ -32,9 +32,9 @@ export function mount(body, { store, tile }) {
     form.addEventListener("input", () => { if (st) st.textContent = "unsaved"; });
     form.onsubmit = async e => { e.preventDefault(); if (!canEdit) return; const patch = {}; for (const [k] of FIELDS) patch[k] = form[k].value.trim(); patch.notes = form.notes.value;
       st.textContent = "saving…";
-      try { const fresh = await saveJob(store.get("base"), j.id, patch); st.textContent = "saved"; if (fresh) { current = fresh; store.set("job", fresh); tile.setTitle(`Job · ${fresh.customer}`); } store.set("jobSaved", { id: j.id, at: Date.now() }); }
+      try { const fresh = await saveJob(store.get("base"), j.id, patch); st.textContent = "saved"; if (fresh) { current = fresh; store.set("visit", fresh); tile.setTitle(`Job · ${fresh.customer}`); } store.set("visitSaved", { id: j.id, at: Date.now() }); }
       catch (x) { st.textContent = "not saved: " + (x.code || x.message); } };
   };
-  stops.push(store.on("jobId", draw), store.on("base", draw)); draw();
+  stops.push(store.on("visitId", draw), store.on("base", draw)); draw();
   return { destroy: () => stops.forEach(s => s()) };
 }

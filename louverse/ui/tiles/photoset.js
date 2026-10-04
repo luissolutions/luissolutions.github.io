@@ -11,7 +11,7 @@ import { uploadDated, removeImage, pickImage } from "../../core/images.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 export const title = "Photos";
-export const sub = ["jobId", "tx"];
+export const sub = ["visitId", "tx"];
 export const pub = ["ledgerSaved"];   // a receipt added / replaced / removed -> the ledger and the analytics redraw
 export function mount(body, { store, tile }) {
   let stops = [], run = 0;
@@ -46,19 +46,19 @@ export function mount(body, { store, tile }) {
 
   // ---- the picked job: every photo, with onlinejob's options ----
   const drawJob = async () => {
-    const id = store.get("jobId"), my = ++run; if (!id) { body.innerHTML = `<div class="lv-empty">Pick a job to see its photos, or a ledger row to see its receipt.</div>`; tile.setTitle("Photos"); return; }
+    const id = store.get("visitId"), my = ++run; if (!id) { body.innerHTML = `<div class="lv-empty">Pick a visit to see its photos, or a ledger row to see its receipt.</div>`; tile.setTitle("Photos"); return; }
     body.innerHTML = `<div class="lv-empty">loading photos…</div>`;
     const base = store.get("base");
-    let j = store.get("job"); if (!j || j.id !== id) { try { j = await loadJob(base, id); } catch (e) { body.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; } }
+    let j = store.get("visit"); if (!j || j.id !== id) { try { j = await loadJob(base, id); } catch (e) { body.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; } }
     if (!j) return; let photos = [];
     try { photos = await listJobPhotos(base, j); } catch (e) { body.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; }
     if (my !== run) return;   // a newer pick won
     const w = canWrite();
     tile.setTitle(`Photos · ${photos.length}`);
     body.innerHTML = tools(`<button type="button" class="lv-btn primary" data-act="add">➕ Add photo</button>`, "")
-      + (photos.length ? `<div class="lv-photos">${photos.map((p, i) => fig(p, i, w ? `${p.where && p.where.kind !== "folder" ? `<button type="button" class="lv-btn ico" data-note="${i}" title="note">✎</button>` : ""}<button type="button" class="lv-btn ico" data-del="${i}" title="delete">🗑</button>` : "", true)).join("")}</div>` : `<div class="lv-empty">No photos on this job.</div>`);
+      + (photos.length ? `<div class="lv-photos">${photos.map((p, i) => fig(p, i, w ? `${p.where && p.where.kind !== "folder" ? `<button type="button" class="lv-btn ico" data-note="${i}" title="note">✎</button>` : ""}<button type="button" class="lv-btn ico" data-del="${i}" title="delete">🗑</button>` : "", true)).join("")}</div>` : `<div class="lv-empty">No photos on this visit.</div>`);
     wireFull();
-    const refresh = async () => { try { const fresh = await loadJob(base, id); if (fresh) store.set("job", fresh); } catch (_) {} drawJob(); };
+    const refresh = async () => { try { const fresh = await loadJob(base, id); if (fresh) store.set("visit", fresh); } catch (_) {} drawJob(); };
     body.querySelector('[data-act="add"]')?.addEventListener("click", async () => { try { const file = await pickImage(); if (!file) return; status("uploading…"); await addJobPhoto(base, j, file); await refresh(); } catch (e) { status(e.message || String(e), true); } });
     body.querySelectorAll("[data-del]").forEach(b => twoTap(b, "🗑", async () => { status("deleting…"); await deleteJobPhoto(base, j, photos[Number(b.dataset.del)]); await refresh(); }));
     body.querySelectorAll("[data-note]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); const p = photos[Number(b.dataset.note)], cap = b.closest("figure").querySelector("figcaption"); if (cap.querySelector("input")) return;
@@ -68,7 +68,7 @@ export function mount(body, { store, tile }) {
       inp.addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); inp.blur(); } if (ev.key === "Escape") { done = true; cap.textContent = p.name + (p.note ? " · " + p.note : ""); } });
       inp.addEventListener("blur", save); inp.addEventListener("pointerdown", ev => ev.stopPropagation()); }));
   };
-  stops.push(store.on("jobId", drawJob), store.on("base", drawJob), store.on("tx", tx => tx ? drawTx(tx) : drawJob()));
-  const tx = store.get("tx"); if (tx && !store.get("jobId")) drawTx(tx); else drawJob();
+  stops.push(store.on("visitId", drawJob), store.on("base", drawJob), store.on("tx", tx => tx ? drawTx(tx) : drawJob()));
+  const tx = store.get("tx"); if (tx && !store.get("visitId")) drawTx(tx); else drawJob();
   return { destroy: () => stops.forEach(s => s()) };
 }

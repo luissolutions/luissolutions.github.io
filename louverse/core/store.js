@@ -1,6 +1,6 @@
 // core/store.js - the shared state the blocks talk through. A block never reaches into another block; it sets or reads a
-// key here and everyone listening follows (pick a job in the list -> the card and the photos change).
-const state = { user: null, base: "public", year: new Date().getFullYear(), jobId: null, job: null };
+// key here and everyone listening follows (pick a visit in the list -> the card and the photos change).
+const state = { user: null, base: "public", year: new Date().getFullYear(), visitId: null, visit: null };
 const listeners = new Map();   // key -> Set(fn)
 
 export const store = {
