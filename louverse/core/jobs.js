@@ -3,7 +3,7 @@
 // startOdometer/endOdometer, lists (device lists with photos), tasks (daily entries with photos), sensorCount ...
 // Photos live under ONE storage root {base}/tasks/images/<project folder>/... (see reference_onlinejob_images).
 import { database, storage, ref, get, set, update, storageRef, listAll, getDownloadURL, readOnce } from "./firebase.js";
-import { uploadToFolder, removeImage } from "./images.js";
+import { uploadToFolder, removeImage, relabel } from "./images.js";
 
 export const tasksPath = base => `${base}/tasks`;
 export const taskPath = (base, id) => `${base}/tasks/${id}`;
@@ -48,8 +48,8 @@ export async function listJobPhotos(base, job, { max = 80 } = {}) {
   const raw = job?.raw || job || {};
   // every photo says WHERE it lives (where.kind = device | daily | folder) so the tile can delete it or note it the way onlinejob does
   for (const [listId, list] of Object.entries(raw.lists || {})) for (const [rowId, row] of Object.entries(list || {})) { if (DEVICE_RESERVED.has(rowId) || !row || typeof row !== "object") continue;
-    imgsOf(row).forEach((im, index) => { if (im?.url) push({ name: nameOf(im), url: im.url, path: im.path || "", note: im.note || "", src: "device", where: { kind: "device", listId, rowId, index } }); }); }
-  for (const [date, day] of Object.entries(raw.tasks || {})) imgsOf(day).forEach((im, index) => { if (im?.url) push({ name: nameOf(im), url: im.url, path: im.path || "", note: im.note || "", src: "daily " + date, where: { kind: "daily", date, index } }); });
+    imgsOf(row).forEach((im, index) => { if (im?.url) push({ name: nameOf(im), url: im.url, path: im.path || "", note: im.note || "", markup: im.markup || "", src: "device", where: { kind: "device", listId, rowId, index } }); }); }
+  for (const [date, day] of Object.entries(raw.tasks || {})) imgsOf(day).forEach((im, index) => { if (im?.url) push({ name: nameOf(im), url: im.url, path: im.path || "", note: im.note || "", markup: im.markup || "", src: "daily " + date, where: { kind: "daily", date, index } }); });
   const folder = projectFolder(raw);
   if (folder) {
     try {
@@ -79,6 +79,18 @@ export async function deleteJobPhoto(base, job, photo) {
   if (p) { const next = imgsOf({ images: await readOnce(p) }).filter(im => !sameImg(im, photo)); await set(ref(database, p), next); }
   await removeImage(photo.path);
 }
+// LABELS (universal, 2026-10-04): the bar onlinejob stamps - its text rule (customer - list - device id) as the default, the
+// record's `markup` keeps the text on device / daily rows; a folder photo is the file alone. text "" = crop the bar back off.
+export function autoLabel(job, photo) { const raw = job?.raw || job || {}, cust = raw.customerName || "", w = photo?.where || {};
+  if (w.kind === "device") { const list = raw.lists?.[w.listId] || {}, d = list[w.rowId] || {}; return [cust, list._name || "", d.id || d.label || ""].filter(Boolean).join(" - "); }
+  if (w.kind === "daily") return [cust, w.date].filter(Boolean).join(" - ");
+  return [cust, raw.project || ""].filter(Boolean).join(" - "); }
+export async function labelJobPhoto(base, job, photo, text) {
+  const { url } = await relabel({ url: photo.url, path: photo.path, text });
+  const p = imagesPathOf(base, job, photo.where);
+  if (p) { const next = imgsOf({ images: await readOnce(p) }).map(im => sameImg(im, photo) ? { ...im, url, markup: text || "" } : im); await set(ref(database, p), next); }
+  return { ...photo, url, markup: text || "" };
+}
 export async function setJobPhotoNote(base, job, photo, note) {
   const p = imagesPathOf(base, job, photo.where); if (!p) throw new Error("only device and daily photos carry a note");
   const next = imgsOf({ images: await readOnce(p) }).map(im => sameImg(im, photo) ? { ...im, note } : im); await set(ref(database, p), next);
@@ -98,13 +110,36 @@ export async function invoicesFor(base, tx) {
     if (hit) out.push({ job: j, inv, how: "part", line: hit }); }
   return out;
 }
-export async function visitsOfCustomer(base, name, exceptId) { const n = low(name); if (!n) return []; return (await loadJobs(base)).filter(j => low(j.customer) === n && j.id !== exceptId); }
+export async function visitsOfCustomer(base, name, exceptId, jobs) { const n = low(name); if (!n) return []; return (jobs || await loadJobs(base)).filter(j => low(j.customer) === n && j.id !== exceptId); }
 // the device lists on a visit (onlinejob): lists/<listId>/{_name, createdAt, <rowId>: {id, serial, model, type, location, status, ip, mac, notes, counted, images}}
 export function deviceLists(job) { const raw = job?.raw || job || {}, out = [];
   for (const [listId, list] of Object.entries(raw.lists || {})) { if (!list || typeof list !== "object") continue;
     const rows = Object.entries(list).filter(([k, v]) => !DEVICE_RESERVED.has(k) && v && typeof v === "object").map(([rowId, d]) => ({ rowId, id: d.id || d.label || "", serial: d.serial || "", model: d.model || "", type: d.type || "", location: d.location || "", status: d.status || "", counted: !!d.counted, photos: imgsOf(d).filter(i => i && i.url).length }));
     out.push({ listId, name: list._name || listId, rows }); }
   return out;
+}
+
+// THE META-OWNER (onlinejob / onlinedetails, 2026-10-04): a project's device lists and device data hang off ONE task - the apps
+// resolve it as the first task (bestTime = max of updatedAt / createdAt / startTime / id, ascending) that shares the project AND
+// the customer name - so night 6 of a radar job carries none of its own (L: "onlinedetails shows details, the louverse says no
+// device lists"). Mirror the apps; when their owner is empty but a sibling holds data, show the sibling.
+const normKey = s => String(s || "").trim().toLowerCase();
+const bestTime = (t, id) => Math.max(Number(t?.updatedAt) || 0, Number(t?.createdAt) || 0, Number(t?.startTime) || 0, Number(t?.timestamp) || 0, Number(id) || 0);
+const hasMeta = j => { const r = j?.raw || j || {}; return !!(r.lists || r.sensorMeta); };
+export async function metaOwnerOf(base, job, jobs) {   // jobs = a loadJobs() result the caller already holds (one read, not two)
+  const raw = job?.raw || job || {}, pk = normKey(raw.project), ck = normKey(raw.customerName);
+  if (!pk && !ck) return job;
+  const sibs = (jobs || await loadJobs(base)).filter(j => normKey(j.raw.project) === pk && normKey(j.raw.customerName) === ck).sort((a, b) => bestTime(a.raw, a.id) - bestTime(b.raw, b.id));
+  if (!sibs.length) return job;
+  return hasMeta(sibs[0]) ? sibs[0] : sibs.find(hasMeta) || sibs[0];
+}
+// onlinedetails's device data: sensorMeta[<device #>] = {serial, m1, m2, m3 ("Optional Info 1-3" - the radar X / Y / Z), updatedAt,
+// labeledAt?, runDoneAt?, pos {x, y}? (placed on the site map)} - a list keyed by device number, 1-based (index 0 is empty)
+export function sensorRows(job) {
+  const sm = (job?.raw || job || {}).sensorMeta; if (!sm || typeof sm !== "object") return [];
+  const ents = Array.isArray(sm) ? sm.map((v, i) => [i, v]) : Object.entries(sm);
+  return ents.filter(([, v]) => v && typeof v === "object").map(([n, v]) => ({ num: String(n), serial: v.serial || "", m1: v.m1 || "", m2: v.m2 || "", m3: v.m3 || "", labeled: !!v.labeledAt, run: !!v.runDoneAt, placed: !!(v.pos && v.pos.x != null), updatedAt: Number(v.updatedAt) || 0 }))
+    .sort((a, b) => Number(a.num) - Number(b.num));
 }
 
 export const fmtDate = t => t ? new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";

@@ -64,7 +64,10 @@
     // the tile registry: type -> { title, mount, pub, sub } (each tile file declares its own pub / sub). The wires on the
     // board come from these. A new tile kind = one file in ui/tiles + one line here.
     const TILES = { year, joblist, jobcard, contact, invoice, details, photoset, ledger, entry, bookmarks, analytics, notes, page };
-    const DESC = { year: "the year the money tiles read", joblist: "your site visits, searchable - sets the visit", jobcard: "the picked visit, edit in place", photoset: "the picked visit's photos, or the picked ledger row's receipt", entry: "the picked ledger row, edit in place", contact: "the visit's customer as a contact card, edit in place", invoice: "the visit's invoice, or the invoices a row paid or was used in", bookmarks: "all your Saved Links - search, categories, add one; a picked visit or vendor becomes a filter chip", details: "the visit's device lists, read-only", ledger: "the year's spending", analytics: "the year at a glance, follows the year", notes: "your notes, edit in place", page: "any page in a frame" };
+    // folded away (L 2026-10-04 "instead of things having redundant data like Visit and Contact"): Entry = the form, Details = the
+    // read-all. The two types stay registered so a saved board still renders them; they just leave the menu and the sets.
+    const HIDDEN = new Set(["jobcard", "contact"]);
+    const DESC = { year: "the year the money tiles read", joblist: "your site visits, searchable - sets the visit", jobcard: "the picked visit alone, edit in place", photoset: "the picked visit's photos, or the picked ledger row's receipt", entry: "the form for what you tapped last - a ledger row or a visit (the Photos rule)", contact: "the visit's customer as a contact card, edit in place", invoice: "the visit's invoice, or the invoices a row paid or was used in", bookmarks: "all your Saved Links - search, categories, add one; a picked visit or vendor becomes a filter chip", details: "the catch-all for the picked visit - job data, contact, notes, invoice, other visits, device lists + device data", ledger: "the year's spending", analytics: "the year at a glance, follows the year", notes: "your notes, edit in place", page: "any page in a frame" };
     // the local apps, one tile each (L): a page tile pointed at the app
     const LOCAL = [["Calculator", "calc"], ["Checklist", "checklist"], ["Converter", "converter"], ["Counter", "count"], ["Password", "password"]];
     const $ = id => document.getElementById(id), viewEl = $("view"), worldEl = $("world"), linksEl = $("links"), status = $("status");
@@ -80,8 +83,8 @@
     // three around the middle of the view (or down the phone column); the wires come from the tiles' own pub / sub.
     const SETS = {
       money: { name: "Money set", desc: "Year · Ledger · Entry · Photos · Analytics", tiles: ["year", "ledger", "entry", "photoset", "analytics"] },
-      visits: { name: "Visits set", desc: "Visits · Visit · Contact · Invoice · Photos · Details · Bookmarks", tiles: ["joblist", "jobcard", "contact", "invoice", "photoset", "details", "bookmarks"] },
-      all: { name: "Everything", desc: "every tile, wired", tiles: ["year", "joblist", "jobcard", "contact", "invoice", "details", "photoset", "ledger", "entry", "bookmarks", "analytics", "notes"] } };
+      visits: { name: "Visits set", desc: "Visits · Entry · Details · Invoice · Photos · Bookmarks", tiles: ["joblist", "entry", "details", "invoice", "photoset", "bookmarks"] },
+      all: { name: "Everything", desc: "every tile, wired", tiles: ["year", "joblist", "entry", "details", "invoice", "photoset", "ledger", "bookmarks", "analytics", "notes"] } };
     function addSet(key) {
       const set = SETS[key]; if (!set) return;
       const vr = viewEl.getBoundingClientRect(), [cx, cy] = board.toWorld(vr.left + vr.width / 2, vr.top + vr.height / 2);
@@ -127,7 +130,7 @@
     // + Tile: lands in the middle of what you are looking at
     $("add").onclick = e => { e.stopPropagation(); document.querySelector(".lv-pop")?.remove();
       const pop = document.createElement("div"); pop.className = "lv-pop";
-      pop.innerHTML = Object.keys(TILES).map(t => `<button type="button" data-t="${t}">${TILES[t].title}<small>${DESC[t]}</small></button>`).join("")
+      pop.innerHTML = Object.keys(TILES).filter(t => !HIDDEN.has(t)).map(t => `<button type="button" data-t="${t}">${TILES[t].title}<small>${DESC[t]}</small></button>`).join("")
         + `<div class="lv-pop-h">Local apps</div>` + LOCAL.map(([n, f]) => `<button type="button" data-t="page" data-url="https://luissolutions.us/apps/local/${f}.html" data-title="${n}">${n}<small>apps/local/${f}</small></button>`).join("")
         + `<div class="lv-pop-h">Board</div>` + Object.entries(SETS).map(([k, v]) => `<button type="button" data-set="${k}">${v.name}<small>${v.desc}</small></button>`).join("")
         + `<button type="button" data-clear="1">Clear the board<small>every tile off - an empty grid</small></button>`

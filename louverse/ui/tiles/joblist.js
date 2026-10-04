@@ -21,7 +21,9 @@ export function mount(body, { store, tile }) {
     draw(); };
   const refreshOne = async s => { if (!s || !s.id) return; try { const j = await loadJob(store.get("base"), s.id); if (!j) return; const i = jobs.findIndex(x => x.id === j.id); if (i >= 0) jobs[i] = j; else jobs.unshift(j); draw(); } catch (_) {} };
   q.addEventListener("input", draw);
-  rows.addEventListener("click", e => { const r = e.target.closest(".lv-row"); if (!r) return; const j = jobs.find(x => x.id === r.dataset.id); store.set("visit", j || null); store.set("visitId", r.dataset.id); draw(); });
+  // a visit tap also clears the picked ledger row: Photos / Entry follow "the last tap" - the same visit tapped again after a
+  // ledger row would otherwise not emit (the store dedups) and the tiles would stay on the row (2026-10-04)
+  rows.addEventListener("click", e => { const r = e.target.closest(".lv-row"); if (!r) return; const j = jobs.find(x => x.id === r.dataset.id); store.set("tx", null); store.set("visit", j || null); store.set("visitId", r.dataset.id); draw(); });
   stops.push(store.on("base", load), store.on("visitId", draw), store.on("visitSaved", refreshOne), store.on("year", draw));
   load();
   return { destroy: () => stops.forEach(s => s()) };

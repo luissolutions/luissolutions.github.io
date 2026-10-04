@@ -3,7 +3,8 @@
 // follows it) refreshes - the wire shows where the edit lands.
 import { loadJob, saveJob, fmtDate, fmtTime, fmtHours } from "../../core/jobs.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const FIELDS = [["customerName", "Customer"], ["customerAddress", "Address"], ["project", "Project"], ["workOrder", "WO"], ["status", "Status"]];
+// + phone / email (2026-10-04): the Contact tile folded into Entry, so the one form carries the contact fields too
+const FIELDS = [["customerName", "Customer"], ["customerPhone", "Phone"], ["customerEmail", "Email"], ["customerAddress", "Address"], ["project", "Project"], ["workOrder", "WO"], ["status", "Status"]];
 
 export const title = "Visit";
 export const sub = ["visitId"];

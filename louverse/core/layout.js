@@ -6,7 +6,7 @@ export const GRID = 20;   // tiles snap to this
 const KEY = "lv_board_v3";
 let current = null, saveTimer = 0;
 
-const SIZES = { year: [220, 120], joblist: [420, 640], jobcard: [520, 460], photoset: [520, 360], ledger: [640, 760], analytics: [560, 420], notes: [620, 520], page: [700, 520] };
+const SIZES = { year: [220, 120], joblist: [420, 640], jobcard: [520, 460], details: [520, 560], entry: [520, 460], photoset: [520, 360], ledger: [640, 760], analytics: [560, 420], notes: [620, 520], page: [700, 520] };
 const newId = () => "t" + Math.random().toString(36).slice(2, 8);
 export const snap = v => Math.round(v / GRID) * GRID;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v) || lo));
@@ -19,7 +19,7 @@ const sane = l => {
 // the first board: jobs on the left wired to the job + its photos, the year feeding the ledger and the analytics, notes below
 export function defaultLayout() {
   const T = (type, x, y) => ({ id: newId(), type, x, y, w: SIZES[type][0], h: SIZES[type][1], collapsed: false, cfg: {} });
-  return { tiles: [T("year", 40, 40), T("joblist", 40, 200), T("jobcard", 540, 200), T("photoset", 540, 700), T("ledger", 1140, 40), T("analytics", 1140, 840), T("notes", 40, 880)], view: null, updatedAt: Date.now() };
+  return { tiles: [T("year", 40, 40), T("joblist", 40, 200), T("details", 540, 200), T("photoset", 540, 800), T("ledger", 1140, 40), T("analytics", 1140, 840), T("notes", 40, 880)], view: null, updatedAt: Date.now() };   // Details, not Visit (folded away 2026-10-04)
 }
 export function loadLayout() {
   try { current = sane(JSON.parse(localStorage.getItem(KEY) || "null")); } catch (_) { current = null; }
