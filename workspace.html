@@ -30,6 +30,7 @@
     <button type="button" class="lv-btn primary" id="add">+ Tile</button>
     <button type="button" class="lv-btn ico" id="fit" title="fit every tile on screen (or double-tap empty space)">⊡</button>
     <button type="button" class="lv-btn ico" id="mode" title="board mode: mobile column / desktop canvas (tap to switch)">🖥</button>
+    <button type="button" class="lv-btn ico" id="spread" title="spread - push overlapping tiles apart until none overlap (desktop)">⤧</button>
     <button type="button" class="lv-btn ico" id="zout" title="zoom out">−</button>
     <button type="button" class="lv-btn ico" id="zin" title="zoom in">+</button>
     <span class="sp"></span>
@@ -209,6 +210,22 @@
         if (NARROW()) mounted.get(spec.id)?.el.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
       setTimeout(() => document.addEventListener("click", () => pop.remove(), { once: true }), 0); };
     $("fit").onclick = fitNow;
+    // SPREAD (L 2026-10-04 "a spread that moves them next to, not overlap, when pressed, outward, in desktop mode"): every
+    // overlapping pair is pushed apart along the axis of least overlap, half each way + a 20 px gap, snapped to the grid,
+    // repeated until nothing overlaps (or 60 rounds). Positions only - sizes and the overall arrangement stay.
+    function spread() {
+      const T = layout.tiles, hOf = t => (t.collapsed ? 40 : t.h), GAP = 20; let rounds = 0, moved = false;
+      do { moved = false; rounds++;
+        for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
+          const a = T[i], b = T[j], ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + GAP, oy = Math.min(a.y + hOf(a), b.y + hOf(b)) - Math.max(a.y, b.y) + GAP;
+          if (ox <= 0 || oy <= 0) continue; moved = true;
+          const acx = a.x + a.w / 2, bcx = b.x + b.w / 2, acy = a.y + hOf(a) / 2, bcy = b.y + hOf(b) / 2;
+          if (ox <= oy) { const d = Math.ceil(ox / 2 / 20) * 20, s = acx <= bcx ? 1 : -1; a.x -= s * d; b.x += s * d; }
+          else { const d = Math.ceil(oy / 2 / 20) * 20, s = acy <= bcy ? 1 : -1; a.y -= s * d; b.y += s * d; } }
+      } while (moved && rounds < 60);
+      saveLayout(layout); render(); board.fit(layout.tiles); flash(rounds > 1 ? "spread" : "nothing overlapped");
+    }
+    $("spread").onclick = () => { if (NARROW()) { flash("spread is for the desktop board"); return; } spread(); };
     $("zin").onclick = () => { const r = viewEl.getBoundingClientRect(); board.zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.25); };
     $("zout").onclick = () => { const r = viewEl.getBoundingClientRect(); board.zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1 / 1.25); };
 
