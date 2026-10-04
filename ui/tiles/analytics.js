@@ -48,18 +48,18 @@ export function mount(body, { store, tile }) {
   };
   // THE VISITS FACE: hours by month (work accent, travel muted), totals, the customers by hours; the picked visit's customer is marked
   const drawJobs = async () => {
-    const year = Number(store.get("year")) || 0, base = store.get("base"), my = ++run; tile.setTitle(`Analytics · visits ${year}`); body.innerHTML = `<div class="lv-empty">loading…</div>`;
+    const year = Number(store.get("year")) || 0, base = store.get("base"), my = ++run; tile.setTitle(`Analytics · jobs ${year}`); body.innerHTML = `<div class="lv-empty">loading…</div>`;
     let all = []; try { all = await loadJobs(base); } catch (e) { body.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; }
     if (my !== run) return;
     jobs = all.filter(j => !year || new Date(j.start).getFullYear() === year);
-    if (!jobs.length) { body.innerHTML = `<div class="lv-empty">No visits in ${year}.</div>`; return; }
+    if (!jobs.length) { body.innerHTML = `<div class="lv-empty">No jobs in ${year}.</div>`; return; }
     const work = Array(12).fill(0), trav = Array(12).fill(0); for (const j of jobs) { const m = monthOf(j); work[m] += j.hours; trav[m] += j.travel; }
     const H = jobs.reduce((s, j) => s + j.hours, 0), TR = jobs.reduce((s, j) => s + j.travel, 0), max = Math.max(1, ...work.map((w, i) => w + trav[i]));
     const byCust = [...jobs.reduce((m, j) => m.set(j.customer, (m.get(j.customer) || 0) + j.hours), new Map()).entries()].sort((a, b) => b[1] - a[1]);
     const picked = store.get("visit"), pickedCust = picked && store.get("visitId") ? picked.customer : "";
-    body.innerHTML = `<div class="lv-tot"><span>visits <b>${jobs.length}</b></span><span>hours <b>${fmtHours(H)}</b></span>${TR ? `<span>travel <b>${fmtHours(TR)}</b></span>` : ""}<span>avg <b>${fmtHours(H / jobs.length)}</b>/visit</span></div>
+    body.innerHTML = `<div class="lv-tot"><span>jobs <b>${jobs.length}</b></span><span>hours <b>${fmtHours(H)}</b></span>${TR ? `<span>travel <b>${fmtHours(TR)}</b></span>` : ""}<span>avg <b>${fmtHours(H / jobs.length)}</b>/visit</span></div>
       <div class="lv-bars">${work.map((v, i) => `<div class="col${month === i ? " on" : ""}" data-m="${i}" title="${MON[i]}: work ${fmtHours(v)} · travel ${fmtHours(trav[i])} · ${jobs.filter(j => monthOf(j) === i).length} visits - tap for the visits"><div class="bar inc" style="height:${Math.round(trav[i] / max * 100)}%"></div><div class="bar sp" style="height:${Math.round(v / max * 100)}%"></div><span>${MON[i]}</span></div>`).join("")}</div>
-      <div class="lv-note">bars: work hours (accent) and travel (muted) by month - tap a month or a customer for its visits${pickedCust ? ` · picked: ${esc(pickedCust)}` : ""}</div>
+      <div class="lv-note">bars: work hours (accent) and travel (muted) by month - tap a month or a customer for its jobs${pickedCust ? ` · picked: ${esc(pickedCust)}` : ""}</div>
       <div class="lv-rows lv-cats">${byCust.map(([c, v], i) => `<div class="lv-row${tag === c || (!tag && c === pickedCust) ? " on" : ""}${i >= 8 ? " more" : ""}" data-tag="${esc(c)}"><div><div class="n">${esc(c)}</div><div class="s"><i class="lv-meter" style="width:${Math.round(v / (byCust[0][1] || 1) * 100)}%"></i></div></div><div class="v">${fmtHours(v)} · ${jobs.filter(j => j.customer === c).length}</div></div>`).join("")}</div>
       <div class="lv-drill"></div>`;
     wire();
