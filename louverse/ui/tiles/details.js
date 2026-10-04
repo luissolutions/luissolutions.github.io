@@ -15,10 +15,17 @@ const sec = (key, label, inner) => `<details class="lv-sec" data-sec="${key}"${i
 const fill = (host, key, label, inner) => { const d = host.querySelector(`[data-sec="${key}"]`); if (!d) return; d.querySelector("summary").innerHTML = label; d.querySelector(".lv-secb").innerHTML = inner; };
 
 export const title = "Details";
-export const sub = ["visitId", "visitSaved", "tx"];
-export const pub = ["visitSaved", "ledgerSaved", "visitId"];
+export const sub = ["visitId", "visitSaved", "tx", "photoPick"];
+export const pub = ["visitSaved", "ledgerSaved", "visitId", "photoPick"];
 export function mount(body, { store, tile }) {
-  let stops = [], run = 0;
+  let stops = [], run = 0, picked = "";
+  // ROW TAP (L "when I click a device list or device data item and it has a picture, use the Photos tile"): a device-list row
+  // or a sensor row sets `photoPick` for the Photos tile; the same row again clears it. The tapped row is marked.
+  body.addEventListener("click", e => { const cell = e.target.closest("[data-dev],[data-sen]"); if (!cell) return; const key = cell.dataset.dev ? "dev:" + cell.dataset.dev : "sen:" + cell.dataset.sen;
+    body.querySelectorAll(".lv-tbl .on").forEach(x => x.classList.remove("on"));
+    if (picked === key) { picked = ""; store.set("photoPick", null); return; }
+    picked = key; const sel = cell.dataset.dev ? `[data-dev="${CSS.escape(cell.dataset.dev)}"]` : `[data-sen="${CSS.escape(cell.dataset.sen)}"]`; body.querySelectorAll(sel).forEach(x => x.classList.add("on"));
+    store.set("photoPick", cell.dataset.dev ? { kind: "device", listId: cell.dataset.list, rowId: cell.dataset.row, label: cell.dataset.label } : { kind: "sensor", num: cell.dataset.sen, serial: cell.dataset.serial || "", label: cell.dataset.label }); });
   const kv = (k, v) => v ? `<b>${k}</b><span>${v}</span>` : "";
   const wireSecs = () => body.querySelectorAll("details.lv-sec").forEach(d => d.addEventListener("toggle", () => { try { localStorage.setItem(okey(d.dataset.sec), d.open ? "1" : "0"); } catch (_) {} }));
 
@@ -63,15 +70,18 @@ export function mount(body, { store, tile }) {
     const owner = await metaOwnerOf(base, j, jobs), lists = deviceLists(owner), sensors = sensorRows(owner), nList = lists.reduce((t, l) => t + l.rows.length, 0);
     const from = owner.id !== j.id ? `<div class="lv-muted" style="font-size:.75rem;margin-bottom:4px">project record from the first visit, ${esc(fmtDate(owner.start))}</div>` : "";
     fill(body, "lists", `Device lists · ${nList}`, nList ? from + lists.map(l => `<div class="lv-muted" style="margin:6px 0 4px;font-size:.8rem">${esc(l.name)} · ${l.rows.length}${l.rows.some(r => r.counted) ? ` · ${l.rows.filter(r => r.counted).length} counted` : ""}</div>
-        <div class="lv-tbl"><b>ID</b><b>Serial</b><b>Model</b><b>Status</b>${l.rows.map(r => `<span>${r.counted ? "✓ " : ""}${esc(r.id)}</span><span>${esc(r.serial)}</span><span>${esc(r.model || r.type)}</span><span>${esc(r.status)}${r.photos ? ` · 📷${r.photos}` : ""}</span>`).join("")}</div>`).join("") : `<div class="lv-muted" style="font-size:.8rem">none on this project</div>`);
+        <div class="lv-tbl"><b>ID</b><b>Serial</b><b>Model</b><b>Status</b>${l.rows.map(r => { const a = `class="tap" data-dev="${esc(l.listId + "|" + r.rowId)}" data-list="${esc(l.listId)}" data-row="${esc(r.rowId)}" data-label="${esc((l.name ? l.name + " · " : "") + (r.id || r.serial || r.rowId))}" title="tap = its photos in the Photos tile"`;
+          return `<span ${a}>${r.counted ? "✓ " : ""}${esc(r.id)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.model || r.type)}</span><span ${a}>${esc(r.status)}${r.photos ? ` · 📷${r.photos}` : ""}</span>`; }).join("")}</div>`).join("") : `<div class="lv-muted" style="font-size:.8rem">none on this project</div>`);
     const flags = r => `${r.labeled ? " 🏷" : ""}${r.run ? " ▶" : ""}${r.placed ? " 📍" : ""}`;
     const sum = [sensors.filter(r => r.labeled).length && `${sensors.filter(r => r.labeled).length} labeled`, sensors.filter(r => r.run).length && `${sensors.filter(r => r.run).length} run`, sensors.filter(r => r.placed).length && `${sensors.filter(r => r.placed).length} on map`].filter(Boolean);
-    fill(body, "sensors", `Device data · ${sensors.length}${sum.length ? " · " + sum.join(", ") : ""}`, sensors.length ? from + `<div class="lv-tbl five"><b>#</b><b>Serial</b><b>Info 1</b><b>Info 2</b><b>Info 3</b>${sensors.map(r => `<span>${esc(r.num)}${flags(r)}</span><span>${esc(r.serial)}</span><span>${esc(r.m1)}</span><span>${esc(r.m2)}</span><span>${esc(r.m3)}</span>`).join("")}</div>` : `<div class="lv-muted" style="font-size:.8rem">none on this project</div>`);
+    fill(body, "sensors", `Device data · ${sensors.length}${sum.length ? " · " + sum.join(", ") : ""}`, sensors.length ? from + `<div class="lv-tbl five"><b>#</b><b>Serial</b><b>Info 1</b><b>Info 2</b><b>Info 3</b>${sensors.map(r => { const a = `class="tap" data-sen="${esc(r.num)}" data-serial="${esc(r.serial)}" data-label="${esc("Sensor " + r.num + (r.serial ? " · " + r.serial : ""))}" title="tap = its photos in the Photos tile"`;
+        return `<span ${a}>${esc(r.num)}${flags(r)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.m1)}</span><span ${a}>${esc(r.m2)}</span><span ${a}>${esc(r.m3)}</span>`; }).join("")}</div>` : `<div class="lv-muted" style="font-size:.8rem">none on this project</div>`);
   };
   const drawTx = () => { ++run; drawTxForm(body, { store, tile, title: "Details" }); };
   // last tap wins: a ledger row -> its form; a visit -> the visit; a cleared row falls back to the visit
   stops.push(store.on("tx", tx => tx ? drawTx() : drawVisit()), store.on("visitId", drawVisit), store.on("base", () => store.get("tx") ? drawTx() : drawVisit()),
-    store.on("visitSaved", s => { if (s && s.by !== "details" && s.id === store.get("visitId") && !store.get("tx")) drawVisit(); }));
+    store.on("visitSaved", s => { if (s && s.by !== "details" && s.id === store.get("visitId") && !store.get("tx")) drawVisit(); }),
+    store.on("photoPick", v => { if (!v) { picked = ""; body.querySelectorAll(".lv-tbl .on").forEach(x => x.classList.remove("on")); } }));   // the Photos "✕" chip clears the mark here too
   if (store.get("tx") && !store.get("visitId")) drawTx(); else drawVisit();
   return { destroy: () => stops.forEach(s => s()) };
 }

@@ -42,8 +42,10 @@ export async function saveJob(base, id, patch) {
   body.updatedAt = Date.now(); await update(ref(database, taskPath(base, id)), body); return loadJob(base, id);
 }
 
-// every photo a job has, from its three homes: the storage folder (loose + subfolders, one level), device-list rows, daily rows
-export async function listJobPhotos(base, job, { max = 80 } = {}) {
+// every photo a job has, from its three homes: the storage folder (loose + subfolders, one level), device-list rows, daily rows.
+// Folder photos come back with `ref` and NO url - photoUrl(p) resolves one on demand (a tile shows ~120 at a time; 400 download
+// URL calls up front was the old cap of 80, which cut Walmart 54's sensors folder short - L 2026-10-04).
+export async function listJobPhotos(base, job, { max = 400 } = {}) {
   const out = [], seen = new Set(), push = (p) => { const k = p.path || p.url; if (!k || seen.has(k)) return; seen.add(k); out.push(p); };
   const raw = job?.raw || job || {};
   // every photo says WHERE it lives (where.kind = device | daily | folder) so the tile can delete it or note it the way onlinejob does
@@ -55,14 +57,22 @@ export async function listJobPhotos(base, job, { max = 80 } = {}) {
     try {
       const root = await listAll(storageRef(storage, `${base}/tasks/images/${folder}`));
       const items = [...root.items.map(i => ({ ref: i, src: "images" }))];
-      for (const p of root.prefixes.slice(0, 12)) { try { const sub = await listAll(p); items.push(...sub.items.map(i => ({ ref: i, src: p.name }))); } catch (_) {} }
+      for (const p of root.prefixes.slice(0, 24)) { try { const sub = await listAll(p); items.push(...sub.items.map(i => ({ ref: i, src: p.name }))); } catch (_) {} }
       for (const it of items) { if (out.length >= max) break; if (seen.has(it.ref.fullPath)) continue; if (!/\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(it.ref.name)) continue;   // photos only (.keep / .init.txt markers live in the same folders)
         push({ name: it.ref.name, path: it.ref.fullPath, src: it.src, url: null, ref: it.ref, where: { kind: "folder" } }); }
     } catch (e) { console.warn("[jobs] photo folder", e?.code || e); }
   }
-  const slice = out.slice(0, max);
-  await Promise.all(slice.map(async p => { if (!p.url && p.ref) { try { p.url = await getDownloadURL(p.ref); } catch (_) { p.url = ""; } } }));
-  return slice.filter(p => p.url);
+  return out.slice(0, max);
+}
+export async function photoUrl(p) { if (p.url) return p.url; if (!p.ref) return ""; try { p.url = await getDownloadURL(p.ref); } catch (_) { p.url = ""; } return p.url; }
+// a sensor's photos are named <customer>_<num>-<serial>[_n].jpg in the project's sensors folder (onlinedetails / radar-tools);
+// a device-list row's photos sit on the row itself. photoMatches(p, pick) = does this photo belong to the tapped row?
+export function photoMatches(p, pick) {
+  if (!pick) return true;
+  if (pick.kind === "device") return p.where?.kind === "device" && p.where.listId === pick.listId && p.where.rowId === pick.rowId;
+  if (pick.kind === "sensor") { const m = String(p.name || "").replace(/\.[^.]+$/, "").match(/_(\d+)-([A-Za-z0-9]+?)(?:_\d+)?$/); if (!m) return false;
+    return (pick.serial && m[2].toLowerCase() === String(pick.serial).toLowerCase()) || (pick.num != null && Number(m[1]) === Number(pick.num)); }
+  return true;
 }
 
 const DEVICE_RESERVED = new Set(["_name", "createdAt", "meta", "items"]), imgsOf = r => Array.isArray(r?.images) ? r.images : Object.values(r?.images || {}), nameOf = im => (im.path || im.url).split("/").pop().split("?")[0];
