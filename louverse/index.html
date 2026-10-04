@@ -95,11 +95,21 @@
     const tileEls = () => new Map([...mounted].map(([id, api]) => [id, api.el]));
     const wires = () => board.drawArrows(layout.tiles, TILES);
 
+    // TWO OF THE SAME TILE (L 2026-10-04 "if I have 2 photos windows open and 2 things that update photos, only update one -
+    // the oldest gets the new push"): a PICK (visitId / visit / tx / year) reaches only the least-recently-updated instance of
+    // that tile type; the others keep what they show. Refresh signals (base, saves) still reach every instance.
+    const CLAIMED = new Set(["visitId", "visit", "tx", "year"]), touched = new Map();   // tile id -> last time it took a pick
+    const scopedStore = spec => ({ get: store.get, all: store.all, set: store.set,
+      on: (key, fn) => store.on(key, (v, k) => {
+        if (CLAIMED.has(key)) { const peers = layout.tiles.filter(t => t.type === spec.type && mounted.has(t.id));
+          if (peers.length > 1) { const oldest = peers.slice().sort((a, b) => (touched.get(a.id) || 0) - (touched.get(b.id) || 0) || (a.id < b.id ? -1 : 1))[0]; if (oldest.id !== spec.id) return; }
+          touched.set(spec.id, Date.now()); }
+        fn(v, k); }) });
     function render() {
       for (const t of mounted.values()) t.el.remove(); mounted.clear();
       for (const spec of layout.tiles) {
         const def = TILES[spec.type]; if (!def) continue;
-        const api = mountTile(worldEl, spec, def, { store, board, save: () => saveLayout(layout) }, {
+        const api = mountTile(worldEl, spec, def, { store: scopedStore(spec), board, save: () => saveLayout(layout) }, {
           onMove: () => wires(),
           onChange: (s, settled) => { if (NARROW() && settled) { columnLayout(layout); render(); flash("saved"); return; } saveLayout(layout); wires(); flash("saved"); },   // phone: a taller tile pushes the ones below it down
           onNudge: nudge,
