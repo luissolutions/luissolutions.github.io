@@ -25,7 +25,13 @@ export function mountBoard(viewEl, worldEl, svgEl, { onView } = {}) {
   // ---- input: drag on empty board = pan; wheel = pan, Ctrl/Shift + wheel = zoom; two fingers = pinch + pan; dblclick empty = fit ----
   const ptr = new Map(); let pan = null, pinch = null, mid = null;
   const isEmpty = t => t === viewEl || t === worldEl || t === svgEl || (t && t.closest && t.closest(".lv-grid-bg"));
-  viewEl.addEventListener("wheel", e => { e.preventDefault(); if (e.ctrlKey || e.shiftKey) zoomAt(e.clientX, e.clientY, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); else panBy(-e.deltaX, -e.deltaY); }, { passive: false });
+  // a wheel over a tile body scrolls THE TILE while it has room that way (L 2026-10-04 "make scrolling work in the tiles"); only
+  // when it cannot scroll further does the wheel pan the board. Ctrl/Shift + wheel always zooms.
+  const bodyCanScroll = (body, dx, dy) => (dy && ((dy < 0 && body.scrollTop > 0) || (dy > 0 && body.scrollTop + body.clientHeight < body.scrollHeight - 1)))
+    || (dx && ((dx < 0 && body.scrollLeft > 0) || (dx > 0 && body.scrollLeft + body.clientWidth < body.scrollWidth - 1)));
+  viewEl.addEventListener("wheel", e => {
+    if (!e.ctrlKey && !e.shiftKey) { const body = e.target.closest && e.target.closest(".lv-body"); if (body && !body.classList.contains("frame") && bodyCanScroll(body, e.deltaX, e.deltaY)) return; }   // native scroll inside the tile
+    e.preventDefault(); if (e.ctrlKey || e.shiftKey) zoomAt(e.clientX, e.clientY, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); else panBy(-e.deltaX, -e.deltaY); }, { passive: false });
   viewEl.addEventListener("pointerdown", e => {
     ptr.set(e.pointerId, [e.clientX, e.clientY]);
     if (ptr.size === 2) { pan = null; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; e.preventDefault(); return; }
