@@ -71,7 +71,8 @@ export async function photoUrl(p) { if (p.url) return p.url; if (!p.ref) return 
 export function photoMatches(p, pick) {
   if (!pick) return true;
   if (pick.kind === "device") return p.where?.kind === "device" && p.where.listId === pick.listId && p.where.rowId === pick.rowId;
-  if (pick.kind === "sensor") { const m = String(p.name || "").replace(/\.[^.]+$/, "").match(/_(\d+)-([A-Za-z0-9]+?)(?:_\d+)?$/); if (!m) return false;
+  if (pick.kind === "sensor") { if (pick.rowId && p.where?.kind === "device" && p.where.listId === pick.listId && p.where.rowId === pick.rowId) return true;   // a photo on the Sensors-list row itself
+    const m = String(p.name || "").replace(/\.[^.]+$/, "").match(/_(\d+)-([A-Za-z0-9]+?)(?:_\d+)?$/); if (!m) return false;
     return (pick.serial && m[2].toLowerCase() === String(pick.serial).toLowerCase()) || (pick.num != null && Number(m[1]) === Number(pick.num)); }
   return true;
 }
@@ -123,8 +124,14 @@ export async function invoicesFor(base, tx) {
 }
 export async function visitsOfCustomer(base, name, exceptId, jobs) { const n = low(name); if (!n) return []; return (jobs || await loadJobs(base)).filter(j => low(j.customer) === n && j.id !== exceptId); }
 // the device lists on a visit (onlinejob): lists/<listId>/{_name, createdAt, <rowId>: {id, serial, model, type, location, status, ip, mac, notes, counted, images}}
+const isSensorsList = list => String(list?._name || "").trim().toLowerCase() === "sensors";
+// the SENSORS LIST (2026-10-04, L "direct device data to the current lists"): sensorMeta was copied into a device list named
+// "Sensors" on each radar project's meta-owner (row = {id: mark, mark, serial, m1-m3, notes, images, counted, labeledAt?,
+// runDoneAt?, pos?}). deviceLists() leaves it out; sensorRows() reads it first and falls back to sensorMeta for a job
+// that has no such list. sensorMeta itself is untouched - the SES radar apps keep reading it.
+export function sensorsListOf(job) { const raw = job?.raw || job || {}; for (const [listId, list] of Object.entries(raw.lists || {})) if (list && typeof list === "object" && isSensorsList(list)) return { listId, list }; return null; }
 export function deviceLists(job) { const raw = job?.raw || job || {}, out = [];
-  for (const [listId, list] of Object.entries(raw.lists || {})) { if (!list || typeof list !== "object") continue;
+  for (const [listId, list] of Object.entries(raw.lists || {})) { if (!list || typeof list !== "object" || isSensorsList(list)) continue;
     const rows = Object.entries(list).filter(([k, v]) => !DEVICE_RESERVED.has(k) && v && typeof v === "object").map(([rowId, d]) => ({ rowId, id: d.id || d.label || "", serial: d.serial || "", model: d.model || "", type: d.type || "", location: d.location || "", ip: d.ip || "", mac: d.mac || "", notes: typeof d.notes === "string" ? d.notes : "", status: d.status || "", counted: !!d.counted, photos: imgsOf(d).filter(i => i && i.url).length }));
     out.push({ listId, name: list._name || listId, rows }); }
   return out;
@@ -147,6 +154,10 @@ export async function metaOwnerOf(base, job, jobs) {   // jobs = a loadJobs() re
 // onlinedetails's device data: sensorMeta[<device #>] = {serial, m1, m2, m3 ("Optional Info 1-3" - the radar X / Y / Z), updatedAt,
 // labeledAt?, runDoneAt?, pos {x, y}? (placed on the site map)} - a list keyed by device number, 1-based (index 0 is empty)
 export function sensorRows(job) {
+  const sl = sensorsListOf(job);
+  if (sl) return Object.entries(sl.list).filter(([k, v]) => !DEVICE_RESERVED.has(k) && v && typeof v === "object")
+    .map(([rowId, v]) => ({ num: String(v.mark ?? v.id ?? v.label ?? ""), serial: v.serial || "", m1: v.m1 || "", m2: v.m2 || "", m3: v.m3 || "", labeled: !!v.labeledAt, run: !!v.runDoneAt, placed: !!(v.pos && v.pos.x != null), updatedAt: Number(v.updatedAt) || 0, listId: sl.listId, rowId, notes: typeof v.notes === "string" ? v.notes : "", photos: imgsOf(v).length, counted: !!v.counted }))
+    .sort((a, b) => Number(a.num) - Number(b.num));
   const sm = (job?.raw || job || {}).sensorMeta; if (!sm || typeof sm !== "object") return [];
   const ents = Array.isArray(sm) ? sm.map((v, i) => [i, v]) : Object.entries(sm);
   return ents.filter(([, v]) => v && typeof v === "object").map(([n, v]) => ({ num: String(n), serial: v.serial || "", m1: v.m1 || "", m2: v.m2 || "", m3: v.m3 || "", labeled: !!v.labeledAt, run: !!v.runDoneAt, placed: !!(v.pos && v.pos.x != null), updatedAt: Number(v.updatedAt) || 0 }))

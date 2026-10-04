@@ -28,7 +28,7 @@ export function mount(body, { store, tile }) {
     body.querySelectorAll(".lv-tbl .on").forEach(x => x.classList.remove("on"));
     if (picked === key) { picked = ""; store.set("photoPick", null); return; }
     picked = key; const sel = cell.dataset.dev ? `[data-dev="${CSS.escape(cell.dataset.dev)}"]` : `[data-sen="${CSS.escape(cell.dataset.sen)}"]`; body.querySelectorAll(sel).forEach(x => x.classList.add("on"));
-    store.set("photoPick", cell.dataset.dev ? { kind: "device", listId: cell.dataset.list, rowId: cell.dataset.row, label: cell.dataset.label } : { kind: "sensor", num: cell.dataset.sen, serial: cell.dataset.serial || "", label: cell.dataset.label }); });
+    store.set("photoPick", cell.dataset.dev ? { kind: "device", listId: cell.dataset.list, rowId: cell.dataset.row, label: cell.dataset.label } : { kind: "sensor", num: cell.dataset.sen, serial: cell.dataset.serial || "", label: cell.dataset.label, listId: cell.dataset.list || "", rowId: cell.dataset.row || "" }); });
   const kv = (k, v) => v ? `<b>${k}</b><span>${v}</span>` : "";
   const wireSecs = () => body.querySelectorAll("details.lv-sec").forEach(d => d.addEventListener("toggle", () => { try { localStorage.setItem(okey(d.dataset.sec), d.open ? "1" : "0"); } catch (_) {} }));
   // SIZE-AWARE (L 2026-10-04 "a more detailed view when I make them bigger"): a tall tile (>= 640 px of body) opens every section
@@ -113,7 +113,7 @@ export function mount(body, { store, tile }) {
     const sum = [sensors.filter(r => r.labeled).length && `${sensors.filter(r => r.labeled).length} labeled`, sensors.filter(r => r.run).length && `${sensors.filter(r => r.run).length} run`, sensors.filter(r => r.placed).length && `${sensors.filter(r => r.placed).length} on map`].filter(Boolean);
     // DEVICE DATA + a search box (L 2026-10-04 "add a search filter for device data"): #, serial, the three infos and the words
     // labeled / run / map all match; the summary counts "12 of 241"; the tapped row keeps its mark through a re-filter
-    const senTable = rows => `<div class="lv-tbl five"><b>#</b><b>Serial</b><b>Info 1</b><b>Info 2</b><b>Info 3</b>${rows.map(r => { const a = `class="tap${picked === "sen:" + r.num ? " on" : ""}" data-sen="${esc(r.num)}" data-serial="${esc(r.serial)}" data-label="${esc("Sensor " + r.num + (r.serial ? " · " + r.serial : ""))}" title="tap = its photos in the Photos tile"`;
+    const senTable = rows => `<div class="lv-tbl five"><b>#</b><b>Serial</b><b>Info 1</b><b>Info 2</b><b>Info 3</b>${rows.map(r => { const a = `class="tap${picked === "sen:" + r.num ? " on" : ""}" data-sen="${esc(r.num)}" data-serial="${esc(r.serial)}"${r.rowId ? ` data-list="${esc(r.listId)}" data-row="${esc(r.rowId)}"` : ""} data-label="${esc("Sensor " + r.num + (r.serial ? " · " + r.serial : ""))}" title="tap = its photos in the Photos tile"`;
         return `<span ${a}>${esc(r.num)}${flags(r)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.m1)}</span><span ${a}>${esc(r.m2)}</span><span ${a}>${esc(r.m3)}</span>`; }).join("")}</div>`;
     const senLabel = n => `Device data · ${n == null ? sensors.length : `${n} of ${sensors.length}`}${sum.length ? " · " + sum.join(", ") : ""}`;
     fill(body, "sensors", senLabel(), sensors.length ? from + `<input class="lv-search" type="search" placeholder="Search devices - #, serial, X / Y / Z, labeled / run / map" autocomplete="off"><div class="lv-senrows">${senTable(sensors)}</div>` : `<div class="lv-note">none on this project</div>`);
