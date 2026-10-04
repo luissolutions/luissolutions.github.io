@@ -4,6 +4,9 @@ import { loadLedgerYear, totalsByTag, tagLabel, money } from "../../core/ledger.
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+// FULL SCREEN = the app itself (L 2026-10-04): the board frames this page for what is picked
+const APP = "https://luissolutions.us/apps/online/";
+export const appUrl = () => APP + "onlinebudget.html";   // the Budget Planner (the galaxy)
 export const title = "Analytics";
 export const sub = ["year", "ledgerSaved"];
 export const pub = ["tx"];   // a row in the month panel picks it, like the Ledger does

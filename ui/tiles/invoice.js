@@ -7,6 +7,9 @@ import { money2, loadLedgerYear } from "../../core/ledger.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const num = v => Number(String(v ?? "").replace(/[^0-9.\-]/g, "")) || 0;
 
+// FULL SCREEN = the app itself (L 2026-10-04): the board frames this page for what is picked
+const APP = "https://luissolutions.us/apps/online/";
+export const appUrl = store => { const id = store.get("visitId"); return APP + "onlineinvoice.html" + (id ? "?task=" + encodeURIComponent(id) : ""); };
 export const title = "Invoice";
 export const sub = ["visitId", "tx"];
 export const pub = ["visitId", "tx"];

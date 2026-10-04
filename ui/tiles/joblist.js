@@ -3,6 +3,9 @@
 import { loadJobs, loadJob, fmtDate, fmtHours } from "../../core/jobs.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// FULL SCREEN = the app itself (L 2026-10-04): the board frames this page for what is picked
+const APP = "https://luissolutions.us/apps/online/";
+export const appUrl = () => APP + "onlinejob.html";
 export const title = "Visits";
 export const pub = ["visitId"];
 export const sub = ["visitSaved", "year"];   // the Year tile narrows the list to the year a visit took place (L 2026-10-04)

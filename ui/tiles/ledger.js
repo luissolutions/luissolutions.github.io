@@ -2,6 +2,9 @@
 import { loadLedgerYear, totalsByTag, tagLabel, money, money2 } from "../../core/ledger.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// FULL SCREEN = the app itself (L 2026-10-04): the board frames this page for what is picked
+const APP = "https://luissolutions.us/apps/online/";
+export const appUrl = () => APP + "onlinefinancials.html";   // the Finance Ledger
 export const title = "Ledger";
 export const sub = ["year", "ledgerSaved"];
 export const pub = ["tx"];   // tap a row -> the picked transaction (the Photos tile shows its receipt)

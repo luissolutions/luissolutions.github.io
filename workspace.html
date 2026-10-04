@@ -49,7 +49,7 @@
     import { whenAuthReady, onUser, baseFor, signIn, signOutNow, LUIS_UID, readOnce } from "./core/firebase.js";
     import { store } from "./core/store.js";
     import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, GUTTER, columnLayout, byOrd, setLive, ensureLive, modeOverride, setModeOverride } from "./core/layout.js";
-    import { mountTile } from "./ui/tile.js";
+    import { mountTile, placeTile } from "./ui/tile.js";
     import { mountBoard } from "./ui/board.js";
     import * as year from "./ui/tiles/year.js";
     import * as joblist from "./ui/tiles/joblist.js";
@@ -149,6 +149,7 @@
           onMove: () => wires(),
           onChange: (s, settled) => { if (NARROW() && settled) { columnLayout(layout); render(); flash("saved"); return; } saveLayout(layout); wires(); flash("saved"); },   // phone: a taller tile pushes the ones below it down
           onNudge: nudge,
+          onMax: (s, api) => maximize(s, api),
           onLive: s => { setLive(s.id); grabNext.set(s.type, s.id); layout = getLayout();   // no remount - every copy keeps what it shows
             for (const api of mounted.values()) { api.el.classList.toggle("held", !!api.spec.held); const b = api.el.querySelector(".live"); if (b) { b.textContent = api.spec.held ? "📌" : "●"; b.title = api.spec.held ? "held - keeps what it shows; tap and the next pick comes here" : "live - the next pick comes here"; } }
             markOwners(); flash(TILES[s.type].title + " · the next pick goes here"); },
@@ -157,6 +158,26 @@
       }
       pruneOwners(); wires(); board.fitWorld(layout.tiles);
     }
+    // FULL SCREEN (L 2026-10-04 "expand it to the max, it has all the functions the app did, or as far as it needs"): ⤢ lifts the
+    // tile onto the body (a fixed box cannot escape the transformed world) and, when the tile kind has an app behind it
+    // (def.appUrl(store) -> url), the body becomes a frame of THAT APP for what's picked - every function the app has, same
+    // sign-in (same origin on luissolutions.us). ⤡ or Esc puts the tile back where it was and redraws it. One at a time.
+    let maxed = null;   // { spec, api, placeholder }
+    function maximize(spec, api) {
+      if (maxed) { const same = maxed.spec.id === spec.id; restoreMax(); if (same) return; }
+      const ph = document.createComment("lv-max"); api.el.parentNode.insertBefore(ph, api.el); document.body.appendChild(api.el); api.el.classList.add("lv-max");
+      const b = api.el.querySelector(".max"); if (b) { b.textContent = "⤡"; b.title = "back to the board (Esc)"; }
+      const def = TILES[spec.type], url = def.appUrl ? def.appUrl(store) : null;
+      if (url) { api.unmount(); api.body.className = "lv-body frame"; api.body.innerHTML = `<iframe src="${url.replace(/"/g, "&quot;")}" allow="camera; microphone; clipboard-write" title="${TILES[spec.type].title}"></iframe>`; }
+      maxed = { spec, api, placeholder: ph }; flash(url ? "full app" : "full screen");
+    }
+    function restoreMax() {
+      if (!maxed) return; const { spec, api, placeholder } = maxed; maxed = null;
+      api.el.classList.remove("lv-max"); placeholder.parentNode.insertBefore(api.el, placeholder); placeholder.remove();
+      const b = api.el.querySelector(".max"); if (b) { b.textContent = "⤢"; b.title = "full screen - the whole app for what's picked"; }
+      if (api.body.classList.contains("frame")) api.remount(); placeTile(api.el, spec);
+    }
+    addEventListener("keydown", e => { if (e.key === "Escape" && maxed) restoreMax(); });
     // a tile asks for another kind on the board (Details "✎ Edit in Entry"): light the one that exists, else add one beside the asker
     window.addEventListener("lv:tile", e => { const { type, from } = e.detail || {}; if (!TILES[type]) return;
       const have = layout.tiles.find(t => t.type === type); if (have) { const api = mounted.get(have.id); if (api) { api.el.classList.remove("lit"); void api.el.offsetWidth; api.el.classList.add("lit"); api.el.style.zIndex = 9999; } flash(TILES[type].title + " is on the board"); return; }

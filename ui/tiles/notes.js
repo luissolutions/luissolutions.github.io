@@ -4,6 +4,9 @@
 import { loadNotes, saveNote } from "../../core/notes.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// FULL SCREEN = the app itself (L 2026-10-04): the board frames this page for what is picked
+const APP = "https://luissolutions.us/apps/online/";
+export const appUrl = () => APP + "onlinenotes.html";
 export const title = "Notes";
 export const sub = ["year"];   // the Year tile narrows the list to the notes written that year (L 2026-10-04 "even the notes has a reference to the year")
 export function mount(body, { store, tile }) {

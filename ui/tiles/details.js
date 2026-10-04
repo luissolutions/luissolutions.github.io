@@ -14,6 +14,9 @@ const okey = s => "lv_det_" + s, isOpen = s => { try { return localStorage.getIt
 const sec = (key, label, inner) => `<details class="lv-sec" data-sec="${key}"${isOpen(key) ? " open" : ""}><summary>${label}</summary><div class="lv-secb">${inner}</div></details>`;
 const fill = (host, key, label, inner) => { const d = host.querySelector(`[data-sec="${key}"]`); if (!d) return; d.querySelector("summary").innerHTML = label; d.querySelector(".lv-secb").innerHTML = inner; };
 
+// FULL SCREEN = the app itself (L 2026-10-04): the board frames this page for what is picked
+const APP = "https://luissolutions.us/apps/online/";
+export const appUrl = store => { const id = store.get("visitId"); return id ? APP + "onlinejob.html?task=" + encodeURIComponent(id) : APP + "onlinejob.html"; };   // the Jobs app, on the picked visit
 export const title = "Details";
 export const sub = ["visitId", "visitSaved", "tx", "photoPick"];
 export const pub = ["visitSaved", "ledgerSaved", "visitId", "photoPick"];

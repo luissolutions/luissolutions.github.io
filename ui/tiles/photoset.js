@@ -18,6 +18,9 @@ import { money2, setRowImage } from "../../core/ledger.js";
 import { uploadDated, removeImage, pickImage, thumbOf, forgetThumb, relabel } from "../../core/images.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// FULL SCREEN = the app itself (L 2026-10-04): the board frames this page for what is picked
+const APP = "https://luissolutions.us/apps/online/";
+export const appUrl = store => { const id = store.get("visitId"); return id ? APP + "onlinejob.html?task=" + encodeURIComponent(id) : APP + "onlinegallery.html"; };   // the picked visit in Jobs (its photos), else the Gallery
 export const title = "Photos";
 export const sub = ["visitId", "tx", "photoPick"];
 export const pub = ["ledgerSaved"];   // a receipt added / replaced / removed -> the ledger and the analytics redraw

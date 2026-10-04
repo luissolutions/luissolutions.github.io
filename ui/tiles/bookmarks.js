@@ -6,6 +6,9 @@
 import { loadLinks, linksFor, addLink, saveLink, removeLink } from "../../core/links.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// FULL SCREEN = the app itself (L 2026-10-04): the board frames this page for what is picked
+const APP = "https://luissolutions.us/apps/online/";
+export const appUrl = () => APP + "onlinelinks.html";
 export const title = "Bookmarks";
 export const sub = ["visitId", "tx"];
 export function mount(body, { store, tile }) {
