@@ -29,7 +29,7 @@ export function mount(body, { store, tile }) {
     // the same customer's other visits
     const others = body.querySelector(".lv-others");
     try { const list = await visitsOfCustomer(store.get("base"), raw.customerName || j.customer, j.id); if (my !== run) return;
-      others.innerHTML = list.length ? `<div class="lv-muted" style="margin:8px 0 4px;font-size:.8rem">Other visits · ${list.length}</div><div class="lv-rows">${list.slice(0, 20).map(v => `<div class="lv-row" data-id="${esc(v.id)}"><div><div class="n">${esc(v.project || v.wo || "visit")}</div><div class="s">${fmtDate(v.start)}${v.hours ? " · " + v.hours + " h" : ""}</div></div></div>`).join("")}</div>` : "";
+      others.innerHTML = list.length ? `<div class="lv-h">Other visits · ${list.length}</div><div class="lv-rows">${list.slice(0, 20).map(v => `<div class="lv-row" data-id="${esc(v.id)}"><div><div class="n">${esc(v.project || v.wo || "visit")}</div><div class="s">${fmtDate(v.start)}${v.hours ? " · " + v.hours + " h" : ""}</div></div></div>`).join("")}</div>` : "";
       others.querySelectorAll("[data-id]").forEach(r => r.onclick = () => store.set("visitId", r.dataset.id)); } catch (_) {}
   };
   stops.push(store.on("visitId", draw), store.on("base", draw), store.on("visitSaved", s => { if (s && s.by !== "contact" && s.id === store.get("visitId")) draw(); })); draw();

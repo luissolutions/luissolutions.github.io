@@ -46,15 +46,15 @@ export function mount(body, { store, tile }) {
         ${pair(inp(F[6]), `<label><b>Date</b><span class="lv-ro">${fmtDate(j.start)} ${fmtTime(j.start)}${j.end ? " → " + fmtTime(j.end) : ""}</span></label>`)}
         <label><b>Notes</b><textarea name="notes" rows="4">${esc(j.notes)}</textarea></label>
         <div class="lv-kv">${kv("Hours", `${fmtHours(j.hours)}${j.travel ? ` (travel ${fmtHours(j.travel)})` : ""}`)}${raw.startOdometer ? kv("Odometer", `${esc(raw.startOdometer)} → ${esc(raw.endOdometer || "")}`) : ""}${raw.sensorCount ? kv("Sensors", esc(raw.sensorCount)) : ""}</div>
-        ${segs.length ? `<div class="lv-muted" style="font-size:.82rem;margin:2px 0 4px">${segs.map(s => `${esc(s.type || "work")} ${fmtTime(s.startTime)}–${s.endTime ? fmtTime(s.endTime) : "…"}`).join(" · ")}</div>` : ""}
+        ${segs.length ? `<div class="lv-note">${segs.map(s => `${esc(s.type || "work")} ${fmtTime(s.startTime)}–${s.endTime ? fmtTime(s.endTime) : "…"}`).join(" · ")}</div>` : ""}
         <div class="lv-chips">${tel ? `<a class="lv-btn" href="tel:${esc(tel)}">📞 call</a><a class="lv-btn" href="sms:${esc(tel)}">💬 text</a>` : ""}${mail ? `<a class="lv-btn" href="mailto:${esc(mail)}">✉️ email</a>` : ""}${addr ? `<a class="lv-btn" href="https://maps.google.com/?q=${encodeURIComponent(addr)}" target="_blank" rel="noopener">🗺 map</a>` : ""}<a class="lv-btn" href="${link}" target="_blank" rel="noopener">Details app ↗</a></div>
         <div class="lv-actions"><span class="lv-muted st"></span><button type="submit" class="lv-btn primary">Save</button></div>
       </form>
       ${inv ? sec("invoice", `Invoice · ${esc(inv.type)} · ${money2.format(Number(inv.total) || 0)} · ${inv.paid ? "paid" : "unpaid"}`, `<div class="lv-kv">${kv("Date", esc(inv.date))}${kv("Labor", inv.labor.length ? `${inv.labor.length} line${inv.labor.length === 1 ? "" : "s"}` : "")}${kv("Parts", inv.parts.length ? inv.parts.map(p => `${esc(p.part)} × ${esc(p.quantity)}`).join(", ") : "")}${kv("Subtotal", inv.subtotal != null ? money2.format(Number(inv.subtotal) || 0) : "")}${kv("Tax", inv.tax != null ? money2.format(Number(inv.tax) || 0) : "")}${kv("Total", money2.format(Number(inv.total) || 0))}${kv("Paid", inv.paid ? `${money2.format(Number(inv.amountPaid ?? inv.total) || 0)}${inv.paidDate ? " · " + esc(inv.paidDate) : ""}` : "")}</div>`) : ""}
       ${days.length ? sec("daily", `Daily entries · ${days.length}`, `<div class="lv-kv">${days.map(([date, d]) => `<b>${esc(date)}</b><span>${esc(String(d.notes || d.note || "").slice(0, 160))}${imgsOf(d).length ? ` · 📷${imgsOf(d).length}` : ""}</span>`).join("")}</div>`) : ""}
-      ${sec("others", "Other visits", `<div class="lv-muted" style="font-size:.8rem">loading…</div>`)}
-      ${sec("lists", "Device lists", `<div class="lv-muted" style="font-size:.8rem">loading…</div>`)}
-      ${sec("sensors", "Device data", `<div class="lv-muted" style="font-size:.8rem">loading…</div>`)}`;
+      ${sec("others", "Other visits", `<div class="lv-note">loading…</div>`)}
+      ${sec("lists", "Device lists", `<div class="lv-note">loading…</div>`)}
+      ${sec("sensors", "Device data", `<div class="lv-note">loading…</div>`)}`;
     wireSecs();
     // edit in place: the same keys onlinejob / onlinecontacts write (core/jobs.saveJob allows exactly these + notes)
     const f = body.querySelector("form.lv-det"), st = f.querySelector(".st"); f.addEventListener("input", () => { st.textContent = "unsaved"; });
@@ -65,17 +65,17 @@ export function mount(body, { store, tile }) {
     let jobs = []; try { jobs = await loadJobs(base); } catch (e) { if (my === run) fill(body, "lists", "Device lists", `<div class="lv-err">${esc(e.message || e)}</div>`); return; }
     if (my !== run) return;
     const others = await visitsOfCustomer(base, raw.customerName || j.customer, j.id, jobs);
-    fill(body, "others", `Other visits · ${others.length}`, others.length ? `<div class="lv-rows">${others.slice(0, 30).map(v => `<div class="lv-row" data-id="${esc(v.id)}"><div><div class="n">${esc(v.project || v.wo || "visit")}</div><div class="s">${fmtDate(v.start)}${v.hours ? " · " + v.hours + " h" : ""}</div></div></div>`).join("")}</div>` : `<div class="lv-muted" style="font-size:.8rem">none</div>`);
+    fill(body, "others", `Other visits · ${others.length}`, others.length ? `<div class="lv-rows">${others.slice(0, 30).map(v => `<div class="lv-row" data-id="${esc(v.id)}"><div><div class="n">${esc(v.project || v.wo || "visit")}</div><div class="s">${fmtDate(v.start)}${v.hours ? " · " + v.hours + " h" : ""}</div></div></div>`).join("")}</div>` : `<div class="lv-note">none</div>`);
     body.querySelectorAll('[data-sec="others"] [data-id]').forEach(r => r.onclick = () => { store.set("tx", null); store.set("visitId", r.dataset.id); });
     const owner = await metaOwnerOf(base, j, jobs), lists = deviceLists(owner), sensors = sensorRows(owner), nList = lists.reduce((t, l) => t + l.rows.length, 0);
-    const from = owner.id !== j.id ? `<div class="lv-muted" style="font-size:.75rem;margin-bottom:4px">project record from the first visit, ${esc(fmtDate(owner.start))}</div>` : "";
-    fill(body, "lists", `Device lists · ${nList}`, nList ? from + lists.map(l => `<div class="lv-muted" style="margin:6px 0 4px;font-size:.8rem">${esc(l.name)} · ${l.rows.length}${l.rows.some(r => r.counted) ? ` · ${l.rows.filter(r => r.counted).length} counted` : ""}</div>
+    const from = owner.id !== j.id ? `<div class="lv-note">project record from the first visit, ${esc(fmtDate(owner.start))}</div>` : "";
+    fill(body, "lists", `Device lists · ${nList}`, nList ? from + lists.map(l => `<div class="lv-h">${esc(l.name)} · ${l.rows.length}${l.rows.some(r => r.counted) ? ` · ${l.rows.filter(r => r.counted).length} counted` : ""}</div>
         <div class="lv-tbl"><b>ID</b><b>Serial</b><b>Model</b><b>Status</b>${l.rows.map(r => { const a = `class="tap" data-dev="${esc(l.listId + "|" + r.rowId)}" data-list="${esc(l.listId)}" data-row="${esc(r.rowId)}" data-label="${esc((l.name ? l.name + " · " : "") + (r.id || r.serial || r.rowId))}" title="tap = its photos in the Photos tile"`;
-          return `<span ${a}>${r.counted ? "✓ " : ""}${esc(r.id)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.model || r.type)}</span><span ${a}>${esc(r.status)}${r.photos ? ` · 📷${r.photos}` : ""}</span>`; }).join("")}</div>`).join("") : `<div class="lv-muted" style="font-size:.8rem">none on this project</div>`);
+          return `<span ${a}>${r.counted ? "✓ " : ""}${esc(r.id)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.model || r.type)}</span><span ${a}>${esc(r.status)}${r.photos ? ` · 📷${r.photos}` : ""}</span>`; }).join("")}</div>`).join("") : `<div class="lv-note">none on this project</div>`);
     const flags = r => `${r.labeled ? " 🏷" : ""}${r.run ? " ▶" : ""}${r.placed ? " 📍" : ""}`;
     const sum = [sensors.filter(r => r.labeled).length && `${sensors.filter(r => r.labeled).length} labeled`, sensors.filter(r => r.run).length && `${sensors.filter(r => r.run).length} run`, sensors.filter(r => r.placed).length && `${sensors.filter(r => r.placed).length} on map`].filter(Boolean);
     fill(body, "sensors", `Device data · ${sensors.length}${sum.length ? " · " + sum.join(", ") : ""}`, sensors.length ? from + `<div class="lv-tbl five"><b>#</b><b>Serial</b><b>Info 1</b><b>Info 2</b><b>Info 3</b>${sensors.map(r => { const a = `class="tap" data-sen="${esc(r.num)}" data-serial="${esc(r.serial)}" data-label="${esc("Sensor " + r.num + (r.serial ? " · " + r.serial : ""))}" title="tap = its photos in the Photos tile"`;
-        return `<span ${a}>${esc(r.num)}${flags(r)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.m1)}</span><span ${a}>${esc(r.m2)}</span><span ${a}>${esc(r.m3)}</span>`; }).join("")}</div>` : `<div class="lv-muted" style="font-size:.8rem">none on this project</div>`);
+        return `<span ${a}>${esc(r.num)}${flags(r)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.m1)}</span><span ${a}>${esc(r.m2)}</span><span ${a}>${esc(r.m3)}</span>`; }).join("")}</div>` : `<div class="lv-note">none on this project</div>`);
   };
   const drawTx = () => { ++run; drawTxForm(body, { store, tile, title: "Details" }); };
   // last tap wins: a ledger row -> its form; a visit -> the visit; a cleared row falls back to the visit

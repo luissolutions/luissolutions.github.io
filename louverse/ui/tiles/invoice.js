@@ -25,9 +25,9 @@ export function mount(body, { store, tile }) {
     let j = store.get("visit"); if (!j || j.id !== id) { try { j = await loadJob(store.get("base"), id); } catch (e) { body.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; } }
     if (!j || my !== run) return; const inv = invoiceOf(j);
     tile.setTitle(`Invoice · ${j.customer}`);
-    if (!inv) { body.innerHTML = `<div class="lv-empty">No invoice on this visit yet.<br><a class="lv-btn" style="margin-top:8px;display:inline-block" href="https://luissolutions.us/apps/online/onlineinvoice.html?task=${encodeURIComponent(j.id)}" target="_blank" rel="noopener">make one in the Invoice app ↗</a></div>`; return; }
-    body.innerHTML = `<div class="lv-muted" style="font-size:.85rem">${esc(inv.type)}${inv.date ? " · " + esc(inv.date) : ""}${inv.title ? " · " + esc(inv.title) : ""}</div>${lines(inv)}
-      <div class="lv-chips">${inv.paymentTxId ? `<button type="button" class="lv-btn" data-pay>show the payment row ▸</button>` : ""}<a class="lv-btn" href="https://luissolutions.us/apps/online/onlineinvoice.html?task=${encodeURIComponent(j.id)}" target="_blank" rel="noopener">open in the Invoice app ↗</a></div>`;
+    if (!inv) { body.innerHTML = `<div class="lv-empty">No invoice on this visit yet.</div><div class="lv-foot"><a class="lv-btn" href="https://luissolutions.us/apps/online/onlineinvoice.html?task=${encodeURIComponent(j.id)}" target="_blank" rel="noopener">make one in the Invoice app ↗</a></div>`; return; }
+    body.innerHTML = `<div class="lv-note">${esc(inv.type)}${inv.date ? " · " + esc(inv.date) : ""}${inv.title ? " · " + esc(inv.title) : ""}</div>${lines(inv)}
+      <div class="lv-foot">${inv.paymentTxId ? `<button type="button" class="lv-btn" data-pay>show the payment row ▸</button>` : ""}<a class="lv-btn" href="https://luissolutions.us/apps/online/onlineinvoice.html?task=${encodeURIComponent(j.id)}" target="_blank" rel="noopener">open in the Invoice app ↗</a></div>`;
     const pay = body.querySelector("[data-pay]"); if (pay) pay.onclick = async () => { pay.textContent = "looking…";
       try { const rows = await loadLedgerYear(store.get("base"), Number(inv.paymentTxYear) || store.get("year")); const row = rows.find(r => r.id === inv.paymentTxId);
         if (row) { if (Number(inv.paymentTxYear) && Number(inv.paymentTxYear) !== store.get("year")) store.set("year", Number(inv.paymentTxYear)); store.set("tx", { ...row, year: Number(inv.paymentTxYear) || store.get("year") }); pay.textContent = "payment row picked ▸"; }

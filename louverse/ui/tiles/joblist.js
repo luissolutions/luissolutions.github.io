@@ -14,7 +14,7 @@ export function mount(body, { store, tile }) {
     const hit = inYear.filter(j => !t || `${j.customer} ${j.project} ${j.wo}`.toLowerCase().includes(t)), show = hit.slice(0, 300);
     tile.setTitle(`Visits${y ? " · " + y : ""} · ${inYear.length}`);
     rows.innerHTML = (show.length ? show.map(j => `<div class="lv-row${j.id === sel ? " on" : ""}" data-id="${j.id}"><div><div class="n">${esc(j.customer)}</div><div class="s">${esc([j.project, j.wo].filter(Boolean).join(" · "))} ${fmtDate(j.start)}</div></div><div class="v">${fmtHours(j.hours)}</div></div>`).join("") + (hit.length > show.length ? `<div class="lv-muted">showing ${show.length} of ${hit.length}</div>` : "")
-      : `<div class="lv-empty">${jobs.length ? (inYear.length ? "no match" : `no visits in ${y}`) : "no visits"}</div>`) + (elsewhere > 0 ? `<div class="lv-muted" style="font-size:.78rem;margin-top:6px">${elsewhere} more in other years - change the Year tile</div>` : ""); };
+      : `<div class="lv-empty">${jobs.length ? (inYear.length ? "no match" : `no visits in ${y}`) : "no visits"}</div>`) + (elsewhere > 0 ? `<div class="lv-note">${elsewhere} more in other years - change the Year tile</div>` : ""); };
   const load = async () => { rows.innerHTML = `<div class="lv-empty">loading…</div>`;
     try { jobs = await loadJobs(store.get("base")); } catch (e) { jobs = []; rows.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; }
     if (!jobs.length) { rows.innerHTML = `<div class="lv-empty">No visits yet.</div>`; tile.setTitle("Visits"); return; }

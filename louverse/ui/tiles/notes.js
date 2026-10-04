@@ -17,7 +17,7 @@ export function mount(body, { store, tile }) {
     const hit = inYear.filter(n => !t || n.name.toLowerCase().includes(t) || (!n.locked && n.text.toLowerCase().includes(t)));
     if (!notes.find(x => x.id === sel)) listTitle(inYear.length);
     rows.innerHTML = (hit.length ? hit.map(n => `<div class="lv-row${n.id === sel ? " on" : ""}" data-id="${esc(n.id)}"><div><div class="n">${esc(n.name)}</div><div class="s">${n.ts ? new Date(n.ts).toLocaleDateString() : ""}</div></div></div>`).join("") : `<div class="lv-empty">${notes.length ? (inYear.length ? "no match" : `no notes in ${y}`) : "no notes"}</div>`)
-      + (elsewhere > 0 ? `<div class="lv-muted" style="font-size:.78rem;margin-top:6px">${elsewhere} more in other years - change the Year tile</div>` : ""); };
+      + (elsewhere > 0 ? `<div class="lv-note">${elsewhere} more in other years - change the Year tile</div>` : ""); };
   const drawNote = () => { const n = notes.find(x => x.id === sel); if (!n) { right.innerHTML = `<div class="lv-empty">Pick a note.</div>`; listTitle(notes.filter(x => !yearOf() || !x.ts || new Date(x.ts).getFullYear() === yearOf()).length); return; }
     tile.setTitle(`Notes · ${n.name}`); const canEdit = !n.locked;   // only the lock (the word) blocks editing, never the account (L 2026-10-04)
     right.innerHTML = n.locked ? `<div class="lv-empty">Locked — open it in the Notes app with its word.</div>`

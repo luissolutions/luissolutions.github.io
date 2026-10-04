@@ -58,7 +58,7 @@ export function mount(body, { store, tile }) {
     const btns = !w ? "" : tx.img ? `<button type="button" class="lv-btn" data-act="label">🏷 Label</button><button type="button" class="lv-btn" data-act="replace">✎ Replace</button><button type="button" class="lv-btn" data-act="del">🗑 Delete</button>` : `<button type="button" class="lv-btn primary" data-act="add">➕ Add receipt</button>`;
     const receipt = tx.img ? [{ url: tx.img, path: tx.imgPath || "", name: `${tx.name} · ${money2.format(tx.amt)}${when ? " · " + when : ""}`, src: tx.imgPath || "ledger" }] : [];
     body.innerHTML = tools(btns, "") + (tx.img
-      ? `<div class="lv-photos one">${fig(receipt[0], 0, "")}</div>` + (tx.desc ? `<div class="lv-muted" style="margin-top:6px">${esc(tx.desc)}</div>` : "")
+      ? `<div class="lv-photos one">${fig(receipt[0], 0, "")}</div>` + (tx.desc ? `<div class="lv-note">${esc(tx.desc)}</div>` : "")
       : `<div class="lv-empty">${esc(tx.name || "This row")} has no receipt photo.</div>`);
     wireFull(); fillThumbs(receipt, 1024);   // one receipt, shown whole - a 1024 px copy reads fine, the tap opens the original
     const after = (url, path) => { forgetThumb({ path: tx.imgPath, url: tx.img }); const row = { ...tx, img: url, imgPath: path }; store.set("ledgerSaved", Date.now()); store.set("tx", row); };
@@ -93,7 +93,7 @@ export function mount(body, { store, tile }) {
       + (f ? `<div class="lv-chips lv-cats"><button type="button" class="lv-chip on" data-unfocus title="back to every photo on the visit">✕ ${esc(f.label)} · ${pool.length}</button></div>`
         : groups.size > 1 ? `<div class="lv-chips lv-cats"><button type="button" class="lv-chip${!folder ? " on" : ""}" data-folder="">all ${photos.length}</button>${[...groups.entries()].map(([g, n]) => `<button type="button" class="lv-chip${g === folder ? " on" : ""}" data-folder="${esc(g)}">${esc(g)} ${n}</button>`).join("")}</div>` : "")
       + (shown.length ? `<div class="lv-photos">${shown.map(([p, i]) => fig(p, i, acts(p, i))).join("")}</div>` : `<div class="lv-empty">${f ? `No photo for ${esc(f.label)}.` : "No photos on this visit."}</div>`)
-      + (shown0.length > GRID_MAX ? `<div class="lv-muted" style="font-size:.8rem;margin-top:6px">showing ${GRID_MAX} of ${shown0.length} - pick a folder</div>` : "");
+      + (shown0.length > GRID_MAX ? `<div class="lv-note">showing ${GRID_MAX} of ${shown0.length} - pick a folder</div>` : "");
     wireFull(); fillThumbs(photos, 256);
     body.querySelectorAll("[data-folder]").forEach(b => b.onclick = () => { folder = b.dataset.folder; drawJob(); });
     const un = body.querySelector("[data-unfocus]"); if (un) un.onclick = () => store.set("photoPick", null);

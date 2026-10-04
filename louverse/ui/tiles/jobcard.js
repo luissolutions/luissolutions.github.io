@@ -25,7 +25,7 @@ export function mount(body, { store, tile }) {
         <b>Hours</b><span>${fmtHours(j.hours)}${j.travel ? ` (travel ${fmtHours(j.travel)})` : ""}</span>
         ${raw.startOdometer ? `<b>Odometer</b><span>${esc(raw.startOdometer)} → ${esc(raw.endOdometer || "")}</span>` : ""}
       </div>
-      ${segs.length ? `<div class="lv-muted" style="font-size:.85rem;margin-bottom:6px">${segs.map(s => `${esc(s.type || "work")} ${fmtTime(s.startTime)}–${s.endTime ? fmtTime(s.endTime) : "…"}`).join(" · ")}</div>` : ""}
+      ${segs.length ? `<div class="lv-note">${segs.map(s => `${esc(s.type || "work")} ${fmtTime(s.startTime)}–${s.endTime ? fmtTime(s.endTime) : "…"}`).join(" · ")}</div>` : ""}
       <label><b>Notes</b><textarea name="notes" rows="5" ${canEdit ? "" : "readonly"}>${esc(j.notes)}</textarea></label>
       <div class="lv-actions"><span class="lv-muted st"></span><button type="submit" class="lv-btn primary">Save</button></div>
     </form>`;
