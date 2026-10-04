@@ -124,7 +124,7 @@ export async function visitsOfCustomer(base, name, exceptId, jobs) { const n = l
 // the device lists on a visit (onlinejob): lists/<listId>/{_name, createdAt, <rowId>: {id, serial, model, type, location, status, ip, mac, notes, counted, images}}
 export function deviceLists(job) { const raw = job?.raw || job || {}, out = [];
   for (const [listId, list] of Object.entries(raw.lists || {})) { if (!list || typeof list !== "object") continue;
-    const rows = Object.entries(list).filter(([k, v]) => !DEVICE_RESERVED.has(k) && v && typeof v === "object").map(([rowId, d]) => ({ rowId, id: d.id || d.label || "", serial: d.serial || "", model: d.model || "", type: d.type || "", location: d.location || "", status: d.status || "", counted: !!d.counted, photos: imgsOf(d).filter(i => i && i.url).length }));
+    const rows = Object.entries(list).filter(([k, v]) => !DEVICE_RESERVED.has(k) && v && typeof v === "object").map(([rowId, d]) => ({ rowId, id: d.id || d.label || "", serial: d.serial || "", model: d.model || "", type: d.type || "", location: d.location || "", ip: d.ip || "", mac: d.mac || "", notes: typeof d.notes === "string" ? d.notes : "", status: d.status || "", counted: !!d.counted, photos: imgsOf(d).filter(i => i && i.url).length }));
     out.push({ listId, name: list._name || listId, rows }); }
   return out;
 }
