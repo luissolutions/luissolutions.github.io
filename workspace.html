@@ -40,6 +40,11 @@
   </header>
 
   <div class="lv-view" id="view" aria-label="Board">
+    <!-- EMPTY BOARD (L 2026-10-04 "just the 3 to choose after Clear"): no starting layout - pick a set, or single tiles from + Tile -->
+    <div class="lv-empty-board" id="empty" hidden>
+      <div class="lv-h" style="margin:0 0 8px">Empty board - pick a set, or single tiles from + Tile</div>
+      <div class="lv-chips"><button type="button" class="lv-btn primary" data-set="money">Money set</button><button type="button" class="lv-btn primary" data-set="visits">Visits set</button><button type="button" class="lv-btn primary" data-set="all">Everything</button></div>
+    </div>
     <div class="lv-world" id="world">
       <svg class="lv-links" id="links" xmlns="http://www.w3.org/2000/svg"></svg>
     </div>
@@ -49,7 +54,7 @@
   <script type="module">
     import { whenAuthReady, onUser, baseFor, signIn, signOutNow, LUIS_UID, readOnce } from "./core/firebase.js";
     import { store } from "./core/store.js";
-    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, GUTTER, columnLayout, restoreDesktop, byOrd, setLive, ensureLive, modeOverride, setModeOverride } from "./core/layout.js";
+    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, GUTTER, columnLayout, restoreDesktop, byOrd, setLive, ensureLive, modeOverride, setModeOverride, SIZES } from "./core/layout.js";
     import { mountTile, placeTile } from "./ui/tile.js";
     import { mountBoard } from "./ui/board.js";
     import * as year from "./ui/tiles/year.js";
@@ -159,7 +164,7 @@
           onRemove: s => { removeTile(s.id); mounted.delete(s.id); layout = getLayout(); ensureLive(layout); saveLayout(layout); wires(); if (NARROW()) { columnLayout(layout); render(); } else if (layout.tiles.some(t => t.type === s.type)) render(); else pruneOwners(); flash("removed"); } });
         mounted.set(spec.id, api);
       }
-      pruneOwners(); wires(); board.fitWorld(layout.tiles);
+      pruneOwners(); wires(); board.fitWorld(layout.tiles); $("empty").hidden = layout.tiles.length > 0;
     }
     // FULL SCREEN (L 2026-10-04 "expand it to the max, it has all the functions the app did, or as far as it needs"): ⤢ lifts the
     // tile onto the body (a fixed box cannot escape the transformed world) and, when the tile kind has an app behind it
@@ -184,7 +189,7 @@
     // a tile asks for another kind on the board (Details "✎ Edit in Entry"): light the one that exists, else add one beside the asker
     window.addEventListener("lv:tile", e => { const { type, from } = e.detail || {}; if (!TILES[type]) return;
       const have = layout.tiles.find(t => t.type === type); if (have) { const api = mounted.get(have.id); if (api) { api.el.classList.remove("lit"); void api.el.offsetWidth; api.el.classList.add("lit"); api.el.style.zIndex = 9999; } flash(TILES[type].title + " is on the board"); return; }
-      const src = from && layout.tiles.find(t => t.id === from); const at = src ? { x: src.x + src.w + 40, y: src.y } : (() => { const vr = viewEl.getBoundingClientRect(), [wx, wy] = board.toWorld(vr.left + vr.width / 2, vr.top + vr.height / 2); return { x: wx - 200, y: wy - 120 }; })();
+      const src = from && layout.tiles.find(t => t.id === from); const want = src ? { x: src.x + src.w + 40, y: src.y } : (() => { const vr = viewEl.getBoundingClientRect(), [wx, wy] = board.toWorld(vr.left + vr.width / 2, vr.top + vr.height / 2); return { x: wx - 200, y: wy - 120 }; })(); const at = freeSpot(want.x, want.y, (SIZES[type] || [480, 360])[0], (SIZES[type] || [480, 360])[1]);
       addTile(type, at); layout = getLayout(); if (NARROW()) columnLayout(layout); render(); flash("added " + TILES[type].title); });
     // a key changed somewhere: its wires light up and the tiles on the receiving end flash
     store.on("*", (v, key) => board.pulse(key, tileEls()));
@@ -196,20 +201,31 @@
         + `<div class="lv-pop-h">Local apps</div>` + LOCAL.map(([n, f]) => `<button type="button" data-t="page" data-url="https://luissolutions.us/apps/local/${f}.html" data-title="${n}">${n}<small>apps/local/${f}</small></button>`).join("")
         + `<div class="lv-pop-h">Board</div>` + Object.entries(SETS).map(([k, v]) => `<button type="button" data-set="${k}">${v.name}<small>${v.desc}</small></button>`).join("")
         + `<button type="button" data-clear="1">Clear the board<small>every tile off - an empty grid</small></button>`
-        + `<button type="button" data-reset="1">Reset the board<small>back to the starting layout</small></button>`;
+        ;   // (no Reset any more - the starting board is gone; Clear leaves the empty board with its three sets)
       const r = e.currentTarget.getBoundingClientRect(); pop.style.left = Math.min(r.left, innerWidth - 250) + "px"; pop.style.top = (r.bottom + 4) + "px";
       pop.style.maxHeight = Math.max(160, innerHeight - r.bottom - 16) + "px";   // never past the bottom of the VISIBLE viewport (iPad Safari's 100vh hides under its toolbars - L 2026-10-04)
       document.body.appendChild(pop);
-      pop.onclick = ev => { const b = ev.target.closest("[data-t],[data-reset],[data-set],[data-clear]"); if (!b) return; pop.remove();
-        if (b.dataset.reset) { layout = resetLayout(); render(); fitNow(); flash("reset"); return; }
-        if (b.dataset.clear) { layout.tiles.length = 0; saveLayout(layout); render(); flash("cleared"); return; }
-        if (b.dataset.set) { addSet(b.dataset.set); return; }
+      pop.onclick = ev => { const b = ev.target.closest("[data-t],[data-reset],[data-set],[data-clear]"); if (!b) return; ev.stopPropagation();
+        if (b.dataset.clear) { pop.remove(); layout.tiles.length = 0; saveLayout(layout); render(); flash("cleared"); return; }
+        if (b.dataset.set) {   // a set REPLACES a board that has tiles - warned, two taps (L 2026-10-04 "when you add it overlaps what's there - have it clear with warning")
+          if (layout.tiles.length && !b.dataset.armed) { b.dataset.armed = "1"; b.innerHTML = `⚠ Replaces everything on the board with the ${SETS[b.dataset.set].name}<small>tap again to do it - or pick single tiles above to add alongside</small>`; return; }
+          pop.remove(); if (layout.tiles.length) { layout.tiles.length = 0; saveLayout(layout); } addSet(b.dataset.set); return; }
+        pop.remove();
         const vr = viewEl.getBoundingClientRect(), [wx, wy] = board.toWorld(vr.left + vr.width / 2, vr.top + vr.height / 2);
         const cfg = b.dataset.url ? { url: b.dataset.url, title: b.dataset.title } : {};
-        const spec = addTile(b.dataset.t, { x: wx - 200, y: wy - 120 }, cfg); layout = getLayout(); if (NARROW()) columnLayout(layout); render(); flash("added " + (cfg.title || TILES[b.dataset.t].title));   // phone: the new tile joins the column (L 2026-10-04 "new tiles not fitting on the mobile board")
+        const at = freeSpot(wx - 200, wy - 120, (SIZES[b.dataset.t] || [480, 360])[0], (SIZES[b.dataset.t] || [480, 360])[1]);   // a single tile lands on free board, never on top of another (L)
+        const spec = addTile(b.dataset.t, at, cfg); layout = getLayout(); if (NARROW()) columnLayout(layout); render(); flash("added " + (cfg.title || TILES[b.dataset.t].title));   // phone: the new tile joins the column (L 2026-10-04 "new tiles not fitting on the mobile board")
         if (NARROW()) mounted.get(spec.id)?.el.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
       setTimeout(() => document.addEventListener("click", () => pop.remove(), { once: true }), 0); };
     $("fit").onclick = fitNow;
+    // a free spot for a new tile: start where asked, then walk a widening ring (40 px steps) until the box overlaps nothing
+    function freeSpot(x, y, w, h) {
+      const hOf = t => (t.collapsed ? 40 : t.h), hits = (px, py) => layout.tiles.some(t => px < t.x + t.w + 20 && px + w + 20 > t.x && py < t.y + hOf(t) + 20 && py + h + 20 > t.y);
+      if (!hits(x, y)) return { x, y };
+      for (let ring = 1; ring < 60; ring++) { const d = ring * 40;
+        for (const [dx, dy] of [[d, 0], [0, d], [-d, 0], [0, -d], [d, d], [-d, d], [d, -d], [-d, -d]]) if (!hits(x + dx, y + dy)) return { x: x + dx, y: y + dy }; }
+      return { x, y };
+    }
     // SPREAD (L 2026-10-04 "a spread that moves them next to, not overlap, when pressed, outward, in desktop mode"): every
     // overlapping pair is pushed apart along the axis of least overlap, half each way + a 20 px gap, snapped to the grid,
     // repeated until nothing overlaps (or 60 rounds). Positions only - sizes and the overall arrangement stay.
@@ -225,6 +241,7 @@
       } while (moved && rounds < 60);
       saveLayout(layout); render(); board.fit(layout.tiles); flash(rounds > 1 ? "spread" : "nothing overlapped");
     }
+    $("empty").querySelectorAll("[data-set]").forEach(b => b.onclick = () => addSet(b.dataset.set));
     $("spread").onclick = () => { if (NARROW()) { flash("spread is for the desktop board"); return; } spread(); };
     $("zin").onclick = () => { const r = viewEl.getBoundingClientRect(); board.zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.25); };
     $("zout").onclick = () => { const r = viewEl.getBoundingClientRect(); board.zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1 / 1.25); };
