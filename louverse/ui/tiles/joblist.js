@@ -1,8 +1,11 @@
-// blocks/joblist.js - the jobs list: search + rows; picking one sets store.jobId so the card and the photos follow.
-import { loadJobs, fmtDate, fmtHours } from "../../core/jobs.js";
+// tiles/joblist.js - the jobs list: search + rows; picking one sets store.jobId so the Job and Photos tiles follow. It
+// follows jobSaved too: an edit in the Job tile refreshes that one row here (the wire runs both ways).
+import { loadJobs, loadJob, fmtDate, fmtHours } from "../../core/jobs.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 export const title = "Jobs";
+export const pub = ["jobId"];
+export const sub = ["jobSaved"];
 export function mount(body, { store }) {
   body.innerHTML = `<input class="lv-search" type="search" placeholder="Search jobs (customer, project, WO)" autocomplete="off"><div class="lv-rows"></div>`;
   const q = body.querySelector("input"), rows = body.querySelector(".lv-rows"); let jobs = [], stops = [];
@@ -14,9 +17,10 @@ export function mount(body, { store }) {
     try { jobs = await loadJobs(store.get("base")); } catch (e) { jobs = []; rows.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; }
     if (!jobs.length && store.get("base") === "public") { rows.innerHTML = `<div class="lv-empty">Sign in to see your jobs.</div>`; return; }
     draw(); };
+  const refreshOne = async s => { if (!s || !s.id) return; try { const j = await loadJob(store.get("base"), s.id); if (!j) return; const i = jobs.findIndex(x => x.id === j.id); if (i >= 0) jobs[i] = j; else jobs.unshift(j); draw(); } catch (_) {} };
   q.addEventListener("input", draw);
   rows.addEventListener("click", e => { const r = e.target.closest(".lv-row"); if (!r) return; const j = jobs.find(x => x.id === r.dataset.id); store.set("job", j || null); store.set("jobId", r.dataset.id); draw(); });
-  stops.push(store.on("base", load), store.on("jobId", draw));
+  stops.push(store.on("base", load), store.on("jobId", draw), store.on("jobSaved", refreshOne));
   load();
   return { destroy: () => stops.forEach(s => s()) };
 }

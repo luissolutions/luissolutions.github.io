@@ -2,7 +2,7 @@
 // customerAddress, project, workOrder, startTime/endTime (ISO, UTC), segments [{startTime, endTime, type}], status, notes,
 // startOdometer/endOdometer, lists (device lists with photos), tasks (daily entries with photos), sensorCount ...
 // Photos live under ONE storage root {base}/tasks/images/<project folder>/... (see reference_onlinejob_images).
-import { database, storage, ref, get, storageRef, listAll, getDownloadURL, readOnce } from "./firebase.js";
+import { database, storage, ref, get, update, storageRef, listAll, getDownloadURL, readOnce } from "./firebase.js";
 
 export const tasksPath = base => `${base}/tasks`;
 export const taskPath = (base, id) => `${base}/tasks/${id}`;
@@ -33,6 +33,13 @@ export async function loadJobs(base) {
   return Object.entries(all).filter(([, v]) => v && typeof v === "object").map(([id, v]) => summarize(id, v)).sort((a, b) => b.start - a.start);
 }
 export async function loadJob(base, id) { const v = await readOnce(taskPath(base, id)); return v ? summarize(id, v) : null; }
+// write back (the Job tile edits in place): only the fields given change; onlinejob's own keys, so the app sees the edit too
+export async function saveJob(base, id, patch) {
+  const allowed = ["customerName", "customerAddress", "customerPhone", "project", "workOrder", "status", "notes"], body = {};
+  for (const k of allowed) if (k in patch) body[k] = patch[k];
+  if (!Object.keys(body).length) return null;
+  body.updatedAt = Date.now(); await update(ref(database, taskPath(base, id)), body); return loadJob(base, id);
+}
 
 // every photo a job has, from its three homes: the storage folder (loose + subfolders, one level), device-list rows, daily rows
 export async function listJobPhotos(base, job, { max = 80 } = {}) {

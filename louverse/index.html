@@ -4,15 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
   <title>Louverse</title>
-  <meta name="description" content="One canvas, many blocks: the Louverse apps as widgets you arrange, wired by arrows that show what follows what.">
+  <meta name="description" content="One board, many tiles: the Louverse apps as tiles you arrange, wired together so a change in one shows in the others.">
   <link rel="icon" href="../favicon.ico">
   <link rel="stylesheet" href="assets/louverse.css">
 </head>
 <body>
-  <!-- THE SHELL, v2 (L 2026-10-03: "like the Louverse, a bigger canvas; remove presets; remember in browser for now; the modules
-       pop in like widgets and interconnect, arrows showing where other info will change; move it around on a grid; lots of
-       real estate"). A slim header, then one big canvas: blocks are DOM widgets placed in world pixels; an SVG layer draws an
-       arrow from every block that SETS a store key to every block that FOLLOWS it, and the arrow lights when the key changes. -->
+  <!-- THE BOARD (L 2026-10-03): a slim header, then one big canvas. TILES are DOM widgets placed in world pixels; CORE
+       (core/*) holds the logic per domain; WIRES (the SVG arrows) run from every tile that SETS a store key to every tile
+       that FOLLOWS it and light up when the key changes. Tiles write back too (the Job and Notes tiles save through core). -->
   <header class="lv-head">
     <a class="logo" href="https://luissolutions.us/websites/index.html">Luis' <span class="web">Web</span> Space</a>
     <nav>
@@ -21,8 +20,8 @@
       <a href="https://luissolutions.us/hub.html">Hub</a>
       <a href="https://luissolutions.us/apps/online/onlinelinks.html">Links</a>
     </nav>
-    <button type="button" class="lv-btn primary" id="add">+ Block</button>
-    <button type="button" class="lv-btn ico" id="fit" title="fit every block on screen (or double-tap empty space)">⊡</button>
+    <button type="button" class="lv-btn primary" id="add">+ Tile</button>
+    <button type="button" class="lv-btn ico" id="fit" title="fit every tile on screen (or double-tap empty space)">⊡</button>
     <button type="button" class="lv-btn ico" id="zout" title="zoom out">−</button>
     <button type="button" class="lv-btn ico" id="zin" title="zoom in">+</button>
     <span class="sp"></span>
@@ -40,55 +39,63 @@
   <script type="module">
     import { whenAuthReady, onUser, baseFor, signIn, signOutNow } from "./core/firebase.js";
     import { store } from "./core/store.js";
-    import { loadLayout, saveLayout, addBlock, removeBlock, getLayout, resetLayout } from "./core/layout.js";
-    import { mountBlock, placeBlock } from "./ui/block.js";
+    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout } from "./core/layout.js";
+    import { mountTile } from "./ui/tile.js";
     import { mountBoard } from "./ui/board.js";
-    import * as year from "./ui/blocks/year.js";
-    import * as joblist from "./ui/blocks/joblist.js";
-    import * as jobcard from "./ui/blocks/jobcard.js";
-    import * as photoset from "./ui/blocks/photoset.js";
-    import * as ledger from "./ui/blocks/ledger.js";
-    import * as page from "./ui/blocks/page.js";
+    import * as year from "./ui/tiles/year.js";
+    import * as joblist from "./ui/tiles/joblist.js";
+    import * as jobcard from "./ui/tiles/jobcard.js";
+    import * as photoset from "./ui/tiles/photoset.js";
+    import * as ledger from "./ui/tiles/ledger.js";
+    import * as analytics from "./ui/tiles/analytics.js";
+    import * as notes from "./ui/tiles/notes.js";
+    import * as page from "./ui/tiles/page.js";
 
-    // the block registry: type -> { title, mount, pub, sub }. pub = store keys the block SETS, sub = keys it FOLLOWS; the
-    // arrows on the board come from these. A new block kind = one file in ui/blocks + one line here.
-    const BLOCKS = { year: { ...year }, joblist: { ...joblist, pub: ["jobId"] }, jobcard: { ...jobcard, sub: ["jobId"] }, photoset: { ...photoset, sub: ["jobId"] }, ledger: { ...ledger, sub: ["year"] }, page: { ...page } };
-    const DESC = { year: "the year the money blocks read", joblist: "your jobs, searchable - sets the job", jobcard: "the picked job's record", photoset: "the picked job's photos", ledger: "the year's spending", page: "any page in a frame" };
+    // the tile registry: type -> { title, mount, pub, sub } (each tile file declares its own pub / sub). The wires on the
+    // board come from these. A new tile kind = one file in ui/tiles + one line here.
+    const TILES = { year, joblist, jobcard, photoset, ledger, analytics, notes, page };
+    const DESC = { year: "the year the money tiles read", joblist: "your jobs, searchable - sets the job", jobcard: "the picked job, edit in place", photoset: "the picked job's photos", ledger: "the year's spending", analytics: "the year at a glance, follows the year", notes: "your notes, edit in place", page: "any page in a frame" };
+    // the local apps, one tile each (L): a page tile pointed at the app
+    const LOCAL = [["Calculator", "calc"], ["Checklist", "checklist"], ["Converter", "converter"], ["Counter", "count"], ["Password", "password"]];
     const $ = id => document.getElementById(id), viewEl = $("view"), worldEl = $("world"), linksEl = $("links"), status = $("status");
-    const mounted = new Map();   // block id -> api
+    const mounted = new Map();   // tile id -> api
     let layout = null;
     let flashT = 0; const flash = t => { status.textContent = t; clearTimeout(flashT); flashT = setTimeout(() => { status.textContent = ""; }, 1600); };
 
     const board = mountBoard(viewEl, worldEl, linksEl, { onView: v => { if (layout) { layout.view = { x: v.x, y: v.y, s: v.s }; saveLayout(layout); } } });
-    board.setFitAll(() => board.fit(layout.blocks));
-    const blockEls = () => new Map([...mounted].map(([id, api]) => [id, api.el]));
-    const arrows = () => board.drawArrows(layout.blocks, BLOCKS);
+    board.setFitAll(() => board.fit(layout.tiles));
+    const tileEls = () => new Map([...mounted].map(([id, api]) => [id, api.el]));
+    const wires = () => board.drawArrows(layout.tiles, TILES);
 
     function render() {
-      for (const b of mounted.values()) b.el.remove(); mounted.clear();
-      for (const spec of layout.blocks) {
-        const def = BLOCKS[spec.type]; if (!def) continue;
-        const api = mountBlock(worldEl, spec, def, { store, board, save: () => saveLayout(layout) }, {
-          onMove: () => arrows(),
-          onChange: () => { saveLayout(layout); arrows(); flash("saved"); },
-          onRemove: s => { removeBlock(s.id); mounted.delete(s.id); arrows(); flash("removed"); } });
+      for (const t of mounted.values()) t.el.remove(); mounted.clear();
+      for (const spec of layout.tiles) {
+        const def = TILES[spec.type]; if (!def) continue;
+        const api = mountTile(worldEl, spec, def, { store, board, save: () => saveLayout(layout) }, {
+          onMove: () => wires(),
+          onChange: () => { saveLayout(layout); wires(); flash("saved"); },
+          onRemove: s => { removeTile(s.id); mounted.delete(s.id); wires(); flash("removed"); } });
         mounted.set(spec.id, api);
       }
-      arrows();
+      wires();
     }
-    // a key changed somewhere: the arrows for it light up and the blocks on the receiving end flash
-    store.on("*", (v, key) => board.pulse(key, blockEls()));
+    // a key changed somewhere: its wires light up and the tiles on the receiving end flash
+    store.on("*", (v, key) => board.pulse(key, tileEls()));
 
-    // + Block: lands in the middle of what you are looking at
+    // + Tile: lands in the middle of what you are looking at
     $("add").onclick = e => { e.stopPropagation(); document.querySelector(".lv-pop")?.remove();
-      const pop = document.createElement("div"); pop.className = "lv-pop"; pop.innerHTML = Object.keys(BLOCKS).map(t => `<button type="button" data-t="${t}">${BLOCKS[t].title}<small>${DESC[t]}</small></button>`).join("") + `<button type="button" data-reset="1">Reset the board<small>back to the starting layout</small></button>`;
-      const r = e.currentTarget.getBoundingClientRect(); pop.style.left = Math.min(r.left, innerWidth - 240) + "px"; pop.style.top = (r.bottom + 4) + "px"; document.body.appendChild(pop);
+      const pop = document.createElement("div"); pop.className = "lv-pop";
+      pop.innerHTML = Object.keys(TILES).map(t => `<button type="button" data-t="${t}">${TILES[t].title}<small>${DESC[t]}</small></button>`).join("")
+        + `<div class="lv-pop-h">Local apps</div>` + LOCAL.map(([n, f]) => `<button type="button" data-t="page" data-url="https://luissolutions.us/apps/local/${f}.html" data-title="${n}">${n}<small>apps/local/${f}</small></button>`).join("")
+        + `<button type="button" data-reset="1">Reset the board<small>back to the starting layout</small></button>`;
+      const r = e.currentTarget.getBoundingClientRect(); pop.style.left = Math.min(r.left, innerWidth - 250) + "px"; pop.style.top = (r.bottom + 4) + "px"; document.body.appendChild(pop);
       pop.onclick = ev => { const b = ev.target.closest("[data-t],[data-reset]"); if (!b) return; pop.remove();
-        if (b.dataset.reset) { layout = resetLayout(); render(); board.fit(layout.blocks); flash("reset"); return; }
+        if (b.dataset.reset) { layout = resetLayout(); render(); board.fit(layout.tiles); flash("reset"); return; }
         const vr = viewEl.getBoundingClientRect(), [wx, wy] = board.toWorld(vr.left + vr.width / 2, vr.top + vr.height / 2);
-        const spec = addBlock(b.dataset.t, { x: wx - 200, y: wy - 120 }); layout = getLayout(); render(); mounted.get(spec.id)?.el.scrollIntoView?.({ block: "nearest" }); flash("added " + BLOCKS[b.dataset.t].title); };
+        const cfg = b.dataset.url ? { url: b.dataset.url, title: b.dataset.title } : {};
+        const spec = addTile(b.dataset.t, { x: wx - 200, y: wy - 120 }, cfg); layout = getLayout(); render(); flash("added " + (cfg.title || TILES[b.dataset.t].title)); };
       setTimeout(() => document.addEventListener("click", () => pop.remove(), { once: true }), 0); };
-    $("fit").onclick = () => board.fit(layout.blocks);
+    $("fit").onclick = () => board.fit(layout.tiles);
     $("zin").onclick = () => { const r = viewEl.getBoundingClientRect(); board.zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.25); };
     $("zout").onclick = () => { const r = viewEl.getBoundingClientRect(); board.zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1 / 1.25); };
 
@@ -102,8 +109,8 @@
         try { await signIn(em.value.trim(), pw.value); sheet.remove(); } catch (x) { err.hidden = false; err.textContent = "Sign-in failed: " + (x.code || x.message); } };
     };
 
-    // boot: the board from this browser, the first auth answer, then the blocks; a later sign-in / out remounts them for that account
-    layout = loadLayout(); render(); if (!board.setView(layout.view)) board.fit(layout.blocks);
+    // boot: the board from this browser, the first auth answer, then the tiles; a later sign-in / out remounts them for that account
+    layout = loadLayout(); render(); if (!board.setView(layout.view)) board.fit(layout.tiles);
     whenAuthReady().then(async u => { await boot(u); onUser(async u2 => { if ((u2?.uid || null) !== (store.get("user")?.uid || null)) await boot(u2); }); });
     async function boot(user) {
       store.set("user", user); store.set("base", baseFor(user)); store.set("jobId", null); store.set("job", null);
