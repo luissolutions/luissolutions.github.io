@@ -14,7 +14,7 @@ export function mountBoard(viewEl, worldEl, svgEl, { onView } = {}) {
   // INFINITE BOARD (L 2026-10-04 "can the background be infinite, no borders?"): no world box - the grid is painted on the view and
   // follows the pan + zoom, the pan is never clamped on a wide screen, tiles may sit anywhere (negative coordinates included)
   const paintGrid = () => { if (narrow()) { viewEl.style.backgroundPosition = ""; viewEl.style.backgroundSize = ""; return; } const g = 20 * view.s; viewEl.style.backgroundSize = `${g}px ${g}px`; viewEl.style.backgroundPosition = `${view.x}px ${view.y}px`; };
-  const apply = () => { if (narrow()) { view.x = 0; view.y = 0; view.s = 1; worldEl.style.transform = "none"; } else worldEl.style.transform = `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.s})`; paintGrid(); onView?.(view); };
+  const apply = () => { if (narrow()) { view.x = 0; view.y = 0; view.s = 1; worldEl.style.transform = "none"; } else worldEl.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.s})`; paintGrid(); onView?.(view); };
   const toWorld = (cx, cy) => { const r = viewEl.getBoundingClientRect(); if (narrow()) return [cx - r.left + viewEl.scrollLeft, cy - r.top + viewEl.scrollTop]; return [(cx - r.left - view.x) / view.s, (cy - r.top - view.y) / view.s]; };
   function fitWorld(tiles) { if (!narrow()) { worldEl.style.height = ""; return; } const bottom = Math.max(0, ...(tiles || []).map(t => t.y + (t.collapsed ? 40 : t.h))); worldEl.style.height = (bottom + 60) + "px"; }
   const clampView = () => {};   // no edges (was: keep the 6000 x 4000 world within 80 px of the viewport)
