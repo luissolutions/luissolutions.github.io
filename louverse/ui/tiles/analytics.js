@@ -11,7 +11,7 @@ export function mount(body, { store, tile }) {
   const draw = async () => {
     const year = store.get("year"), base = store.get("base"); tile.setTitle(`Analytics · ${year}`); body.innerHTML = `<div class="lv-empty">loading…</div>`;
     let rows = []; try { rows = await loadLedgerYear(base, year); } catch (e) { body.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; }
-    if (!rows.length) { body.innerHTML = `<div class="lv-empty">${base === "public" ? "Sign in to see your numbers." : "No rows this year."}</div>`; return; }
+    if (!rows.length) { body.innerHTML = `<div class="lv-empty">No rows this year.</div>`; return; }
     const spend = Array(12).fill(0), inc = Array(12).fill(0);
     for (const r of rows) { const m = r.dt.getUTCMonth(); if (r.type === "income") inc[m] += r.amt; else spend[m] += r.amt; }
     const T = totalsByTag(rows), max = Math.max(1, ...spend, ...inc), months = Math.max(1, rows.filter(r => r.type !== "income").reduce((s, r) => s.add(r.dt.getUTCMonth()), new Set()).size);

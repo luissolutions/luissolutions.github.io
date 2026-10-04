@@ -15,7 +15,7 @@ export function mount(body, { store }) {
       : `<div class="lv-empty">${jobs.length ? "no match" : "no jobs"}</div>`; };
   const load = async () => { rows.innerHTML = `<div class="lv-empty">loading…</div>`;
     try { jobs = await loadJobs(store.get("base")); } catch (e) { jobs = []; rows.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; }
-    if (!jobs.length && store.get("base") === "public") { rows.innerHTML = `<div class="lv-empty">Sign in to see your jobs.</div>`; return; }
+    if (!jobs.length) { rows.innerHTML = `<div class="lv-empty">No jobs yet.</div>`; return; }
     draw(); };
   const refreshOne = async s => { if (!s || !s.id) return; try { const j = await loadJob(store.get("base"), s.id); if (!j) return; const i = jobs.findIndex(x => x.id === j.id); if (i >= 0) jobs[i] = j; else jobs.unshift(j); draw(); } catch (_) {} };
   q.addEventListener("input", draw);

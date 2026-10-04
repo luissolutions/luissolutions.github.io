@@ -15,7 +15,7 @@ export const sub = ["jobId", "tx"];
 export const pub = ["ledgerSaved"];   // a receipt added / replaced / removed -> the ledger and the analytics redraw
 export function mount(body, { store, tile }) {
   let stops = [], run = 0;
-  const canWrite = () => store.get("base") !== "public";
+  const canWrite = () => true;   // public = a tree you work in, same as every app - no sign-in gate (L 2026-10-04)
   const status = (msg, bad) => { const s = body.querySelector(".lv-status"); if (s) { s.textContent = msg || ""; s.classList.toggle("bad", !!bad); } };
   const armed = new WeakMap();   // two-tap delete: the first tap arms the button for 3 s, the second runs it
   const twoTap = (btn, label, fn) => btn.addEventListener("click", async e => { e.stopPropagation(); const until = armed.get(btn);
@@ -31,7 +31,7 @@ export function mount(body, { store, tile }) {
     tile.setTitle(`Photos · ${tx.name || "ledger row"}`);
     const w = canWrite(), year = tx.year || store.get("year"), base = store.get("base");
     const btns = !w ? "" : tx.img ? `<button type="button" class="lv-btn" data-act="replace">✎ Replace</button><button type="button" class="lv-btn" data-act="del">🗑 Delete</button>` : `<button type="button" class="lv-btn primary" data-act="add">➕ Add receipt</button>`;
-    body.innerHTML = tools(btns, w ? "" : "sign in to add or change the receipt") + (tx.img
+    body.innerHTML = tools(btns, "") + (tx.img
       ? `<div class="lv-photos one">${fig({ url: tx.img, name: `${tx.name} · ${money2.format(tx.amt)}${when ? " · " + when : ""}`, src: tx.imgPath || "ledger" }, 0, "", false)}</div>` + (tx.desc ? `<div class="lv-muted" style="margin-top:6px">${esc(tx.desc)}</div>` : "")
       : `<div class="lv-empty">${esc(tx.name || "This row")} has no receipt photo.</div>`);
     wireFull();
@@ -55,7 +55,7 @@ export function mount(body, { store, tile }) {
     if (my !== run) return;   // a newer pick won
     const w = canWrite();
     tile.setTitle(`Photos · ${photos.length}`);
-    body.innerHTML = tools(w ? `<button type="button" class="lv-btn primary" data-act="add">➕ Add photo</button>` : "", w ? "" : "sign in to add or change photos")
+    body.innerHTML = tools(`<button type="button" class="lv-btn primary" data-act="add">➕ Add photo</button>`, "")
       + (photos.length ? `<div class="lv-photos">${photos.map((p, i) => fig(p, i, w ? `${p.where && p.where.kind !== "folder" ? `<button type="button" class="lv-btn ico" data-note="${i}" title="note">✎</button>` : ""}<button type="button" class="lv-btn ico" data-del="${i}" title="delete">🗑</button>` : "", true)).join("")}</div>` : `<div class="lv-empty">No photos on this job.</div>`);
     wireFull();
     const refresh = async () => { try { const fresh = await loadJob(base, id); if (fresh) store.set("job", fresh); } catch (_) {} drawJob(); };

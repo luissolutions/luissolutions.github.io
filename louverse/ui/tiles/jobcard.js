@@ -15,7 +15,7 @@ export function mount(body, { store, tile }) {
     let j = store.get("job"); if (!j || j.id !== id) { try { j = await loadJob(store.get("base"), id); } catch (e) { body.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; } }
     if (!j) { body.innerHTML = `<div class="lv-empty">Job not found.</div>`; return; }
     current = j; tile.setTitle(`Job · ${j.customer}`);
-    const canEdit = store.get("base") !== "public", raw = j.raw || {};
+    const canEdit = true, raw = j.raw || {};   // public = a tree you work in, same as every app (L 2026-10-04)
     const segs = (Array.isArray(raw.segments) ? raw.segments : []).filter(s => s && s.startTime);
     body.innerHTML = `<form class="lv-form">
       ${FIELDS.map(([k, label]) => `<label><b>${label}</b><input name="${k}" value="${esc(raw[k] || "")}" ${canEdit ? "" : "readonly"}></label>`).join("")}
@@ -26,7 +26,7 @@ export function mount(body, { store, tile }) {
       </div>
       ${segs.length ? `<div class="lv-muted" style="font-size:.85rem;margin-bottom:6px">${segs.map(s => `${esc(s.type || "work")} ${fmtTime(s.startTime)}–${s.endTime ? fmtTime(s.endTime) : "…"}`).join(" · ")}</div>` : ""}
       <label><b>Notes</b><textarea name="notes" rows="5" ${canEdit ? "" : "readonly"}>${esc(j.notes)}</textarea></label>
-      ${canEdit ? `<div class="lv-actions"><span class="lv-muted st"></span><button type="submit" class="lv-btn primary">Save</button></div>` : `<div class="lv-muted" style="font-size:.85rem">Sign in to edit.</div>`}
+      <div class="lv-actions"><span class="lv-muted st"></span><button type="submit" class="lv-btn primary">Save</button></div>
     </form>`;
     const form = body.querySelector("form"), st = form.querySelector(".st");
     form.addEventListener("input", () => { if (st) st.textContent = "unsaved"; });

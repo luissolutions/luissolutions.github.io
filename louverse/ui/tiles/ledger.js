@@ -15,7 +15,7 @@ export function mount(body, { store, tile }) {
       : `<div class="lv-empty">${all.length ? "no match" : "no rows"}</div>`; };
   const load = async () => { const year = store.get("year"), base = store.get("base"); tile.setTitle(`Ledger · ${year}`); rows.innerHTML = `<div class="lv-empty">loading…</div>`;
     try { all = await loadLedgerYear(base, year); } catch (e) { all = []; rows.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; }
-    if (!all.length && base === "public") { tot.innerHTML = ""; tags.innerHTML = ""; rows.innerHTML = `<div class="lv-empty">Sign in to see your ledger.</div>`; return; }
+    if (!all.length) { tot.innerHTML = ""; tags.innerHTML = ""; rows.innerHTML = `<div class="lv-empty">No rows this year.</div>`; return; }
     const T = totalsByTag(all); tot.innerHTML = `<span>spent <b>${money.format(T.spent)}</b></span><span>income <b>${money.format(T.income)}</b></span><span>${all.length} rows</span>`;
     tags.innerHTML = T.tags.slice(0, 10).map(([t, v]) => `<button type="button" class="lv-chip${t === tag ? " on" : ""}" data-t="${esc(t)}" title="${esc(tagLabel(t))}">${esc(t)} ${money.format(v)}</button>`).join("");
     draw(); };
