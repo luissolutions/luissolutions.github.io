@@ -10,6 +10,9 @@
   <link rel="icon" type="image/png" sizes="64x64" href="assets/icon-64.png">
   <link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180.png">
   <meta name="theme-color" content="#33101c">
+  <!-- PHONE MODE before first paint (2026-10-04): html.lv-phone = a touch device whose shorter side is <= 640 (portrait OR landscape) or a
+       window <= 640 wide - the same test as core/layout NARROW; the CSS keys off the class, not a width media query -->
+  <script>(function () { try { var w = innerWidth, h = innerHeight, c = window.matchMedia && matchMedia("(pointer: coarse)").matches; document.documentElement.classList.toggle("lv-phone", /[?&]phone=1/.test(location.search) || w <= 640 || (c && Math.min(w, h) <= 640)); } catch (e) {} })();</script>
   <link rel="stylesheet" href="assets/louverse.css">
 </head>
 <body>
@@ -44,7 +47,7 @@
   <script type="module">
     import { whenAuthReady, onUser, baseFor, signIn, signOutNow, LUIS_UID, readOnce } from "./core/firebase.js";
     import { store } from "./core/store.js";
-    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, GUTTER, columnLayout, setLive, ensureLive } from "./core/layout.js";
+    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, GUTTER, columnLayout, byOrd, setLive, ensureLive } from "./core/layout.js";
     import { mountTile } from "./ui/tile.js";
     import { mountBoard } from "./ui/board.js";
     import * as year from "./ui/tiles/year.js";
@@ -91,8 +94,8 @@
       let x = cx - 700, y = cy - 400, rowH = 0, n = 0;
       for (const t of set.tiles) { const spec = addTile(t, { x, y }); rowH = Math.max(rowH, spec.h); x += spec.w + 40; if (++n % 3 === 0) { x = cx - 700; y += rowH + 40; rowH = 0; } }
       layout = getLayout(); if (NARROW()) columnLayout(layout); render(); flash("added the " + set.name.toLowerCase()); }
-    const nudge = (spec, dir) => { const order = [...layout.tiles].sort((a, b) => (a.y - b.y) || (a.x - b.x)), i = order.indexOf(spec), j = i + dir; if (i < 0 || j < 0 || j >= order.length) return;
-      [order[i], order[j]] = [order[j], order[i]]; order.forEach((t, k) => { t.y = k; }); columnLayout(layout); render(); flash(dir < 0 ? "moved up" : "moved down");
+    const nudge = (spec, dir) => { const order = [...layout.tiles].sort(byOrd), i = order.indexOf(spec), j = i + dir; if (i < 0 || j < 0 || j >= order.length) return;
+      [order[i], order[j]] = [order[j], order[i]]; order.forEach((t, k) => { t.ord = k; t.y = k; }); columnLayout(layout); render(); flash(dir < 0 ? "moved up" : "moved down");
       mounted.get(spec.id)?.el.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
     board.setFitAll(fitNow);
     const tileEls = () => new Map([...mounted].map(([id, api]) => [id, api.el]));
@@ -166,8 +169,13 @@
 
     // boot: the board from this browser, the first auth answer, then the tiles; a later sign-in / out remounts them for that account
     layout = loadLayout();
-    if (NARROW() && layout.tiles.some(t => t.x + t.w > innerWidth - GUTTER + 10)) { columnLayout(layout); render(); board.fit(layout.tiles); }   // a phone with a desktop-shaped board (or one columned before the gutter): column it
+    if (NARROW()) { columnLayout(layout); render(); board.fit(layout.tiles); }   // a phone always opens columned for THIS orientation (a board saved upright re-flows to two columns sideways, and back)
     else { render(); if (!board.setView(layout.view)) fitNow(); }
+    // ROTATE (L 2026-10-04 "a proper view also for landscape"): the phone class follows the device, and a phone that turns re-columns
+    // (one column upright, two sideways); a desktop window that crosses 640 px switches modes the same way
+    let wasPhone = NARROW(), rsT = 0;
+    addEventListener("resize", () => { clearTimeout(rsT); rsT = setTimeout(() => { const now = NARROW(); document.documentElement.classList.toggle("lv-phone", now);
+      if (now) { columnLayout(layout); render(); board.fitWorld(layout.tiles); } else if (wasPhone) { render(); board.fit(layout.tiles); } wasPhone = now; }, 150); });
     whenAuthReady().then(async u => { await boot(u); onUser(async u2 => { if ((u2?.uid || null) !== (store.get("user")?.uid || null)) await boot(u2); }); });
     // WHICH TREE (L 2026-10-04 "for testing, a dropdown of each user's firebase when logged into mine"): Luis's uid may read and
     // write every tree, so when he is signed in the header dropdown picks the account the board reads; remembered per browser.

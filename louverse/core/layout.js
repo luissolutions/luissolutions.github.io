@@ -13,7 +13,7 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v) || lo));
 const sane = l => {
   if (!l || !Array.isArray(l.tiles)) return null;
   const tiles = l.tiles.filter(t => t && t.type).map(t => ({ id: t.id || newId(), type: t.type, x: snap(clamp(t.x, -1e6, 1e6)), y: snap(clamp(t.y, -1e6, 1e6)),   // no edges (2026-10-04)
-    w: snap(clamp(t.w, 220, 2400)), h: snap(clamp(t.h, 120, 2000)), collapsed: !!t.collapsed, held: !!t.held, cfg: t.cfg || {} }));
+    w: snap(clamp(t.w, 220, 2400)), h: snap(clamp(t.h, 120, 2000)), collapsed: !!t.collapsed, held: !!t.held, ord: Number.isFinite(t.ord) ? t.ord : undefined, cfg: t.cfg || {} }));
   return { tiles, view: l.view && isFinite(l.view.s) ? { x: Number(l.view.x) || 0, y: Number(l.view.y) || 0, s: clamp(l.view.s, 0.2, 3) } : null, updatedAt: l.updatedAt || 0 };
 };
 // the first board: jobs on the left wired to the job + its photos, the year feeding the ledger and the analytics, notes below
@@ -47,14 +47,22 @@ export function ensureLive(l = current) { const byType = new Map(); for (const t
   for (const list of byType.values()) { const newestFirst = list.slice().sort((a, b) => a.id < b.id ? 1 : -1); const live = newestFirst.find(t => !t.held) || newestFirst[0]; for (const t of list) t.held = t !== live; } }
 // THE PHONE BOARD (L 2026-10-04 "the ledger is showing up too wide"): on a narrow screen every tile is as wide as the screen and
 // they stack in one column in reading order (top-left first); heights capped so a tile never swallows the screen. Saved like any layout.
-export const NARROW = () => (window.innerWidth || 1000) <= 640;
 // + a GUTTER on the right (L 2026-10-04 "a space of background to the right so I have an area I can scroll down at that isn't in
-// the tile, in case there's scrolling needed in the tile"): tiles stop ~60 px short of the right edge; that strip is the view, a
+// the tile, in case there's scrolling needed in the tile"): tiles stop ~50 px short of the right edge; that strip is the view, a
 // finger there always scrolls the board even when the tile under it would scroll itself.
-export const GUTTER = 60;
+// + LANDSCAPE (L 2026-10-04 "set up a proper view also for landscape mode"): PHONE MODE is any touch device whose shorter side is
+// <= 640 (either way round) or any window <= 640 wide; sideways, the column becomes TWO columns of the same standard width,
+// filled shortest-first in the tiles' order (`ord`, the ▲▼ order), still native scroll, still the gutter. `?phone=1` forces it.
+export const GUTTER = 50;
+const FORCE_PHONE = typeof location !== "undefined" && /[?&]phone=1/.test(location.search);
+export const NARROW = () => { const w = window.innerWidth || 1000, h = window.innerHeight || 800;
+  return FORCE_PHONE || w <= 640 || (!!window.matchMedia && matchMedia("(pointer: coarse)").matches && Math.min(w, h) <= 640); };
+export const COLS = (vw = window.innerWidth || 390) => vw > 640 ? 2 : 1;
+export const byOrd = (a, b) => ((Number.isFinite(a.ord) ? a.ord : 1e9) - (Number.isFinite(b.ord) ? b.ord : 1e9)) || (a.y - b.y) || (a.x - b.x);
 export function columnLayout(l = current, vw = window.innerWidth || 390) {
-  const w = snap(Math.max(220, vw - 20 - GUTTER)); let y = 20;
-  for (const t of [...l.tiles].sort((a, b) => (a.y - b.y) || (a.x - b.x))) { t.x = 20; t.y = y; t.w = w; t.h = snap(t.h); y += (t.collapsed ? 40 : t.h) + 20; }   // heights are the person's (stretch up and down)
+  const cols = COLS(vw), w = Math.max(220, Math.floor((vw - 20 - GUTTER - (cols - 1) * 20) / cols / GRID) * GRID), ys = Array(cols).fill(20);
+  [...l.tiles].sort(byOrd).forEach((t, k) => { let c = 0; for (let i = 1; i < cols; i++) if (ys[i] < ys[c]) c = i;   // the shortest column takes the next tile
+    t.ord = k; t.x = 20 + c * (w + 20); t.y = ys[c]; t.w = w; t.h = snap(t.h); ys[c] += (t.collapsed ? 40 : t.h) + 20; });   // heights are the person's (stretch up and down)
   saveLayout(l); return l;
 }
 export function removeTile(id) { current.tiles = current.tiles.filter(t => t.id !== id); saveLayout(); }
