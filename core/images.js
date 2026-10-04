@@ -85,8 +85,11 @@ export async function relabel({ url, path, text }) {
 // (createImageBitmap resizeWidth), kept as a small JPEG in the Cache API ("lv-thumbs") so the next open is instant, four
 // decodes in flight at a time. Any failure (CORS, an odd format) falls back to the full URL - the picture still shows, the old way.
 const THUMBS = new Map(); let cacheP = null, busy = 0; const waiting = [];
+// Safari / iPad decodes the whole picture even when asked for a 256-px bitmap: two in flight there, four elsewhere (an iPad froze on 100 at once, 2026-10-04)
+const IS_SAFARI = typeof navigator !== "undefined" && /Safari|iP(hone|ad|od)/.test(navigator.userAgent) && !/Chrome|CriOS|Edg|Firefox/.test(navigator.userAgent);
+const MAX_INFLIGHT = IS_SAFARI ? 2 : 4;
 const cacheOpen = () => cacheP ??= (typeof caches !== "undefined" ? caches.open("lv-thumbs-v1").catch(() => null) : Promise.resolve(null));
-const slot = () => busy < 4 ? (busy++, Promise.resolve()) : new Promise(r => waiting.push(r)).then(() => { busy++; });
+const slot = () => busy < MAX_INFLIGHT ? (busy++, Promise.resolve()) : new Promise(r => waiting.push(r)).then(() => { busy++; });
 const free = () => { busy--; const next = waiting.shift(); if (next) next(); };
 export function thumbOf(photo, w = 256) {
   const key = photo?.path || photo?.url; if (!key || !photo?.url) return Promise.resolve(photo?.url || "");
@@ -106,6 +109,7 @@ export function thumbOf(photo, w = 256) {
         const tw = Math.min(w, bmp.width) || w, th = Math.max(1, Math.round(bmp.height * tw / bmp.width)) || tw;
         const c = document.createElement("canvas"); c.width = tw; c.height = th; c.getContext("2d").drawImage(bmp, 0, 0, tw, th); bmp.close?.();
         blob = await new Promise((ok, no) => c.toBlob(b => b ? ok(b) : no(new Error("thumb failed")), "image/jpeg", 0.82));
+        c.width = c.height = 0;   // give the canvas memory back right away (Safari holds it otherwise)
         if (cache) cache.put(ck, new Response(blob, { headers: { "Content-Type": "image/jpeg" } })).catch(() => {});
       } finally { free(); }
     }

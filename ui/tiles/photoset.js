@@ -34,11 +34,18 @@ export function mount(body, { store, tile }) {
   const wireFull = () => body.querySelectorAll(".lv-photos img").forEach(img => img.addEventListener("click", () => { const full = document.createElement("div"); full.className = "lv-photo-full"; full.innerHTML = `<img src="${esc(img.dataset.full || img.src)}" alt="">`; full.onclick = () => full.remove(); document.body.appendChild(full); }));
   const capText = p => `${p.markup ? "🏷 " + esc(p.markup) : esc(p.name)}${p.note ? " · " + esc(p.note) : ""}`;
   const fig = (p, i, acts) => `<figure data-i="${i}"><img data-full="${esc(p.url || "")}" data-i="${i}" alt="" decoding="async"><figcaption title="${esc(p.src)}${p.markup ? " · " + esc(p.name) : ""}">${capText(p)}</figcaption>${acts ? `<div class="lv-pact">${acts}</div>` : ""}</figure>`;
-  // thumbs land one by one; the status counts them in so a slow first open (every photo fetched once) reads as loading, not broken
-  const fillThumbs = (photos, w) => { const imgs = [...body.querySelectorAll(".lv-photos img[data-i]")]; let done = 0; const total = imgs.length, st = body.querySelector(".lv-status");
-    const tick = () => { if (!st || !st.isConnected) return; if (done < total) { if (!st.dataset.busy) { st.dataset.busy = "1"; st.textContent = `thumbs ${done}/${total}`; } else st.textContent = `thumbs ${done}/${total}`; } else if (st.dataset.busy) { delete st.dataset.busy; st.textContent = ""; } };
-    tick(); imgs.forEach(img => { const p = photos[Number(img.dataset.i)]; if (!p) { done++; tick(); return; }
-      (p.url ? Promise.resolve(p.url) : photoUrl(p)).then(u => { if (!u) return ""; img.dataset.full = u; return thumbOf(p, w); }).then(u => { if (img.isConnected && u) img.src = u; }).finally(() => { done++; tick(); }); }); };
+  // thumbs land one by one; the status counts the ones in flight so a slow first open reads as loading, not broken.
+  // ONLY WHAT IS ON SCREEN gets a thumb (IntersectionObserver, 300 px lookahead; the first dozen right away) - an iPad asked
+  // to decode 100 full photos at once froze (L 2026-10-04); the rest come as you scroll, and core/images keeps 2 in flight on Safari.
+  const ios = [];
+  const fillThumbs = (photos, w) => { const imgs = [...body.querySelectorAll(".lv-photos img[data-i]")]; let done = 0; const want = new Set(), st = body.querySelector(".lv-status");
+    const tick = () => { if (!st || !st.isConnected) return; if (done < want.size) { st.dataset.busy = "1"; st.textContent = `thumbs ${done}/${want.size}`; } else if (st.dataset.busy) { delete st.dataset.busy; st.textContent = ""; } };
+    const run = img => { if (want.has(img)) return; want.add(img); tick(); const p = photos[Number(img.dataset.i)]; if (!p) { done++; tick(); return; }
+      (p.url ? Promise.resolve(p.url) : photoUrl(p)).then(u => { if (!u) return ""; img.dataset.full = u; return thumbOf(p, w); }).then(u => { if (img.isConnected && u) img.src = u; }).finally(() => { done++; tick(); }); };
+    imgs.slice(0, 12).forEach(run);
+    const rest = imgs.slice(12); if (!rest.length) return;
+    if ("IntersectionObserver" in window) { const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { run(e.target); io.unobserve(e.target); } }), { root: body, rootMargin: "300px" }); rest.forEach(i => io.observe(i)); ios.push(io); }
+    else rest.forEach(run); };
   const tools = (btns, note) => `<div class="lv-tools">${btns}<span class="lv-status">${esc(note || "")}</span></div>`;
   // the label editor, in the caption: text (prefilled with the current bar or the app's auto text), Stamp / No bar (two-tap), ✕
   const labelUI = (figEl, { current, auto, apply }) => { const cap = figEl.querySelector("figcaption"); if (!cap || cap.querySelector("input")) return; const keep = cap.innerHTML;
@@ -112,5 +119,5 @@ export function mount(body, { store, tile }) {
   stops.push(store.on("visitId", () => { focus = null; drawJob(); }), store.on("base", () => { cache = null; focus = null; drawJob(); }), store.on("tx", tx => tx ? drawTx(tx) : drawJob()),
     store.on("photoPick", v => { focus = v || null; if (store.get("visitId")) drawJob(); }));   // a row tapped in Details -> its photos (a cleared pick -> all of them)
   const tx = store.get("tx"); if (tx && !store.get("visitId")) drawTx(tx); else drawJob();
-  return { destroy: () => stops.forEach(s => s()) };
+  return { destroy: () => { stops.forEach(s => s()); ios.forEach(io => io.disconnect()); } };
 }
