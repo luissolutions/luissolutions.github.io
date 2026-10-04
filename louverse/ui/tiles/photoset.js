@@ -21,7 +21,7 @@ export const pub = ["ledgerSaved"];   // a receipt added / replaced / removed ->
 export function mount(body, { store, tile }) {
   let stops = [], run = 0, folder = "", folderJob = "";
   const canWrite = () => true;   // public = a tree you work in, same as every app - no sign-in gate (L 2026-10-04)
-  const status = (msg, bad) => { const s = body.querySelector(".lv-status"); if (s) { s.textContent = msg || ""; s.classList.toggle("bad", !!bad); } };
+  const status = (msg, bad) => { const s = body.querySelector(".lv-status"); if (s) { delete s.dataset.busy; s.textContent = msg || ""; s.classList.toggle("bad", !!bad); } };
   const armed = new WeakMap();   // two-tap: the first tap arms the button for 3 s, the second runs it
   const twoTap = (btn, label, fn) => btn.addEventListener("click", async e => { e.stopPropagation(); const until = armed.get(btn);
     if (until && Date.now() < until) { armed.delete(btn); btn.disabled = true; try { await fn(); } catch (err) { status(err.message || String(err), true); btn.disabled = false; btn.textContent = label; } return; }
@@ -30,7 +30,10 @@ export function mount(body, { store, tile }) {
   const wireFull = () => body.querySelectorAll(".lv-photos img").forEach(img => img.addEventListener("click", () => { const full = document.createElement("div"); full.className = "lv-photo-full"; full.innerHTML = `<img src="${esc(img.dataset.full || img.src)}" alt="">`; full.onclick = () => full.remove(); document.body.appendChild(full); }));
   const capText = p => `${p.markup ? "🏷 " + esc(p.markup) : esc(p.name)}${p.note ? " · " + esc(p.note) : ""}`;
   const fig = (p, i, acts) => `<figure data-i="${i}"><img data-full="${esc(p.url)}" data-i="${i}" alt="" decoding="async"><figcaption title="${esc(p.src)}${p.markup ? " · " + esc(p.name) : ""}">${capText(p)}</figcaption>${acts ? `<div class="lv-pact">${acts}</div>` : ""}</figure>`;
-  const fillThumbs = (photos, w) => body.querySelectorAll(".lv-photos img[data-i]").forEach(img => { const p = photos[Number(img.dataset.i)]; if (!p) return; thumbOf(p, w).then(u => { if (img.isConnected && u) img.src = u; }); });
+  // thumbs land one by one; the status counts them in so a slow first open (every photo fetched once) reads as loading, not broken
+  const fillThumbs = (photos, w) => { const imgs = [...body.querySelectorAll(".lv-photos img[data-i]")]; let done = 0; const total = imgs.length, st = body.querySelector(".lv-status");
+    const tick = () => { if (!st || !st.isConnected) return; if (done < total) { if (!st.dataset.busy) { st.dataset.busy = "1"; st.textContent = `thumbs ${done}/${total}`; } else st.textContent = `thumbs ${done}/${total}`; } else if (st.dataset.busy) { delete st.dataset.busy; st.textContent = ""; } };
+    tick(); imgs.forEach(img => { const p = photos[Number(img.dataset.i)]; if (!p) { done++; tick(); return; } thumbOf(p, w).then(u => { if (img.isConnected && u) img.src = u; }).finally(() => { done++; tick(); }); }); };
   const tools = (btns, note) => `<div class="lv-tools">${btns}<span class="lv-status">${esc(note || "")}</span></div>`;
   // the label editor, in the caption: text (prefilled with the current bar or the app's auto text), Stamp / No bar (two-tap), ✕
   const labelUI = (figEl, { current, auto, apply }) => { const cap = figEl.querySelector("figcaption"); if (!cap || cap.querySelector("input")) return; const keep = cap.innerHTML;

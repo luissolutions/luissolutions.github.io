@@ -99,8 +99,12 @@ export function thumbOf(photo, w = 256) {
       await slot();
       try {
         const res = await fetch(photo.url, { mode: "cors" }); if (!res.ok) throw new Error("fetch " + res.status);
-        const bmp = await createImageBitmap(await res.blob(), { resizeWidth: w, resizeQuality: "medium", imageOrientation: "from-image" });
-        const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height; c.getContext("2d").drawImage(bmp, 0, 0); bmp.close?.();
+        const full = await res.blob(); let bmp;
+        try { bmp = await createImageBitmap(full, { resizeWidth: w, resizeQuality: "medium", imageOrientation: "from-image" }); }   // cheap path (Chrome)
+        catch (_) { bmp = await createImageBitmap(full); }   // a browser that rejects the options (older Safari) decodes whole, the canvas below still shrinks it
+        // the canvas is ALWAYS the thumb size - a browser that ignores resizeWidth must not hand back a full-size "thumb"
+        const tw = Math.min(w, bmp.width) || w, th = Math.max(1, Math.round(bmp.height * tw / bmp.width)) || tw;
+        const c = document.createElement("canvas"); c.width = tw; c.height = th; c.getContext("2d").drawImage(bmp, 0, 0, tw, th); bmp.close?.();
         blob = await new Promise((ok, no) => c.toBlob(b => b ? ok(b) : no(new Error("thumb failed")), "image/jpeg", 0.82));
         if (cache) cache.put(ck, new Response(blob, { headers: { "Content-Type": "image/jpeg" } })).catch(() => {});
       } finally { free(); }
