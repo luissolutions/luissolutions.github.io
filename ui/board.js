@@ -24,9 +24,12 @@ export function mountBoard(viewEl, worldEl, svgEl, { onView } = {}) {
   function setView(v) { if (narrow()) { apply(); return true; } if (v && isFinite(v.s)) { view.x = v.x; view.y = v.y; view.s = v.s; clampView(); apply(); return true; } return false; }
   // fit every block into the viewport (with a margin); the first thing a new browser sees
   function fit(tiles) { if (narrow()) { apply(); fitWorld(tiles); viewEl.scrollTop = 0; return; } const r = viewEl.getBoundingClientRect(); if (!tiles?.length || !r.width) return;
+    // the VISIBLE height: iPad Safari lays the view out under its bottom toolbar, so a fit centred on the layout box hid the
+    // bottom row (L 2026-10-04 "fit every tile doesn't seem to be working correctly"); and far-flung tiles may need < 0.2
+    const vvH = (window.visualViewport ? window.visualViewport.height : innerHeight) - r.top, H = Math.max(120, Math.min(r.height, vvH)), W = r.width;
     const x0 = Math.min(...tiles.map(b => b.x)), y0 = Math.min(...tiles.map(b => b.y)), x1 = Math.max(...tiles.map(b => b.x + b.w)), y1 = Math.max(...tiles.map(b => b.y + (b.collapsed ? 40 : b.h)));
-    const s = Math.max(0.2, Math.min(1.4, Math.min((r.width - 40) / (x1 - x0), (r.height - 40) / (y1 - y0))));
-    view.s = s; view.x = (r.width - (x1 - x0) * s) / 2 - x0 * s; view.y = (r.height - (y1 - y0) * s) / 2 - y0 * s; clampView(); apply(); }
+    const s = Math.max(0.08, Math.min(1.4, Math.min((W - 40) / Math.max(1, x1 - x0), (H - 40) / Math.max(1, y1 - y0))));
+    view.s = s; view.x = (W - (x1 - x0) * s) / 2 - x0 * s; view.y = (H - (y1 - y0) * s) / 2 - y0 * s; clampView(); apply(); }
 
   // ---- input: drag on empty board = pan; wheel = pan, Ctrl/Shift + wheel = zoom; two fingers = pinch + pan; dblclick empty = fit ----
   const ptr = new Map(); let pan = null, pinch = null, mid = null;
