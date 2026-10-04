@@ -101,14 +101,41 @@
     const tileEls = () => new Map([...mounted].map(([id, api]) => [id, api.el]));
     const wires = () => board.drawArrows(layout.tiles, TILES);
 
-    // TWO OF THE SAME TILE (L 2026-10-04, second cut: "once a 2nd Photos / Details tile is opened, the parent takes ownership of
-    // that one only - cycle only when there is a single one it can update"): opening another copy HOLDS the ones already there
-    // (they keep what they show) and the new copy is the LIVE one - a PICK (visitId / visit / tx / year) reaches only the live
-    // copy of a type. The header's ● / 📌 moves "live" to another copy (core/layout setLive). Refresh signals (base, saves) still
-    // reach every copy. (The first cut alternated between copies - that is the cycling L did not want.)
+    // TWO OF THE SAME TILE (L 2026-10-04, third cut - "I have 2 Photos tiles open but both Ledger and Visits are updating the
+    // same one"; his rule: "once a 2nd tile is opened the PARENT takes ownership of that one only - cycle only when there is a
+    // single one it can update"): ownership is per PARENT. A pick carries a key; keys belong to a parent group (visitId + visit =
+    // the Visits list, tx = the Ledger, photoPick = Details, year = Year). With ONE copy of a type it takes every parent. With
+    // two or more, the first pick from a parent claims the LIVE copy (the newest / the one you tapped ●) for that parent, and from
+    // then on that parent always updates that copy - so Visits drives one Photos tile and the Ledger the other. Opening another
+    // copy holds the old ones (they keep what they show, and the parent that fed each one last stays theirs); ● on a copy = the
+    // next pick, whichever parent, moves to it. Refresh signals (base, saves) still reach every copy.
     const CLAIMED = new Set(["visitId", "visit", "tx", "year", "photoPick"]);
+    const PARENT = { visitId: "visits", visit: "visits", tx: "ledger", photoPick: "details", year: "year" };
+    const owners = new Map();   // "<type>|<parent>" -> tile id
+    const lastParent = new Map();   // tile id -> the parent that fed it last (survives an add: that parent stays its own)
+    const grabNext = new Map();   // type -> tile id that takes the next pick (● tapped)
+    const peersOf = type => layout.tiles.filter(t => t.type === type && mounted.has(t.id)).sort((a, b) => a.id < b.id ? -1 : 1);
+    const ownsOf = id => [...owners.entries()].filter(([, v]) => v === id).map(([s]) => s.split("|")[1]);
+    const markOwners = () => { for (const [id, api] of mounted) { const o = ownsOf(id); api.el.dataset.owns = o.join(", "); api.el.classList.toggle("owns", o.length > 0); } };
     const scopedStore = spec => ({ get: store.get, all: store.all, set: store.set,
-      on: (key, fn) => store.on(key, (v, k) => { if (CLAIMED.has(key) && spec.held) return; fn(v, k); }) });
+      on: (key, fn) => store.on(key, (v, k) => {
+        if (CLAIMED.has(key)) {
+          const peers = peersOf(spec.type);
+          if (peers.length > 1) {
+            const parent = (key === "tx" && v == null) ? "visits" : (PARENT[key] || key), slot = spec.type + "|" + parent;   // a cleared tx comes from a Visits tap - it must not reach the Ledger's copy
+            const grab = grabNext.get(spec.type);
+            if (grab && mounted.has(grab)) { owners.set(slot, grab); grabNext.delete(spec.type); markOwners(); }
+            let own = owners.get(slot);
+            if (!own || !mounted.has(own)) {   // this parent has no copy yet: the copy it fed last (continuity), else the live copy, else a copy owning nothing, else the newest
+              const live = peers.find(t => !t.held), free = peers.filter(t => !ownsOf(t.id).length), prev = free.find(t => lastParent.get(t.id) === parent);
+              own = (prev || ((live && free.includes(live)) ? live : free[0] || live || peers[peers.length - 1])).id; owners.set(slot, own); markOwners(); }
+            if (own !== spec.id) return;
+            lastParent.set(spec.id, parent);
+          } else lastParent.set(spec.id, PARENT[key] || key);
+        }
+        fn(v, k); }) });
+    // after a copy is added or removed: every old copy keeps ONLY the parent that fed it last; the rest is up for grabs again
+    const pruneOwners = () => { for (const [slot, id] of [...owners]) { const [type, parent] = slot.split("|"); if (!mounted.has(id) || peersOf(type).length < 2 || lastParent.get(id) !== parent) owners.delete(slot); } markOwners(); };
     function render() {
       for (const t of mounted.values()) t.el.remove(); mounted.clear();
       // the n-th copy of a type (by creation order = id) gets a lighter shade of the type's colour (ui/tile.js tintTile)
@@ -121,11 +148,13 @@
           onMove: () => wires(),
           onChange: (s, settled) => { if (NARROW() && settled) { columnLayout(layout); render(); flash("saved"); return; } saveLayout(layout); wires(); flash("saved"); },   // phone: a taller tile pushes the ones below it down
           onNudge: nudge,
-          onLive: s => { setLive(s.id); layout = getLayout(); render(); flash(TILES[s.type].title + " · this copy is live"); },
-          onRemove: s => { removeTile(s.id); mounted.delete(s.id); layout = getLayout(); ensureLive(layout); saveLayout(layout); wires(); if (NARROW()) { columnLayout(layout); render(); } else if (layout.tiles.some(t => t.type === s.type)) render(); flash("removed"); } });
+          onLive: s => { setLive(s.id); grabNext.set(s.type, s.id); layout = getLayout();   // no remount - every copy keeps what it shows
+            for (const api of mounted.values()) { api.el.classList.toggle("held", !!api.spec.held); const b = api.el.querySelector(".live"); if (b) { b.textContent = api.spec.held ? "📌" : "●"; b.title = api.spec.held ? "held - keeps what it shows; tap and the next pick comes here" : "live - the next pick comes here"; } }
+            markOwners(); flash(TILES[s.type].title + " · the next pick goes here"); },
+          onRemove: s => { removeTile(s.id); mounted.delete(s.id); layout = getLayout(); ensureLive(layout); saveLayout(layout); wires(); if (NARROW()) { columnLayout(layout); render(); } else if (layout.tiles.some(t => t.type === s.type)) render(); else pruneOwners(); flash("removed"); } });
         mounted.set(spec.id, api);
       }
-      wires(); board.fitWorld(layout.tiles);
+      pruneOwners(); wires(); board.fitWorld(layout.tiles);
     }
     // a tile asks for another kind on the board (Details "✎ Edit in Entry"): light the one that exists, else add one beside the asker
     window.addEventListener("lv:tile", e => { const { type, from } = e.detail || {}; if (!TILES[type]) return;
