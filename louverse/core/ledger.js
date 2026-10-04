@@ -17,7 +17,8 @@ export async function loadLedgerYear(base, year, { fresh = false } = {}) {
     if (!r || typeof r !== "object") continue; const dt = parseDate(r.date); if (!dt) continue;
     const raw = Array.isArray(r.tags) ? r.tags.map(t => String(t).trim()).filter(Boolean) : [];
     rows.push({ id, dt, amt: Math.abs(toMoney(r.amt ?? r.amount ?? 0)), name: String(r.name || "").trim(), type: r.type === "income" ? "income" : "expense",
-      tags: raw.map(normTag), tag: raw.map(parentTag).find(t => isSpendingTag(t)) || "", sub: r.sub || "", cat: r.cat || "" });
+      tags: raw.map(normTag), tag: raw.map(parentTag).find(t => isSpendingTag(t)) || "", sub: r.sub || "", cat: r.cat || "",
+      img: typeof r.img === "string" && /^https?:/.test(r.img) ? r.img : "", imgPath: r.imgPath || "", desc: r.desc || "", link: r.link || "" });   // the receipt photo rides along (Photos tile follows a picked row)
   }
   rows.sort((a, b) => b.dt - a.dt); cache.set(key, rows); return rows;
 }
