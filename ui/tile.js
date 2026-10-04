@@ -32,7 +32,7 @@ export function mountTile(worldEl, spec, def, ctx, handlers) {
   el.querySelector(".nudge.dn").onclick = e => { e.stopPropagation(); handlers.onNudge?.(spec, 1); };
 
   // drag (header) + resize (corner): screen deltas divided by the board's zoom, snapped to the grid, kept inside the world
-  let drag = null;
+  let drag = null, moveRaf = 0;
   const s = () => (ctx.board && ctx.board.view.s) || 1;
   const down = kind => e => { if (e.button) return; if (kind === "move" && e.target.closest("button")) return;
     if (kind === "move" && NARROW()) return;   // phone: no header drag - the arrows move a tile, a touch here scrolls the view
@@ -40,7 +40,7 @@ export function mountTile(worldEl, spec, def, ctx, handlers) {
   const move = e => { if (!drag) return; const dx = (e.clientX - drag.x0) / drag.scale, dy = (e.clientY - drag.y0) / drag.scale;
     if (drag.kind === "move") { spec.x = snap(drag.s0.x + dx); spec.y = snap(drag.s0.y + dy); }   // anywhere - the board has no edges (2026-10-04)
     else { if (!NARROW()) spec.w = snap(Math.max(220, drag.s0.w + dx)); spec.h = snap(Math.max(120, drag.s0.h + dy)); }   // phone: height only ("stretch up and down")
-    placeTile(el, spec); handlers.onMove?.(spec); };
+    placeTile(el, spec); if (!moveRaf) moveRaf = requestAnimationFrame(() => { moveRaf = 0; handlers.onMove?.(spec); }); };   // the wires redraw once per frame, not per pointer event (iPad tearing, L 2026-10-04)
   const up = () => { if (!drag) return; const was = drag; drag = null; el.classList.remove("dragging"); if (was.s0.x !== spec.x || was.s0.y !== spec.y || was.s0.w !== spec.w || was.s0.h !== spec.h) handlers.onChange(spec, true); };
   head.addEventListener("pointerdown", down("move")); el.querySelector(".lv-resize").addEventListener("pointerdown", down("size"));
   for (const t of [head, el.querySelector(".lv-resize")]) { t.addEventListener("pointermove", move); t.addEventListener("pointerup", up); t.addEventListener("pointercancel", up); }
