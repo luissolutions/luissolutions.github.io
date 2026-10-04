@@ -10,7 +10,7 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
 // FULL SCREEN = the app itself (L 2026-10-04): the board frames this page for what is picked
 const APP = "https://luissolutions.us/apps/online/";
 let lastMode = "money";
-export const appUrl = () => APP + (lastMode === "jobs" ? "onlinejob.html" : "onlinebudget.html");   // Jobs for the visits face, the Budget Planner (the galaxy) for money
+export const appUrl = () => APP + (lastMode === "jobs" ? "onlineanalytics.html" : "onlinebudget.html");   // the Invoice Analytics app for the visits face, the Budget Planner for money (L: "I was talking onlineanalytics.html")
 export const title = "Analytics";
 export const sub = ["year", "ledgerSaved", "visitId", "tx", "visitSaved"];
 export const pub = ["tx", "visitId"];   // a row in the month panel picks it, like the Ledger / Visits tiles do
