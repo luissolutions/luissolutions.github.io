@@ -16,8 +16,8 @@ export function placeTile(el, t) { el.style.left = t.x + "px"; el.style.top = t.
 export function mountTile(worldEl, spec, def, ctx, handlers) {
   const el = document.createElement("section"); el.className = "lv-tile"; el.dataset.id = spec.id; el.dataset.type = spec.type;
   const title = spec.cfg?.title || def.title;
-  el.innerHTML = `<div class="lv-thead"><span class="t">${esc(title)}</span><span class="keys">${(def.pub || []).map(k => `<i class="pub" title="this tile sets ${esc(k)}">${esc(k)} ▸</i>`).join("")}${(def.sub || []).map(k => `<i class="sub" title="this tile follows ${esc(k)}">▸ ${esc(k)}</i>`).join("")}</span><button type="button" class="nudge up" title="move up">▲</button><button type="button" class="nudge dn" title="move down">▼</button><button type="button" class="col" title="collapse / expand">${spec.collapsed ? "▸" : "▾"}</button><button type="button" class="rm" title="remove from the board">✕</button></div><div class="lv-body"></div><div class="lv-resize" title="drag to resize"></div>`;
-  placeTile(el, spec); tintTile(el, spec.type, spec.nth); worldEl.appendChild(el);
+  el.innerHTML = `<div class="lv-thead"><span class="t">${esc(title)}</span><span class="keys">${(def.pub || []).map(k => `<i class="pub" title="this tile sets ${esc(k)}">${esc(k)} ▸</i>`).join("")}${(def.sub || []).map(k => `<i class="sub" title="this tile follows ${esc(k)}">▸ ${esc(k)}</i>`).join("")}</span><button type="button" class="nudge up" title="move up">▲</button><button type="button" class="nudge dn" title="move down">▼</button><button type="button" class="live" title="${spec.held ? "held - keeps what it shows; tap to make this the live copy" : "live - this copy follows picks"}">${spec.held ? "📌" : "●"}</button><button type="button" class="col" title="collapse / expand">${spec.collapsed ? "▸" : "▾"}</button><button type="button" class="rm" title="remove from the board">✕</button></div><div class="lv-body"></div><div class="lv-resize" title="drag to resize"></div>`;
+  placeTile(el, spec); tintTile(el, spec.type, spec.nth); el.classList.toggle("held", !!spec.held); if ((spec.copies || 1) > 1) el.dataset.copies = spec.copies; worldEl.appendChild(el);
   const body = el.querySelector(".lv-body"), head = el.querySelector(".lv-thead"), tEl = el.querySelector(".t");
   let view = null;
   const api = { el, body, spec, setTitle: t => { tEl.textContent = t; }, remount };
@@ -26,6 +26,7 @@ export function mountTile(worldEl, spec, def, ctx, handlers) {
   el.addEventListener("pointerdown", () => { el.style.zIndex = ++zTop; }, true);   // the one you touch comes to the front
   el.querySelector(".col").onclick = () => { spec.collapsed = !spec.collapsed; el.querySelector(".col").textContent = spec.collapsed ? "▸" : "▾"; placeTile(el, spec); handlers.onChange(spec); };
   el.querySelector(".rm").onclick = () => { try { view?.destroy?.(); } catch (_) {} el.remove(); handlers.onRemove(spec); };
+  el.querySelector(".live").onclick = e => { e.stopPropagation(); if (spec.held) handlers.onLive?.(spec); };   // the live copy stays live; a held one takes over
   // phone: the arrows move a tile up / down the column (L 2026-10-04 "move top to bottom via arrows instead of drag")
   el.querySelector(".nudge.up").onclick = e => { e.stopPropagation(); handlers.onNudge?.(spec, -1); };
   el.querySelector(".nudge.dn").onclick = e => { e.stopPropagation(); handlers.onNudge?.(spec, 1); };

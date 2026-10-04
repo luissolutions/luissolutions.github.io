@@ -44,7 +44,7 @@
   <script type="module">
     import { whenAuthReady, onUser, baseFor, signIn, signOutNow, LUIS_UID, readOnce } from "./core/firebase.js";
     import { store } from "./core/store.js";
-    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, columnLayout } from "./core/layout.js";
+    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, columnLayout, setLive, ensureLive } from "./core/layout.js";
     import { mountTile } from "./ui/tile.js";
     import { mountBoard } from "./ui/board.js";
     import * as year from "./ui/tiles/year.js";
@@ -66,8 +66,8 @@
     const TILES = { year, joblist, jobcard, contact, invoice, details, photoset, ledger, entry, bookmarks, analytics, notes, page };
     // folded away (L 2026-10-04 "instead of things having redundant data like Visit and Contact"): Entry = the form, Details = the
     // read-all. The two types stay registered so a saved board still renders them; they just leave the menu and the sets.
-    const HIDDEN = new Set(["jobcard", "contact"]);
-    const DESC = { year: "the year the money tiles read", joblist: "your site visits, searchable - sets the visit", jobcard: "the picked visit alone, edit in place", photoset: "the picked visit's photos, or the picked ledger row's receipt", entry: "the form for what you tapped last - a ledger row or a visit (the Photos rule)", contact: "the visit's customer as a contact card, edit in place", invoice: "the visit's invoice, or the invoices a row paid or was used in", bookmarks: "all your Saved Links - search, categories, add one; a picked visit or vendor becomes a filter chip", details: "the catch-all for the picked visit - job data, contact, notes, invoice, other visits, device lists + device data", ledger: "the year's spending", analytics: "the year at a glance, follows the year", notes: "your notes, edit in place", page: "any page in a frame" };
+    const HIDDEN = new Set(["jobcard", "contact", "entry"]);   // + entry 2026-10-04: Details is the one tile (editable) for a visit or a ledger row
+    const DESC = { year: "the year the money tiles read", joblist: "your site visits, searchable - sets the visit", jobcard: "the picked visit alone, edit in place", photoset: "the picked visit's photos, or the picked ledger row's receipt", entry: "(folded into Details)", contact: "the visit's customer as a contact card, edit in place", invoice: "the visit's invoice, or the invoices a row paid or was used in", bookmarks: "all your Saved Links - search, categories, add one; a picked visit or vendor becomes a filter chip", details: "everything about what you tapped last - the visit, editable, with invoice, daily entries, other visits, device lists, device data - or the ledger row", ledger: "the year's spending", analytics: "the year at a glance, follows the year", notes: "your notes, edit in place", page: "any page in a frame" };
     // the local apps, one tile each (L): a page tile pointed at the app
     const LOCAL = [["Calculator", "calc"], ["Checklist", "checklist"], ["Converter", "converter"], ["Counter", "count"], ["Password", "password"]];
     const $ = id => document.getElementById(id), viewEl = $("view"), worldEl = $("world"), linksEl = $("links"), status = $("status");
@@ -82,9 +82,9 @@
     // STARTER SETS + CLEAR (L 2026-10-04 "add a clear the grid button or a default create a set"): a set drops its tiles in rows of
     // three around the middle of the view (or down the phone column); the wires come from the tiles' own pub / sub.
     const SETS = {
-      money: { name: "Money set", desc: "Year · Ledger · Entry · Photos · Analytics", tiles: ["year", "ledger", "entry", "photoset", "analytics"] },
-      visits: { name: "Visits set", desc: "Visits · Entry · Details · Invoice · Photos · Bookmarks", tiles: ["joblist", "entry", "details", "invoice", "photoset", "bookmarks"] },
-      all: { name: "Everything", desc: "every tile, wired", tiles: ["year", "joblist", "entry", "details", "invoice", "photoset", "ledger", "bookmarks", "analytics", "notes"] } };
+      money: { name: "Money set", desc: "Year · Ledger · Details · Photos · Analytics", tiles: ["year", "ledger", "details", "photoset", "analytics"] },
+      visits: { name: "Visits set", desc: "Visits · Details · Invoice · Photos · Bookmarks", tiles: ["joblist", "details", "invoice", "photoset", "bookmarks"] },
+      all: { name: "Everything", desc: "every tile, wired", tiles: ["year", "joblist", "details", "invoice", "photoset", "ledger", "bookmarks", "analytics", "notes"] } };
     function addSet(key) {
       const set = SETS[key]; if (!set) return;
       const vr = viewEl.getBoundingClientRect(), [cx, cy] = board.toWorld(vr.left + vr.width / 2, vr.top + vr.height / 2);
@@ -98,30 +98,28 @@
     const tileEls = () => new Map([...mounted].map(([id, api]) => [id, api.el]));
     const wires = () => board.drawArrows(layout.tiles, TILES);
 
-    // TWO OF THE SAME TILE (L 2026-10-04 "if I have 2 photos windows open and 2 things that update photos, only update one -
-    // the oldest gets the new push"): a PICK (visitId / visit / tx / year) reaches only the least-recently-updated instance of
-    // that tile type; the others keep what they show. Refresh signals (base, saves) still reach every instance.
-    const CLAIMED = new Set(["visitId", "visit", "tx", "year"]), touched = new Map();   // tile id -> last time it took a pick
-    const winners = new Map();   // "<type>|<key>" -> the instance that owns the pick in flight; decided ONCE per emission (every listener runs in the same tick), cleared on the next microtask
+    // TWO OF THE SAME TILE (L 2026-10-04, second cut: "once a 2nd Photos / Details tile is opened, the parent takes ownership of
+    // that one only - cycle only when there is a single one it can update"): opening another copy HOLDS the ones already there
+    // (they keep what they show) and the new copy is the LIVE one - a PICK (visitId / visit / tx / year) reaches only the live
+    // copy of a type. The header's ● / 📌 moves "live" to another copy (core/layout setLive). Refresh signals (base, saves) still
+    // reach every copy. (The first cut alternated between copies - that is the cycling L did not want.)
+    const CLAIMED = new Set(["visitId", "visit", "tx", "year"]);
     const scopedStore = spec => ({ get: store.get, all: store.all, set: store.set,
-      on: (key, fn) => store.on(key, (v, k) => {
-        if (CLAIMED.has(key)) { const slot = spec.type + "|" + key;
-          if (!winners.has(slot)) { const peers = layout.tiles.filter(t => t.type === spec.type && mounted.has(t.id));
-            const oldest = peers.length > 1 ? peers.slice().sort((a, b) => (touched.get(a.id) || 0) - (touched.get(b.id) || 0) || (a.id < b.id ? -1 : 1))[0] : spec;
-            winners.set(slot, oldest.id); touched.set(oldest.id, Date.now()); queueMicrotask(() => winners.delete(slot)); }
-          if (winners.get(slot) !== spec.id) return; }
-        fn(v, k); }) });
+      on: (key, fn) => store.on(key, (v, k) => { if (CLAIMED.has(key) && spec.held) return; fn(v, k); }) });
     function render() {
       for (const t of mounted.values()) t.el.remove(); mounted.clear();
       // the n-th copy of a type (by creation order = id) gets a lighter shade of the type's colour (ui/tile.js tintTile)
       const nth = new Map(); for (const spec of layout.tiles.slice().sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) { spec.nth = nth.get(spec.type) || 0; nth.set(spec.type, spec.nth + 1); }
+      ensureLive(layout);
       for (const spec of layout.tiles) {
         const def = TILES[spec.type]; if (!def) continue;
+        spec.copies = nth.get(spec.type) || 1;   // the header shows ● / 📌 only when a type has more than one copy
         const api = mountTile(worldEl, spec, def, { store: scopedStore(spec), board, save: () => saveLayout(layout) }, {
           onMove: () => wires(),
           onChange: (s, settled) => { if (NARROW() && settled) { columnLayout(layout); render(); flash("saved"); return; } saveLayout(layout); wires(); flash("saved"); },   // phone: a taller tile pushes the ones below it down
           onNudge: nudge,
-          onRemove: s => { removeTile(s.id); mounted.delete(s.id); wires(); if (NARROW()) { columnLayout(layout); render(); } flash("removed"); } });
+          onLive: s => { setLive(s.id); layout = getLayout(); render(); flash(TILES[s.type].title + " · this copy is live"); },
+          onRemove: s => { removeTile(s.id); mounted.delete(s.id); layout = getLayout(); ensureLive(layout); saveLayout(layout); wires(); if (NARROW()) { columnLayout(layout); render(); } else if (layout.tiles.some(t => t.type === s.type)) render(); flash("removed"); } });
         mounted.set(spec.id, api);
       }
       wires(); board.fitWorld(layout.tiles);
