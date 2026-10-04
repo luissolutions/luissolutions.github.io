@@ -28,6 +28,12 @@ export function mount(body, { store, tile }) {
     store.set("photoPick", cell.dataset.dev ? { kind: "device", listId: cell.dataset.list, rowId: cell.dataset.row, label: cell.dataset.label } : { kind: "sensor", num: cell.dataset.sen, serial: cell.dataset.serial || "", label: cell.dataset.label }); });
   const kv = (k, v) => v ? `<b>${k}</b><span>${v}</span>` : "";
   const wireSecs = () => body.querySelectorAll("details.lv-sec").forEach(d => d.addEventListener("toggle", () => { try { localStorage.setItem(okey(d.dataset.sec), d.open ? "1" : "0"); } catch (_) {} }));
+  // SIZE-AWARE (L 2026-10-04 "a more detailed view when I make them bigger"): a tall tile (>= 640 px of body) opens every section
+  // the person has not closed themselves; shrinking it back closes those again. The user's own open / closed choices win.
+  let tallOpen = false;
+  const fitSections = () => { const tall = body.clientHeight >= 640; if (tall === tallOpen) return; tallOpen = tall;
+    body.querySelectorAll("details.lv-sec").forEach(d => { let saved = null; try { saved = localStorage.getItem(okey(d.dataset.sec)); } catch (_) {} if (saved != null) return; d.open = tall; }); };
+  const ro = new ResizeObserver(fitSections); ro.observe(body);
 
   const drawVisit = async () => {
     const id = store.get("visitId"), my = ++run; if (!id) { body.innerHTML = `<div class="lv-empty">Pick a visit, or tap a row in the Ledger.</div>`; tile.setTitle("Details"); return; }
@@ -76,7 +82,7 @@ export function mount(body, { store, tile }) {
       ${sec("others", "Other visits", `<div class="lv-note">loading…</div>`)}
       ${sec("lists", "Device lists", `<div class="lv-note">loading…</div>`)}
       ${sec("sensors", "Device data", `<div class="lv-note">loading…</div>`)}`;
-    wireSecs();
+    wireSecs(); tallOpen = false; fitSections();
     // edit in place: the same keys onlinejob / onlinecontacts write (core/jobs.saveJob allows exactly these + notes)
     const f = body.querySelector("form.lv-det"), st = f.querySelector(".st"); f.addEventListener("input", () => { st.textContent = "unsaved"; });
     const segsEl = f.querySelector(".lv-segs");
@@ -119,5 +125,5 @@ export function mount(body, { store, tile }) {
     store.on("visitSaved", s => { if (s && s.by !== "details" && s.id === store.get("visitId") && !store.get("tx")) drawVisit(); }),
     store.on("photoPick", v => { if (!v) { picked = ""; body.querySelectorAll(".lv-tbl .on").forEach(x => x.classList.remove("on")); } }));   // the Photos "✕" chip clears the mark here too
   if (store.get("tx") && !store.get("visitId")) drawTx(); else drawVisit();
-  return { destroy: () => stops.forEach(s => s()) };
+  return { destroy: () => { stops.forEach(s => s()); ro.disconnect(); } };
 }
