@@ -23,7 +23,7 @@ export function mount(body, { store, tile }) {
   q.addEventListener("input", draw);
   rows.addEventListener("click", e => { const el = e.target.closest("[data-id]"); if (!el) return; const r = all.find(x => x.id === el.dataset.id); if (!r) return;
     picked = r.id; rows.querySelectorAll(".lv-row").forEach(x => x.classList.toggle("on", x.dataset.id === picked));
-    store.set("tx", { ...r }); });   // a fresh object every tap, so re-tapping the same row still fires
-  stops.push(store.on("year", load), store.on("base", load)); load();
+    store.set("tx", { ...r, year: store.get("year") }); });   // a fresh object every tap, so re-tapping the same row still fires; year = the ledger it came from
+  stops.push(store.on("year", load), store.on("base", load), store.on("ledgerSaved", draw)); load();   // ledgerSaved = a row changed in place (a receipt) - redraw, keep the pick
   return { destroy: () => stops.forEach(s => s()) };
 }

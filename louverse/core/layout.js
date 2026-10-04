@@ -36,5 +36,13 @@ export function addTile(type, at, cfg = {}) {
   const t = { id: newId(), type, x: snap(clamp(at?.x ?? 100, 0, WORLD.w - w)), y: snap(clamp(at?.y ?? 100, 0, WORLD.h - h)), w, h, collapsed: false, cfg };
   current.tiles.push(t); saveLayout(); return t;
 }
+// THE PHONE BOARD (L 2026-10-04 "the ledger is showing up too wide"): on a narrow screen every tile is as wide as the screen and
+// they stack in one column in reading order (top-left first); heights capped so a tile never swallows the screen. Saved like any layout.
+export const NARROW = () => (window.innerWidth || 1000) <= 640;
+export function columnLayout(l = current, vw = window.innerWidth || 390) {
+  const w = snap(Math.max(220, vw - 24)); let y = 20;
+  for (const t of [...l.tiles].sort((a, b) => (a.y - b.y) || (a.x - b.x))) { t.x = 20; t.y = y; t.w = w; t.h = snap(Math.min(t.h, 560)); y += (t.collapsed ? 40 : t.h) + 20; }
+  saveLayout(l); return l;
+}
 export function removeTile(id) { current.tiles = current.tiles.filter(t => t.id !== id); saveLayout(); }
 export function resetLayout() { current = defaultLayout(); try { localStorage.removeItem(KEY); } catch (_) {} return current; }

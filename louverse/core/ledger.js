@@ -1,6 +1,6 @@
 // core/ledger.js - the LEDGER domain: one reader for {base}/money/ledger/{year} (the same rows budget, financials,
 // analytics and the galaxy read), the taxonomy rules beside it. No HTML in here.
-import { readOnce } from "./firebase.js";
+import { readOnce, database, ref, update } from "./firebase.js";
 import { normTag, parentTag, tagLabel, isSpendingTag, SPENDING_TAGS } from "./taxonomy.js";
 export { normTag, parentTag, tagLabel, isSpendingTag, SPENDING_TAGS };
 
@@ -22,6 +22,12 @@ export async function loadLedgerYear(base, year, { fresh = false } = {}) {
   }
   rows.sort((a, b) => b.dt - a.dt); cache.set(key, rows); return rows;
 }
+// the receipt on a row (the finance apps' two fields); the cached row is patched so every tile holding it sees the change
+export async function setRowImage(base, year, id, { url = "", path = "" } = {}) {
+  await update(ref(database, `${ledgerPath(base, year)}/${id}`), { img: url || "", imgPath: path || "" });
+  return patchCachedRow(base, year, id, { img: url || "", imgPath: path || "" });
+}
+export function patchCachedRow(base, year, id, patch) { const rows = cache.get(`${base}|${year}`), r = rows && rows.find(x => x.id === id); if (r) Object.assign(r, patch); return r || null; }
 export function totalsByTag(rows) {
   const m = new Map(); let income = 0, spent = 0;
   for (const r of rows) { if (r.type === "income") { income += r.amt; continue; } spent += r.amt; const t = r.tag || "(untagged)"; m.set(t, (m.get(t) || 0) + r.amt); }
