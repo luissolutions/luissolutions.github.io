@@ -48,8 +48,12 @@ export function ensureLive(l = current) { const byType = new Map(); for (const t
 // THE PHONE BOARD (L 2026-10-04 "the ledger is showing up too wide"): on a narrow screen every tile is as wide as the screen and
 // they stack in one column in reading order (top-left first); heights capped so a tile never swallows the screen. Saved like any layout.
 export const NARROW = () => (window.innerWidth || 1000) <= 640;
+// + a GUTTER on the right (L 2026-10-04 "a space of background to the right so I have an area I can scroll down at that isn't in
+// the tile, in case there's scrolling needed in the tile"): tiles stop ~60 px short of the right edge; that strip is the view, a
+// finger there always scrolls the board even when the tile under it would scroll itself.
+export const GUTTER = 60;
 export function columnLayout(l = current, vw = window.innerWidth || 390) {
-  const w = snap(Math.max(220, vw - 24)); let y = 20;
+  const w = snap(Math.max(220, vw - 20 - GUTTER)); let y = 20;
   for (const t of [...l.tiles].sort((a, b) => (a.y - b.y) || (a.x - b.x))) { t.x = 20; t.y = y; t.w = w; t.h = snap(t.h); y += (t.collapsed ? 40 : t.h) + 20; }   // heights are the person's (stretch up and down)
   saveLayout(l); return l;
 }
