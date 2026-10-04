@@ -145,6 +145,7 @@
     // after a copy is added or removed: every old copy keeps ONLY the parent that fed it last; the rest is up for grabs again
     const pruneOwners = () => { for (const [slot, id] of [...owners]) { const [type, parent] = slot.split("|"); if (!mounted.has(id) || peersOf(type).length < 2 || lastParent.get(id) !== parent) owners.delete(slot); } markOwners(); };
     function render() {
+      if (maxed) restoreMax();   // a re-render while a tile is full screen would orphan it in <body>
       for (const t of mounted.values()) t.el.remove(); mounted.clear();
       // the n-th copy of a type (by creation order = id) gets a lighter shade of the type's colour (ui/tile.js tintTile)
       const nth = new Map(); for (const spec of layout.tiles.slice().sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) { spec.nth = nth.get(spec.type) || 0; nth.set(spec.type, spec.nth + 1); }
@@ -181,14 +182,21 @@
       // other than your own goes along as ?base=<uid> - the apps honour it (shared firebase-init basePathFor)
       const base = store.get("base"), own = store.get("user")?.uid || "";
       if (url && base && base !== "public" && base !== own) url += (url.includes("?") ? "&" : "?") + "base=" + encodeURIComponent(base);
-      if (url) { api.unmount(); api.body.className = "lv-body frame"; api.body.innerHTML = `<iframe src="${url.replace(/"/g, "&quot;")}" allow="camera; microphone; clipboard-write" title="${TILES[spec.type].title}"></iframe>`; }
-      maxed = { spec, api, placeholder: ph }; flash(url ? "full app" : "full screen");
+      // the tile's own body (its live view, data and all) steps aside for the frame and comes straight back on exit - no unmount,
+      // no reload, no blank tile while Details re-reads 700 tasks (L 2026-10-04 "losing the tile when exiting the expand button")
+      let frame = null;
+      if (url) { frame = document.createElement("div"); frame.className = "lv-body frame"; frame.innerHTML = `<iframe src="${url.replace(/"/g, "&quot;")}" allow="camera; microphone; clipboard-write" title="${TILES[spec.type].title}"></iframe>`; api.body.replaceWith(frame); }
+      maxed = { spec, api, placeholder: ph, frame }; flash(url ? "full app" : "full screen");
     }
     function restoreMax() {
-      if (!maxed) return; const { spec, api, placeholder } = maxed; maxed = null;
-      api.el.classList.remove("lv-max"); placeholder.parentNode.insertBefore(api.el, placeholder); placeholder.remove();
+      if (!maxed) return; const { spec, api, placeholder, frame } = maxed; maxed = null;
+      if (frame) frame.replaceWith(api.body);
+      api.el.classList.remove("lv-max"); if (placeholder.parentNode) placeholder.parentNode.insertBefore(api.el, placeholder); else worldEl.appendChild(api.el); placeholder.remove();
       const b = api.el.querySelector(".max"); if (b) { b.textContent = "⤢"; b.title = "full screen - the whole app for what's picked"; }
-      if (api.body.classList.contains("frame")) api.remount(); placeTile(api.el, spec);
+      placeTile(api.el, spec);
+      // iPad Safari kept the old fixed-position layer and painted nothing where the tile went back (L: "it's like it was hidden" -
+      // a second copy made it show): drop the layer and rebuild it
+      api.el.style.display = "none"; void api.el.offsetHeight; api.el.style.display = ""; requestAnimationFrame(() => { api.el.style.transform = "translateZ(0)"; requestAnimationFrame(() => { api.el.style.transform = ""; }); });
     }
     addEventListener("keydown", e => { if (e.key === "Escape" && maxed) restoreMax(); });
     // a tile asks for another kind on the board (Details "✎ Edit in Entry"): light the one that exists, else add one beside the asker
