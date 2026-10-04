@@ -33,7 +33,7 @@ export function mount(body, { store, tile }) {
       host.querySelectorAll(".lv-row[data-id]").forEach(el => el.onclick = () => { const j = jobs.find(x => x.id === el.dataset.id); if (j) { store.set("tx", null); store.set("visit", j); store.set("visitId", j.id); } });
       return;
     }
-    const list = rows.filter(r => (month == null || monthOf(r) === month) && (!tag || (r.tags || []).includes(tag))).sort((a, b) => b.dt - a.dt);
+    const list = rows.filter(r => (month == null || monthOf(r) === month) && (!tag || (tag === "(untagged)" ? (!r.tag && r.type !== "income") : (r.tags || []).includes(tag)))).sort((a, b) => b.dt - a.dt);   // "(untagged)" is totalsByTag's bucket for tag-less spending, not a tag on a row (L 2026-10-04)
     const sp = list.filter(r => r.type !== "income").reduce((s, r) => s + r.amt, 0), inc = list.filter(r => r.type === "income").reduce((s, r) => s + r.amt, 0);
     host.innerHTML = `<div class="lv-h" style="display:flex;align-items:center;gap:8px">${month != null ? MON[month] : "all year"}${tag ? " · " + esc(tag) + " " + esc(tagLabel(tag)) : ""} · ${list.length} row${list.length === 1 ? "" : "s"}<span style="flex:1"></span><button type="button" class="lv-btn ico" data-close title="close">✕</button></div>
       <div class="lv-tot"><span>spent <b>${money.format(sp)}</b></span>${inc ? `<span>income <b>${money.format(inc)}</b></span><span>net <b class="${inc - sp >= 0 ? "ok" : "bad"}">${money.format(inc - sp)}</b></span>` : ""}</div>
