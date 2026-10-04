@@ -55,7 +55,12 @@ export function ensureLive(l = current) { const byType = new Map(); for (const t
 // filled shortest-first in the tiles' order (`ord`, the ▲▼ order), still native scroll, still the gutter. `?phone=1` forces it.
 export const GUTTER = 50;
 const FORCE_PHONE = typeof location !== "undefined" && /[?&]phone=1/.test(location.search);
-export const NARROW = () => { const w = window.innerWidth || 1000, h = window.innerHeight || 800;
+// MODE OVERRIDE (L 2026-10-04 on the iPad: "it's showing in mobile mode" - an iPad in Split View is narrower than 640 and gets
+// the column; he wants to choose): localStorage lv_mode = "phone" | "desktop" | "" (auto). The header 📱/🖥 button cycles it.
+export const modeOverride = () => { try { return localStorage.getItem("lv_mode") || ""; } catch (_) { return ""; } };
+export const setModeOverride = m => { try { if (m) localStorage.setItem("lv_mode", m); else localStorage.removeItem("lv_mode"); } catch (_) {} };
+export const NARROW = () => { const o = modeOverride(); if (o === "phone") return true; if (o === "desktop") return false;
+  const w = window.innerWidth || 1000, h = window.innerHeight || 800;
   return FORCE_PHONE || w <= 640 || (!!window.matchMedia && matchMedia("(pointer: coarse)").matches && Math.min(w, h) <= 640); };
 export const COLS = (vw = window.innerWidth || 390) => vw > 640 ? 2 : 1;
 export const byOrd = (a, b) => ((Number.isFinite(a.ord) ? a.ord : 1e9) - (Number.isFinite(b.ord) ? b.ord : 1e9)) || (a.y - b.y) || (a.x - b.x);

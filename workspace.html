@@ -12,7 +12,7 @@
   <meta name="theme-color" content="#33101c">
   <!-- PHONE MODE before first paint (2026-10-04): html.lv-phone = a touch device whose shorter side is <= 640 (portrait OR landscape) or a
        window <= 640 wide - the same test as core/layout NARROW; the CSS keys off the class, not a width media query -->
-  <script>(function () { try { var w = innerWidth, h = innerHeight, c = window.matchMedia && matchMedia("(pointer: coarse)").matches; document.documentElement.classList.toggle("lv-phone", /[?&]phone=1/.test(location.search) || w <= 640 || (c && Math.min(w, h) <= 640)); } catch (e) {} })();</script>
+  <script>(function () { try { var o = localStorage.getItem("lv_mode") || "", w = innerWidth, h = innerHeight, c = window.matchMedia && matchMedia("(pointer: coarse)").matches; document.documentElement.classList.toggle("lv-phone", o === "phone" ? true : o === "desktop" ? false : (/[?&]phone=1/.test(location.search) || w <= 640 || (c && Math.min(w, h) <= 640))); } catch (e) {} })();</script>
   <link rel="stylesheet" href="assets/louverse.css">
 </head>
 <body>
@@ -29,6 +29,7 @@
     </nav>
     <button type="button" class="lv-btn primary" id="add">+ Tile</button>
     <button type="button" class="lv-btn ico" id="fit" title="fit every tile on screen (or double-tap empty space)">⊡</button>
+    <button type="button" class="lv-btn ico" id="mode" title="board mode: auto / phone column / desktop canvas (tap to cycle)">⚙</button>
     <button type="button" class="lv-btn ico" id="zout" title="zoom out">−</button>
     <button type="button" class="lv-btn ico" id="zin" title="zoom in">+</button>
     <span class="sp"></span>
@@ -47,7 +48,7 @@
   <script type="module">
     import { whenAuthReady, onUser, baseFor, signIn, signOutNow, LUIS_UID, readOnce } from "./core/firebase.js";
     import { store } from "./core/store.js";
-    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, GUTTER, columnLayout, byOrd, setLive, ensureLive } from "./core/layout.js";
+    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, GUTTER, columnLayout, byOrd, setLive, ensureLive, modeOverride, setModeOverride } from "./core/layout.js";
     import { mountTile } from "./ui/tile.js";
     import { mountBoard } from "./ui/board.js";
     import * as year from "./ui/tiles/year.js";
@@ -202,6 +203,12 @@
     else { render(); if (!board.setView(layout.view)) fitNow(); }
     // ROTATE (L 2026-10-04 "a proper view also for landscape"): the phone class follows the device, and a phone that turns re-columns
     // (one column upright, two sideways); a desktop window that crosses 640 px switches modes the same way
+    // MODE BUTTON: auto -> phone -> desktop -> auto; the choice sticks in this browser (localStorage lv_mode)
+    const modeBtn = $("mode"), MODES = ["", "phone", "desktop"], modeLabel = { "": "⚙", phone: "📱", desktop: "🖥" };
+    const paintMode = () => { const o = modeOverride(); modeBtn.textContent = modeLabel[o]; modeBtn.title = `board mode: ${o || "auto"} (tap to cycle auto → phone → desktop)`; };
+    const applyMode = () => { const now = NARROW(); document.documentElement.classList.toggle("lv-phone", now); if (now) { columnLayout(layout); render(); board.fitWorld(layout.tiles); board.fit(layout.tiles); } else { render(); board.fit(layout.tiles); } wasPhone = now; };
+    modeBtn.onclick = () => { const o = modeOverride(), next = MODES[(MODES.indexOf(o) + 1) % MODES.length]; setModeOverride(next); paintMode(); applyMode(); flash("mode: " + (next || "auto")); };
+    paintMode();
     let wasPhone = NARROW(), rsT = 0;
     addEventListener("resize", () => { clearTimeout(rsT); rsT = setTimeout(() => { const now = NARROW(); document.documentElement.classList.toggle("lv-phone", now);
       if (now) { columnLayout(layout); render(); board.fitWorld(layout.tiles); } else if (wasPhone) { render(); board.fit(layout.tiles); } wasPhone = now; }, 150); });
