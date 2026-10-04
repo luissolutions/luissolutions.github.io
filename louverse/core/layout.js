@@ -41,7 +41,7 @@ export function addTile(type, at, cfg = {}) {
 export const NARROW = () => (window.innerWidth || 1000) <= 640;
 export function columnLayout(l = current, vw = window.innerWidth || 390) {
   const w = snap(Math.max(220, vw - 24)); let y = 20;
-  for (const t of [...l.tiles].sort((a, b) => (a.y - b.y) || (a.x - b.x))) { t.x = 20; t.y = y; t.w = w; t.h = snap(Math.min(t.h, 560)); y += (t.collapsed ? 40 : t.h) + 20; }
+  for (const t of [...l.tiles].sort((a, b) => (a.y - b.y) || (a.x - b.x))) { t.x = 20; t.y = y; t.w = w; t.h = snap(t.h); y += (t.collapsed ? 40 : t.h) + 20; }   // heights are the person's (stretch up and down)
   saveLayout(l); return l;
 }
 export function removeTile(id) { current.tiles = current.tiles.filter(t => t.id !== id); saveLayout(); }

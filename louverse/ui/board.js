@@ -4,20 +4,24 @@
 // ARROWS between blocks that feed each other (a block that publishes a store key -> every block that reads it), and an
 // arrow lights up the moment its key changes - "showing where other info will change as it changes here".
 //   mountBoard(viewEl, worldEl, svgEl, { onView }) -> { view, toWorld, zoomAt, panBy, fit, setView, drawArrows, pulse }
-import { WORLD } from "../core/layout.js";
+import { WORLD, NARROW } from "../core/layout.js";
 
 export function mountBoard(viewEl, worldEl, svgEl, { onView } = {}) {
   const view = { x: 0, y: 0, s: 1 };   // world -> screen: screen = world * s + (x, y)
-  const apply = () => { worldEl.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.s})`; onView?.(view); };
-  const toWorld = (cx, cy) => { const r = viewEl.getBoundingClientRect(); return [(cx - r.left - view.x) / view.s, (cy - r.top - view.y) / view.s]; };
+  // PHONE (L 2026-10-04 "limit side movement, up and down only"): on a narrow screen the view is a plain vertical scroller -
+  // no transform, no pan / zoom / pinch / wheel handling; the column of tiles sets the world's height (fitWorld).
+  const narrow = () => NARROW();
+  const apply = () => { if (narrow()) { view.x = 0; view.y = 0; view.s = 1; worldEl.style.transform = "none"; } else worldEl.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.s})`; onView?.(view); };
+  const toWorld = (cx, cy) => { const r = viewEl.getBoundingClientRect(); if (narrow()) return [cx - r.left + viewEl.scrollLeft, cy - r.top + viewEl.scrollTop]; return [(cx - r.left - view.x) / view.s, (cy - r.top - view.y) / view.s]; };
+  function fitWorld(tiles) { if (!narrow()) { worldEl.style.height = ""; return; } const bottom = Math.max(0, ...(tiles || []).map(t => t.y + (t.collapsed ? 40 : t.h))); worldEl.style.height = (bottom + 60) + "px"; }
   const clampView = () => { const r = viewEl.getBoundingClientRect();
     view.x = Math.min(80, Math.max(r.width - WORLD.w * view.s - 80, view.x)); view.y = Math.min(80, Math.max(r.height - WORLD.h * view.s - 80, view.y)); };
-  function zoomAt(cx, cy, f) { const r = viewEl.getBoundingClientRect(), px = cx - r.left, py = cy - r.top, ns = Math.max(0.2, Math.min(3, view.s * f)); f = ns / view.s;
+  function zoomAt(cx, cy, f) { if (narrow()) return; const r = viewEl.getBoundingClientRect(), px = cx - r.left, py = cy - r.top, ns = Math.max(0.2, Math.min(3, view.s * f)); f = ns / view.s;
     view.x = px - (px - view.x) * f; view.y = py - (py - view.y) * f; view.s = ns; clampView(); apply(); }
-  function panBy(dx, dy) { view.x += dx; view.y += dy; clampView(); apply(); }
-  function setView(v) { if (v && isFinite(v.s)) { view.x = v.x; view.y = v.y; view.s = v.s; clampView(); apply(); return true; } return false; }
+  function panBy(dx, dy) { if (narrow()) { viewEl.scrollTop -= dy; return; } view.x += dx; view.y += dy; clampView(); apply(); }
+  function setView(v) { if (narrow()) { apply(); return true; } if (v && isFinite(v.s)) { view.x = v.x; view.y = v.y; view.s = v.s; clampView(); apply(); return true; } return false; }
   // fit every block into the viewport (with a margin); the first thing a new browser sees
-  function fit(tiles) { const r = viewEl.getBoundingClientRect(); if (!tiles?.length || !r.width) return;
+  function fit(tiles) { if (narrow()) { apply(); fitWorld(tiles); viewEl.scrollTop = 0; return; } const r = viewEl.getBoundingClientRect(); if (!tiles?.length || !r.width) return;
     const x0 = Math.min(...tiles.map(b => b.x)), y0 = Math.min(...tiles.map(b => b.y)), x1 = Math.max(...tiles.map(b => b.x + b.w)), y1 = Math.max(...tiles.map(b => b.y + (b.collapsed ? 40 : b.h)));
     const s = Math.max(0.2, Math.min(1.4, Math.min((r.width - 40) / (x1 - x0), (r.height - 40) / (y1 - y0))));
     view.s = s; view.x = (r.width - (x1 - x0) * s) / 2 - x0 * s; view.y = (r.height - (y1 - y0) * s) / 2 - y0 * s; clampView(); apply(); }
@@ -30,9 +34,11 @@ export function mountBoard(viewEl, worldEl, svgEl, { onView } = {}) {
   const bodyCanScroll = (body, dx, dy) => (dy && ((dy < 0 && body.scrollTop > 0) || (dy > 0 && body.scrollTop + body.clientHeight < body.scrollHeight - 1)))
     || (dx && ((dx < 0 && body.scrollLeft > 0) || (dx > 0 && body.scrollLeft + body.clientWidth < body.scrollWidth - 1)));
   viewEl.addEventListener("wheel", e => {
+    if (narrow()) return;   // the phone view scrolls on its own
     if (!e.ctrlKey && !e.shiftKey) { const body = e.target.closest && e.target.closest(".lv-body"); if (body && !body.classList.contains("frame") && bodyCanScroll(body, e.deltaX, e.deltaY)) return; }   // native scroll inside the tile
     e.preventDefault(); if (e.ctrlKey || e.shiftKey) zoomAt(e.clientX, e.clientY, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); else panBy(-e.deltaX, -e.deltaY); }, { passive: false });
   viewEl.addEventListener("pointerdown", e => {
+    if (narrow()) return;   // the phone view scrolls on its own - no pan, no pinch
     ptr.set(e.pointerId, [e.clientX, e.clientY]);
     if (ptr.size === 2) { pan = null; const [a, b] = [...ptr.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; e.preventDefault(); return; }
     if (!isEmpty(e.target) || e.button) return;
@@ -71,6 +77,6 @@ export function mountBoard(viewEl, worldEl, svgEl, { onView } = {}) {
   function pulse(key, tileEls) {
     for (const l of links) if (l.key === key) { l.el.classList.remove("live"); void l.el.getBoundingClientRect(); l.el.classList.add("live"); const el = tileEls.get(l.to); if (el) { el.classList.remove("lit"); void el.offsetWidth; el.classList.add("lit"); } }
   }
-  const api = { view, toWorld, zoomAt, panBy, setView, fit: b => { fit(b); }, drawArrows, pulse, setFitAll: f => { fitAll = f; } };
+  const api = { view, toWorld, zoomAt, panBy, setView, fit: b => { fit(b); }, fitWorld, drawArrows, pulse, setFitAll: f => { fitAll = f; } };
   apply(); return api;
 }
