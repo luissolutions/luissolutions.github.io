@@ -36,7 +36,8 @@ export async function loadJobs(base) {
 export async function loadJob(base, id) { const v = await readOnce(taskPath(base, id)); return v ? summarize(id, v) : null; }
 // write back (the Job tile edits in place): only the fields given change; onlinejob's own keys, so the app sees the edit too
 export async function saveJob(base, id, patch) {
-  const allowed = ["customerName", "customerAddress", "customerPhone", "customerEmail", "project", "workOrder", "status", "notes"], body = {};
+  // + startTime / endTime / segments (2026-10-04, L "a way to edit the times on the Details tile") - ISO UTC strings, the way onlinejob writes them; segments own WHEN
+  const allowed = ["customerName", "customerAddress", "customerPhone", "customerEmail", "project", "workOrder", "status", "notes", "startTime", "endTime", "segments"], body = {};
   for (const k of allowed) if (k in patch) body[k] = patch[k];
   if (!Object.keys(body).length) return null;
   body.updatedAt = Date.now(); await update(ref(database, taskPath(base, id)), body); return loadJob(base, id);
