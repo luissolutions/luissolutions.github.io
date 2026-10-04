@@ -99,11 +99,14 @@
     // the oldest gets the new push"): a PICK (visitId / visit / tx / year) reaches only the least-recently-updated instance of
     // that tile type; the others keep what they show. Refresh signals (base, saves) still reach every instance.
     const CLAIMED = new Set(["visitId", "visit", "tx", "year"]), touched = new Map();   // tile id -> last time it took a pick
+    const winners = new Map();   // "<type>|<key>" -> the instance that owns the pick in flight; decided ONCE per emission (every listener runs in the same tick), cleared on the next microtask
     const scopedStore = spec => ({ get: store.get, all: store.all, set: store.set,
       on: (key, fn) => store.on(key, (v, k) => {
-        if (CLAIMED.has(key)) { const peers = layout.tiles.filter(t => t.type === spec.type && mounted.has(t.id));
-          if (peers.length > 1) { const oldest = peers.slice().sort((a, b) => (touched.get(a.id) || 0) - (touched.get(b.id) || 0) || (a.id < b.id ? -1 : 1))[0]; if (oldest.id !== spec.id) return; }
-          touched.set(spec.id, Date.now()); }
+        if (CLAIMED.has(key)) { const slot = spec.type + "|" + key;
+          if (!winners.has(slot)) { const peers = layout.tiles.filter(t => t.type === spec.type && mounted.has(t.id));
+            const oldest = peers.length > 1 ? peers.slice().sort((a, b) => (touched.get(a.id) || 0) - (touched.get(b.id) || 0) || (a.id < b.id ? -1 : 1))[0] : spec;
+            winners.set(slot, oldest.id); touched.set(oldest.id, Date.now()); queueMicrotask(() => winners.delete(slot)); }
+          if (winners.get(slot) !== spec.id) return; }
         fn(v, k); }) });
     function render() {
       for (const t of mounted.values()) t.el.remove(); mounted.clear();
