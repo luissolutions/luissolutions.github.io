@@ -6,6 +6,10 @@ import { GRID, snap, WORLD, NARROW } from "../core/layout.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 let zTop = 10;
 export const HEAD_H = 40;
+// COLOUR (L 2026-10-04 "each tile a different colour, multiples of a tile a different shade of the same colour"): one hue per
+// tile TYPE (CSS --th), and the n-th open copy of a type gets --tn = n, which the CSS turns into a lighter shade of that hue.
+export const HUES = { year: 42, joblist: 205, jobcard: 160, entry: 160, details: 268, photoset: 318, ledger: 95, invoice: 20, bookmarks: 185, contact: 140, analytics: 240, notes: 60, page: 300 };
+export function tintTile(el, type, nth) { el.style.setProperty("--th", HUES[type] ?? 220); el.style.setProperty("--tn", nth || 0); }
 export function placeTile(el, t) { el.style.left = t.x + "px"; el.style.top = t.y + "px"; el.style.width = t.w + "px"; el.style.height = (t.collapsed ? HEAD_H : t.h) + "px"; el.classList.toggle("collapsed", !!t.collapsed); }
 
 // def = { title, mount(body, ctx) -> { destroy?, title? }, pub?, sub? }; spec = the layout entry; ctx.board = the canvas api
@@ -13,7 +17,7 @@ export function mountTile(worldEl, spec, def, ctx, handlers) {
   const el = document.createElement("section"); el.className = "lv-tile"; el.dataset.id = spec.id; el.dataset.type = spec.type;
   const title = spec.cfg?.title || def.title;
   el.innerHTML = `<div class="lv-thead"><span class="t">${esc(title)}</span><span class="keys">${(def.pub || []).map(k => `<i class="pub" title="this tile sets ${esc(k)}">${esc(k)} ▸</i>`).join("")}${(def.sub || []).map(k => `<i class="sub" title="this tile follows ${esc(k)}">▸ ${esc(k)}</i>`).join("")}</span><button type="button" class="nudge up" title="move up">▲</button><button type="button" class="nudge dn" title="move down">▼</button><button type="button" class="col" title="collapse / expand">${spec.collapsed ? "▸" : "▾"}</button><button type="button" class="rm" title="remove from the board">✕</button></div><div class="lv-body"></div><div class="lv-resize" title="drag to resize"></div>`;
-  placeTile(el, spec); worldEl.appendChild(el);
+  placeTile(el, spec); tintTile(el, spec.type, spec.nth); worldEl.appendChild(el);
   const body = el.querySelector(".lv-body"), head = el.querySelector(".lv-thead"), tEl = el.querySelector(".t");
   let view = null;
   const api = { el, body, spec, setTitle: t => { tEl.textContent = t; }, remount };

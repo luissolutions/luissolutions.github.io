@@ -19,7 +19,7 @@ const sane = l => {
 // the first board: jobs on the left wired to the job + its photos, the year feeding the ledger and the analytics, notes below
 export function defaultLayout() {
   const T = (type, x, y) => ({ id: newId(), type, x, y, w: SIZES[type][0], h: SIZES[type][1], collapsed: false, cfg: {} });
-  return { tiles: [T("year", 40, 40), T("joblist", 40, 200), T("details", 540, 200), T("photoset", 540, 800), T("ledger", 1140, 40), T("analytics", 1140, 840), T("notes", 40, 880)], view: null, updatedAt: Date.now() };   // Details, not Visit (folded away 2026-10-04)
+  return { tiles: [T("year", 40, 40), T("joblist", 40, 200), T("details", 540, 200), T("entry", 540, 800), T("photoset", 540, 1300), T("ledger", 1140, 40), T("analytics", 1140, 840), T("notes", 40, 880)], view: null, updatedAt: Date.now() };   // Details + Entry, not Visit (folded away 2026-10-04)
 }
 export function loadLayout() {
   try { current = sane(JSON.parse(localStorage.getItem(KEY) || "null")); } catch (_) { current = null; }

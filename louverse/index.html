@@ -113,6 +113,8 @@
         fn(v, k); }) });
     function render() {
       for (const t of mounted.values()) t.el.remove(); mounted.clear();
+      // the n-th copy of a type (by creation order = id) gets a lighter shade of the type's colour (ui/tile.js tintTile)
+      const nth = new Map(); for (const spec of layout.tiles.slice().sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) { spec.nth = nth.get(spec.type) || 0; nth.set(spec.type, spec.nth + 1); }
       for (const spec of layout.tiles) {
         const def = TILES[spec.type]; if (!def) continue;
         const api = mountTile(worldEl, spec, def, { store: scopedStore(spec), board, save: () => saveLayout(layout) }, {
@@ -124,6 +126,11 @@
       }
       wires(); board.fitWorld(layout.tiles);
     }
+    // a tile asks for another kind on the board (Details "✎ Edit in Entry"): light the one that exists, else add one beside the asker
+    window.addEventListener("lv:tile", e => { const { type, from } = e.detail || {}; if (!TILES[type]) return;
+      const have = layout.tiles.find(t => t.type === type); if (have) { const api = mounted.get(have.id); if (api) { api.el.classList.remove("lit"); void api.el.offsetWidth; api.el.classList.add("lit"); api.el.style.zIndex = 9999; } flash(TILES[type].title + " is on the board"); return; }
+      const src = from && layout.tiles.find(t => t.id === from); const at = src ? { x: src.x + src.w + 40, y: src.y } : (() => { const vr = viewEl.getBoundingClientRect(), [wx, wy] = board.toWorld(vr.left + vr.width / 2, vr.top + vr.height / 2); return { x: wx - 200, y: wy - 120 }; })();
+      addTile(type, at); layout = getLayout(); if (NARROW()) columnLayout(layout); render(); flash("added " + TILES[type].title); });
     // a key changed somewhere: its wires light up and the tiles on the receiving end flash
     store.on("*", (v, key) => board.pulse(key, tileEls()));
 

@@ -33,9 +33,11 @@ export function mount(body, { store, tile }) {
         ${inv ? kv("Invoice", `${esc(inv.type)} · ${money2.format(Number(inv.total) || 0)} · ${inv.paid ? "paid" + (inv.paidDate ? " " + esc(inv.paidDate) : "") : "unpaid"}`) : ""}
       </div>
       ${segs.length ? `<div class="lv-muted" style="font-size:.82rem;margin:4px 0">${segs.map(s => `${esc(s.type || "work")} ${fmtTime(s.startTime)}–${s.endTime ? fmtTime(s.endTime) : "…"}`).join(" · ")}</div>` : ""}
-      <div class="lv-chips">${tel ? `<a class="lv-btn" href="tel:${esc(tel)}">📞 call</a><a class="lv-btn" href="sms:${esc(tel)}">💬 text</a>` : ""}${mail ? `<a class="lv-btn" href="mailto:${esc(mail)}">✉️ email</a>` : ""}${addr ? `<a class="lv-btn" href="https://maps.google.com/?q=${encodeURIComponent(addr)}" target="_blank" rel="noopener">🗺 map</a>` : ""}<a class="lv-btn" href="${link}" target="_blank" rel="noopener">Details app ↗</a></div>
+      <div class="lv-chips">${tel ? `<a class="lv-btn" href="tel:${esc(tel)}">📞 call</a><a class="lv-btn" href="sms:${esc(tel)}">💬 text</a>` : ""}${mail ? `<a class="lv-btn" href="mailto:${esc(mail)}">✉️ email</a>` : ""}${addr ? `<a class="lv-btn" href="https://maps.google.com/?q=${encodeURIComponent(addr)}" target="_blank" rel="noopener">🗺 map</a>` : ""}<button type="button" class="lv-btn primary" data-entry title="edit this visit in the Entry tile">✎ Edit in Entry</button><a class="lv-btn" href="${link}" target="_blank" rel="noopener">Details app ↗</a></div>
       ${j.notes ? h("Notes") + `<div style="white-space:pre-wrap;font-size:.86rem">${esc(j.notes)}</div>` : ""}
       <div class="lv-others"></div><div class="lv-devices"><div class="lv-muted" style="font-size:.8rem;margin-top:8px">loading devices…</div></div>`;
+    // "✎ Edit in Entry" (L "not seeing any editing in the tiles"): Details reads, Entry writes - ask the board for an Entry tile
+    body.querySelector("[data-entry]").onclick = () => { store.set("tx", null); window.dispatchEvent(new CustomEvent("lv:tile", { detail: { type: "entry", from: tile.spec?.id } })); };
     // the rest needs the whole tasks node - ONE read, shared by "other visits" and the meta-owner lookup
     const othersEl = body.querySelector(".lv-others"), devEl = body.querySelector(".lv-devices");
     let jobs = []; try { jobs = await loadJobs(base); } catch (e) { if (my === run) devEl.innerHTML = `<div class="lv-err">${esc(e.message || e)}</div>`; return; }
