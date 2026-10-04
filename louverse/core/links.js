@@ -20,6 +20,13 @@ export async function addLink(base, { url, title, categories }) {
   const row = { url: u, title: String(title || "").trim() || u.replace(/^https?:\/\//, "").slice(0, 60), categories: [...new Set((categories || []).map(c => String(c).trim()).filter(Boolean))] };
   await set(ref(database, `${linksPath(base)}/${id}`), row); return { id, ...row };
 }
+// edit a link in place - url / title / categories (the same three fields the Links app keeps); remove one
+export async function saveLink(base, id, patch) {
+  const body = {}; if ("url" in patch) { const u = String(patch.url || "").trim(); if (!/^https?:\/\//i.test(u)) throw new Error("a link starts with http:// or https://"); body.url = u; }
+  if ("title" in patch) body.title = String(patch.title || "").trim(); if ("categories" in patch) body.categories = [...new Set((patch.categories || []).map(c => String(c).trim()).filter(Boolean))];
+  if (!Object.keys(body).length) return null; await update(ref(database, `${linksPath(base)}/${id}`), body); return body;
+}
+export async function removeLink(base, id) { await set(ref(database, `${linksPath(base)}/${id}`), null); }
 // file an existing link under one more name (a bookmark added to a second visit)
 export async function tagLink(base, link, name) {
   const cats = [...new Set([...(link.categories || []), String(name).trim()].filter(Boolean))];
