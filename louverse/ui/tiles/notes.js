@@ -10,10 +10,10 @@ export function mount(body, { store, tile }) {
   const q = body.querySelector("input"), rows = body.querySelector(".lv-rows"), right = body.querySelector(".lv-right");
   let notes = [], sel = null, stops = [];
   const drawList = () => { const t = q.value.trim().toLowerCase(), hit = notes.filter(n => !t || n.name.toLowerCase().includes(t) || (!n.locked && n.text.toLowerCase().includes(t)));
-    rows.innerHTML = hit.length ? hit.map(n => `<div class="lv-row${n.id === sel ? " on" : ""}" data-id="${esc(n.id)}"><div><div class="n">${n.locked ? "🔒 " : ""}${esc(n.name)}</div><div class="s">${n.ts ? new Date(n.ts).toLocaleDateString() : ""}</div></div></div>`).join("") : `<div class="lv-empty">${notes.length ? "no match" : "no notes"}</div>`; };
+    rows.innerHTML = hit.length ? hit.map(n => `<div class="lv-row${n.id === sel ? " on" : ""}" data-id="${esc(n.id)}"><div><div class="n">${esc(n.name)}</div><div class="s">${n.ts ? new Date(n.ts).toLocaleDateString() : ""}</div></div></div>`).join("") : `<div class="lv-empty">${notes.length ? "no match" : "no notes"}</div>`; };
   const drawNote = () => { const n = notes.find(x => x.id === sel); if (!n) { right.innerHTML = `<div class="lv-empty">Pick a note.</div>`; tile.setTitle("Notes"); return; }
     tile.setTitle(`Notes · ${n.name}`); const canEdit = store.get("base") !== "public" && !n.locked;
-    right.innerHTML = n.locked ? `<div class="lv-empty">🔒 Locked — open it in the Notes app with its word.</div>`
+    right.innerHTML = n.locked ? `<div class="lv-empty">Locked — open it in the Notes app with its word.</div>`
       : `<form class="lv-form lv-fill"><textarea name="text" ${canEdit ? "" : "readonly"}>${esc(n.text)}</textarea>${canEdit ? `<div class="lv-actions"><span class="lv-muted st"></span><button type="submit" class="lv-btn primary">Save</button></div>` : `<div class="lv-muted" style="font-size:.85rem">Sign in to edit.</div>`}</form>`;
     const form = right.querySelector("form"); if (!form) return; const st = form.querySelector(".st");
     form.addEventListener("input", () => { if (st) st.textContent = "unsaved"; });
