@@ -1,45 +1,44 @@
-// core/layout.js - WHERE things are and WHAT is visible: the one layout store (L 2026-10-03: "one shell shows what you want
-// on the screen"). Signed in -> {uid}/workspace/layout in Firebase (same on every device); signed out -> this browser only.
-// A layout = { cols, blocks: [{ id, type, x, y, w, h, collapsed, cfg }], updatedAt }  (x/y/w/h in grid cells, 12 across)
-import { database, ref, get, set } from "./firebase.js";
-
-export const COLS = 12;
-const LOCAL_KEY = "lv_layout_v1";
-let uid = null, current = null, saveTimer = 0;
-
-export const PRESETS = {
-  Field: [{ type: "joblist", x: 1, y: 1, w: 4, h: 12 }, { type: "jobcard", x: 5, y: 1, w: 4, h: 7 }, { type: "photoset", x: 9, y: 1, w: 4, h: 7 }, { type: "ledger", x: 5, y: 8, w: 8, h: 6 }],
-  Finance: [{ type: "ledger", x: 1, y: 1, w: 8, h: 12 }, { type: "joblist", x: 9, y: 1, w: 4, h: 12 }],
-  Jobs: [{ type: "joblist", x: 1, y: 1, w: 5, h: 12 }, { type: "jobcard", x: 6, y: 1, w: 7, h: 6 }, { type: "photoset", x: 6, y: 7, w: 7, h: 6 }]
-};
+// core/layout.js - WHERE things are on the board: blocks in world pixels on one big canvas, plus the view (pan + zoom).
+// L 2026-10-03: "remember in browser for now", "remove presets", "lots of real estate" - this browser only, no presets, a
+// 6000 x 4000 world the view pans and zooms over. (A Firebase copy can come back later - same shape, one more save path.)
+export const WORLD = { w: 6000, h: 4000 };
+export const GRID = 20;   // blocks snap to this
+const KEY = "lv_board_v2";
+let current = null, saveTimer = 0;
 
 const newId = () => "b" + Math.random().toString(36).slice(2, 8);
-export const fromPreset = name => ({ cols: COLS, blocks: (PRESETS[name] || PRESETS.Field).map(b => ({ id: newId(), collapsed: false, cfg: {}, ...b })), updatedAt: Date.now() });
-const sane = l => l && Array.isArray(l.blocks) && l.blocks.length ? { cols: COLS, updatedAt: l.updatedAt || 0, blocks: l.blocks.filter(b => b && b.type).map(b => ({ id: b.id || newId(), type: b.type, x: clamp(b.x, 1, COLS), y: Math.max(1, b.y | 0), w: clamp(b.w, 2, COLS), h: Math.max(2, b.h | 0), collapsed: !!b.collapsed, cfg: b.cfg || {} })) } : null;
+export const snap = v => Math.round(v / GRID) * GRID;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v) || lo));
-
-function readLocal() { try { return sane(JSON.parse(localStorage.getItem(LOCAL_KEY) || "null")); } catch (_) { return null; } }
-function writeLocal(l) { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(l)); } catch (_) {} }
-
-// load for this user: Firebase first (signed in), the local copy as the fallback, a preset when there is nothing yet
-export async function loadLayout(user) {
-  uid = user?.uid || null;
-  let l = null;
-  if (uid) { try { const s = await get(ref(database, `${uid}/workspace/layout`)); l = sane(s.exists() ? s.val() : null); } catch (e) { console.warn("[layout] read failed", e); } }
-  current = l || readLocal() || fromPreset("Field");
+const sane = l => {
+  if (!l || !Array.isArray(l.blocks)) return null;
+  const blocks = l.blocks.filter(b => b && b.type).map(b => ({ id: b.id || newId(), type: b.type, x: snap(clamp(b.x, 0, WORLD.w - 200)), y: snap(clamp(b.y, 0, WORLD.h - 120)),
+    w: snap(clamp(b.w, 220, 2400)), h: snap(clamp(b.h, 120, 2000)), collapsed: !!b.collapsed, cfg: b.cfg || {} }));
+  return { blocks, view: l.view && isFinite(l.view.s) ? { x: Number(l.view.x) || 0, y: Number(l.view.y) || 0, s: clamp(l.view.s, 0.2, 3) } : null, updatedAt: l.updatedAt || 0 };
+};
+// the first board: the four blocks side by side with the year feeding the ledger - everything else is L's to arrange
+export function defaultLayout() {
+  return { blocks: [
+    { id: newId(), type: "year", x: 40, y: 40, w: 220, h: 120, collapsed: false, cfg: {} },
+    { id: newId(), type: "joblist", x: 40, y: 200, w: 420, h: 640, collapsed: false, cfg: {} },
+    { id: newId(), type: "jobcard", x: 540, y: 200, w: 520, h: 360, collapsed: false, cfg: {} },
+    { id: newId(), type: "photoset", x: 540, y: 600, w: 520, h: 360, collapsed: false, cfg: {} },
+    { id: newId(), type: "ledger", x: 1140, y: 40, w: 640, h: 760, collapsed: false, cfg: {} } ], view: null, updatedAt: Date.now() };
+}
+export function loadLayout() {
+  try { current = sane(JSON.parse(localStorage.getItem(KEY) || "null")); } catch (_) { current = null; }
+  if (!current || !current.blocks.length) current = defaultLayout();
   return current;
 }
 export const getLayout = () => current;
-export function saveLayout(l, { now = false } = {}) {
-  current = l; current.updatedAt = Date.now(); writeLocal(current);
-  if (!uid) return;
-  clearTimeout(saveTimer);
-  const go = () => set(ref(database, `${uid}/workspace/layout`), current).catch(e => console.warn("[layout] save failed", e));
-  if (now) go(); else saveTimer = setTimeout(go, 600);   // drags save once they settle
+export function saveLayout(l = current) {
+  current = l; current.updatedAt = Date.now(); clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(current)); } catch (_) {} }, 300);
 }
-export function addBlock(type, cfg = {}) {
-  const l = current, h = type === "joblist" || type === "ledger" ? 10 : 7, w = 4;
-  const y = l.blocks.reduce((m, b) => Math.max(m, b.y + b.h), 1);   // below everything
-  const b = { id: newId(), type, x: 1, y, w, h, collapsed: false, cfg }; l.blocks.push(b); saveLayout(l); return b;
+export function addBlock(type, at, cfg = {}) {
+  const sizes = { year: [220, 120], joblist: [420, 640], jobcard: [520, 360], photoset: [520, 360], ledger: [640, 760], page: [700, 520] };
+  const [w, h] = sizes[type] || [480, 360];
+  const b = { id: newId(), type, x: snap(clamp(at?.x ?? 100, 0, WORLD.w - w)), y: snap(clamp(at?.y ?? 100, 0, WORLD.h - h)), w, h, collapsed: false, cfg };
+  current.blocks.push(b); saveLayout(); return b;
 }
-export function removeBlock(id) { current.blocks = current.blocks.filter(b => b.id !== id); saveLayout(current); }
+export function removeBlock(id) { current.blocks = current.blocks.filter(b => b.id !== id); saveLayout(); }
+export function resetLayout() { current = defaultLayout(); try { localStorage.removeItem(KEY); } catch (_) {} return current; }
