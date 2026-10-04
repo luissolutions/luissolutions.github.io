@@ -11,11 +11,13 @@ export function mountBoard(viewEl, worldEl, svgEl, { onView } = {}) {
   // PHONE (L 2026-10-04 "limit side movement, up and down only"): on a narrow screen the view is a plain vertical scroller -
   // no transform, no pan / zoom / pinch / wheel handling; the column of tiles sets the world's height (fitWorld).
   const narrow = () => NARROW();
-  const apply = () => { if (narrow()) { view.x = 0; view.y = 0; view.s = 1; worldEl.style.transform = "none"; } else worldEl.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.s})`; onView?.(view); };
+  // INFINITE BOARD (L 2026-10-04 "can the background be infinite, no borders?"): no world box - the grid is painted on the view and
+  // follows the pan + zoom, the pan is never clamped on a wide screen, tiles may sit anywhere (negative coordinates included)
+  const paintGrid = () => { if (narrow()) { viewEl.style.backgroundPosition = ""; viewEl.style.backgroundSize = ""; return; } const g = 20 * view.s; viewEl.style.backgroundSize = `${g}px ${g}px`; viewEl.style.backgroundPosition = `${view.x}px ${view.y}px`; };
+  const apply = () => { if (narrow()) { view.x = 0; view.y = 0; view.s = 1; worldEl.style.transform = "none"; } else worldEl.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.s})`; paintGrid(); onView?.(view); };
   const toWorld = (cx, cy) => { const r = viewEl.getBoundingClientRect(); if (narrow()) return [cx - r.left + viewEl.scrollLeft, cy - r.top + viewEl.scrollTop]; return [(cx - r.left - view.x) / view.s, (cy - r.top - view.y) / view.s]; };
   function fitWorld(tiles) { if (!narrow()) { worldEl.style.height = ""; return; } const bottom = Math.max(0, ...(tiles || []).map(t => t.y + (t.collapsed ? 40 : t.h))); worldEl.style.height = (bottom + 60) + "px"; }
-  const clampView = () => { const r = viewEl.getBoundingClientRect();
-    view.x = Math.min(80, Math.max(r.width - WORLD.w * view.s - 80, view.x)); view.y = Math.min(80, Math.max(r.height - WORLD.h * view.s - 80, view.y)); };
+  const clampView = () => {};   // no edges (was: keep the 6000 x 4000 world within 80 px of the viewport)
   function zoomAt(cx, cy, f) { if (narrow()) return; const r = viewEl.getBoundingClientRect(), px = cx - r.left, py = cy - r.top, ns = Math.max(0.2, Math.min(3, view.s * f)); f = ns / view.s;
     view.x = px - (px - view.x) * f; view.y = py - (py - view.y) * f; view.s = ns; clampView(); apply(); }
   function panBy(dx, dy) { if (narrow()) { viewEl.scrollTop -= dy; return; } view.x += dx; view.y += dy; clampView(); apply(); }

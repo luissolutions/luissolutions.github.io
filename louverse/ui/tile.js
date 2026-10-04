@@ -33,8 +33,8 @@ export function mountTile(worldEl, spec, def, ctx, handlers) {
     if (kind === "move" && NARROW()) return;   // phone: no header drag - the arrows move a tile, a touch here scrolls the view
     e.preventDefault(); e.stopPropagation(); drag = { kind, x0: e.clientX, y0: e.clientY, s0: { ...spec }, scale: s() }; el.classList.add("dragging"); try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} };
   const move = e => { if (!drag) return; const dx = (e.clientX - drag.x0) / drag.scale, dy = (e.clientY - drag.y0) / drag.scale;
-    if (drag.kind === "move") { spec.x = snap(Math.max(0, Math.min(WORLD.w - spec.w, drag.s0.x + dx))); spec.y = snap(Math.max(0, Math.min(WORLD.h - HEAD_H, drag.s0.y + dy))); }
-    else { if (!NARROW()) spec.w = snap(Math.max(220, Math.min(WORLD.w - spec.x, drag.s0.w + dx))); spec.h = snap(Math.max(120, Math.min(WORLD.h - spec.y, drag.s0.h + dy))); }   // phone: height only ("stretch up and down")
+    if (drag.kind === "move") { spec.x = snap(drag.s0.x + dx); spec.y = snap(drag.s0.y + dy); }   // anywhere - the board has no edges (2026-10-04)
+    else { if (!NARROW()) spec.w = snap(Math.max(220, drag.s0.w + dx)); spec.h = snap(Math.max(120, drag.s0.h + dy)); }   // phone: height only ("stretch up and down")
     placeTile(el, spec); handlers.onMove?.(spec); };
   const up = () => { if (!drag) return; const was = drag; drag = null; el.classList.remove("dragging"); if (was.s0.x !== spec.x || was.s0.y !== spec.y || was.s0.w !== spec.w || was.s0.h !== spec.h) handlers.onChange(spec, true); };
   head.addEventListener("pointerdown", down("move")); el.querySelector(".lv-resize").addEventListener("pointerdown", down("size"));

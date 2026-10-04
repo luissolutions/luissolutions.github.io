@@ -12,7 +12,7 @@ export const snap = v => Math.round(v / GRID) * GRID;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v) || lo));
 const sane = l => {
   if (!l || !Array.isArray(l.tiles)) return null;
-  const tiles = l.tiles.filter(t => t && t.type).map(t => ({ id: t.id || newId(), type: t.type, x: snap(clamp(t.x, 0, WORLD.w - 200)), y: snap(clamp(t.y, 0, WORLD.h - 120)),
+  const tiles = l.tiles.filter(t => t && t.type).map(t => ({ id: t.id || newId(), type: t.type, x: snap(clamp(t.x, -1e6, 1e6)), y: snap(clamp(t.y, -1e6, 1e6)),   // no edges (2026-10-04)
     w: snap(clamp(t.w, 220, 2400)), h: snap(clamp(t.h, 120, 2000)), collapsed: !!t.collapsed, cfg: t.cfg || {} }));
   return { tiles, view: l.view && isFinite(l.view.s) ? { x: Number(l.view.x) || 0, y: Number(l.view.y) || 0, s: clamp(l.view.s, 0.2, 3) } : null, updatedAt: l.updatedAt || 0 };
 };
@@ -33,7 +33,7 @@ export function saveLayout(l = current) {
 }
 export function addTile(type, at, cfg = {}) {
   const [w, h] = SIZES[type] || [480, 360];
-  const t = { id: newId(), type, x: snap(clamp(at?.x ?? 100, 0, WORLD.w - w)), y: snap(clamp(at?.y ?? 100, 0, WORLD.h - h)), w, h, collapsed: false, cfg };
+  const t = { id: newId(), type, x: snap(clamp(at?.x ?? 100, -1e6, 1e6)), y: snap(clamp(at?.y ?? 100, -1e6, 1e6)), w, h, collapsed: false, cfg };
   current.tiles.push(t); saveLayout(); return t;
 }
 // THE PHONE BOARD (L 2026-10-04 "the ledger is showing up too wide"): on a narrow screen every tile is as wide as the screen and
