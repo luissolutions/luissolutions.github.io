@@ -8,7 +8,8 @@ const norm = s => String(s || "").trim().toLowerCase();
 
 export async function loadLinks(base) {
   const all = (await readOnce(linksPath(base))) || {};
-  return Object.entries(all).filter(([, v]) => v && typeof v === "object").map(([id, v]) => ({ id, url: String(v.url || ""), title: String(v.title || v.url || ""),
+  // rows without a real url (19 category-only leftovers in L's node, 2026-10-04) are skipped - the Saved Links app skips them too
+  return Object.entries(all).filter(([, v]) => v && typeof v === "object" && /^https?:\/\//i.test(String(v.url || "").trim())).map(([id, v]) => ({ id, url: String(v.url || "").trim(), title: String(v.title || v.url || ""),
     categories: Array.isArray(v.categories) ? v.categories.map(String) : v.categories && typeof v.categories === "object" ? Object.values(v.categories).map(String) : [] }));
 }
 // the links filed under any of these names (case-insensitive) - a visit offers its project, WO and customer; a vendor its name
