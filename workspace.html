@@ -48,7 +48,7 @@
   <script type="module">
     import { whenAuthReady, onUser, baseFor, signIn, signOutNow, LUIS_UID, readOnce } from "./core/firebase.js";
     import { store } from "./core/store.js";
-    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, GUTTER, columnLayout, byOrd, setLive, ensureLive, modeOverride, setModeOverride } from "./core/layout.js";
+    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, GUTTER, columnLayout, restoreDesktop, byOrd, setLive, ensureLive, modeOverride, setModeOverride } from "./core/layout.js";
     import { mountTile, placeTile } from "./ui/tile.js";
     import { mountBoard } from "./ui/board.js";
     import * as year from "./ui/tiles/year.js";
@@ -225,7 +225,7 @@
     // boot: the board from this browser, the first auth answer, then the tiles; a later sign-in / out remounts them for that account
     layout = loadLayout();
     if (NARROW()) { columnLayout(layout); render(); board.fit(layout.tiles); }   // a phone always opens columned for THIS orientation (a board saved upright re-flows to two columns sideways, and back)
-    else { render(); if (!board.setView(layout.view)) fitNow(); }
+    else { if (layout.phoneShaped) restoreDesktop(layout); render(); if (!board.setView(layout.view)) fitNow(); }   // a board last shaped for a phone comes back as its desktop self
     // ROTATE (L 2026-10-04 "a proper view also for landscape"): the phone class follows the device, and a phone that turns re-columns
     // (one column upright, two sideways); a desktop window that crosses 640 px switches modes the same way
     // MODE BUTTON: auto -> phone -> desktop -> auto; the choice sticks in this browser (localStorage lv_mode)
@@ -234,12 +234,12 @@
     const modeBtn = $("mode"), modeLabel = { phone: "📱", desktop: "🖥" };
     const modeNow = () => modeOverride() || (NARROW() ? "phone" : "desktop");
     const paintMode = () => { const m = modeNow(); modeBtn.textContent = modeLabel[m]; modeBtn.title = `board mode: ${m === "phone" ? "mobile (column)" : "desktop (canvas)"} - tap for ${m === "phone" ? "desktop" : "mobile"}`; };
-    const applyMode = () => { const now = NARROW(); document.documentElement.classList.toggle("lv-phone", now); if (now) { columnLayout(layout); render(); board.fitWorld(layout.tiles); board.fit(layout.tiles); } else { render(); board.fit(layout.tiles); } wasPhone = now; };
+    const applyMode = () => { const now = NARROW(); document.documentElement.classList.toggle("lv-phone", now); if (now) { columnLayout(layout); render(); board.fitWorld(layout.tiles); board.fit(layout.tiles); } else { restoreDesktop(layout); render(); board.fit(layout.tiles); } wasPhone = now; };
     modeBtn.onclick = () => { const next = modeNow() === "phone" ? "desktop" : "phone"; setModeOverride(next); paintMode(); applyMode(); flash(next === "phone" ? "mobile" : "desktop"); };
     paintMode();
     let wasPhone = NARROW(), rsT = 0;
     addEventListener("resize", () => { clearTimeout(rsT); rsT = setTimeout(() => { const now = NARROW(); document.documentElement.classList.toggle("lv-phone", now);
-      if (now) { columnLayout(layout); render(); board.fitWorld(layout.tiles); } else if (wasPhone) { render(); board.fit(layout.tiles); } wasPhone = now; }, 150); });
+      if (now) { columnLayout(layout); render(); board.fitWorld(layout.tiles); } else if (wasPhone) { restoreDesktop(layout); render(); board.fit(layout.tiles); } wasPhone = now; }, 150); });
     whenAuthReady().then(async u => { await boot(u); onUser(async u2 => { if ((u2?.uid || null) !== (store.get("user")?.uid || null)) await boot(u2); }); });
     // WHICH TREE (L 2026-10-04 "for testing, a dropdown of each user's firebase when logged into mine"): Luis's uid may read and
     // write every tree, so when he is signed in the header dropdown picks the account the board reads; remembered per browser.

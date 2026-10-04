@@ -13,8 +13,8 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v) || lo));
 const sane = l => {
   if (!l || !Array.isArray(l.tiles)) return null;
   const tiles = l.tiles.filter(t => t && t.type).map(t => ({ id: t.id || newId(), type: t.type, x: snap(clamp(t.x, -1e6, 1e6)), y: snap(clamp(t.y, -1e6, 1e6)),   // no edges (2026-10-04)
-    w: snap(clamp(t.w, 220, 2400)), h: snap(clamp(t.h, 120, 2000)), collapsed: !!t.collapsed, held: !!t.held, ord: Number.isFinite(t.ord) ? t.ord : undefined, cfg: t.cfg || {} }));
-  return { tiles, view: l.view && isFinite(l.view.s) ? { x: Number(l.view.x) || 0, y: Number(l.view.y) || 0, s: clamp(l.view.s, 0.2, 3) } : null, updatedAt: l.updatedAt || 0 };
+    w: snap(clamp(t.w, 220, 2400)), h: snap(clamp(t.h, 120, 2000)), collapsed: !!t.collapsed, held: !!t.held, ord: Number.isFinite(t.ord) ? t.ord : undefined, desk: t.desk && isFinite(t.desk.x) ? { x: Number(t.desk.x), y: Number(t.desk.y), w: Number(t.desk.w), h: Number(t.desk.h) } : undefined, cfg: t.cfg || {} }));
+  return { tiles, view: l.view && isFinite(l.view.s) ? { x: Number(l.view.x) || 0, y: Number(l.view.y) || 0, s: clamp(l.view.s, 0.2, 3) } : null, phoneShaped: !!l.phoneShaped, updatedAt: l.updatedAt || 0 };
 };
 // the first board: jobs on the left wired to the job + its photos, the year feeding the ledger and the analytics, notes below
 export function defaultLayout() {
@@ -64,7 +64,16 @@ export const NARROW = () => { const o = modeOverride(); if (o === "phone") retur
   return FORCE_PHONE || w <= 640 || (!!window.matchMedia && matchMedia("(pointer: coarse)").matches && Math.min(w, h) <= 640); };
 export const COLS = (vw = window.innerWidth || 390) => vw > 640 ? 2 : 1;
 export const byOrd = (a, b) => ((Number.isFinite(a.ord) ? a.ord : 1e9) - (Number.isFinite(b.ord) ? b.ord : 1e9)) || (a.y - b.y) || (a.x - b.x);
+// DESKTOP COMES BACK AS IT WAS (L 2026-10-04 "when you switch back to desktop it's not like it was, it's how it got changed for
+// the mobile view"): the first time a desktop-shaped board is columned, every tile remembers its desktop box (t.desk) and the
+// layout is marked phoneShaped; restoreDesktop() puts those boxes back. A tile added while in the column keeps its column spot.
+export function restoreDesktop(l = current) {
+  if (!l.phoneShaped) return l;
+  for (const t of l.tiles) if (t.desk) { t.x = t.desk.x; t.y = t.desk.y; t.w = t.desk.w; t.h = t.desk.h; }
+  l.phoneShaped = false; saveLayout(l); return l;
+}
 export function columnLayout(l = current, vw = window.innerWidth || 390) {
+  if (!l.phoneShaped) { for (const t of l.tiles) t.desk = { x: t.x, y: t.y, w: t.w, h: t.h }; l.phoneShaped = true; }
   const cols = COLS(vw), w = Math.max(220, Math.floor((vw - 20 - GUTTER - (cols - 1) * 20) / cols / GRID) * GRID), ys = Array(cols).fill(20);
   [...l.tiles].sort(byOrd).forEach((t, k) => { let c = 0; for (let i = 1; i < cols; i++) if (ys[i] < ys[c]) c = i;   // the shortest column takes the next tile
     t.ord = k; t.x = 20 + c * (w + 20); t.y = ys[c]; t.w = w; t.h = snap(t.h); ys[c] += (t.collapsed ? 40 : t.h) + 20; });   // heights are the person's (stretch up and down)
