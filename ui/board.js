@@ -40,7 +40,8 @@ export function mountBoard(viewEl, worldEl, svgEl, { onView } = {}) {
     || (dx && ((dx < 0 && body.scrollLeft > 0) || (dx > 0 && body.scrollLeft + body.clientWidth < body.scrollWidth - 1)));
   viewEl.addEventListener("wheel", e => {
     if (narrow()) return;   // the phone view scrolls on its own
-    if (!e.ctrlKey && !e.shiftKey) { const body = e.target.closest && e.target.closest(".lv-body"); if (body && !body.classList.contains("frame") && bodyCanScroll(body, e.deltaX, e.deltaY)) return; }   // native scroll inside the tile
+    if (!e.ctrlKey) { const body = e.target.closest && e.target.closest(".lv-body");   // native scroll inside the tile - Shift+wheel is sideways when the tile has room that way (L 2026-10-04), zoom otherwise
+      if (body && !body.classList.contains("frame")) { const side = e.shiftKey && !e.deltaX; if (bodyCanScroll(body, side ? e.deltaY : e.deltaX, side ? 0 : e.deltaY)) return; } }
     e.preventDefault(); if (e.ctrlKey || e.shiftKey) zoomAt(e.clientX, e.clientY, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); else panBy(-e.deltaX, -e.deltaY); }, { passive: false });
   viewEl.addEventListener("pointerdown", e => {
     if (narrow()) return;   // the phone view scrolls on its own - no pan, no pinch
