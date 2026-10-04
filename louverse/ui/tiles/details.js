@@ -74,8 +74,16 @@ export function mount(body, { store, tile }) {
           return `<span ${a}>${r.counted ? "✓ " : ""}${esc(r.id)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.model || r.type)}</span><span ${a}>${esc(r.status)}${r.photos ? ` · 📷${r.photos}` : ""}</span>`; }).join("")}</div>`).join("") : `<div class="lv-note">none on this project</div>`);
     const flags = r => `${r.labeled ? " 🏷" : ""}${r.run ? " ▶" : ""}${r.placed ? " 📍" : ""}`;
     const sum = [sensors.filter(r => r.labeled).length && `${sensors.filter(r => r.labeled).length} labeled`, sensors.filter(r => r.run).length && `${sensors.filter(r => r.run).length} run`, sensors.filter(r => r.placed).length && `${sensors.filter(r => r.placed).length} on map`].filter(Boolean);
-    fill(body, "sensors", `Device data · ${sensors.length}${sum.length ? " · " + sum.join(", ") : ""}`, sensors.length ? from + `<div class="lv-tbl five"><b>#</b><b>Serial</b><b>Info 1</b><b>Info 2</b><b>Info 3</b>${sensors.map(r => { const a = `class="tap" data-sen="${esc(r.num)}" data-serial="${esc(r.serial)}" data-label="${esc("Sensor " + r.num + (r.serial ? " · " + r.serial : ""))}" title="tap = its photos in the Photos tile"`;
-        return `<span ${a}>${esc(r.num)}${flags(r)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.m1)}</span><span ${a}>${esc(r.m2)}</span><span ${a}>${esc(r.m3)}</span>`; }).join("")}</div>` : `<div class="lv-note">none on this project</div>`);
+    // DEVICE DATA + a search box (L 2026-10-04 "add a search filter for device data"): #, serial, the three infos and the words
+    // labeled / run / map all match; the summary counts "12 of 241"; the tapped row keeps its mark through a re-filter
+    const senTable = rows => `<div class="lv-tbl five"><b>#</b><b>Serial</b><b>Info 1</b><b>Info 2</b><b>Info 3</b>${rows.map(r => { const a = `class="tap${picked === "sen:" + r.num ? " on" : ""}" data-sen="${esc(r.num)}" data-serial="${esc(r.serial)}" data-label="${esc("Sensor " + r.num + (r.serial ? " · " + r.serial : ""))}" title="tap = its photos in the Photos tile"`;
+        return `<span ${a}>${esc(r.num)}${flags(r)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.m1)}</span><span ${a}>${esc(r.m2)}</span><span ${a}>${esc(r.m3)}</span>`; }).join("")}</div>`;
+    const senLabel = n => `Device data · ${n == null ? sensors.length : `${n} of ${sensors.length}`}${sum.length ? " · " + sum.join(", ") : ""}`;
+    fill(body, "sensors", senLabel(), sensors.length ? from + `<input class="lv-search" type="search" placeholder="Search devices - #, serial, X / Y / Z, labeled / run / map" autocomplete="off"><div class="lv-senrows">${senTable(sensors)}</div>` : `<div class="lv-note">none on this project</div>`);
+    const senEl = body.querySelector('[data-sec="sensors"]'), senQ = senEl?.querySelector(".lv-search"), senHost = senEl?.querySelector(".lv-senrows");
+    if (senQ) senQ.addEventListener("input", () => { const t = senQ.value.trim().toLowerCase();
+      const hit = !t ? sensors : sensors.filter(r => `${r.num} ${r.serial} ${r.m1} ${r.m2} ${r.m3}${r.labeled ? " labeled" : ""}${r.run ? " run" : ""}${r.placed ? " map placed" : ""}`.toLowerCase().includes(t));
+      senHost.innerHTML = senTable(hit); senEl.querySelector("summary").innerHTML = senLabel(t ? hit.length : null); });
   };
   const drawTx = () => { ++run; drawTxForm(body, { store, tile, title: "Details" }); };
   // last tap wins: a ledger row -> its form; a visit -> the visit; a cleared row falls back to the visit
