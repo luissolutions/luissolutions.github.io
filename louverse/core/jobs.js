@@ -36,7 +36,7 @@ export async function loadJobs(base) {
 export async function loadJob(base, id) { const v = await readOnce(taskPath(base, id)); return v ? summarize(id, v) : null; }
 // write back (the Job tile edits in place): only the fields given change; onlinejob's own keys, so the app sees the edit too
 export async function saveJob(base, id, patch) {
-  const allowed = ["customerName", "customerAddress", "customerPhone", "project", "workOrder", "status", "notes"], body = {};
+  const allowed = ["customerName", "customerAddress", "customerPhone", "customerEmail", "project", "workOrder", "status", "notes"], body = {};
   for (const k of allowed) if (k in patch) body[k] = patch[k];
   if (!Object.keys(body).length) return null;
   body.updatedAt = Date.now(); await update(ref(database, taskPath(base, id)), body); return loadJob(base, id);
@@ -82,6 +82,29 @@ export async function deleteJobPhoto(base, job, photo) {
 export async function setJobPhotoNote(base, job, photo, note) {
   const p = imagesPathOf(base, job, photo.where); if (!p) throw new Error("only device and daily photos carry a note");
   const next = imgsOf({ images: await readOnce(p) }).map(im => sameImg(im, photo) ? { ...im, note } : im); await set(ref(database, p), next);
+}
+
+// THE INVOICE RING (2026-10-04): a visit record IS the invoice (onlineinvoice writes invoiceSaved / labor[] / parts[] / total /
+// paid / paymentTxId onto tasks/<id>). A ledger row connects to a visit two ways: it is the PAYMENT the invoice created
+// (paymentTxId === row id) or it is a PART one of the lines used (sku, else name - parts are matched by name, not id).
+const low = s => String(s || "").trim().toLowerCase();
+export const invoiceOf = job => { const r = job?.raw || job || {}; return r.invoiceSaved || r.total != null ? { type: r.invoiceType || "invoice", date: r.invoiceDate || "", labor: Array.isArray(r.labor) ? r.labor : [], parts: Array.isArray(r.parts) ? r.parts : [],
+  subtotal: r.subtotal, tax: r.tax, total: r.total, paid: !!r.paid, amountPaid: r.amountPaid, paidDate: r.paidDate || "", paymentTxId: r.paymentTxId || "", paymentTxYear: r.paymentTxYear || "", title: r.invoiceTitle || "" } : null; };
+export async function invoicesFor(base, tx) {
+  const jobs = await loadJobs(base), out = [];
+  for (const j of jobs) { const inv = invoiceOf(j); if (!inv) continue;
+    if (inv.paymentTxId && inv.paymentTxId === tx.id) { out.push({ job: j, inv, how: "payment" }); continue; }
+    const hit = inv.parts.find(p => (tx.sku && p.sku && low(p.sku) === low(tx.sku)) || (tx.name && low(p.part) === low(tx.name)));
+    if (hit) out.push({ job: j, inv, how: "part", line: hit }); }
+  return out;
+}
+export async function visitsOfCustomer(base, name, exceptId) { const n = low(name); if (!n) return []; return (await loadJobs(base)).filter(j => low(j.customer) === n && j.id !== exceptId); }
+// the device lists on a visit (onlinejob): lists/<listId>/{_name, createdAt, <rowId>: {id, serial, model, type, location, status, ip, mac, notes, counted, images}}
+export function deviceLists(job) { const raw = job?.raw || job || {}, out = [];
+  for (const [listId, list] of Object.entries(raw.lists || {})) { if (!list || typeof list !== "object") continue;
+    const rows = Object.entries(list).filter(([k, v]) => !DEVICE_RESERVED.has(k) && v && typeof v === "object").map(([rowId, d]) => ({ rowId, id: d.id || d.label || "", serial: d.serial || "", model: d.model || "", type: d.type || "", location: d.location || "", status: d.status || "", counted: !!d.counted, photos: imgsOf(d).filter(i => i && i.url).length }));
+    out.push({ listId, name: list._name || listId, rows }); }
+  return out;
 }
 
 export const fmtDate = t => t ? new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";

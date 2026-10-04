@@ -27,6 +27,18 @@ export async function setRowImage(base, year, id, { url = "", path = "" } = {}) 
   await update(ref(database, `${ledgerPath(base, year)}/${id}`), { img: url || "", imgPath: path || "" });
   return patchCachedRow(base, year, id, { img: url || "", imgPath: path || "" });
 }
+// edit one ledger row - only the fields given (name, sub, amt, date, tags, cat, sku, desc, link); the cached row follows
+export async function saveRow(base, year, id, patch) {
+  const allowed = ["name", "sub", "amt", "date", "tags", "cat", "sku", "desc", "link", "type"], body = {};
+  for (const k of allowed) if (k in patch) body[k] = patch[k];
+  if (!Object.keys(body).length) return null;
+  await update(ref(database, `${ledgerPath(base, year)}/${id}`), body);
+  const row = patchCachedRow(base, year, id, {});
+  if (row) { if ("name" in body) row.name = String(body.name || "").trim(); if ("sub" in body) row.sub = body.sub || ""; if ("amt" in body) row.amt = Math.abs(toMoney(body.amt));
+    if ("date" in body) row.dt = parseDate(body.date) || row.dt; if ("tags" in body) { const raw = Array.isArray(body.tags) ? body.tags : []; row.tags = raw.map(normTag); row.tag = raw.map(parentTag).find(t => isSpendingTag(t)) || ""; }
+    if ("cat" in body) row.cat = body.cat || ""; if ("sku" in body) row.sku = body.sku || ""; if ("desc" in body) row.desc = body.desc || ""; if ("link" in body) row.link = body.link || ""; }
+  return row;
+}
 export function patchCachedRow(base, year, id, patch) { const rows = cache.get(`${base}|${year}`), r = rows && rows.find(x => x.id === id); if (r) Object.assign(r, patch); return r || null; }
 export function totalsByTag(rows) {
   const m = new Map(); let income = 0, spent = 0;

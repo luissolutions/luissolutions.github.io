@@ -32,7 +32,7 @@ export function mount(body, { store, tile }) {
     form.addEventListener("input", () => { if (st) st.textContent = "unsaved"; });
     form.onsubmit = async e => { e.preventDefault(); if (!canEdit) return; const patch = {}; for (const [k] of FIELDS) patch[k] = form[k].value.trim(); patch.notes = form.notes.value;
       st.textContent = "saving…";
-      try { const fresh = await saveJob(store.get("base"), j.id, patch); st.textContent = "saved"; if (fresh) { current = fresh; store.set("visit", fresh); tile.setTitle(`Job · ${fresh.customer}`); } store.set("visitSaved", { id: j.id, at: Date.now() }); }
+      try { const fresh = await saveJob(store.get("base"), j.id, patch); st.textContent = "saved"; if (fresh) { current = fresh; store.set("visit", fresh); tile.setTitle(`Visit · ${fresh.customer}`); } store.set("visitSaved", { id: j.id, at: Date.now() }); }
       catch (x) { st.textContent = "not saved: " + (x.code || x.message); } };
   };
   stops.push(store.on("visitId", draw), store.on("base", draw)); draw();

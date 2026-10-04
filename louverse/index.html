@@ -51,11 +51,16 @@
     import * as analytics from "./ui/tiles/analytics.js";
     import * as notes from "./ui/tiles/notes.js";
     import * as page from "./ui/tiles/page.js";
+    import * as entry from "./ui/tiles/entry.js";
+    import * as contact from "./ui/tiles/contact.js";
+    import * as invoice from "./ui/tiles/invoice.js";
+    import * as bookmarks from "./ui/tiles/bookmarks.js";
+    import * as details from "./ui/tiles/details.js";
 
     // the tile registry: type -> { title, mount, pub, sub } (each tile file declares its own pub / sub). The wires on the
     // board come from these. A new tile kind = one file in ui/tiles + one line here.
-    const TILES = { year, joblist, jobcard, photoset, ledger, analytics, notes, page };
-    const DESC = { year: "the year the money tiles read", joblist: "your site visits, searchable - sets the visit", jobcard: "the picked visit, edit in place", photoset: "the picked visit's photos, or the picked ledger row's receipt", ledger: "the year's spending", analytics: "the year at a glance, follows the year", notes: "your notes, edit in place", page: "any page in a frame" };
+    const TILES = { year, joblist, jobcard, contact, invoice, details, photoset, ledger, entry, bookmarks, analytics, notes, page };
+    const DESC = { year: "the year the money tiles read", joblist: "your site visits, searchable - sets the visit", jobcard: "the picked visit, edit in place", photoset: "the picked visit's photos, or the picked ledger row's receipt", entry: "the picked ledger row, edit in place", contact: "the visit's customer as a contact card, edit in place", invoice: "the visit's invoice, or the invoices a row paid or was used in", bookmarks: "Saved Links filed under the visit or the vendor, add one", details: "the visit's device lists, read-only", ledger: "the year's spending", analytics: "the year at a glance, follows the year", notes: "your notes, edit in place", page: "any page in a frame" };
     // the local apps, one tile each (L): a page tile pointed at the app
     const LOCAL = [["Calculator", "calc"], ["Checklist", "checklist"], ["Converter", "converter"], ["Counter", "count"], ["Password", "password"]];
     const $ = id => document.getElementById(id), viewEl = $("view"), worldEl = $("world"), linksEl = $("links"), status = $("status");
@@ -67,6 +72,18 @@
     // fit: everything in view - on a phone that means the one-column board at zoom 1, not a shrunken map
     const fitNow = () => { if (NARROW()) { columnLayout(layout); render(); board.fit(layout.tiles); } else board.fit(layout.tiles); };
     // phone: ▲ / ▼ on a tile's header moves it one place up / down the column (L 2026-10-04 "via arrows instead of drag")
+    // STARTER SETS + CLEAR (L 2026-10-04 "add a clear the grid button or a default create a set"): a set drops its tiles in rows of
+    // three around the middle of the view (or down the phone column); the wires come from the tiles' own pub / sub.
+    const SETS = {
+      money: { name: "Money set", desc: "Year · Ledger · Entry · Photos · Analytics", tiles: ["year", "ledger", "entry", "photoset", "analytics"] },
+      visits: { name: "Visits set", desc: "Visits · Visit · Contact · Invoice · Photos · Details · Bookmarks", tiles: ["joblist", "jobcard", "contact", "invoice", "photoset", "details", "bookmarks"] },
+      all: { name: "Everything", desc: "every tile, wired", tiles: ["year", "joblist", "jobcard", "contact", "invoice", "details", "photoset", "ledger", "entry", "bookmarks", "analytics", "notes"] } };
+    function addSet(key) {
+      const set = SETS[key]; if (!set) return;
+      const vr = viewEl.getBoundingClientRect(), [cx, cy] = board.toWorld(vr.left + vr.width / 2, vr.top + vr.height / 2);
+      let x = cx - 700, y = cy - 400, rowH = 0, n = 0;
+      for (const t of set.tiles) { const spec = addTile(t, { x, y }); rowH = Math.max(rowH, spec.h); x += spec.w + 40; if (++n % 3 === 0) { x = cx - 700; y += rowH + 40; rowH = 0; } }
+      layout = getLayout(); if (NARROW()) columnLayout(layout); render(); flash("added the " + set.name.toLowerCase()); }
     const nudge = (spec, dir) => { const order = [...layout.tiles].sort((a, b) => (a.y - b.y) || (a.x - b.x)), i = order.indexOf(spec), j = i + dir; if (i < 0 || j < 0 || j >= order.length) return;
       [order[i], order[j]] = [order[j], order[i]]; order.forEach((t, k) => { t.y = k; }); columnLayout(layout); render(); flash(dir < 0 ? "moved up" : "moved down");
       mounted.get(spec.id)?.el.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
@@ -95,10 +112,14 @@
       const pop = document.createElement("div"); pop.className = "lv-pop";
       pop.innerHTML = Object.keys(TILES).map(t => `<button type="button" data-t="${t}">${TILES[t].title}<small>${DESC[t]}</small></button>`).join("")
         + `<div class="lv-pop-h">Local apps</div>` + LOCAL.map(([n, f]) => `<button type="button" data-t="page" data-url="https://luissolutions.us/apps/local/${f}.html" data-title="${n}">${n}<small>apps/local/${f}</small></button>`).join("")
+        + `<div class="lv-pop-h">Board</div>` + Object.entries(SETS).map(([k, v]) => `<button type="button" data-set="${k}">${v.name}<small>${v.desc}</small></button>`).join("")
+        + `<button type="button" data-clear="1">Clear the board<small>every tile off - an empty grid</small></button>`
         + `<button type="button" data-reset="1">Reset the board<small>back to the starting layout</small></button>`;
       const r = e.currentTarget.getBoundingClientRect(); pop.style.left = Math.min(r.left, innerWidth - 250) + "px"; pop.style.top = (r.bottom + 4) + "px"; document.body.appendChild(pop);
-      pop.onclick = ev => { const b = ev.target.closest("[data-t],[data-reset]"); if (!b) return; pop.remove();
+      pop.onclick = ev => { const b = ev.target.closest("[data-t],[data-reset],[data-set],[data-clear]"); if (!b) return; pop.remove();
         if (b.dataset.reset) { layout = resetLayout(); render(); fitNow(); flash("reset"); return; }
+        if (b.dataset.clear) { layout.tiles.length = 0; saveLayout(layout); render(); flash("cleared"); return; }
+        if (b.dataset.set) { addSet(b.dataset.set); return; }
         const vr = viewEl.getBoundingClientRect(), [wx, wy] = board.toWorld(vr.left + vr.width / 2, vr.top + vr.height / 2);
         const cfg = b.dataset.url ? { url: b.dataset.url, title: b.dataset.title } : {};
         const spec = addTile(b.dataset.t, { x: wx - 200, y: wy - 120 }, cfg); layout = getLayout(); render(); flash("added " + (cfg.title || TILES[b.dataset.t].title)); };
