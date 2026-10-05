@@ -5,7 +5,8 @@
 // board (repo root on github.io, apps/dev/board on the luissolutions.us mirror) so the frame stays same-origin, one sign-in.
 import { loadJobs, metaOwnerOf, sensorRows, sensorsListOf } from "../../core/jobs.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const APP = new URL("../../apps/telaid/", import.meta.url).href;
+// ONE instance (L 2026-10-05): the Telaid apps live in the SES repo - same site on luissolutions.us, the published SES site elsewhere
+const APP = location.hostname === "luissolutions.us" ? location.origin + "/apps/telaid/" : "https://smartelectronicssolutions.github.io/apps/telaid/";
 let lastOwner = "", lastFor = "";   // the meta-owner of the last job drawn, and the pick it was drawn for - ⤢ opens the map on it
 const withTask = (page, id) => APP + page + (id ? "?task=" + encodeURIComponent(id) : "");
 
