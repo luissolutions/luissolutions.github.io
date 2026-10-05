@@ -29,7 +29,7 @@
     <button type="button" class="lv-btn primary" id="add">+ Tile</button>
     <button type="button" class="lv-btn ico" id="fit" title="fit every tile on screen (or double-tap empty space)">⊡</button>
     <button type="button" class="lv-btn ico" id="mode" title="board mode: mobile column / desktop canvas (tap to switch)">🖥</button>
-    <button type="button" class="lv-btn ico" id="spread" title="spread - push overlapping tiles apart until none overlap (desktop)">⤧</button>
+    <button type="button" class="lv-btn ico" id="spread" title="spread + condense - pull overlapping tiles apart, then slide every tile in as close as it goes without overlapping (desktop)">⤧</button>
     <button type="button" class="lv-btn ico" id="zout" title="zoom out">−</button>
     <button type="button" class="lv-btn ico" id="zin" title="zoom in">+</button>
     <span class="sp"></span>
@@ -256,7 +256,23 @@
           if (ox <= oy) { const d = Math.ceil(ox / 2 / 20) * 20, s = acx <= bcx ? 1 : -1; a.x -= s * d; b.x += s * d; }
           else { const d = Math.ceil(oy / 2 / 20) * 20, s = acy <= bcy ? 1 : -1; a.y -= s * d; b.y += s * d; } }
       } while (moved && rounds < 60);
-      saveLayout(layout); render(); board.fit(layout.tiles); flash(rounds > 1 ? "spread" : "nothing overlapped");
+      // ...THEN CONDENSE (L 2026-10-05 "change the spread into that plus it condenses the tiles as close as they can inward
+      // without overlapping"): every tile slides toward the middle of the group, one grid step at a time, x then y, nearest
+      // tiles first, stopping a 20 px gap short of any other tile. Repeats until nothing can move. Held tiles stay put.
+      const free = (t, x, y) => T.every(o => o === t || x >= o.x + o.w + GAP || x + t.w + GAP <= o.x || y >= o.y + hOf(o) + GAP || y + hOf(t) + GAP <= o.y);
+      let pulled = 0;
+      for (let pass = 0; pass < 200; pass++) {
+        const cx = T.reduce((s, t) => s + t.x + t.w / 2, 0) / T.length, cy = T.reduce((s, t) => s + t.y + hOf(t) / 2, 0) / T.length;
+        const order = T.filter(t => !t.held).sort((p, q) => Math.hypot(p.x + p.w / 2 - cx, p.y + hOf(p) / 2 - cy) - Math.hypot(q.x + q.w / 2 - cx, q.y + hOf(q) / 2 - cy));
+        let any = false;
+        for (const t of order) {
+          const dx = Math.sign(cx - (t.x + t.w / 2)), dy = Math.sign(cy - (t.y + hOf(t) / 2));
+          if (dx && Math.abs(cx - (t.x + t.w / 2)) >= 20 && free(t, t.x + dx * 20, t.y)) { t.x += dx * 20; any = true; pulled++; }
+          if (dy && Math.abs(cy - (t.y + hOf(t) / 2)) >= 20 && free(t, t.x, t.y + dy * 20)) { t.y += dy * 20; any = true; pulled++; }
+        }
+        if (!any) break;
+      }
+      saveLayout(layout); render(); board.fit(layout.tiles); flash(rounds > 1 ? (pulled ? "spread + condensed" : "spread") : pulled ? "condensed" : "already tight");
     }
     $("empty").querySelectorAll("[data-set]").forEach(b => b.onclick = () => addSet(b.dataset.set));
     $("spread").onclick = () => { if (NARROW()) { flash("spread is for the desktop board"); return; } spread(); };
