@@ -16,7 +16,7 @@ const fill = (host, key, label, inner) => { const d = host.querySelector(`[data-
 
 // FULL SCREEN = the app itself (L 2026-10-04): the board frames this page for what is picked
 const APP = "https://luissolutions.us/apps/online/";
-export const appUrl = store => { const id = store.get("visitId"); return id ? APP + "onlinejob.html?task=" + encodeURIComponent(id) : APP + "onlinejob.html"; };   // the Jobs app, on the picked visit
+export const appUrl = store => { const id = store.get("visitId"); return APP + "onlinedetails.html" + (id ? "?task=" + encodeURIComponent(id) : ""); };   // the Details app, on the picked job (L 2026-10-05 "the details should open up details")
 export const title = "Details";
 export const sub = ["visitId", "visitSaved", "tx", "photoPick"];
 export const pub = ["visitSaved", "ledgerSaved", "visitId", "photoPick"];

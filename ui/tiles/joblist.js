@@ -5,7 +5,7 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "
 
 // FULL SCREEN = the app itself (L 2026-10-04): the board frames this page for what is picked
 const APP = "https://luissolutions.us/apps/online/";
-export const appUrl = () => APP + "onlinejob.html";
+export const appUrl = store => { const id = store && store.get("visitId"); return APP + "onlinejob.html" + (id ? "?task=" + encodeURIComponent(id) : ""); };   // the Jobs app, on the picked job (L 2026-10-05 "jobs should open jobs")
 export const title = "Jobs";   // was Visits (L 2026-10-04 "instead of visits call it jobs")
 export const pub = ["visitId"];
 export const sub = ["visitSaved", "year"];   // the Year tile narrows the list to the year a visit took place (L 2026-10-04)
