@@ -81,7 +81,7 @@ function createSidebarElement() {
 
     const iframe = document.createElement('iframe');
     iframe.id = 'linkAppIframe';
-    iframe.src = '../online/onlinelinks.html';
+    iframe.src = 'https://luissolutions.us/apps/online/onlinelinks.html';   // LS copy: the Links app lives in the SES tree (served at luissolutions.us), not beside these pages
     iframe.style.width = '100%';
     iframe.style.height = 'calc(100vh - 60px)';
     iframe.style.border = 'none';
