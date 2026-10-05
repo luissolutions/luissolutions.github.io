@@ -164,7 +164,7 @@
           onLive: s => { setLive(s.id); grabNext.set(s.type, s.id); layout = getLayout();   // no remount - every copy keeps what it shows
             for (const api of mounted.values()) api.el.classList.toggle("held", !!api.spec.held);
             markOwners(); flash(TILES[s.type].title + " · the next pick goes here"); },
-          onRemove: s => { removeTile(s.id); mounted.delete(s.id); layout = getLayout(); ensureLive(layout); saveLayout(layout); wires(); if (NARROW()) { columnLayout(layout); render(); } else if (layout.tiles.some(t => t.type === s.type)) render(); else pruneOwners(); flash("removed"); } });
+          onRemove: s => { dropMax(s.id); removeTile(s.id); mounted.delete(s.id); layout = getLayout(); ensureLive(layout); saveLayout(layout); wires(); if (NARROW()) { columnLayout(layout); render(); } else if (layout.tiles.some(t => t.type === s.type)) render(); else pruneOwners(); flash("removed"); } });
         mounted.set(spec.id, api);
       }
       pruneOwners(); wires(); board.fitWorld(layout.tiles); $("empty").hidden = layout.tiles.length > 0;
@@ -191,6 +191,7 @@
     }
     function restoreMax() {
       if (!maxed) return; const { spec, api, placeholder, frame } = maxed; maxed = null;
+      if (!mounted.has(spec.id)) { placeholder.remove(); api.el.remove(); return; }   // removed while full screen - nothing to put back
       if (frame) frame.replaceWith(api.body);
       api.el.classList.remove("lv-max"); if (placeholder.parentNode) placeholder.parentNode.insertBefore(api.el, placeholder); else worldEl.appendChild(api.el); placeholder.remove();
       const b = api.el.querySelector(".max"); if (b) { b.textContent = "⤢"; b.title = "full screen - the whole app for what's picked"; }
@@ -199,6 +200,9 @@
       // a second copy made it show): drop the layer and rebuild it
       api.el.style.display = "none"; void api.el.offsetHeight; api.el.style.display = ""; requestAnimationFrame(() => { api.el.style.transform = "translateZ(0)"; requestAnimationFrame(() => { api.el.style.transform = ""; }); });
     }
+    // ✕ on a full-screen tile (L 2026-10-04 "expand a tile, close it, reopen that tile - it opens twice"): the tile is gone, so
+    // forget it - otherwise the next render's restoreMax put the removed tile's element back beside the new copy
+    const dropMax = id => { if (!maxed || maxed.spec.id !== id) return; maxed.placeholder.remove(); maxed = null; };
     addEventListener("keydown", e => { if (e.key === "Escape" && maxed) restoreMax(); });
     // a tile asks for another kind on the board (Details "✎ Edit in Entry"): light the one that exists, else add one beside the asker
     window.addEventListener("lv:tile", e => { const { type, from } = e.detail || {}; if (!TILES[type]) return;
