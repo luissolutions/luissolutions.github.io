@@ -144,6 +144,22 @@ export async function linkSensorPhoto(owner, taskId, mark, entry) {
   if (arr.some(im => im && (im.path === entry.path || im.url === entry.url))) return true;
   await set(ref(database, p), [...arr, entry]); return true;
 }
+/** The sensor photos off the Sensors list - each row's images[] (L 2026-10-04 "the radar tool uses the lists instead of the
+ *  images section, based on the details app"). [{name, fullPath, url, mark, rowId, note}], or null when the job has no list
+ *  (the caller falls back to the folder). The files stay where they are; the row holds their path + download link. */
+export function sensorListPhotos(task) {
+  const sl = sensorsListOf(task); if (!sl) return null; const out = [];
+  for (const [rowId, r] of Object.entries(sl.list)) { if (LIST_RESERVED.has(rowId) || !r || typeof r !== "object") continue; const m = markOf(r); if (!m) continue;
+    for (const im of (Array.isArray(r.images) ? r.images : Object.values(r.images || {}))) if (im && im.url)
+      out.push({ name: String(im.path || "").split("/").pop() || `sensor ${m}`, fullPath: im.path || im.url, url: im.url, mark: m, rowId, note: im.note || "" }); }
+  return out;
+}
+/** Take a photo off its sensor row (by path or url) - the delete-where-added half; the caller deletes the file. */
+export async function unlinkSensorPhoto(owner, taskId, mark, pathOrUrl) {
+  const ix = await sensorIndex(owner, taskId), rowId = ix?.rows[mark]; if (!rowId) return false;
+  const p = `${sensorRowPath(owner, taskId, ix, rowId)}/images`, cur = await readOnce(p), arr = Array.isArray(cur) ? cur : Object.values(cur || {});
+  await set(ref(database, p), arr.filter(im => im && im.path !== pathOrUrl && im.url !== pathOrUrl)); return true;
+}
 
 // ---------- photos ----------
 export const projectFolder = task => clean(task?.project || task?.customerName || "");

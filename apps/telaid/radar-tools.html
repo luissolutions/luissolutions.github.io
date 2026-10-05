@@ -344,7 +344,7 @@
       import { initImageModule } from "./assets/js/imageModule.js?v=20261003b";
       // THE SENSORS LIST (2026-10-04): device data lives in the "Sensors" device list on the meta-owner task; the data layer
       // reads it (sensorMeta as the fallback) and mirrors every write back to sensorMeta for the SES apps
-      import { sensorMetaOf, patchSensor, linkSensorPhoto, readOnce as readTask } from "./assets/js/telaid-data.js?v=20261004s";
+      import { sensorMetaOf, patchSensor, linkSensorPhoto, sensorListPhotos, unlinkSensorPhoto, readOnce as readTask } from "./assets/js/telaid-data.js?v=20261004t";
       const CONFIG = {
         MAX_NIGHTS: 10,
         DEFAULT_NIGHTS: 5,
@@ -968,6 +968,26 @@
         return m ? parseInt(m[1], 10) : 0;
       }
 
+      // SENSOR PHOTOS = THE LIST (L 2026-10-04 "the radar tool just uses the lists instead of the images section, based on the
+      // details app"): Sensors mode reads each Sensors-list row's images[] - the same photos Details / Jobs show on the row - not
+      // a listing of the storage folder. A job with no Sensors list still lists the folder. Deliverables stay the folder (the
+      // images-section kind - "the 2 types of image areas makes sense").
+      async function sensorPhotoItems() {
+        const task = state.metaOwnerTaskId ? await readTask(`${state.basePath}/tasks/${state.metaOwnerTaskId}`).catch(() => null) : null;
+        const fromList = task ? sensorListPhotos(task) : null;
+        if (!fromList) return listStorageItems(getImagesPath("sensors")).catch(() => []);
+        // SELF-HEAL: a photo the SES radar-tools put in the folder (it never touches the list) is linked onto its row here, once -
+        // only for a mark the list has; the list stays the one source this page shows
+        const have = new Set(fromList.map(i => i.fullPath)), rows = new Set(Object.keys(sensorMetaOf(task) || {}).map(Number));
+        const loose = (await listStorageItems(getImagesPath("sensors")).catch(() => [])).filter(it => !have.has(it.fullPath) && rows.has(sensorNumOf(it.name)));
+        for (const it of loose) {
+          try { if (await linkSensorPhoto(state.basePath, state.metaOwnerTaskId, sensorNumOf(it.name), { url: it.url, path: it.fullPath, note: "", markup: "" }))
+            fromList.push({ name: it.name, fullPath: it.fullPath, url: it.url, mark: sensorNumOf(it.name), rowId: "linked", note: "" }); } catch (_) {}
+        }
+        return fromList;
+      }
+      const markOfItem = item => item.mark || sensorNumOf(item.name);
+
       async function updateGallery() {
         if (!state.currentProject) return;
 
@@ -978,7 +998,7 @@
 
         let items = [];
         try {
-          items = await listStorageItems(base);
+          items = mode === "sensors" ? await sensorPhotoItems() : await listStorageItems(base);
         } catch {
           items = [];
         }
@@ -1041,7 +1061,7 @@
           const countMap = {};
 
           items.forEach((item) => {
-            const idx = sensorNumOf(item.name);
+            const idx = markOfItem(item);
             if (idx) countMap[idx] = (countMap[idx] || 0) + 1;
           });
 
@@ -1138,7 +1158,7 @@
         try {
           const paddedNum = String(num).padStart(2, "0");
           const folderPath = getImagesPath("sensors");
-          const existing = await listStorageItems(folderPath).catch(() => []);
+          const existing = await sensorPhotoItems();
           const prefix = sanitize(
             state.currentCustomerName ||
               state.currentProjectName ||
@@ -1146,7 +1166,7 @@
           );
 
           // exact device number - startsWith("_10") also matched 100-109
-          const matchCount = existing.filter((item) => sensorNumOf(item.name) === Number(num)).length;
+          const matchCount = existing.filter((item) => markOfItem(item) === Number(num)).length;
           if (matchCount >= CONFIG.SENSOR_IMAGE_COUNT_REQUIRED) {
             const proceed = confirm(
               `Sensor ${paddedNum} already has ${CONFIG.SENSOR_IMAGE_COUNT_REQUIRED} uploads. Upload another?`,
@@ -1265,7 +1285,9 @@
           return;
         }
 
-        await deleteObject(storageRef(storage, item.fullPath));
+        // a list photo comes off its row first (delete where added), then the file - the folder copy the SES apps list goes too
+        if (item.rowId) await unlinkSensorPhoto(state.basePath, state.metaOwnerTaskId, item.mark, item.fullPath);
+        if (!/^https?:/.test(item.fullPath)) await deleteObject(storageRef(storage, item.fullPath)).catch(e => { if (e?.code !== "storage/object-not-found") throw e; });
         closeModal();
         await updateGallery();
       }
