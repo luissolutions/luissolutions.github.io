@@ -6,7 +6,7 @@ export const notesPath = base => `${base}/notes`;
 export const isLocked = text => /^(AGCM1\.|SXOR1\.)/.test(String(text || ""));
 export async function loadNotes(base) {
   const all = (await readOnce(notesPath(base))) || {};
-  return Object.entries(all).filter(([, v]) => v && typeof v === "object").map(([id, v]) => ({ id, name: v.name || id, text: typeof v.note === "string" ? v.note : "", ts: Number(v.timestamp) || 0, locked: isLocked(v.note) }))
+  return Object.entries(all).filter(([, v]) => v && typeof v === "object" && (typeof v.note === "string" || typeof v.name === "string")).map(([id, v]) => ({ id, name: v.name || id, text: typeof v.note === "string" ? v.note : "", ts: Number(v.timestamp) || 0, locked: isLocked(v.note) }))
     .sort((a, b) => b.ts - a.ts);
 }
 export async function saveNote(base, id, text) {
