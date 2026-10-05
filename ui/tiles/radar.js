@@ -13,18 +13,18 @@ const withTask = (page, id) => APP + page + (id ? "?task=" + encodeURIComponent(
 // a ⤢ right after a pick used to open the previous job's map. Until the lookup lands, open the picked id itself - the map
 // swaps a sibling night for its project record on load.
 export const appUrl = store => { const id = store && store.get("visitId") || ""; return withTask("radar-map.html", id && lastFor === id && lastOwner ? lastOwner : id || lastOwner); };
-export const title = "Radar";
+export const title = "Telaid";   // was Radar (L 2026-10-05 "rename radar to Telaid")
 export const sub = ["visitId"];
 export function mount(body, { store, tile }) {
   let stops = [], run = 0;
   const pages = id => `<div class="lv-chips">
-      <a class="lv-btn" target="_blank" rel="noopener" href="${esc(APP + "radar-tools.html")}">Radar tools</a>
-      <a class="lv-btn" target="_blank" rel="noopener" href="${esc(withTask("radar-map.html", id))}">Map</a>
-      <a class="lv-btn" target="_blank" rel="noopener" href="${esc(withTask("sensor-lookup.html", id))}">Sensor lookup</a>
+      <a class="lv-btn" target="_blank" rel="noopener" href="${esc(APP + "radar-tools.html")}">Checklist</a>
+      <a class="lv-btn" target="_blank" rel="noopener" href="${esc(withTask("radar-map.html", id))}">Layout</a>
+      <a class="lv-btn" target="_blank" rel="noopener" href="${esc(withTask("sensor-lookup.html", id))}">Scanner</a>
       <a class="lv-btn" target="_blank" rel="noopener" href="${esc(APP + "radar-dashboard.html")}">Dashboard</a></div>`;
   const draw = async () => {
     const id = store.get("visitId"), my = ++run;
-    if (!id) { lastOwner = ""; lastFor = ""; tile.setTitle("Radar"); body.innerHTML = pages("") + `<div class="lv-empty">Pick a radar job to see its sensors.</div>`; return; }
+    if (!id) { lastOwner = ""; lastFor = ""; tile.setTitle("Telaid"); body.innerHTML = pages("") + `<div class="lv-empty">Pick a radar job to see its sensors.</div>`; return; }
     body.innerHTML = pages("") + `<div class="lv-empty">loading…</div>`;
     let owner, rows;
     try { const jobs = await loadJobs(store.get("base"));   // fresh each pick - the radar pages tick rows between looks
@@ -33,7 +33,7 @@ export function mount(body, { store, tile }) {
     catch (e) { if (my === run) body.innerHTML = pages("") + `<div class="lv-err">${esc(e.message || e)}</div>`; return; }
     if (my !== run) return;
     lastOwner = owner?.id || ""; lastFor = id;
-    tile.setTitle(`Radar · ${owner?.customer || "job"}`);
+    tile.setTitle(`Telaid · ${owner?.customer || "job"}`);
     if (!rows.length) { body.innerHTML = pages(lastOwner) + `<div class="lv-empty">No sensors on this project.</div>`; return; }
     const n = rows.length, c = k => rows.filter(r => r[k]).length, pct = v => Math.round(v / n * 100);
     const from = sensorsListOf(owner) ? "Sensors list" : "sensorMeta (no Sensors list yet)";
