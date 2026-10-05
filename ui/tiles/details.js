@@ -83,8 +83,7 @@ export function mount(body, { store, tile }) {
       ${inv ? sec("invoice", `Invoice · ${esc(inv.type)} · ${money2.format(Number(inv.total) || 0)} · ${inv.paid ? "paid" : "unpaid"}`, `<div class="lv-kv">${kv("Date", esc(inv.date))}${kv("Labor", inv.labor.length ? `${inv.labor.length} line${inv.labor.length === 1 ? "" : "s"}` : "")}${kv("Parts", inv.parts.length ? inv.parts.map(p => `${esc(p.part)} × ${esc(p.quantity)}`).join(", ") : "")}${kv("Subtotal", inv.subtotal != null ? money2.format(Number(inv.subtotal) || 0) : "")}${kv("Tax", inv.tax != null ? money2.format(Number(inv.tax) || 0) : "")}${kv("Total", money2.format(Number(inv.total) || 0))}${kv("Paid", inv.paid ? `${money2.format(Number(inv.amountPaid ?? inv.total) || 0)}${inv.paidDate ? " · " + esc(inv.paidDate) : ""}` : "")}</div>`) : ""}
       ${days.length ? sec("daily", `Daily entries · ${days.length}`, `<div class="lv-kv">${days.map(([date, d]) => `<b>${esc(date)}</b><span>${esc(String(d.notes || d.note || "").slice(0, 160))}${imgsOf(d).length ? ` · 📷${imgsOf(d).length}` : ""}</span>`).join("")}</div>`) : ""}
       ${sec("others", "Other jobs", `<div class="lv-note">loading…</div>`)}
-      ${sec("lists", "Device lists", `<div class="lv-note">loading…</div>`)}
-      ${sec("sensors", "Device data", `<div class="lv-note">loading…</div>`)}`;
+      ${sec("lists", "Devices", `<div class="lv-note">loading…</div>`)}`;   // ONE Devices section (L 2026-10-04 "still seeing both devices"): the sensors ARE a device list now
     wireSecs(); tallOpen = false; fitSections();
     // edit in place: the same keys onlinejob / onlinecontacts write (core/jobs.saveJob allows exactly these + notes)
     const f = body.querySelector("form.lv-det"), st = f.querySelector(".st"); f.addEventListener("input", () => { st.textContent = "unsaved"; });
@@ -98,29 +97,30 @@ export function mount(body, { store, tile }) {
       try { const fresh = await saveJob(base, j.id, patch); st.textContent = "saved"; if (fresh) { store.set("visit", fresh); tile.setTitle(`Details · ${fresh.customer}`); } store.set("visitSaved", { id: j.id, at: Date.now(), by: "details" }); }
       catch (x) { st.textContent = "not saved: " + (x.code || x.message); } };
     // the rest needs the whole tasks node - ONE read, shared by "other visits" and the meta-owner lookup
-    let jobs = []; try { jobs = await loadJobs(base); } catch (e) { if (my === run) fill(body, "lists", "Device lists", `<div class="lv-err">${esc(e.message || e)}</div>`); return; }
+    let jobs = []; try { jobs = await loadJobs(base); } catch (e) { if (my === run) fill(body, "lists", "Devices", `<div class="lv-err">${esc(e.message || e)}</div>`); return; }
     if (my !== run) return;
     const others = await visitsOfCustomer(base, raw.customerName || j.customer, j.id, jobs);
     fill(body, "others", `Other jobs · ${others.length}`, others.length ? `<div class="lv-rows">${others.slice(0, 30).map(v => `<div class="lv-row" data-id="${esc(v.id)}"><div><div class="n">${esc(v.project || v.wo || "visit")}</div><div class="s">${fmtDate(v.start)}${v.hours ? " · " + v.hours + " h" : ""}</div></div></div>`).join("")}</div>` : `<div class="lv-note">none</div>`);
     body.querySelectorAll('[data-sec="others"] [data-id]').forEach(r => r.onclick = () => { store.set("tx", null); store.set("visitId", r.dataset.id); });
     const owner = await metaOwnerOf(base, j, jobs), lists = deviceLists(owner), sensors = sensorRows(owner), nList = lists.reduce((t, l) => t + l.rows.length, 0);
     const from = owner.id !== j.id ? `<div class="lv-note">project record from the first job, ${esc(fmtDate(owner.start))}</div>` : "";
-    fill(body, "lists", `Device lists · ${nList}`, nList ? from + lists.map(l => `<div class="lv-h">${esc(l.name)} · ${l.rows.length}${l.rows.some(r => r.counted) ? ` · ${l.rows.filter(r => r.counted).length} counted` : ""}</div>
+    const listsHtml = lists.map(l => `<div class="lv-h">${esc(l.name)} · ${l.rows.length}${l.rows.some(r => r.counted) ? ` · ${l.rows.filter(r => r.counted).length} counted` : ""}</div>
         <div class="lv-tbl"><b>ID</b><b>Serial</b><b>Model</b><b>Status</b>${l.rows.map(r => { const a = `class="tap" data-dev="${esc(l.listId + "|" + r.rowId)}" data-list="${esc(l.listId)}" data-row="${esc(r.rowId)}" data-label="${esc((l.name ? l.name + " · " : "") + (r.id || r.serial || r.rowId))}" title="tap = its photos in the Photos tile"`;
           const extra = [r.location && "📍 " + r.location, r.ip && "IP " + r.ip, r.mac && "MAC " + r.mac, r.notes].filter(Boolean).join(" · ");   // the row's other fields (L "any data not shown?")
-          return `<span ${a}>${r.counted ? "✓ " : ""}${esc(r.id)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.model || r.type)}</span><span ${a}>${esc(r.status)}${r.photos ? ` · 📷${r.photos}` : ""}</span>${extra ? `<span class="lv-rowsub" ${a}>${esc(extra)}</span>` : ""}`; }).join("")}</div>`).join("") : `<div class="lv-note">none on this project</div>`);
+          return `<span ${a}>${r.counted ? "✓ " : ""}${esc(r.id)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.model || r.type)}</span><span ${a}>${esc(r.status)}${r.photos ? ` · 📷${r.photos}` : ""}</span>${extra ? `<span class="lv-rowsub" ${a}>${esc(extra)}</span>` : ""}`; }).join("")}</div>`).join("");
     const flags = r => `${r.labeled ? " 🏷" : ""}${r.run ? " ▶" : ""}${r.placed ? " 📍" : ""}`;
     const sum = [sensors.filter(r => r.labeled).length && `${sensors.filter(r => r.labeled).length} labeled`, sensors.filter(r => r.run).length && `${sensors.filter(r => r.run).length} run`, sensors.filter(r => r.placed).length && `${sensors.filter(r => r.placed).length} on map`].filter(Boolean);
     // DEVICE DATA + a search box (L 2026-10-04 "add a search filter for device data"): #, serial, the three infos and the words
     // labeled / run / map all match; the summary counts "12 of 241"; the tapped row keeps its mark through a re-filter
     const senTable = rows => `<div class="lv-tbl five"><b>#</b><b>Serial</b><b>Info 1</b><b>Info 2</b><b>Info 3</b>${rows.map(r => { const a = `class="tap${picked === "sen:" + r.num ? " on" : ""}" data-sen="${esc(r.num)}" data-serial="${esc(r.serial)}"${r.rowId ? ` data-list="${esc(r.listId)}" data-row="${esc(r.rowId)}"` : ""} data-label="${esc("Sensor " + r.num + (r.serial ? " · " + r.serial : ""))}" title="tap = its photos in the Photos tile"`;
         return `<span ${a}>${esc(r.num)}${flags(r)}</span><span ${a}>${esc(r.serial)}</span><span ${a}>${esc(r.m1)}</span><span ${a}>${esc(r.m2)}</span><span ${a}>${esc(r.m3)}</span>`; }).join("")}</div>`;
-    const senLabel = n => `Device data · ${n == null ? sensors.length : `${n} of ${sensors.length}`}${sum.length ? " · " + sum.join(", ") : ""}`;
-    fill(body, "sensors", senLabel(), sensors.length ? from + `<input class="lv-search" type="search" placeholder="Search devices - #, serial, X / Y / Z, labeled / run / map" autocomplete="off"><div class="lv-senrows">${senTable(sensors)}</div>` : `<div class="lv-note">none on this project</div>`);
-    const senEl = body.querySelector('[data-sec="sensors"]'), senQ = senEl?.querySelector(".lv-search"), senHost = senEl?.querySelector(".lv-senrows");
+    const senLabel = n => `Sensors · ${n == null ? sensors.length : `${n} of ${sensors.length}`}${sum.length ? " · " + sum.join(", ") : ""}`;
+    const senHtml = sensors.length ? `<div class="lv-h lv-senh">${senLabel()}</div><input class="lv-search" type="search" placeholder="Search sensors - #, serial, X / Y / Z, labeled / run / map" autocomplete="off"><div class="lv-senrows">${senTable(sensors)}</div>` : "";
+    fill(body, "lists", `Devices · ${nList + sensors.length}`, (nList || sensors.length) ? from + listsHtml + senHtml : `<div class="lv-note">none on this project</div>`);
+    const senEl = body.querySelector('[data-sec="lists"]'), senQ = senEl?.querySelector(".lv-search"), senHost = senEl?.querySelector(".lv-senrows");
     if (senQ) senQ.addEventListener("input", () => { const t = senQ.value.trim().toLowerCase();
       const hit = !t ? sensors : sensors.filter(r => `${r.num} ${r.serial} ${r.m1} ${r.m2} ${r.m3}${r.labeled ? " labeled" : ""}${r.run ? " run" : ""}${r.placed ? " map placed" : ""}`.toLowerCase().includes(t));
-      senHost.innerHTML = senTable(hit); senEl.querySelector("summary").innerHTML = senLabel(t ? hit.length : null); });
+      senHost.innerHTML = senTable(hit); senEl.querySelector(".lv-senh").innerHTML = senLabel(t ? hit.length : null); });
   };
   const drawTx = () => { ++run; drawTxForm(body, { store, tile, title: "Details" }); };
   // last tap wins: a ledger row -> its form; a visit -> the visit; a cleared row falls back to the visit
