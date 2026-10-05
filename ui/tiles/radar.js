@@ -6,10 +6,13 @@
 import { loadJobs, metaOwnerOf, sensorRows, sensorsListOf } from "../../core/jobs.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const APP = new URL("../../apps/telaid/", import.meta.url).href;
-let lastOwner = "";   // the meta-owner of the last job drawn - ⤢ opens the map on it
+let lastOwner = "", lastFor = "";   // the meta-owner of the last job drawn, and the pick it was drawn for - ⤢ opens the map on it
 const withTask = (page, id) => APP + page + (id ? "?task=" + encodeURIComponent(id) : "");
 
-export const appUrl = () => withTask("radar-map.html", lastOwner);
+// ⤢ follows the CURRENT pick (L 2026-10-05 "it stays at the walmart map when I switch jobs"): the owner lookup is async, so
+// a ⤢ right after a pick used to open the previous job's map. Until the lookup lands, open the picked id itself - the map
+// swaps a sibling night for its project record on load.
+export const appUrl = store => { const id = store && store.get("visitId") || ""; return withTask("radar-map.html", id && lastFor === id && lastOwner ? lastOwner : id || lastOwner); };
 export const title = "Radar";
 export const sub = ["visitId"];
 export function mount(body, { store, tile }) {
@@ -21,7 +24,7 @@ export function mount(body, { store, tile }) {
       <a class="lv-btn" target="_blank" rel="noopener" href="${esc(APP + "radar-dashboard.html")}">Dashboard</a></div>`;
   const draw = async () => {
     const id = store.get("visitId"), my = ++run;
-    if (!id) { lastOwner = ""; tile.setTitle("Radar"); body.innerHTML = pages("") + `<div class="lv-empty">Pick a radar job to see its sensors.</div>`; return; }
+    if (!id) { lastOwner = ""; lastFor = ""; tile.setTitle("Radar"); body.innerHTML = pages("") + `<div class="lv-empty">Pick a radar job to see its sensors.</div>`; return; }
     body.innerHTML = pages("") + `<div class="lv-empty">loading…</div>`;
     let owner, rows;
     try { const jobs = await loadJobs(store.get("base"));   // fresh each pick - the radar pages tick rows between looks
@@ -29,7 +32,7 @@ export function mount(body, { store, tile }) {
       owner = j ? await metaOwnerOf(store.get("base"), j, jobs) : null; rows = owner ? sensorRows(owner) : []; }
     catch (e) { if (my === run) body.innerHTML = pages("") + `<div class="lv-err">${esc(e.message || e)}</div>`; return; }
     if (my !== run) return;
-    lastOwner = owner?.id || "";
+    lastOwner = owner?.id || ""; lastFor = id;
     tile.setTitle(`Radar · ${owner?.customer || "job"}`);
     if (!rows.length) { body.innerHTML = pages(lastOwner) + `<div class="lv-empty">No sensors on this project.</div>`; return; }
     const n = rows.length, c = k => rows.filter(r => r[k]).length, pct = v => Math.round(v / n * 100);
