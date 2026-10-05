@@ -6,7 +6,7 @@ export const GRID = 20;   // tiles snap to this
 const KEY = "lv_board_v3";
 let current = null, saveTimer = 0;
 
-export const SIZES = { year: [220, 120], joblist: [420, 640], jobcard: [520, 460], details: [520, 680], entry: [520, 460], photoset: [520, 360], ledger: [640, 760], analytics: [560, 420], notes: [620, 520], page: [700, 520] };
+export const SIZES = { year: [220, 120], joblist: [420, 640], jobcard: [520, 460], details: [520, 680], entry: [520, 460], photoset: [520, 360], ledger: [640, 760], analytics: [560, 420], notes: [620, 520], radar: [440, 380], page: [700, 520] };
 const newId = () => "t" + Math.random().toString(36).slice(2, 8);
 export const snap = v => Math.round(v / GRID) * GRID;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v) || lo));

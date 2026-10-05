@@ -8,7 +8,7 @@ let zTop = 10;
 export const HEAD_H = 40;
 // COLOUR (L 2026-10-04 "each tile a different colour, multiples of a tile a different shade of the same colour"): one hue per
 // tile TYPE (CSS --th), and the n-th open copy of a type gets --tn = n, which the CSS turns into a lighter shade of that hue.
-export const HUES = { year: 42, joblist: 205, jobcard: 160, entry: 160, details: 268, photoset: 318, ledger: 95, invoice: 20, bookmarks: 185, contact: 140, analytics: 240, notes: 60, page: 300 };
+export const HUES = { year: 42, joblist: 205, jobcard: 160, entry: 160, details: 268, photoset: 318, ledger: 95, invoice: 20, bookmarks: 185, contact: 140, analytics: 240, notes: 60, radar: 350, page: 300 };
 export function tintTile(el, type, nth) { el.style.setProperty("--th", HUES[type] ?? 220); el.style.setProperty("--tn", nth || 0); }
 export function placeTile(el, t) { el.style.left = t.x + "px"; el.style.top = t.y + "px"; el.style.width = t.w + "px"; el.style.height = (t.collapsed ? HEAD_H : t.h) + "px"; el.classList.toggle("collapsed", !!t.collapsed); }
 
