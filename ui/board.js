@@ -43,6 +43,22 @@ export function mountBoard(viewEl, worldEl, svgEl, { onView } = {}) {
     if (!e.ctrlKey) { const body = e.target.closest && e.target.closest(".lv-body");   // native scroll inside the tile - Shift+wheel is sideways when the tile has room that way (L 2026-10-04), zoom otherwise
       if (body && !body.classList.contains("frame")) { const side = e.shiftKey && !e.deltaX; if (bodyCanScroll(body, side ? e.deltaY : e.deltaX, side ? 0 : e.deltaY)) return; } }
     e.preventDefault(); if (e.ctrlKey || e.shiftKey) zoomAt(e.clientX, e.clientY, Math.exp(-(e.deltaY || e.deltaX) * 0.0015)); else panBy(-e.deltaX, -e.deltaY); }, { passive: false });
+  // SHIFT + DRAG = pan, ANYWHERE - even over a tile (L 2026-10-05 "if I'm holding shift when clicking it's to drag around my board
+  // view, so it shouldn't move a tile or click anything in a tile"). Caught in the capture phase, before a tile hears it; the
+  // click that ends it is swallowed too. While Shift is down the tiles go inert (no hover, no frame grabbing the mouse).
+  let shiftPanned = false;
+  viewEl.addEventListener("pointerdown", e => {
+    if (narrow() || !e.shiftKey || e.button || e.pointerType === "touch") return;
+    e.stopPropagation(); e.preventDefault(); shiftPanned = false;
+    ptr.set(e.pointerId, [e.clientX, e.clientY]); pan = [e.clientX, e.clientY]; viewEl.classList.add("panning");
+    try { viewEl.setPointerCapture(e.pointerId); } catch (_) {}
+  }, true);
+  viewEl.addEventListener("pointermove", e => { if (pan && e.shiftKey) shiftPanned = true; }, true);
+  viewEl.addEventListener("click", e => { if (e.shiftKey || shiftPanned) { e.stopPropagation(); e.preventDefault(); shiftPanned = false; } }, true);
+  const shiftOn = on => viewEl.classList.toggle("lv-shift", on && !narrow());
+  addEventListener("keydown", e => { if (e.key === "Shift") shiftOn(true); });
+  addEventListener("keyup", e => { if (e.key === "Shift") shiftOn(false); });
+  addEventListener("blur", () => shiftOn(false));
   viewEl.addEventListener("pointerdown", e => {
     if (narrow()) return;   // the phone view scrolls on its own - no pan, no pinch
     ptr.set(e.pointerId, [e.clientX, e.clientY]);
