@@ -37,7 +37,10 @@ export function mountTile(worldEl, spec, def, ctx, handlers) {
   const down = kind => e => { if (e.button) return; if (kind === "move" && e.target.closest("button")) return;
     if (kind === "move" && NARROW()) return;   // phone: no header drag - the arrows move a tile, a touch here scrolls the view
     e.preventDefault(); e.stopPropagation(); drag = { kind, x0: e.clientX, y0: e.clientY, s0: { ...spec }, scale: s() }; el.classList.add("dragging"); try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} };
-  const move = e => { if (!drag) return; const dx = (e.clientX - drag.x0) / drag.scale, dy = (e.clientY - drag.y0) / drag.scale;
+  const move = e => { if (!drag) return;
+    // a single event that jumps > 300 screen px is a touch glitch, not a finger (L 2026-10-06 iPad: tiles flung far away) - skip it
+    if (drag.lx != null && Math.hypot(e.clientX - drag.lx, e.clientY - drag.ly) > 300) return; drag.lx = e.clientX; drag.ly = e.clientY;
+    const dx = (e.clientX - drag.x0) / drag.scale, dy = (e.clientY - drag.y0) / drag.scale;
     if (drag.kind === "move") { spec.x = snap(drag.s0.x + dx); spec.y = snap(drag.s0.y + dy); }   // anywhere - the board has no edges (2026-10-04)
     else { if (!NARROW()) spec.w = snap(Math.max(220, drag.s0.w + dx)); spec.h = snap(Math.max(120, drag.s0.h + dy)); }   // phone: height only ("stretch up and down")
     placeTile(el, spec); if (!moveRaf) moveRaf = requestAnimationFrame(() => { moveRaf = 0; handlers.onMove?.(spec); }); };   // the wires redraw once per frame, not per pointer event (iPad tearing, L 2026-10-04)

@@ -53,7 +53,7 @@
   <script type="module">
     import { whenAuthReady, onUser, baseFor, signIn, signOutNow, LUIS_UID, readOnce } from "./core/firebase.js";
     import { store } from "./core/store.js";
-    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, GUTTER, columnLayout, restoreDesktop, byOrd, setLive, ensureLive, modeOverride, setModeOverride, SIZES } from "./core/layout.js";
+    import { loadLayout, saveLayout, addTile, removeTile, getLayout, resetLayout, NARROW, GUTTER, columnLayout, restoreDesktop, byOrd, setLive, ensureLive, modeOverride, setModeOverride, SIZES, snap } from "./core/layout.js";
     import { mountTile, placeTile } from "./ui/tile.js";
     import { mountBoard } from "./ui/board.js";
     import * as year from "./ui/tiles/year.js";
@@ -248,6 +248,14 @@
     // repeated until nothing overlaps (or 60 rounds). Positions only - sizes and the overall arrangement stay.
     function spread() {
       const T = layout.tiles, hOf = t => (t.collapsed ? 40 : t.h), GAP = 20; let rounds = 0, moved = false;
+      // GATHER first (L 2026-10-06 iPad "the tiles got placed really far from each other, I can't find them"): a tile more than
+      // 2500 px from the group's median centre is brought back to the group's right edge (stacked down), so the condense below
+      // can finish the job - condense alone moves 20 px a step and could never reel in a tile flung thousands of px away.
+      let gathered = 0;
+      if (T.length > 1) { const med = a => { const s = [...a].sort((p, q) => p - q); return s[Math.floor(s.length / 2)]; };
+        const mx = med(T.map(t => t.x + t.w / 2)), my = med(T.map(t => t.y + hOf(t) / 2)), far = t => Math.hypot(t.x + t.w / 2 - mx, t.y + hOf(t) / 2 - my) > 2500;
+        const near = T.filter(t => !far(t)), right = near.length ? Math.max(...near.map(t => t.x + t.w)) : mx, top = near.length ? Math.min(...near.map(t => t.y)) : my;
+        let y = top; for (const t of T.filter(far)) { t.x = snap(right + 40); t.y = snap(y); y += hOf(t) + 40; gathered++; } }
       do { moved = false; rounds++;
         for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
           const a = T[i], b = T[j], ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + GAP, oy = Math.min(a.y + hOf(a), b.y + hOf(b)) - Math.max(a.y, b.y) + GAP;
@@ -272,7 +280,7 @@
         }
         if (!any) break;
       }
-      saveLayout(layout); render(); board.fit(layout.tiles); flash(rounds > 1 ? (pulled ? "spread + condensed" : "spread") : pulled ? "condensed" : "already tight");
+      saveLayout(layout); render(); board.fit(layout.tiles); flash((gathered ? `brought back ${gathered} far tile${gathered === 1 ? "" : "s"} · ` : "") + (rounds > 1 ? (pulled ? "spread + condensed" : "spread") : pulled ? "condensed" : "already tight"));
     }
     $("empty").querySelectorAll("[data-set]").forEach(b => b.onclick = () => addSet(b.dataset.set));
     $("spread").onclick = () => { if (NARROW()) { flash("spread is for the desktop board"); return; } spread(); };
