@@ -1,5 +1,5 @@
 // tiles/radar.js - the RADAR door (L 2026-10-04 "continue with what remains"): the LS copies of the Telaid radar pages
-// (apps/telaid - radar-tools / radar-map / sensor-lookup / radar-dashboard, the ones that read + write the Sensors device list)
+// (apps/telaid - radar-tools / floorplan (was radar-map) / sensor-lookup / radar-dashboard, the ones that read + write the Sensors device list)
 // had no way in from the board. A picked job shows its project's Sensors progress (off the meta-owner, the same rows Details
 // shows) and the four pages open with that job's task; ⤢ = the radar map for it. Relative URLs: the pages ride along with the
 // board (repo root on github.io, apps/dev/board on the luissolutions.us mirror) so the frame stays same-origin, one sign-in.
@@ -13,14 +13,14 @@ const withTask = (page, id) => APP + page + (id ? "?task=" + encodeURIComponent(
 // ⤢ follows the CURRENT pick (L 2026-10-05 "it stays at the walmart map when I switch jobs"): the owner lookup is async, so
 // a ⤢ right after a pick used to open the previous job's map. Until the lookup lands, open the picked id itself - the map
 // swaps a sibling night for its project record on load.
-export const appUrl = store => { const id = store && store.get("visitId") || ""; return withTask("radar-map.html", id && lastFor === id && lastOwner ? lastOwner : id || lastOwner); };
+export const appUrl = store => { const id = store && store.get("visitId") || ""; return withTask("floorplan.html", id && lastFor === id && lastOwner ? lastOwner : id || lastOwner); };
 export const title = "Telaid";   // was Radar (L 2026-10-05 "rename radar to Telaid")
 export const sub = ["visitId"];
 export function mount(body, { store, tile }) {
   let stops = [], run = 0;
   const pages = id => `<div class="lv-chips">
       <a class="lv-btn" target="_blank" rel="noopener" href="${esc(APP + "radar-tools.html")}">Checklist</a>
-      <a class="lv-btn" target="_blank" rel="noopener" href="${esc(withTask("radar-map.html", id))}">Layout</a>
+      <a class="lv-btn" target="_blank" rel="noopener" href="${esc(withTask("floorplan.html", id))}">Layout</a>
       <a class="lv-btn" target="_blank" rel="noopener" href="${esc(withTask("sensor-lookup.html", id))}">Scanner</a>
       <a class="lv-btn" target="_blank" rel="noopener" href="${esc(APP + "radar-dashboard.html")}">Dashboard</a></div>`;
   const draw = async () => {
