@@ -1,9 +1,9 @@
-// core/links.js - the SAVED LINKS domain ({base}/links - the onlinelinks app's rows {url, title, categories[]}), no HTML in here.
+// core/links.js - the SAVED LINKS domain ({base}/hub/links - the onlinelinks app's rows {url, title, categories[]}), no HTML in here.
 // A bookmark "on" a visit or a vendor is a link whose categories carry that name (project code, customer, vendor) - the same
 // rows the Saved Links app shows under that category, so nothing is duplicated (L 2026-10-04 "apply bookmarks to a job").
 import { database, ref, set, update, readOnce } from "./firebase.js";
 
-export const linksPath = base => `${base}/links`;
+export const linksPath = base => base === "public" ? "public/links" : `${base}/hub/links`;   // wave1: uid tier = hub/links, public keeps public/links
 const norm = s => String(s || "").trim().toLowerCase();
 
 export async function loadLinks(base) {

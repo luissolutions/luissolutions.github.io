@@ -1,8 +1,8 @@
-// core/notes.js - the NOTES domain: {base}/notes/{name} = { name, note, timestamp } (onlinenotes' shape). A locked note
+// core/notes.js - the NOTES domain: {base}/docs/notes/{name} = { name, note, timestamp } (onlinenotes' shape). A locked note
 // (AGCM1. / SXOR1. cipher) is listed but never opened here - the word belongs to the Notes app. No HTML in here.
 import { database, ref, update, set, remove, readOnce } from "./firebase.js";
 
-export const notesPath = base => `${base}/notes`;
+export const notesPath = base => base === "public" ? "public/notes" : `${base}/docs/notes`;   // wave1: uid tier = docs/notes, public keeps public/notes
 export const isLocked = text => /^(AGCM1\.|SXOR1\.)/.test(String(text || ""));
 export async function loadNotes(base) {
   const all = (await readOnce(notesPath(base))) || {};
